@@ -1,0 +1,9 @@
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.env
+*.db
+
+# Signing keys are machine-local secrets; only the public key may be shared.
+license_private_key.pem
+*.key

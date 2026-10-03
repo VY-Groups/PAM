@@ -1,0 +1,26 @@
+{
+  "license_data": {
+    "license_key": "0F7330E6-A47C-47AD-B420-1D774709960F",
+    "license_type": "subscription",
+    "issued_to": "Enterprise Corp.",
+    "issued_date": "2026-05-19T18:01:21.091597",
+    "expires_on": "2027-05-19T18:01:21.091597",
+    "features": [
+      "ip_discovery",
+      "subnet_management",
+      "basic_reporting",
+      "advanced_reporting",
+      "api_access",
+      "email_alerts"
+    ],
+    "usage_limits": {
+      "max_users": 50,
+      "max_subnets": 1000,
+      "max_devices": 10000
+    },
+    "metadata": {}
+  },
+  "signature": "ZbAvDpMBxnDJN8oZnBfjH0iCY0EYgx3mk/dMGWsiYMHivdkKsdoycWvU9FOe44xHrpWcarmcpVV3bFK+DA1E1Gi4XoWFNfjc+UVAQVKp5a6c1iPG7wYeHEPzHV96Ay+rygkQifiM1IU1phi+7pY51xn25yY7OCPK1esq3vbHCaQ4bVFrkYUZyP3lXJphYm7UR0q50WGiIu8nDcq07EOt2v848UgzXkPIYpUA4U8Gmg3J2ej+mt7k1Ww06Z8IFso7G8WBujI7Jd7qpi6XNFkhhdcyC1OmV63faKEQAzn3Nf7AGHVK7h0M+iJo7002x6MDxJIhluNsAXuJj8wgbH11uw==",
+  "algorithm": "RSA-PSS-SHA256",
+  "version": "1.0"
+}

@@ -1,0 +1,23 @@
+{
+  "license_data": {
+    "license_key": "EFC4990A-AF98-4C36-AA8E-5F016F7C1DFF",
+    "license_type": "trial",
+    "issued_to": "Test Customer Inc.",
+    "issued_date": "2026-05-19T18:00:18.779459",
+    "expires_on": "2026-06-18T18:00:18.779459",
+    "features": [
+      "ip_discovery",
+      "subnet_management",
+      "basic_reporting"
+    ],
+    "usage_limits": {
+      "max_users": 5,
+      "max_subnets": 100,
+      "max_devices": 1000
+    },
+    "metadata": {}
+  },
+  "signature": "I5n7iyf6um3/44imlOw9ZM36KHS9I7actQWjSO03x0rnMDUMARsKpBMkOGwtoBWIZjOhyATjJ2Asl0PVj0pnSINBgKnOqYLEwUX6VVUuLl0jx8xvCUj2yZZLfxgpqFPmQqB6f5FDI0ZZ7CS3xEWtA1rhf/ha1uF0TzP7HQVFbzKCaguLSkbxiC3KdkpKEiA9GapDpEAwLsNwVdd0530veTdlCLwxWKz6qv8MKwu0Da6x+RoIX7nZWR9IrNXdrZjbHMYFA6zNTSk+k8iYoROj+/R/A+/8rZ4uLs+Oq+652Jyrm38npiQVAR17SdHEliqh6lL5VfXkIp1KWnZhz8djKw==",
+  "algorithm": "RSA-PSS-SHA256",
+  "version": "1.0"
+}

@@ -1,0 +1,601 @@
+<!DOCTYPE html>
+
+<html lang="en"><head><meta charset="utf-8"/><meta content="width=device-width, initial-scale=1.0" name="viewport"/><meta content="web_dashboard" name="shell-type"/><link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Geist:wght@100..900&amp;family=JetBrains+Mono:wght@100..900&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/><style>@layer base{html,body{margin:0;padding:0;}body{overscroll-behavior:none;}main>:first-child{margin-top:0!important;}main>:last-child{margin-bottom:0!important;}}::-webkit-scrollbar{display:none;}</style><script src="https://cdn.tailwindcss.com"></script><script id="tailwind-config">tailwind.config={darkMode:"class",theme:{extend:{"colors":{"inverse-primary":"#b4c5ff","outline":"#737686","on-secondary-fixed":"#131b2e","surface-bright":"#f8f9ff","on-surface":"#0b1c30","surface-container":"#e5eeff","surface-tint":"#0053db","surface-container-lowest":"#ffffff","on-secondary-fixed-variant":"#3f465c","on-tertiary-fixed-variant":"#005236","on-error":"#ffffff","tertiary-fixed":"#6ffbbe","error-container":"#ffdad6","surface-container-highest":"#d3e4fe","on-error-container":"#93000a","surface-variant":"#d3e4fe","tertiary-fixed-dim":"#4edea3","on-primary-fixed":"#00174b","tertiary-container":"#007d55","tertiary":"#006242","on-tertiary":"#ffffff","primary-container":"#2563eb","inverse-on-surface":"#eaf1ff","surface":"#f8f9ff","primary-fixed-dim":"#b4c5ff","surface-dim":"#cbdbf5","primary":"#004ac6","on-secondary":"#ffffff","on-background":"#0b1c30","secondary-fixed":"#dae2fd","on-surface-variant":"#434655","on-primary":"#ffffff","background":"#f8f9ff","secondary-container":"#dae2fd","secondary-fixed-dim":"#bec6e0","secondary":"#565e74","inverse-surface":"#213145","on-secondary-container":"#5c647a","on-tertiary-fixed":"#002113","on-tertiary-container":"#bdffdb","on-primary-fixed-variant":"#003ea8","surface-container-low":"#eff4ff","on-primary-container":"#eeefff","surface-container-high":"#dce9ff","primary-fixed":"#dbe1ff","error":"#ba1a1a","outline-variant":"#c3c6d7"},"borderRadius":{"DEFAULT":"0.125rem","lg":"0.25rem","xl":"0.5rem","full":"0.75rem"},"spacing":{"margin":"1rem","space-lg":"1rem","space-xs":"0.25rem","margin-lg":"2rem","space-md":"0.75rem","gutter":"1rem","space-xl":"1.5rem","gutter-lg":"1.5rem","margin-md":"1.5rem","space-sm":"0.5rem"},"fontFamily":{"headline-xl-mobile":["Geist"],"code-sm":["JetBrains Mono"],"body-md":["Geist"],"code-md":["JetBrains Mono"],"headline-sm":["Geist"],"headline-lg":["Geist"],"body-lg":["Geist"],"headline-md":["Geist"],"label-badge":["JetBrains Mono"],"headline-xl":["Geist"],"label-md":["Geist"],"body-sm":["Geist"]},"fontSize":{"headline-xl-mobile":["26px",{"lineHeight":"34px","letterSpacing":"-0.015em","fontWeight":"600"}],"code-sm":["11px",{"lineHeight":"16px","fontWeight":"500"}],"body-md":["14px",{"lineHeight":"20px","fontWeight":"400"}],"code-md":["13px",{"lineHeight":"20px","fontWeight":"500"}],"headline-sm":["16px",{"lineHeight":"24px","letterSpacing":"-0.005em","fontWeight":"600"}],"headline-lg":["24px",{"lineHeight":"32px","letterSpacing":"-0.015em","fontWeight":"600"}],"body-lg":["15px",{"lineHeight":"24px","fontWeight":"400"}],"headline-md":["20px",{"lineHeight":"28px","letterSpacing":"-0.01em","fontWeight":"600"}],"label-badge":["11px",{"lineHeight":"14px","letterSpacing":"0.02em","fontWeight":"600"}],"headline-xl":["32px",{"lineHeight":"40px","letterSpacing":"-0.02em","fontWeight":"600"}],"label-md":["12px",{"lineHeight":"16px","letterSpacing":"0.01em","fontWeight":"500"}],"body-sm":["12px",{"lineHeight":"18px","fontWeight":"400"}]}}}}</script></head><body class="bg-surface font-body-md text-on-surface antialiased min-h-screen"><aside class="fixed left-0 top-0 h-full w-64 bg-surface-container-lowest border-r border-outline-variant/30 z-50 flex flex-col justify-between shadow-[0_1px_8px_rgba(0,0,0,0.03)]"><div class="flex flex-col"><div class="h-16 px-space-lg flex items-center justify-between border-b border-outline-variant/20"><div class="flex items-center gap-space-sm"><img alt="AegisPAM Enterprise Security Logo" class="h-8 w-auto object-contain" src="https://lh3.googleusercontent.com/aida/AEtjO1WEmPdaCdyPoBs8dnKxEKdAt6JSUXwXqmGXxG_gr6NeV4pb06UrkoLnFj1qtuoA6VWkrHDkDqt2DrO-0xbHmfhcjFEXaSibToHJDcZJti8xxdzONeP7yqMKtQk47dMXIoIbTqpS99Hv1uiyvr6yKObhQ3LGvkhRp_pDC0oc-jevLG5BbqdiBkqomvOh-CAJbnCLe0lfcM5YxZYd9_rlpx7rcgG4Mmhkdl1q6D_GgBZ3yK2nwvLSVeTkCxLK"/><div class="flex flex-col"><span class="font-headline-sm text-headline-sm text-on-surface tracking-tight leading-none">Aegis<span class="text-primary">PAM</span></span><span class="font-code-sm text-code-sm text-on-surface-variant font-normal tracking-wide">ZERO-TRUST CORE</span></div></div><span class="material-symbols-outlined text-outline text-[18px]">verified_user</span></div><div class="px-space-md py-space-sm"><div class="px-space-sm py-space-xs mb-space-xs font-code-sm text-code-sm text-outline uppercase tracking-wider font-semibold">Privileged Controls</div><nav class="flex flex-col gap-1" data-active-classes="bg-primary-container text-on-primary-container font-semibold shadow-sm"><a class="flex items-center px-space-md py-space-sm rounded-lg text-on-surface-variant hover:bg-surface-container hover:text-on-surface transition-colors font-body-md text-body-md" data-path="pam-command-center-threat-dashboard" href="#"><span>Command Center</span></a><a class="flex items-center px-space-md py-space-sm rounded-lg text-on-surface-variant hover:bg-surface-container hover:text-on-surface transition-colors font-body-md text-body-md" data-path="credential-vault-secrets-inventory" href="#"><span>Credential Vault</span></a><a class="flex items-center px-space-md py-space-sm rounded-lg text-on-surface-variant hover:bg-surface-container hover:text-on-surface transition-colors font-body-md text-body-md" data-path="jit-access-ephemeral-approvals" href="#"><span>JIT Access &amp; Approvals</span></a><a class="flex items-center px-space-md py-space-sm rounded-lg text-on-surface-variant hover:bg-surface-container hover:text-on-surface transition-colors font-body-md text-body-md" data-path="live-session-recording-inspection-hub" href="#"><span>Live Session Hub</span></a><a class="flex items-center px-space-md py-space-sm rounded-lg text-on-surface-variant hover:bg-surface-container hover:text-on-surface transition-colors font-body-md text-body-md" data-path="target-infrastructure-connectors" href="#"><span>Target Infrastructure</span></a><a class="flex items-center px-space-md py-space-sm rounded-lg text-on-surface-variant hover:bg-surface-container hover:text-on-surface transition-colors font-body-md text-body-md" data-path="policy-zero-trust-rules-engine" href="#"><span>Policy &amp; Zero Trust</span></a><a class="flex items-center px-space-md py-space-sm rounded-lg text-on-surface-variant hover:bg-surface-container hover:text-on-surface transition-colors font-body-md text-body-md" data-path="compliance-soc-2-audit-center" href="#"><span>Compliance &amp; SOC-2</span></a><a class="flex items-center px-space-md py-space-sm rounded-lg text-on-surface-variant hover:bg-surface-container hover:text-on-surface transition-colors font-body-md text-body-md" data-path="enterprise-licensing-tier-entitlements-node-quotas" href="#"><span>Licensing &amp; Entitlements</span></a><a class="flex items-center px-space-md py-space-sm rounded-lg text-on-surface-variant hover:bg-error-container hover:text-on-error-container border border-error/30 transition-colors font-body-md text-body-md" data-path="break-glass-emergency-protocol" href="#"><span>Break-Glass Emergency</span></a><a class="flex items-center px-space-md py-space-sm rounded-lg text-on-surface-variant hover:bg-surface-container hover:text-on-surface transition-colors font-body-md text-body-md" data-path="platform-settings-idp-hsm-configuration" href="#"><span>Platform Settings</span></a></nav></div></div><div class="p-space-md border-t border-outline-variant/20 bg-surface-container-low/40"><div class="p-space-sm rounded-lg bg-surface-container-lowest border border-outline-variant/30 flex flex-col gap-1"><div class="flex items-center justify-between"><span class="font-code-sm text-code-sm text-outline uppercase">ZSP Policy</span><span class="inline-flex items-center gap-1 font-label-badge text-label-badge text-tertiary font-semibold"><span class="w-1.5 h-1.5 rounded-full bg-tertiary animate-pulse"></span>ENFORCED</span></div><p class="font-body-sm text-body-sm text-on-surface-variant">Zero Standing Privileges active across all cloud compute clusters.</p></div></div></aside><div class="pl-64"><header class="fixed top-0 left-64 right-0 h-16 bg-surface-container-lowest/90 backdrop-blur-md border-b border-outline-variant/25 z-40 flex items-center justify-between px-space-xl"><div class="flex items-center gap-space-md flex-1 max-w-2xl"><div class="flex items-center gap-space-xs px-space-sm py-1 rounded bg-surface-container text-on-surface font-code-sm text-code-sm border border-outline-variant/30 shrink-0"><span class="w-2 h-2 rounded-full bg-tertiary"></span><span>us-east-prod-cluster / Global Zone 1</span><span class="text-outline">|</span><span class="text-primary font-semibold">SOC2 Type II</span></div><div class="relative flex-1"><span class="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-outline text-[18px]">search</span><input class="w-full pl-9 pr-12 py-1.5 rounded-lg bg-surface border border-outline-variant/40 font-body-sm text-body-sm text-on-surface placeholder:text-outline focus:outline-none focus:border-primary-container focus:ring-1 focus:ring-primary-container transition-all" placeholder="Cmd + K to query credentials, targets, sessions..." readonly="" type="text"/><span class="absolute right-2.5 top-1/2 -translate-y-1/2 px-1.5 py-0.5 rounded font-code-sm text-code-sm bg-surface-container-high text-on-surface-variant border border-outline-variant/40">⌘K</span></div></div><div class="flex items-center gap-space-md"><div class="hidden xl:flex items-center gap-space-sm px-space-sm py-1 rounded bg-surface-container-low border border-outline-variant/30"><span class="material-symbols-outlined text-tertiary text-[16px]">fiber_manual_record</span><span class="font-code-sm text-code-sm text-on-surface">Audit Stream: 120 evt/s</span></div><button class="flex items-center gap-1.5 px-space-md py-1.5 rounded-lg bg-error text-on-error hover:bg-error/90 font-label-md text-label-md transition-colors shadow-sm font-semibold tracking-wide uppercase"><span class="material-symbols-outlined text-[16px]">warning</span><span>Break-Glass</span></button><div class="relative flex items-center justify-center p-2 rounded-lg text-on-surface-variant hover:bg-surface-container transition-colors cursor-pointer"><span class="material-symbols-outlined text-[20px]">notifications</span><span class="absolute top-1.5 right-1.5 flex h-4 w-4 items-center justify-center rounded-full bg-error text-on-error font-code-sm text-[10px] font-bold">3</span></div><div class="h-6 w-px bg-outline-variant/40"></div><div class="flex items-center gap-space-sm pl-1"><img alt="Profile" class="w-8 h-8 rounded-full object-cover border border-outline-variant" src="https://lh3.googleusercontent.com/aida-public/AB6AXuBZ43b4L1jvA4lZ6y0Y9Ilfph6oFQH275tub5o5spOGUvNi0q5YDF1GkNN0XrGxQYFEXdKWAmLVl4JhTpZ4E8WyXdlYMEaKgvHWK6aAlmN5v9-CQtC7wp3T_KUqGNd_yINPzdpFVuWfSIrXiWO_nzjjxCEe4BWyyHS6FahqlmhmZp2BZRNXc45lakv0PoHtwj-zPhdTQj-VcQSscV8lT0uEhRnypm1rzu0Gd72gNuQnjY3FvlXRvAsZkw"/><div class="flex flex-col text-left"><span class="font-headline-sm text-[13px] text-on-surface font-semibold leading-tight">Alex Mercer</span><span class="font-label-badge text-label-badge text-primary leading-none">Enterprise SecOps Lead</span></div></div></div></header><main class="relative pt-16 pb-12 min-h-screen bg-surface w-full px-space-xl"><div class="flex flex-col w-full">
+<!-- System Diagnostic Header / Breadcrumbs Bar -->
+<div class="flex flex-col gap-space-sm mb-space-lg">
+<div class="flex items-center gap-2 text-on-surface-variant font-code-sm text-code-sm">
+<span class="hover:text-primary transition-colors cursor-pointer">Platform Management</span>
+<span>/</span>
+<span class="text-on-surface font-semibold">System Configuration</span>
+<span class="px-2 py-0.5 rounded-full bg-surface-container font-label-badge text-label-badge text-primary font-semibold uppercase tracking-wider ml-1">v4.18.2-LTS</span>
+</div>
+<div class="flex flex-col lg:flex-row lg:items-center justify-between gap-space-md">
+<div>
+<h1 class="font-headline-xl text-headline-xl text-on-surface tracking-tight">Platform Settings &amp; Security Infrastructure</h1>
+<p class="font-body-md text-body-md text-on-surface-variant max-w-4xl mt-1">
+          Configure Zero-Trust architecture controls, Identity Provider (IdP) federations, Hardware Security Modules (HSM), immutable audit ledger backends, and global ephemeral session policies.
+        </p>
+</div>
+<!-- Action Button Group -->
+<div class="flex items-center gap-space-sm shrink-0">
+<button class="flex items-center gap-1.5 px-space-md py-2 rounded-lg bg-surface-container hover:bg-surface-container-high text-on-surface font-label-md text-label-md transition-colors shadow-sm font-semibold">
+<span class="material-symbols-outlined text-[16px] text-tertiary">code</span>
+<span>Export HCL</span>
+</button>
+<button class="flex items-center gap-1.5 px-space-md py-2 rounded-lg bg-surface-container hover:bg-surface-container-high text-on-surface font-label-md text-label-md transition-colors shadow-sm font-semibold" id="btn-test-integrations">
+<span class="material-symbols-outlined text-[16px] text-primary">sync_saved_locally</span>
+<span>Test Integrations</span>
+</button>
+<button class="flex items-center gap-1.5 px-space-lg py-2 rounded-lg bg-primary-container text-on-primary-container hover:bg-primary transition-colors shadow-sm font-label-md text-label-md font-semibold tracking-wide" id="btn-save-settings">
+<span class="material-symbols-outlined text-[16px]">check_circle</span>
+<span>Save Changes</span>
+</button>
+</div>
+</div>
+</div>
+<!-- Category Navigation Bar -->
+<div class="w-full bg-surface-container-lowest rounded-xl shadow-sm mb-space-lg p-1.5 flex items-center gap-1 overflow-x-auto">
+<button class="flex items-center gap-2 px-space-md py-2 rounded-lg bg-primary-container text-on-primary-container font-label-md text-label-md font-semibold whitespace-nowrap shadow-sm">
+<span class="material-symbols-outlined text-[18px]">badge</span>
+<span>Identity &amp; IdP Federation</span>
+</button>
+<button class="flex items-center gap-2 px-space-md py-2 rounded-lg text-on-surface-variant hover:bg-surface-container hover:text-on-surface font-label-md text-label-md transition-colors whitespace-nowrap">
+<span class="material-symbols-outlined text-[18px]">shield_lock</span>
+<span>HSM &amp; Encryption Keystores</span>
+</button>
+<button class="flex items-center gap-2 px-space-md py-2 rounded-lg text-on-surface-variant hover:bg-surface-container hover:text-on-surface font-label-md text-label-md transition-colors whitespace-nowrap">
+<span class="material-symbols-outlined text-[18px]">timer</span>
+<span>Global Session Policies</span>
+</button>
+<button class="flex items-center gap-2 px-space-md py-2 rounded-lg text-on-surface-variant hover:bg-surface-container hover:text-on-surface font-label-md text-label-md transition-colors whitespace-nowrap">
+<span class="material-symbols-outlined text-[18px]">radar</span>
+<span>Threat &amp; Anomaly Engine</span>
+</button>
+<button class="flex items-center gap-2 px-space-md py-2 rounded-lg text-on-surface-variant hover:bg-surface-container hover:text-on-surface font-label-md text-label-md transition-colors whitespace-nowrap">
+<span class="material-symbols-outlined text-[18px]">receipt_long</span>
+<span>Audit Ledger &amp; WORM Storage</span>
+</button>
+<button class="flex items-center gap-2 px-space-md py-2 rounded-lg text-on-surface-variant hover:bg-surface-container hover:text-on-surface font-label-md text-label-md transition-colors whitespace-nowrap">
+<span class="material-symbols-outlined text-[18px]">notifications_active</span>
+<span>PagerDuty &amp; Alerts</span>
+</button>
+</div>
+<!-- Main Asymmetric Workspace Layout -->
+<div class="grid grid-cols-1 xl:grid-cols-12 gap-space-lg items-start">
+<!-- Left Configuration Stream (8 of 12 columns) -->
+<div class="xl:col-span-8 flex flex-col gap-space-lg">
+<!-- SECTION 1: Single Sign-On & IdP Federation -->
+<section class="bg-surface-container-lowest rounded-xl p-space-lg shadow-sm">
+<div class="flex items-center justify-between pb-space-md mb-space-md border-b border-surface-container">
+<div class="flex items-center gap-space-sm">
+<span class="w-8 h-8 rounded-lg bg-surface-container flex items-center justify-center text-primary">
+<span class="material-symbols-outlined text-[20px]">fingerprint</span>
+</span>
+<div>
+<h2 class="font-headline-sm text-headline-sm text-on-surface">Single Sign-On &amp; Identity Provider Federation</h2>
+<p class="font-body-sm text-body-sm text-on-surface-variant">Federated directories with real-time SCIM 2.0 ephemeral account reconciliation.</p>
+</div>
+</div>
+<span class="inline-flex items-center gap-1.5 px-space-sm py-1 rounded bg-tertiary-fixed text-on-tertiary-fixed font-label-badge text-label-badge font-semibold">
+<span class="w-1.5 h-1.5 rounded-full bg-tertiary animate-pulse"></span>
+            FIDO2 ENFORCED
+          </span>
+</div>
+<!-- IdP Cards Grid -->
+<div class="grid grid-cols-1 md:grid-cols-2 gap-space-md mb-space-md">
+<!-- Okta Enterprise Card -->
+<div class="bg-surface-container-low rounded-lg p-space-md flex flex-col justify-between">
+<div>
+<div class="flex items-center justify-between mb-space-sm">
+<div class="flex items-center gap-2">
+<div class="w-6 h-6 rounded bg-primary-container text-on-primary-container flex items-center justify-center font-bold text-xs">O</div>
+<span class="font-headline-sm text-[14px] text-on-surface font-semibold">Okta Enterprise SSO</span>
+</div>
+<span class="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-surface-container font-label-badge text-label-badge text-tertiary font-semibold">
+<span class="w-1.5 h-1.5 rounded-full bg-tertiary"></span>HEALTHY
+                </span>
+</div>
+<div class="space-y-1.5 mb-space-md">
+<div class="flex justify-between items-center text-body-sm font-body-sm">
+<span class="text-on-surface-variant">Protocol:</span>
+<span class="font-code-sm text-code-sm text-on-surface font-medium">OIDC / SAML 2.0</span>
+</div>
+<div class="flex justify-between items-center text-body-sm font-body-sm">
+<span class="text-on-surface-variant">Issuer URL:</span>
+<span class="font-code-sm text-code-sm text-on-surface truncate max-w-[160px]">https://aegis-corp.okta.com</span>
+</div>
+<div class="flex justify-between items-center text-body-sm font-body-sm">
+<span class="text-on-surface-variant">Client ID:</span>
+<span class="font-code-sm text-code-sm text-on-surface">okta_0oa9x...3f4</span>
+</div>
+<div class="flex justify-between items-center text-body-sm font-body-sm">
+<span class="text-on-surface-variant">SCIM 2.0 Engine:</span>
+<span class="text-tertiary font-semibold font-body-sm">Synchronized</span>
+</div>
+</div>
+</div>
+<div class="pt-space-sm flex items-center justify-between border-t border-surface-container">
+<span class="font-code-sm text-code-sm text-outline">Heartbeat: 4s ago</span>
+<button class="px-2 py-1 text-primary hover:bg-surface-container rounded font-label-md text-label-md font-semibold transition-colors">Configure</button>
+</div>
+</div>
+<!-- Microsoft Entra ID Card -->
+<div class="bg-surface-container-low rounded-lg p-space-md flex flex-col justify-between">
+<div>
+<div class="flex items-center justify-between mb-space-sm">
+<div class="flex items-center gap-2">
+<div class="w-6 h-6 rounded bg-primary-container text-on-primary-container flex items-center justify-center font-bold text-xs">M</div>
+<span class="font-headline-sm text-[14px] text-on-surface font-semibold">Microsoft Entra ID</span>
+</div>
+<span class="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-surface-container font-label-badge text-label-badge text-secondary font-semibold">
+                  SECONDARY IDP
+                </span>
+</div>
+<div class="space-y-1.5 mb-space-md">
+<div class="flex justify-between items-center text-body-sm font-body-sm">
+<span class="text-on-surface-variant">Tenant ID:</span>
+<span class="font-code-sm text-code-sm text-on-surface truncate max-w-[160px]">72f988bf-86f1-41af-91ab</span>
+</div>
+<div class="flex justify-between items-center text-body-sm font-body-sm">
+<span class="text-on-surface-variant">Directory Sync:</span>
+<span class="font-code-sm text-code-sm text-tertiary font-medium">Active (Graph API)</span>
+</div>
+<div class="flex justify-between items-center text-body-sm font-body-sm">
+<span class="text-on-surface-variant">JIT Group Map:</span>
+<span class="font-code-sm text-code-sm text-on-surface">14 Enforced Roles</span>
+</div>
+<div class="flex justify-between items-center text-body-sm font-body-sm">
+<span class="text-on-surface-variant">Fallback Mode:</span>
+<span class="font-body-sm text-body-sm text-outline">Automated Failover</span>
+</div>
+</div>
+</div>
+<div class="pt-space-sm flex items-center justify-between border-t border-surface-container">
+<span class="font-code-sm text-code-sm text-outline">Sync: 18m ago</span>
+<button class="px-2 py-1 text-primary hover:bg-surface-container rounded font-label-md text-label-md font-semibold transition-colors">Configure</button>
+</div>
+</div>
+</div>
+<!-- IdP Security Policy Toggles -->
+<div class="space-y-3 pt-space-sm">
+<div class="flex items-center justify-between p-space-sm rounded-lg bg-surface-container-low hover:bg-surface-container transition-colors">
+<div class="flex items-center gap-3">
+<span class="material-symbols-outlined text-primary text-[20px]">security</span>
+<div>
+<p class="font-body-md text-body-md text-on-surface font-medium leading-none">Enforce Hardware-backed FIDO2 / WebAuthn tokens</p>
+<p class="font-body-sm text-body-sm text-on-surface-variant mt-0.5">Strictly blocks SMS, TOTP apps, and push notifications for administrative sessions.</p>
+</div>
+</div>
+<label class="relative inline-flex items-center cursor-pointer">
+<input checked="" class="sr-only peer" type="checkbox"/>
+<div class="w-11 h-6 bg-surface-container-highest peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-surface-container-lowest after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-surface-container-lowest after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-primary-container"></div>
+</label>
+</div>
+<div class="flex items-center justify-between p-space-sm rounded-lg bg-surface-container-low hover:bg-surface-container transition-colors">
+<div class="flex items-center gap-3">
+<span class="material-symbols-outlined text-primary text-[20px]">fingerprint</span>
+<div>
+<p class="font-body-md text-body-md text-on-surface font-medium leading-none">Force biometric re-authentication for JIT tier-escalation</p>
+<p class="font-body-sm text-body-sm text-on-surface-variant mt-0.5">Re-prompts user for TouchID/Windows Hello before approving root/admin grant.</p>
+</div>
+</div>
+<label class="relative inline-flex items-center cursor-pointer">
+<input checked="" class="sr-only peer" type="checkbox"/>
+<div class="w-11 h-6 bg-surface-container-highest peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-surface-container-lowest after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-surface-container-lowest after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-primary-container"></div>
+</label>
+</div>
+<div class="flex items-center justify-between p-space-sm rounded-lg bg-surface-container-low hover:bg-surface-container transition-colors">
+<div class="flex items-center gap-3">
+<span class="material-symbols-outlined text-error text-[20px]">person_off</span>
+<div>
+<p class="font-body-md text-body-md text-on-surface font-medium leading-none">Instant Revocation: Purge de-provisioned accounts in &lt; 60 seconds</p>
+<p class="font-body-sm text-body-sm text-on-surface-variant mt-0.5">SCIM webhook automatically severs live SSH/RDP sessions immediately upon termination.</p>
+</div>
+</div>
+<label class="relative inline-flex items-center cursor-pointer">
+<input checked="" class="sr-only peer" type="checkbox"/>
+<div class="w-11 h-6 bg-surface-container-highest peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-surface-container-lowest after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-surface-container-lowest after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-primary-container"></div>
+</label>
+</div>
+</div>
+</section>
+<!-- SECTION 2: Hardware Security Module (HSM) & Key Management -->
+<section class="bg-surface-container-lowest rounded-xl p-space-lg shadow-sm">
+<div class="flex items-center justify-between pb-space-md mb-space-md border-b border-surface-container">
+<div class="flex items-center gap-space-sm">
+<span class="w-8 h-8 rounded-lg bg-surface-container flex items-center justify-center text-primary">
+<span class="material-symbols-outlined text-[20px]">key</span>
+</span>
+<div>
+<h2 class="font-headline-sm text-headline-sm text-on-surface">Hardware Security Module (HSM) &amp; KMS Core</h2>
+<p class="font-body-sm text-body-sm text-on-surface-variant">Cryptographic boundary isolation, FIPS 140-2 Level 4 certification, and dual-custodian controls.</p>
+</div>
+</div>
+<span class="inline-flex items-center gap-1.5 px-space-sm py-1 rounded bg-secondary-container text-on-secondary-fixed font-label-badge text-label-badge font-semibold">
+            FIPS 140-2 LEVEL 4
+          </span>
+</div>
+<!-- Active HSM Hardware Cluster Banner -->
+<div class="p-space-md rounded-lg bg-surface-container-low mb-space-md">
+<div class="flex flex-col md:flex-row md:items-center justify-between gap-space-sm mb-space-md">
+<div>
+<span class="font-code-sm text-code-sm text-outline uppercase tracking-wider">Primary HSM Hardware Fabric</span>
+<h3 class="font-headline-sm text-headline-sm text-on-surface">AWS CloudHSM v2 + HashiCorp Vault Enterprise KMS</h3>
+<p class="font-code-sm text-code-sm text-primary">hsm-cluster-k10-east.prod.aegis.internal:443</p>
+</div>
+<div class="flex items-center gap-2">
+<div class="text-right">
+<span class="font-label-badge text-label-badge text-outline">ROTATION IN</span>
+<p class="font-code-md text-code-md text-on-surface font-semibold">18h 42m 10s</p>
+</div>
+<button class="px-space-md py-1.5 rounded-lg bg-surface-container text-on-surface hover:bg-surface-container-high font-label-md text-label-md font-semibold transition-colors">
+                Rotate Keys
+              </button>
+</div>
+</div>
+<div class="grid grid-cols-2 md:grid-cols-4 gap-space-sm pt-space-sm border-t border-surface-container">
+<div>
+<span class="font-body-sm text-body-sm text-on-surface-variant">Key Derivation:</span>
+<p class="font-code-sm text-code-sm text-on-surface font-semibold mt-0.5">HKDF-SHA512 (TRNG)</p>
+</div>
+<div>
+<span class="font-body-sm text-body-sm text-on-surface-variant">Deterministic Rotation:</span>
+<p class="font-code-sm text-code-sm text-on-surface font-semibold mt-0.5">Every 24 Hours</p>
+</div>
+<div>
+<span class="font-body-sm text-body-sm text-on-surface-variant">Cold Escrow Vault:</span>
+<p class="font-code-sm text-code-sm text-tertiary font-semibold mt-0.5">IronMountain Sync: OK</p>
+</div>
+<div>
+<span class="font-body-sm text-body-sm text-on-surface-variant">Cryptographic Faults:</span>
+<p class="font-code-sm text-code-sm text-on-surface font-semibold mt-0.5">0 Total Recorded</p>
+</div>
+</div>
+</div>
+<!-- Strict KMS Enforcements -->
+<div class="space-y-3">
+<div class="flex items-center justify-between p-space-sm rounded-lg bg-surface-container-low">
+<div class="flex items-center gap-3">
+<span class="material-symbols-outlined text-primary text-[20px]">lock_reset</span>
+<div>
+<p class="font-body-md text-body-md text-on-surface font-medium leading-none">Disallow Software Key Fallback Under Any Condition</p>
+<p class="font-body-sm text-body-sm text-on-surface-variant mt-0.5">If the physical HSM enclave is unreachable, all signing operations will fail-closed.</p>
+</div>
+</div>
+<div class="flex items-center gap-2">
+<span class="font-code-sm text-code-sm text-tertiary font-semibold uppercase">LOCKED ON</span>
+<div class="w-11 h-6 bg-primary-container rounded-full relative cursor-not-allowed opacity-90">
+<div class="w-5 h-5 bg-surface-container-lowest rounded-full absolute top-[2px] right-[2px]"></div>
+</div>
+</div>
+</div>
+<div class="flex items-center justify-between p-space-sm rounded-lg bg-surface-container-low hover:bg-surface-container transition-colors">
+<div class="flex items-center gap-3">
+<span class="material-symbols-outlined text-primary text-[20px]">group_add</span>
+<div>
+<p class="font-body-md text-body-md text-on-surface font-medium leading-none">Require Dual-Custodian HSM PIN for Interval Modifications</p>
+<p class="font-body-sm text-body-sm text-on-surface-variant mt-0.5">Two cryptographic keyholders must insert mTLS hardware cards to alter rotation cycles.</p>
+</div>
+</div>
+<label class="relative inline-flex items-center cursor-pointer">
+<input checked="" class="sr-only peer" type="checkbox"/>
+<div class="w-11 h-6 bg-surface-container-highest peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-surface-container-lowest after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-surface-container-lowest after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-primary-container"></div>
+</label>
+</div>
+</div>
+</section>
+<!-- SECTION 3: Global Zero-Standing Privilege & Session Defaults -->
+<section class="bg-surface-container-lowest rounded-xl p-space-lg shadow-sm">
+<div class="flex items-center justify-between pb-space-md mb-space-md border-b border-surface-container">
+<div class="flex items-center gap-space-sm">
+<span class="w-8 h-8 rounded-lg bg-surface-container flex items-center justify-center text-primary">
+<span class="material-symbols-outlined text-[20px]">tune</span>
+</span>
+<div>
+<h2 class="font-headline-sm text-headline-sm text-on-surface">Global Zero-Standing Privilege &amp; Session Defaults</h2>
+<p class="font-body-sm text-body-sm text-on-surface-variant">Baseline constraints for Just-In-Time ephemeral access elevation requests.</p>
+</div>
+</div>
+<span class="font-code-sm text-code-sm text-outline">CLUSTER DEFAULT</span>
+</div>
+<div class="grid grid-cols-1 md:grid-cols-2 gap-space-md">
+<!-- Parameter 1 -->
+<div class="flex flex-col gap-1.5 p-space-sm rounded-lg bg-surface-container-low">
+<label class="font-headline-sm text-[13px] text-on-surface font-medium">Default JIT Access Grant TTL</label>
+<p class="font-body-sm text-body-sm text-on-surface-variant">Maximum continuous time-to-live before credentials auto-shred.</p>
+<div class="relative mt-1">
+<select class="w-full px-3 py-2 rounded bg-surface-container-lowest text-on-surface font-body-sm text-body-sm appearance-none focus:outline-none focus:ring-1 focus:ring-primary-container">
+<option selected="">60 minutes (Recommended)</option>
+<option>30 minutes (Ultra-Strict)</option>
+<option>15 minutes (Ephemeral Pods)</option>
+<option>120 minutes (Long Ops)</option>
+</select>
+<span class="material-symbols-outlined absolute right-2.5 top-1/2 -translate-y-1/2 pointer-events-none text-outline text-[18px]">expand_more</span>
+</div>
+</div>
+<!-- Parameter 2 -->
+<div class="flex flex-col gap-1.5 p-space-sm rounded-lg bg-surface-container-low">
+<label class="font-headline-sm text-[13px] text-on-surface font-medium">Maximum Allowable TTL Extension</label>
+<p class="font-body-sm text-body-sm text-on-surface-variant">Upper ceiling an active approver can grant during emergency hotfixes.</p>
+<div class="relative mt-1">
+<select class="w-full px-3 py-2 rounded bg-surface-container-lowest text-on-surface font-body-sm text-body-sm appearance-none focus:outline-none focus:ring-1 focus:ring-primary-container">
+<option selected="">120 minutes</option>
+<option>60 minutes</option>
+<option>240 minutes</option>
+<option>No extension allowed</option>
+</select>
+<span class="material-symbols-outlined absolute right-2.5 top-1/2 -translate-y-1/2 pointer-events-none text-outline text-[18px]">expand_more</span>
+</div>
+</div>
+<!-- Parameter 3 -->
+<div class="flex flex-col gap-1.5 p-space-sm rounded-lg bg-surface-container-low">
+<label class="font-headline-sm text-[13px] text-on-surface font-medium">Tier-0 Quorum Approval Threshold</label>
+<p class="font-body-sm text-body-sm text-on-surface-variant">Minimum number of SecOps peer sign-offs needed for production blast radius.</p>
+<div class="relative mt-1">
+<input class="w-full px-3 py-2 rounded bg-surface-container-lowest text-on-surface font-body-sm text-body-sm focus:outline-none focus:ring-1 focus:ring-primary-container" type="text" value="2 independent SecOps leads"/>
+</div>
+</div>
+<!-- Parameter 4 -->
+<div class="flex flex-col gap-1.5 p-space-sm rounded-lg bg-surface-container-low">
+<label class="font-headline-sm text-[13px] text-on-surface font-medium">Session Inactivity Severance Timeout</label>
+<p class="font-body-sm text-body-sm text-on-surface-variant">Zero keystrokes or terminal output duration before forced disconnect.</p>
+<div class="relative mt-1">
+<input class="w-full px-3 py-2 rounded bg-surface-container-lowest text-on-surface font-body-sm text-body-sm focus:outline-none focus:ring-1 focus:ring-primary-container" type="text" value="15 minutes of inactivity"/>
+</div>
+</div>
+</div>
+<!-- Terminal & Watermarking Toggles -->
+<div class="mt-space-md pt-space-md border-t border-surface-container space-y-3">
+<div class="flex items-center justify-between p-space-sm rounded-lg bg-surface-container-low hover:bg-surface-container transition-colors">
+<div class="flex items-center gap-3">
+<span class="material-symbols-outlined text-primary text-[20px]">videocam</span>
+<div>
+<p class="font-body-md text-body-md text-on-surface font-medium leading-none">Full Terminal Keystroke &amp; Raw PCAP Network Recording</p>
+<p class="font-body-sm text-body-sm text-on-surface-variant mt-0.5">Captures every character typed, including backspaces, piping, and stdout buffers.</p>
+</div>
+</div>
+<div class="flex items-center gap-2">
+<span class="font-code-sm text-code-sm text-tertiary font-semibold uppercase">NON-DISABLABLE</span>
+<div class="w-11 h-6 bg-primary-container rounded-full relative cursor-not-allowed opacity-90">
+<div class="w-5 h-5 bg-surface-container-lowest rounded-full absolute top-[2px] right-[2px]"></div>
+</div>
+</div>
+</div>
+<div class="flex items-center justify-between p-space-sm rounded-lg bg-surface-container-low hover:bg-surface-container transition-colors">
+<div class="flex items-center gap-3">
+<span class="material-symbols-outlined text-primary text-[20px]">water_drop</span>
+<div>
+<p class="font-body-md text-body-md text-on-surface font-medium leading-none">Dynamic Requester Watermarking on Mirrored Screens</p>
+<p class="font-body-sm text-body-sm text-on-surface-variant mt-0.5">Stamps requester email, client IP, and UTC timestamp diagonally across active visual sessions.</p>
+</div>
+</div>
+<label class="relative inline-flex items-center cursor-pointer">
+<input checked="" class="sr-only peer" type="checkbox"/>
+<div class="w-11 h-6 bg-surface-container-highest peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-surface-container-lowest after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-surface-container-lowest after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-primary-container"></div>
+</label>
+</div>
+</div>
+</section>
+<!-- SECTION 4: Immutable WORM Audit Ledger Destination -->
+<section class="bg-surface-container-lowest rounded-xl p-space-lg shadow-sm">
+<div class="flex items-center justify-between pb-space-md mb-space-md border-b border-surface-container">
+<div class="flex items-center gap-space-sm">
+<span class="w-8 h-8 rounded-lg bg-surface-container flex items-center justify-center text-primary">
+<span class="material-symbols-outlined text-[20px]">account_balance</span>
+</span>
+<div>
+<h2 class="font-headline-sm text-headline-sm text-on-surface">Immutable WORM Audit Ledger Destination</h2>
+<p class="font-body-sm text-body-sm text-on-surface-variant">Write-Once-Read-Many cryptographic storage verified by RFC 3161 timestamps.</p>
+</div>
+</div>
+<span class="inline-flex items-center gap-1.5 px-space-sm py-1 rounded bg-tertiary-fixed text-on-tertiary-fixed font-label-badge text-label-badge font-semibold">
+            OBJECT LOCK: COMPLIANCE
+          </span>
+</div>
+<div class="bg-surface-container-low rounded-lg p-space-md">
+<div class="flex flex-col md:flex-row md:items-center justify-between gap-2 mb-space-sm">
+<div class="flex items-center gap-2">
+<span class="material-symbols-outlined text-primary text-[20px]">cloud_sync</span>
+<span class="font-code-md text-code-md text-on-surface font-semibold">AWS S3 Object Lock Ledger</span>
+</div>
+<span class="font-code-sm text-code-sm text-outline">7 Years Retention (2,555 Days)</span>
+</div>
+<div class="space-y-2 mb-space-md">
+<div class="flex items-center justify-between bg-surface-container-lowest p-2 rounded">
+<span class="font-body-sm text-body-sm text-on-surface-variant">Storage Bucket ARN:</span>
+<span class="font-code-sm text-code-sm text-primary select-all">arn:aws:s3:::aegispam-immutable-worm-audit-prod-01</span>
+</div>
+<div class="flex items-center justify-between bg-surface-container-lowest p-2 rounded">
+<span class="font-body-sm text-body-sm text-on-surface-variant">Merkle Batching Interval:</span>
+<span class="font-code-sm text-code-sm text-on-surface">Every 60s or 1,000 recorded events</span>
+</div>
+<div class="flex items-center justify-between bg-surface-container-lowest p-2 rounded">
+<span class="font-body-sm text-body-sm text-on-surface-variant">RFC 3161 Timestamp Authority:</span>
+<span class="font-code-sm text-code-sm text-on-surface">DigiCert Global Timestamper (Root SHA-256)</span>
+</div>
+</div>
+<!-- Micro Visual Merkle Tree Batch Progress -->
+<div class="bg-surface-container-lowest p-space-sm rounded">
+<div class="flex items-center justify-between font-label-badge text-label-badge text-on-surface mb-1">
+<span>ACTIVE BUFFER: 642 / 1000 EVENTS</span>
+<span class="text-tertiary">SEAL IN 18 SECONDS</span>
+</div>
+<div class="w-full bg-surface-container h-1.5 rounded-full overflow-hidden">
+<div class="bg-primary h-full rounded-full" style="width: 64.2%"></div>
+</div>
+</div>
+</div>
+</section>
+</div>
+<!-- Right Rail: System Health Diagnostics & Config Audit Stream (4 of 12 columns) -->
+<div class="xl:col-span-4 flex flex-col gap-space-lg">
+<!-- Diagnostic Status Card -->
+<div class="bg-surface-container-lowest rounded-xl p-space-lg shadow-sm">
+<div class="flex items-center justify-between pb-space-sm mb-space-md border-b border-surface-container">
+<div class="flex items-center gap-2">
+<span class="material-symbols-outlined text-tertiary text-[20px]">monitor_heart</span>
+<h3 class="font-headline-sm text-headline-sm text-on-surface">Cluster Telemetry</h3>
+</div>
+<span class="inline-flex items-center gap-1 font-label-badge text-label-badge text-tertiary font-semibold">
+<span class="w-1.5 h-1.5 rounded-full bg-tertiary animate-pulse"></span>ALL PASS
+          </span>
+</div>
+<div class="space-y-space-sm">
+<div class="flex items-center justify-between p-space-sm rounded-lg bg-surface-container-low">
+<div class="flex items-center gap-2">
+<span class="w-2 h-2 rounded-full bg-tertiary"></span>
+<span class="font-body-sm text-body-sm text-on-surface font-medium">Core PAM Gateways</span>
+</div>
+<span class="font-code-sm text-code-sm text-on-surface-variant font-semibold">6 / 6 (1.2ms)</span>
+</div>
+<div class="flex items-center justify-between p-space-sm rounded-lg bg-surface-container-low">
+<div class="flex items-center gap-2">
+<span class="w-2 h-2 rounded-full bg-tertiary"></span>
+<span class="font-body-sm text-body-sm text-on-surface font-medium">IdP Heartbeat Relay</span>
+</div>
+<span class="font-code-sm text-code-sm text-on-surface-variant font-semibold">100% (30s ago)</span>
+</div>
+<div class="flex items-center justify-between p-space-sm rounded-lg bg-surface-container-low">
+<div class="flex items-center gap-2">
+<span class="w-2 h-2 rounded-full bg-tertiary"></span>
+<span class="font-body-sm text-body-sm text-on-surface font-medium">HSM Enclave Keystore</span>
+</div>
+<span class="font-code-sm text-code-sm text-on-surface-variant font-semibold">0 Faults</span>
+</div>
+<div class="flex items-center justify-between p-space-sm rounded-lg bg-surface-container-low">
+<div class="flex items-center gap-2">
+<span class="w-2 h-2 rounded-full bg-tertiary"></span>
+<span class="font-body-sm text-body-sm text-on-surface font-medium">Ledger WORM Bridge</span>
+</div>
+<span class="font-code-sm text-code-sm text-on-surface-variant font-semibold">Connected</span>
+</div>
+</div>
+<!-- Latency Micro Graph SVG -->
+<div class="mt-space-md pt-space-md border-t border-surface-container">
+<div class="flex justify-between items-center mb-2">
+<span class="font-label-badge text-label-badge text-outline">CRYPTO HANDSHAKE LATENCY</span>
+<span class="font-code-sm text-code-sm text-on-surface font-bold">1.24 ms avg</span>
+</div>
+<svg class="w-full h-12 text-primary" fill="none" viewbox="0 0 200 48">
+<path d="M0 32 L20 28 L40 34 L60 22 L80 26 L100 18 L120 20 L140 14 L160 18 L180 12 L200 15" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2"></path>
+<path d="M0 32 L20 28 L40 34 L60 22 L80 26 L100 18 L120 20 L140 14 L160 18 L180 12 L200 15 L200 48 L0 48 Z" fill="currentColor" fill-opacity="0.08"></path>
+</svg>
+</div>
+</div>
+<!-- Security Hardware Enclave Topology Card with Realistic Asset -->
+<div class="bg-surface-container-lowest rounded-xl p-space-lg shadow-sm flex flex-col">
+<div class="flex items-center justify-between pb-space-sm mb-space-md border-b border-surface-container">
+<h3 class="font-headline-sm text-headline-sm text-on-surface">Enclave Architecture</h3>
+<span class="font-code-sm text-code-sm text-outline">PHYSICAL CHIP</span>
+</div>
+<div class="w-full h-44 rounded-lg overflow-hidden relative mb-space-md bg-surface-container">
+<img class="w-full h-full object-cover" data-alt="Close-up architectural photograph of a high-security server blade module inside a pristine enterprise data center with cool blue LED fiber-optic channel indicators, brushed metallic heat sinks, and tamper-evident security seals reflecting soft technical lighting in an ultra-clean room." src="https://lh3.googleusercontent.com/aida-public/AB6AXuDjK9GHN-B3KBi8TmAz6Y7XQ1mMjPCCB3skgKlX6kBjOZ0iL0uHs59GxcM9f8mJZj4kwjTiR48FXrs12iUGLe340VX6cqo5fIl6RTs2V4Wal8ONgyYHe5Cd4ptiLLcPYPFqjHWsfOZdrZCCz2aBkNoHu956MTqPdVc1B5F6pzEO6kDaPkMolJN3y9la67pD2osYGO2TiP5Pxyax6WOxribEopHyL3fiH6Pl-mIQVZ02HonQ5IC53pjEMA"/>
+<div class="absolute bottom-2 left-2 bg-inverse-surface/80 backdrop-blur-md px-2 py-1 rounded text-inverse-on-surface font-code-sm text-code-sm">
+            Node-Alpha: Dedicated Nitro Enclave
+          </div>
+</div>
+<div class="space-y-1 text-body-sm font-body-sm text-on-surface-variant">
+<div class="flex justify-between">
+<span>Hardware Model:</span>
+<span class="text-on-surface font-code-sm text-code-sm">Marvell LiquidSecurity HSM</span>
+</div>
+<div class="flex justify-between">
+<span>Partition Isolation:</span>
+<span class="text-on-surface font-code-sm text-code-sm">Strict Micro-VM</span>
+</div>
+<div class="flex justify-between">
+<span>Tamper Detection:</span>
+<span class="text-tertiary font-semibold font-body-sm">Zero Trigger Events</span>
+</div>
+</div>
+</div>
+<!-- Configuration Audit Changelog -->
+<div class="bg-surface-container-lowest rounded-xl p-space-lg shadow-sm">
+<div class="flex items-center justify-between pb-space-sm mb-space-md border-b border-surface-container">
+<div class="flex items-center gap-2">
+<span class="material-symbols-outlined text-outline text-[18px]">history</span>
+<h3 class="font-headline-sm text-headline-sm text-on-surface">Config Audit Changelog</h3>
+</div>
+<a class="font-label-md text-label-md text-primary font-semibold hover:underline" href="#">Full Log</a>
+</div>
+<div class="space-y-space-md relative before:absolute before:inset-0 before:left-2.5 before:w-0.5 before:bg-surface-container">
+<div class="relative pl-6">
+<div class="absolute left-1.5 top-1.5 w-2.5 h-2.5 rounded-full bg-primary -translate-x-1/2"></div>
+<p class="font-body-sm text-body-sm text-on-surface font-medium leading-snug">Alex Mercer updated Okta SCIM Sync Rules</p>
+<p class="font-code-sm text-code-sm text-on-surface-variant mt-0.5">SHA256: 7f891b • 2 hours ago</p>
+</div>
+<div class="relative pl-6">
+<div class="absolute left-1.5 top-1.5 w-2.5 h-2.5 rounded-full bg-surface-container-highest -translate-x-1/2"></div>
+<p class="font-body-sm text-body-sm text-on-surface font-medium leading-snug">Sarah Chen rotated HSM Root Attestation Key</p>
+<p class="font-code-sm text-code-sm text-on-surface-variant mt-0.5">Dual-Custodian verified • Yesterday, 16:42</p>
+</div>
+<div class="relative pl-6">
+<div class="absolute left-1.5 top-1.5 w-2.5 h-2.5 rounded-full bg-surface-container-highest -translate-x-1/2"></div>
+<p class="font-body-sm text-body-sm text-on-surface font-medium leading-snug">ZSP Policy upgraded to enforce FIDO2 exclusively</p>
+<p class="font-code-sm text-code-sm text-on-surface-variant mt-0.5">Automated policy engine • 3 days ago</p>
+</div>
+</div>
+</div>
+</div>
+</div>
+<!-- Interactive JavaScript Notification Toast Mechanism -->
+<div class="fixed bottom-14 right-8 bg-surface-container-lowest border border-outline-variant/40 rounded-lg p-space-md shadow-xl flex items-center gap-space-sm transform translate-y-24 opacity-0 transition-all duration-300 z-50" id="toast-notification">
+<span class="material-symbols-outlined text-tertiary text-[24px]">verified</span>
+<div>
+<h4 class="font-headline-sm text-[14px] text-on-surface font-semibold" id="toast-title">Settings Stored Successfully</h4>
+<p class="font-body-sm text-body-sm text-on-surface-variant" id="toast-desc">HSM cluster re-keyed and Okta configuration synchronized.</p>
+</div>
+</div>
+<script>
+    (function initPlatformSettings() {
+      const btnSave = document.getElementById('btn-save-settings');
+      const btnTest = document.getElementById('btn-test-integrations');
+      const toast = document.getElementById('toast-notification');
+      const toastTitle = document.getElementById('toast-title');
+      const toastDesc = document.getElementById('toast-desc');
+
+      function showNotification(title, message) {
+        if (!toast) return;
+        toastTitle.textContent = title;
+        toastDesc.textContent = message;
+        toast.classList.remove('translate-y-24', 'opacity-0');
+        toast.classList.add('translate-y-0', 'opacity-100');
+
+        setTimeout(() => {
+          toast.classList.remove('translate-y-0', 'opacity-100');
+          toast.classList.add('translate-y-24', 'opacity-0');
+        }, 4000);
+      }
+
+      if (btnSave) {
+        btnSave.addEventListener('click', () => {
+          btnSave.disabled = true;
+          const origHTML = btnSave.innerHTML;
+          btnSave.innerHTML = `<span class="material-symbols-outlined text-[16px] animate-spin">refresh</span><span>Saving...</span>`;
+          
+          setTimeout(() => {
+            btnSave.disabled = false;
+            btnSave.innerHTML = origHTML;
+            showNotification('Platform Settings Saved', 'Cryptographic configuration signed and pushed to 6 nodes.');
+          }, 900);
+        });
+      }
+
+      if (btnTest) {
+        btnTest.addEventListener('click', () => {
+          btnTest.disabled = true;
+          const origHTML = btnTest.innerHTML;
+          btnTest.innerHTML = `<span class="material-symbols-outlined text-[16px] animate-spin">sync</span><span>Pinging IdP/HSM...</span>`;
+          
+          setTimeout(() => {
+            btnTest.disabled = false;
+            btnTest.innerHTML = origHTML;
+            showNotification('Integrations Healthy', 'Okta (18ms), Entra ID (22ms), AWS CloudHSM (1.2ms) are fully operational.');
+          }, 1100);
+        });
+      }
+    })();
+  </script>
+</div></main><footer class="fixed bottom-0 left-64 right-0 h-10 bg-surface-container-lowest/95 backdrop-blur-sm border-t border-outline-variant/30 z-30 flex items-center justify-between px-space-xl text-on-surface-variant font-code-sm text-code-sm shadow-[0_-1px_4px_rgba(0,0,0,0.02)]"><div class="flex items-center gap-space-md"><div class="flex items-center gap-1.5"><span class="w-2 h-2 rounded-full bg-tertiary"></span><span class="text-on-surface font-medium">Zero-Trust Gateway: Healthy</span><span class="text-outline">(18 Nodes connected)</span></div><span class="text-outline-variant">•</span><span class="text-tertiary font-semibold">0 standing admin accounts</span></div><div class="flex items-center gap-space-lg text-outline"><span>Session TLS 1.3 Strict</span><span>mTLS Enforced</span><span>Audit Digest Verified</span></div></footer></div></body></html>
