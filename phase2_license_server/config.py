@@ -45,6 +45,8 @@ class Config:
     database_uri: str
     private_key_path: Path
     public_key_path: Path
+    ed25519_private_key_path: Path
+    ed25519_public_key_path: Path
     secret_key: str
     admin_token: Optional[str] = None
     autogenerate_keys: bool = False
@@ -67,6 +69,15 @@ class Config:
             public_key_path=_resolve_path(
                 os.getenv("LICENSE_PUBLIC_KEY_PATH"),
                 REPO_ROOT / "license_public_key.pem",
+            ),
+            # Optional second algorithm (created on first Ed25519 issuance).
+            ed25519_private_key_path=_resolve_path(
+                os.getenv("LICENSE_ED25519_PRIVATE_KEY_PATH"),
+                REPO_ROOT / "license_ed25519_private.pem",
+            ),
+            ed25519_public_key_path=_resolve_path(
+                os.getenv("LICENSE_ED25519_PUBLIC_KEY_PATH"),
+                REPO_ROOT / "license_ed25519_public.pem",
             ),
             secret_key=os.getenv("LICENSE_SECRET_KEY") or secrets.token_hex(32),
             admin_token=os.getenv("LICENSE_ADMIN_TOKEN") or None,

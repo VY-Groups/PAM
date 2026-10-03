@@ -11,6 +11,7 @@ from flask import Blueprint, current_app, jsonify, request
 import service
 from config import Config
 from errors import Unauthorized, ValidationFailed
+from licensing_bridge import sig
 
 api = Blueprint("api", __name__, url_prefix="/api/v1")
 
@@ -89,12 +90,26 @@ def create_license():
         features=body.get("features"),
         usage_limits=body.get("usage_limits"),
         metadata=body.get("metadata"),
+        tier=body.get("tier"),
+        plan=body.get("plan"),
+        license_id=body.get("license_id"),
+        subject_entity=body.get("subject_entity"),
+        classification=body.get("classification"),
+        issuer=body.get("issuer"),
+        enclave_binding=body.get("enclave_binding"),
+        quotas=body.get("quotas"),
+        modules=body.get("modules"),
+        account=body.get("account"),
+        environment=body.get("environment"),
+        signature_algorithm=body.get("algorithm", sig.DEFAULT_ALGORITHM),
+        file_format=body.get("format", sig.FORMAT_JSON),
     )
     return (
         jsonify(
             {
                 "license": record.to_dict(),
                 "license_file": license_file,
+                "token": license_file.get("token"),
                 "message": "License issued",
             }
         ),
@@ -105,6 +120,12 @@ def create_license():
 # ---------------------------------------------------------------------------
 # reading
 # ---------------------------------------------------------------------------
+@api.get("/meta")
+def server_meta():
+    """Capabilities: algorithms, formats, tier names, entitlement catalog."""
+    return jsonify(service.meta())
+
+
 @api.get("/licenses")
 def list_licenses():
     limit = min(_int_param("limit", 50), MAX_PAGE_SIZE)
@@ -113,6 +134,7 @@ def list_licenses():
         status=request.args.get("status"),
         license_type=request.args.get("license_type"),
         issued_to=request.args.get("issued_to"),
+        tier=request.args.get("tier"),
         q=request.args.get("q"),
         limit=limit,
         offset=offset,
@@ -130,17 +152,32 @@ def list_licenses():
 @api.get("/licenses/<string:license_key>")
 def get_license(license_key: str):
     record = service.get_record(license_key)
-    return jsonify({"license": record.to_dict(include_events=True)})
+    payload = record.to_dict(include_events=True)
+    payload["usage"] = record.usage_summary()
+    return jsonify({"license": payload})
 
 
 @api.get("/licenses/<string:license_key>/file")
 @require_admin
 def download_license_file(license_key: str):
     record = service.get_record(license_key)
-    payload = json.dumps(record.license_file(), indent=2)
-    response = current_app.response_class(payload, mimetype="application/json")
+    fmt = request.args.get("format", record.signature_format or sig.FORMAT_JSON)
+    if fmt not in sig.SUPPORTED_FORMATS:
+        raise ValidationFailed(
+            f"Unknown format '{fmt}'",
+            {"field": "format", "allowed": list(sig.SUPPORTED_FORMATS)},
+        )
+
+    if fmt == sig.FORMAT_JWT:
+        payload = record.license_token()
+        mimetype = "text/plain"
+    else:
+        payload = json.dumps(record.license_file(), indent=2)
+        mimetype = "application/json"
+
+    response = current_app.response_class(payload, mimetype=mimetype)
     response.headers["Content-Disposition"] = (
-        f'attachment; filename="license_{record.license_key}.json"'
+        f'attachment; filename="license_{record.license_key}.{fmt}"'
     )
     return response
 
@@ -168,20 +205,46 @@ def restore_license(license_key: str):
 
 
 # ---------------------------------------------------------------------------
+# runtime usage reporting (admin)
+# ---------------------------------------------------------------------------
+@api.post("/licenses/<string:license_key>/usage")
+@require_admin
+def report_license_usage(license_key: str):
+    record = service.report_usage(license_key, _json_body())
+    return (
+        jsonify(
+            {
+                "license": record.to_dict(),
+                "usage": record.usage_summary(),
+                "message": "Usage recorded",
+            }
+        ),
+        201,
+    )
+
+
+# ---------------------------------------------------------------------------
 # validation (public)
 # ---------------------------------------------------------------------------
-def _extract_license_payload(body: Dict[str, Any]) -> Any:
-    """Accept either a raw license file or {"license": {...}} wrappers."""
-    if "license_data" in body or "signature" in body:
-        return body
-    if "license" in body:
-        return body["license"]
-    return body
-
-
 @api.post("/licenses/validate")
 def validate_license():
-    payload = _extract_license_payload(_json_body())
+    """
+    Validate a license payload.
+
+    Accepts a JSON envelope, ``{"license": ...}`` / ``{"token": ...}`` wrappers,
+    or a compact token sent as a raw string body (curl --data-binary @file.lic).
+    """
+    payload = request.get_json(silent=True)
+    if payload is None:
+        raw = request.get_data(as_text=True).strip()
+        # A compact token is three dot-separated segments; anything else that
+        # is not valid JSON is a bad request rather than a malformed license.
+        if not raw or raw.startswith("{") or len(raw.split(".")) != 3:
+            raise ValidationFailed(
+                "Request body must be a valid JSON license envelope "
+                "or a compact token (header.payload.signature)"
+            )
+        payload = raw
     return jsonify(service.validate_license_payload(_config(), payload))
 
 
@@ -191,6 +254,7 @@ def check_license_access(license_key: str):
     result = service.check_access(
         license_key,
         feature=body.get("feature"),
+        module_id=body.get("module_id"),
         limit_type=body.get("limit_type"),
         current_usage=body.get("current_usage"),
     )

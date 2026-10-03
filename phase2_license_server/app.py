@@ -19,6 +19,8 @@ from config import REPO_ROOT, Config
 from errors import APIError
 from extensions import db
 from keys import KeyConfigError, ensure_keys
+from licensing_bridge import sig
+from models import ensure_schema
 from routes import api
 
 logger = logging.getLogger(__name__)
@@ -86,6 +88,9 @@ def create_app(config: Optional[Config] = None) -> Flask:
             "database": database,
             "auth": "token" if config.admin_token else "open",
             "private_key": str(config.private_key_path),
+            "algorithms": list(sig.SUPPORTED_ALGORITHMS),
+            "formats": list(sig.SUPPORTED_FORMATS),
+            "ed25519_key": config.ed25519_private_key_path.exists(),
         }
         return jsonify(payload), (200 if database == "ok" else 503)
 
@@ -97,10 +102,14 @@ def create_app(config: Optional[Config] = None) -> Flask:
             return jsonify({"error": f"License screen not found at {LICENSE_SCREEN}"}), 404
         return send_from_directory(str(LICENSE_SCREEN.parent), LICENSE_SCREEN.name)
 
-    # Fail fast on unusable signing keys, then create missing tables.
+    # Fail fast on unusable signing keys, then create missing tables and append
+    # any columns introduced by later spec revisions.
     ensure_keys(config)
     with app.app_context():
         db.create_all()
+        added = ensure_schema(db.engine)
+        if added:
+            logger.info("Schema migrated, added columns: %s", ", ".join(added))
 
     return app
 

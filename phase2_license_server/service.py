@@ -7,44 +7,64 @@ via licensing_bridge.
 """
 from __future__ import annotations
 
+import base64
 from datetime import datetime
 from typing import Any, Dict, List, Optional, Tuple
 
 from config import Config
 from errors import NotFound, ValidationFailed
 from licensing_bridge import (
+    DEFAULT_TIERS,
+    ENFORCEMENT_LEVELS,
+    MODULE_CATALOG,
+    MODULE_IDS,
     License,
     LicenseType,
     get_generator,
     get_validator,
+    sig,
 )
 from extensions import db
 from models import (
     EVENT_ISSUED,
     EVENT_RESTORED,
     EVENT_REVOKED,
+    EVENT_USAGE_REPORTED,
     STATUS_ACTIVE,
     STATUS_REVOKED,
     LicenseRecord,
     log_event,
 )
 
-SIGNING_ALGORITHM = "RSA-PSS-SHA256"
+SIGNING_ALGORITHM = sig.DEFAULT_ALGORITHM
+
+_MODULE_BY_ID = {module["id"]: module for module in MODULE_CATALOG}
+_QUOTA_SCALARS = (
+    "nodes",
+    "concurrent_sessions",
+    "bastion_tunnels",
+    "max_lease_hours",
+    "worm_retention_days",
+)
+_USAGE_FIELDS = ("nodes_consumed", "sessions_active", "bastion_tunnels_used")
 
 
 # ---------------------------------------------------------------------------
-# issuing
+# coercion helpers
 # ---------------------------------------------------------------------------
-def _build_license_file(config: Config, license_obj: License) -> Dict[str, Any]:
-    """Sign a license and wrap it in the Phase 1 wire format."""
-    generator = get_generator(config)
-    license_data = license_obj.to_dict()
-    return {
-        "license_data": license_data,
-        "signature": generator.sign_license(license_data),
-        "algorithm": SIGNING_ALGORITHM,
-        "version": "1.0",
-    }
+def _coerce_str(raw: Any, field: str, *, max_length: int = 255) -> Optional[str]:
+    if raw is None:
+        return None
+    if not isinstance(raw, str):
+        raise ValidationFailed(f"'{field}' must be a string", {"field": field})
+    value = raw.strip()
+    if not value:
+        return None
+    if len(value) > max_length:
+        raise ValidationFailed(
+            f"'{field}' must be at most {max_length} characters", {"field": field}
+        )
+    return value
 
 
 def _coerce_usage_limits(raw: Any, where: str) -> Dict[str, int]:
@@ -71,6 +91,161 @@ def _coerce_features(raw: Any) -> List[str]:
     return list(raw)
 
 
+def _coerce_quotas(raw: Any) -> Optional[Dict[str, Any]]:
+    """Validate the node/session/tunnel quota block and its pool breakdown."""
+    if raw is None:
+        return None
+    if not isinstance(raw, dict):
+        raise ValidationFailed("'quotas' must be an object", {"field": "quotas"})
+
+    quotas: Dict[str, Any] = {}
+    for key, value in raw.items():
+        if key == "pools":
+            continue
+        if key not in _QUOTA_SCALARS:
+            raise ValidationFailed(
+                f"Unknown quota '{key}'",
+                {"field": "quotas", "allowed": list(_QUOTA_SCALARS) + ["pools"]},
+            )
+        if not isinstance(value, int) or isinstance(value, bool) or value < 0:
+            raise ValidationFailed(
+                f"'quotas.{key}' must be a non-negative integer",
+                {"field": f"quotas.{key}"},
+            )
+        quotas[key] = value
+
+    pools_raw = raw.get("pools", [])
+    if pools_raw is None:
+        pools_raw = []
+    if not isinstance(pools_raw, list):
+        raise ValidationFailed("'quotas.pools' must be a list", {"field": "quotas.pools"})
+
+    pools: List[Dict[str, Any]] = []
+    seen = set()
+    for entry in pools_raw:
+        if not isinstance(entry, dict):
+            raise ValidationFailed(
+                "'quotas.pools' entries must be objects", {"field": "quotas.pools"}
+            )
+        pool_id = _coerce_str(entry.get("id"), "quotas.pools.id", max_length=64)
+        name = _coerce_str(entry.get("name"), "quotas.pools.name", max_length=128)
+        if not pool_id or not name:
+            raise ValidationFailed(
+                "Each node pool needs 'id' and 'name'",
+                {"field": "quotas.pools"},
+            )
+        if pool_id in seen:
+            raise ValidationFailed(
+                f"Duplicate node pool '{pool_id}'", {"field": "quotas.pools"}
+            )
+        seen.add(pool_id)
+
+        quota_nodes = entry.get("quota_nodes")
+        if not isinstance(quota_nodes, int) or isinstance(quota_nodes, bool) or quota_nodes < 0:
+            raise ValidationFailed(
+                f"'quotas.pools.{pool_id}.quota_nodes' must be a non-negative integer",
+                {"field": "quotas.pools"},
+            )
+        enforcement = entry.get("enforcement", "audit-log")
+        if enforcement not in ENFORCEMENT_LEVELS:
+            raise ValidationFailed(
+                f"Unknown enforcement level '{enforcement}'",
+                {"field": "quotas.pools", "allowed": list(ENFORCEMENT_LEVELS)},
+            )
+        regions = entry.get("regions", [])
+        if not isinstance(regions, list) or not all(isinstance(r, str) for r in regions):
+            raise ValidationFailed(
+                f"'quotas.pools.{pool_id}.regions' must be a list of strings",
+                {"field": "quotas.pools"},
+            )
+        pools.append(
+            {
+                "id": pool_id,
+                "name": name,
+                "regions": list(regions),
+                "quota_nodes": quota_nodes,
+                "enforcement": enforcement,
+            }
+        )
+
+    quotas["pools"] = pools
+    quotas.setdefault("nodes", sum(pool["quota_nodes"] for pool in pools))
+    return quotas
+
+
+def _coerce_modules(raw: Any) -> Optional[List[Dict[str, Any]]]:
+    """Validate granted entitlement modules against the catalog."""
+    if raw is None:
+        return None
+    if not isinstance(raw, list):
+        raise ValidationFailed("'modules' must be a list", {"field": "modules"})
+
+    modules: List[Dict[str, Any]] = []
+    seen = set()
+    for entry in raw:
+        if not isinstance(entry, dict):
+            raise ValidationFailed(
+                "'modules' entries must be objects", {"field": "modules"}
+            )
+        module_id = entry.get("id")
+        if not isinstance(module_id, str) or not module_id:
+            raise ValidationFailed(
+                "Each module needs an 'id'", {"field": "modules"}
+            )
+        if module_id not in MODULE_IDS:
+            raise ValidationFailed(
+                f"Unknown module '{module_id}'",
+                {"field": "modules", "allowed": MODULE_IDS},
+            )
+        if module_id in seen:
+            raise ValidationFailed(
+                f"Duplicate module '{module_id}'", {"field": "modules"}
+            )
+        seen.add(module_id)
+
+        status = entry.get("status", "entitled")
+        if status not in ("entitled", "not_entitled"):
+            raise ValidationFailed(
+                f"Unknown module status '{status}'",
+                {"field": "modules", "allowed": ["entitled", "not_entitled"]},
+            )
+        catalog_entry = _MODULE_BY_ID[module_id]
+        modules.append(
+            {
+                "id": module_id,
+                "name": entry.get("name") or catalog_entry["name"],
+                "status": status,
+                "detail": entry.get("detail") or catalog_entry["detail"],
+            }
+        )
+    return modules
+
+
+def _coerce_account(raw: Any) -> Optional[Dict[str, Any]]:
+    """Validate the account & SLA block (all values are scalars)."""
+    if raw is None:
+        return None
+    if not isinstance(raw, dict):
+        raise ValidationFailed("'account' must be an object", {"field": "account"})
+    account: Dict[str, Any] = {}
+    for key, value in raw.items():
+        if not isinstance(key, str):
+            raise ValidationFailed("'account' keys must be strings", {"field": "account"})
+        if isinstance(value, bool) or not isinstance(value, (str, int)):
+            raise ValidationFailed(
+                f"'account.{key}' must be a string or integer", {"field": "account"}
+            )
+        if isinstance(value, str) and len(value) > 255:
+            raise ValidationFailed(
+                f"'account.{key}' must be at most 255 characters", {"field": "account"}
+            )
+        account[key] = value
+    return account
+
+
+# ---------------------------------------------------------------------------
+# issuing
+# ---------------------------------------------------------------------------
 def issue_license(
     config: Config,
     *,
@@ -80,6 +255,19 @@ def issue_license(
     features: Optional[List[str]] = None,
     usage_limits: Optional[Dict[str, int]] = None,
     metadata: Optional[Dict[str, Any]] = None,
+    tier: Optional[str] = None,
+    plan: Optional[str] = None,
+    license_id: Optional[str] = None,
+    subject_entity: Optional[str] = None,
+    classification: Optional[str] = None,
+    issuer: Optional[str] = None,
+    enclave_binding: Optional[str] = None,
+    quotas: Optional[Dict[str, Any]] = None,
+    modules: Optional[List[Dict[str, Any]]] = None,
+    account: Optional[Dict[str, Any]] = None,
+    environment: Optional[str] = None,
+    signature_algorithm: str = sig.DEFAULT_ALGORITHM,
+    file_format: str = sig.FORMAT_JSON,
 ) -> Tuple[LicenseRecord, Dict[str, Any]]:
     """Create, sign and persist a new license."""
     if not issued_to or not isinstance(issued_to, str) or not issued_to.strip():
@@ -94,6 +282,17 @@ def issue_license(
             {"field": "license_type", "allowed": allowed},
         ) from None
 
+    if signature_algorithm not in sig.SUPPORTED_ALGORITHMS:
+        raise ValidationFailed(
+            f"Unknown signature_algorithm '{signature_algorithm}'",
+            {"field": "signature_algorithm", "allowed": list(sig.SUPPORTED_ALGORITHMS)},
+        )
+    if file_format not in sig.SUPPORTED_FORMATS:
+        raise ValidationFailed(
+            f"Unknown format '{file_format}'",
+            {"field": "format", "allowed": list(sig.SUPPORTED_FORMATS)},
+        )
+
     if trial_days is not None and (not isinstance(trial_days, int) or trial_days <= 0):
         raise ValidationFailed("'trial_days' must be a positive integer", {"field": "trial_days"})
 
@@ -102,6 +301,19 @@ def issue_license(
 
     resolved_features = _coerce_features(features)
     resolved_limits = _coerce_usage_limits(usage_limits, "usage_limits")
+    resolved_quotas = _coerce_quotas(quotas)
+    resolved_modules = _coerce_modules(modules)
+    resolved_account = _coerce_account(account)
+    resolved_fields = {
+        "tier": _coerce_str(tier, "tier", max_length=64),
+        "plan": _coerce_str(plan, "plan", max_length=64),
+        "license_id": _coerce_str(license_id, "license_id", max_length=64),
+        "subject_entity": _coerce_str(subject_entity, "subject_entity"),
+        "classification": _coerce_str(classification, "classification", max_length=128),
+        "issuer": _coerce_str(issuer, "issuer", max_length=160),
+        "enclave_binding": _coerce_str(enclave_binding, "enclave_binding", max_length=160),
+        "environment": _coerce_str(environment, "environment", max_length=32),
+    }
 
     generator = get_generator(config)
     license_obj = generator.generate_license(
@@ -111,9 +323,15 @@ def issue_license(
         features=resolved_features or None,
         usage_limits=resolved_limits or None,
         metadata=metadata,
+        quotas=resolved_quotas,
+        modules=resolved_modules,
+        account=resolved_account,
+        **{key: value for key, value in resolved_fields.items() if value is not None},
     )
-    license_file = _build_license_file(config, license_obj)
-    signed_data = license_file["license_data"]
+    envelope = generator.build_license_file(
+        license_obj, signature_algorithm, file_format
+    )
+    signed_data = envelope["license_data"]
 
     record = LicenseRecord(
         license_key=signed_data["license_key"],
@@ -124,18 +342,45 @@ def issue_license(
         features=signed_data["features"],
         usage_limits=signed_data["usage_limits"],
         license_metadata=signed_data["metadata"],
+        license_id=signed_data.get("license_id"),
+        tier=signed_data.get("tier"),
+        plan=signed_data.get("plan"),
+        subject_entity=signed_data.get("subject_entity"),
+        classification=signed_data.get("classification"),
+        issuer=signed_data.get("issuer"),
+        enclave_binding=signed_data.get("enclave_binding"),
+        quotas=signed_data.get("quotas") or {},
+        modules=signed_data.get("modules") or [],
+        account=signed_data.get("account") or {},
         status=STATUS_ACTIVE,
-        signature=license_file["signature"],
-        algorithm=license_file["algorithm"],
+        signature=envelope["signature"],
+        algorithm=signature_algorithm,
+        signature_format=file_format,
+        fingerprint=envelope.get("fingerprint"),
     )
     db.session.add(record)
     log_event(
         record.license_key,
         EVENT_ISSUED,
-        {"issued_to": record.issued_to, "license_type": record.license_type},
+        {
+            "issued_to": record.issued_to,
+            "license_type": record.license_type,
+            "algorithm": signature_algorithm,
+            "format": file_format,
+            "license_id": record.license_id,
+        },
     )
     db.session.commit()
-    return record, license_file
+    return record, public_envelope(envelope)
+
+
+def public_envelope(envelope: Dict[str, Any]) -> Dict[str, Any]:
+    """Envelope as served over HTTP: claims + signature, minus signing inputs."""
+    return {
+        key: value
+        for key, value in envelope.items()
+        if key not in ("signing_input", "header")
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -143,7 +388,12 @@ def issue_license(
 # ---------------------------------------------------------------------------
 def get_record(license_key: str) -> LicenseRecord:
     """Fetch a license by key or raise 404."""
-    record = LicenseRecord.query.filter_by(license_key=license_key.upper()).first()
+    record = LicenseRecord.query.filter(
+        db.or_(
+            LicenseRecord.license_key == license_key.upper(),
+            LicenseRecord.license_id == license_key,
+        )
+    ).first()
     if record is None:
         raise NotFound(f"No license with key {license_key}")
     return record
@@ -154,6 +404,7 @@ def list_licenses(
     status: Optional[str] = None,
     license_type: Optional[str] = None,
     issued_to: Optional[str] = None,
+    tier: Optional[str] = None,
     q: Optional[str] = None,
     limit: int = 50,
     offset: int = 0,
@@ -178,12 +429,16 @@ def list_licenses(
         query = query.filter(LicenseRecord.license_type == license_type)
     if issued_to:
         query = query.filter(LicenseRecord.issued_to.ilike(f"%{issued_to}%"))
+    if tier:
+        query = query.filter(LicenseRecord.tier.ilike(f"%{tier}%"))
     if q:
         pattern = f"%{q}%"
         query = query.filter(
             db.or_(
                 LicenseRecord.license_key.ilike(pattern),
+                LicenseRecord.license_id.ilike(pattern),
                 LicenseRecord.issued_to.ilike(pattern),
+                LicenseRecord.tier.ilike(pattern),
             )
         )
 
@@ -235,43 +490,105 @@ def restore_license(license_key: str) -> LicenseRecord:
 
 
 # ---------------------------------------------------------------------------
+# usage reporting (runtime consumption against the signed ceilings)
+# ---------------------------------------------------------------------------
+def report_usage(license_key: str, payload: Any) -> LicenseRecord:
+    """Record runtime consumption reported by a deployed instance."""
+    if not isinstance(payload, dict):
+        raise ValidationFailed(
+            "Usage body must be an object", {"field": "usage"}
+        )
+
+    record = get_record(license_key)
+    unknown = set(payload) - set(_USAGE_FIELDS) - {"pools"}
+    if unknown:
+        raise ValidationFailed(
+            f"Unknown usage field(s): {', '.join(sorted(unknown))}",
+            {"field": "usage", "allowed": list(_USAGE_FIELDS) + ["pools"]},
+        )
+
+    usage: Dict[str, Any] = {}
+    for field in _USAGE_FIELDS:
+        if field not in payload:
+            continue
+        value = payload[field]
+        if not isinstance(value, int) or isinstance(value, bool) or value < 0:
+            raise ValidationFailed(
+                f"'{field}' must be a non-negative integer", {"field": field}
+            )
+        usage[field] = value
+
+    pools_raw = payload.get("pools", [])
+    if pools_raw is None:
+        pools_raw = []
+    if not isinstance(pools_raw, list):
+        raise ValidationFailed("'pools' must be a list", {"field": "pools"})
+
+    configured = {
+        pool.get("id")
+        for pool in (record.quotas or {}).get("pools", [])
+        if isinstance(pool, dict)
+    }
+    pools: List[Dict[str, Any]] = []
+    for entry in pools_raw:
+        if not isinstance(entry, dict):
+            raise ValidationFailed("'pools' entries must be objects", {"field": "pools"})
+        pool_id = entry.get("id")
+        if pool_id not in configured:
+            raise ValidationFailed(
+                f"Unknown node pool '{pool_id}'",
+                {"field": "pools", "allowed": sorted(configured)},
+            )
+        consumed = entry.get("nodes_consumed")
+        if not isinstance(consumed, int) or isinstance(consumed, bool) or consumed < 0:
+            raise ValidationFailed(
+                f"'pools.{pool_id}.nodes_consumed' must be a non-negative integer",
+                {"field": "pools"},
+            )
+        pools.append({"id": pool_id, "nodes_consumed": consumed})
+    if pools:
+        usage["pools"] = pools
+
+    record.reported_usage = usage
+    record.last_reported_at = datetime.now()
+    log_event(record.license_key, EVENT_USAGE_REPORTED, {"usage": usage})
+    db.session.commit()
+    return record
+
+
+# ---------------------------------------------------------------------------
 # validation
 # ---------------------------------------------------------------------------
 def validate_license_payload(config: Config, payload: Any) -> Dict[str, Any]:
     """
-    Fully validate a signed license file.
+    Fully validate a signed license.
 
-    Checks: structure -> cryptographic signature -> revocation list -> expiry.
+    Accepts a JSON envelope, a compact ``.lic`` / ``.jwt`` token (raw string or
+    wrapped in ``{"token": ...}`` / ``{"license": ...}``) and checks:
+    structure -> cryptographic signature -> revocation list -> expiry.
     """
-    if not isinstance(payload, dict):
+    envelope = sig.parse_envelope(payload)
+    if envelope is None:
         return _result(
             valid=False,
             status="malformed",
             signature_valid=False,
             registered=False,
-            reason="License payload must be a JSON object",
+            reason="License payload must be a JSON object, a {license: ...} "
+            "wrapper, or a compact token string",
         )
 
-    license_data = payload.get("license_data")
-    signature = payload.get("signature")
-
-    if not isinstance(license_data, dict) or not isinstance(signature, str) or not signature:
-        return _result(
-            valid=False,
-            status="malformed",
-            signature_valid=False,
-            registered=False,
-            reason="License must contain 'license_data' object and 'signature' string",
-        )
-
+    license_data = envelope["license_data"]
     validator = get_validator(config)
-    if not validator.verify_signature(license_data, signature):
+    if not validator.verify_envelope(envelope):
         return _result(
             valid=False,
             status="signature_invalid",
             signature_valid=False,
             registered=license_key_of(license_data) is not None,
             reason="Signature does not match the signed license data",
+            algorithm=envelope.get("algorithm"),
+            file_format=envelope.get("format"),
         )
 
     try:
@@ -283,13 +600,15 @@ def validate_license_payload(config: Config, payload: Any) -> Dict[str, Any]:
             signature_valid=True,
             registered=False,
             reason=f"License data could not be parsed: {exc}",
+            algorithm=envelope.get("algorithm"),
+            file_format=envelope.get("format"),
         )
 
     record = LicenseRecord.query.filter_by(license_key=license_obj.license_key).first()
     registered = record is not None
     revoked = registered and record.status == STATUS_REVOKED
     expired = license_obj.is_expired()
-    matches_record = record.signature == signature if registered else None
+    matches_record = record.signature == envelope["signature"] if registered else None
 
     if revoked:
         status, valid = "revoked", False
@@ -312,6 +631,9 @@ def validate_license_payload(config: Config, payload: Any) -> Dict[str, Any]:
         else ("License has been revoked" if revoked else "License has expired"),
         "license": info,
         "revoked_reason": record.revoked_reason if revoked else None,
+        "algorithm": envelope.get("algorithm"),
+        "format": envelope.get("format"),
+        "fingerprint": sig.fingerprint(base64.b64decode(envelope["signature"])),
     }
 
 
@@ -330,6 +652,8 @@ def _result(
     signature_valid: bool,
     registered: bool,
     reason: str,
+    algorithm: Optional[str] = None,
+    file_format: Optional[str] = None,
 ) -> Dict[str, Any]:
     return {
         "valid": valid,
@@ -342,29 +666,35 @@ def _result(
         "reason": reason,
         "license": None,
         "revoked_reason": None,
+        "algorithm": algorithm,
+        "format": file_format,
+        "fingerprint": None,
     }
 
 
 # ---------------------------------------------------------------------------
-# feature / usage checks
+# feature / module / usage checks
 # ---------------------------------------------------------------------------
 def check_access(
     license_key: str,
     *,
     feature: Optional[str] = None,
+    module_id: Optional[str] = None,
     limit_type: Optional[str] = None,
     current_usage: Optional[int] = None,
 ) -> Dict[str, Any]:
-    """Check a registered license for feature access and/or usage limits."""
-    if feature is None and limit_type is None:
+    """Check a registered license for feature/module access and/or usage limits."""
+    if feature is None and module_id is None and limit_type is None:
         raise ValidationFailed(
-            "Provide 'feature' and/or 'limit_type' to check",
-            {"fields": ["feature", "limit_type"]},
+            "Provide 'feature', 'module_id' and/or 'limit_type' to check",
+            {"fields": ["feature", "module_id", "limit_type"]},
         )
 
     record = get_record(license_key)
+    entitled = [module.get("id") for module in (record.modules or [])]
     response: Dict[str, Any] = {
         "license_key": record.license_key,
+        "license_id": record.license_id,
         "status": record.effective_status(),
         "active": record.status == STATUS_ACTIVE and not record.is_expired,
     }
@@ -373,13 +703,23 @@ def check_access(
         response["feature"] = feature
         response["feature_allowed"] = response["active"] and feature in (record.features or [])
 
+    if module_id is not None:
+        if module_id not in MODULE_IDS:
+            raise ValidationFailed(
+                f"Unknown module '{module_id}'",
+                {"field": "module_id", "allowed": MODULE_IDS},
+            )
+        response["module_id"] = module_id
+        response["module_allowed"] = response["active"] and module_id in entitled
+
     if limit_type is not None:
         if current_usage is None or not isinstance(current_usage, int) or isinstance(current_usage, bool):
             raise ValidationFailed(
                 "'current_usage' must be an integer when checking a limit",
                 {"field": "current_usage"},
             )
-        limit = (record.usage_limits or {}).get(limit_type)
+        limits = {**(record.usage_limits or {}), **(record.quotas or {})}
+        limit = limits.get(limit_type)
         allowed = response["active"] and (limit is None or current_usage <= limit)
         response.update(
             {
@@ -391,3 +731,17 @@ def check_access(
         )
 
     return response
+
+
+def meta() -> Dict[str, Any]:
+    """Static license-server capabilities (drives the console's pickers)."""
+    return {
+        "algorithms": list(sig.SUPPORTED_ALGORITHMS),
+        "formats": list(sig.SUPPORTED_FORMATS),
+        "license_types": [t.value for t in LicenseType],
+        "enforcement_levels": list(ENFORCEMENT_LEVELS),
+        "tiers": sorted(set(DEFAULT_TIERS.values())),
+        "modules": MODULE_CATALOG,
+        "quota_fields": list(_QUOTA_SCALARS),
+        "usage_fields": list(_USAGE_FIELDS),
+    }

@@ -3,20 +3,28 @@
 Flask service that issues, stores, revokes and validates IPAM licenses.
 
 It does **not** re-implement cryptography: signing and verification come
-straight from the Phase 1 library in `../ipam_licensing` (RSA-PSS-SHA256),
-imported through `licensing_bridge.py`. A license produced by this server is
-byte-for-byte compatible with the Phase 1 `license_validator` CLI.
+straight from the Phase 1 library in `../ipam_licensing`, imported through
+`licensing_bridge.py`. A license produced by this server is byte-for-byte
+compatible with the Phase 1 `license_validator` CLI.
+
+Supported wire formats and algorithms:
+
+| | values |
+| --- | --- |
+| Algorithms | `RSA-PSS-SHA256` (default), `Ed25519` |
+| Formats | `json` envelope, `jwt` compact JWS (`.lic` / `.jwt` tokens) |
+| Keys | `LICENSE_*_KEY_PATH` (RSA), `LICENSE_ED25519_*_KEY_PATH` (Ed25519) |
 
 ## Layout
 
 | File | Responsibility |
 | --- | --- |
-| `app.py` | Flask app factory, error handlers, `/health`, `python app.py` entrypoint |
+| `app.py` | Flask app factory, error handlers, `/health`, screen routes, `python app.py` entrypoint |
 | `config.py` | Environment-driven configuration (`.env` supported) |
 | `routes.py` | HTTP layer: parsing, auth, status codes |
-| `service.py` | Business logic: issue, list, revoke, restore, validate, checks |
-| `models.py` | `LicenseRecord` (signed license) + `LicenseEvent` (audit trail) |
-| `keys.py` | Startup key checks (fail fast, public/private must match) |
+| `service.py` | Business logic: issue, list, revoke, restore, validate, usage, checks, `meta` |
+| `models.py` | `LicenseRecord` (signed license + spec fields) and `LicenseEvent` (audit trail) |
+| `keys.py` | Startup key checks (fail fast, public/private must match, both algorithms) |
 | `licensing_bridge.py` | Path bootstrap + cached Phase 1 `LicenseGenerator`/`LicenseValidator` |
 | `tests/test_api.py` | End-to-end API tests |
 
@@ -35,58 +43,76 @@ waitress-serve --port 5000 wsgi:app     # pip install waitress
 
 ## Web UI
 
-`GET /` (alias `/license`) serves the **License & Entitlement Center** screen,
-a live page in the suite's design system that drives the API below:
+`GET /` (alias `/license`) serves the **Enterprise Licensing, Tier
+Entitlements & Node Quotas** screen, a live page in the suite's design system
+that drives the API below. It renders the spec layout against real data:
 
-- registry table with status/type/search filters, metrics, audit trail
-- issue modal (sign + download the signed file), revoke/restore with reason
-- signature validation console (paste JSON or load a `.json` file)
-- authority status panel (`/health`) and admin-token entry
+- attestation header (validity, algorithm, enclave binding) with upload /
+  export / renew actions
+- tier & plan, node quota, session-quota and cryptographic-signature cards
+- entitlement module list (8 modules from the catalog) with per-module metrics
+- node quota pool table: assigned / consumed / headroom / utilization and the
+  pool's enforcement action
+- payload signature card (subject, classification, fingerprint, issuer) with a
+  decoded-claims inspector, offline air-gap ingestion, and the account & SLA
+  block
+- entitlement registry (search + status/type filters, issue/detail/revoke) and
+  a public signature-validation console
 
 Source: `../stitch_pam_suite_dashboard_ui/license_entitlement_center/code.html`
 (kept with the rest of the Stitch screens so the visual language stays in one
-place). It is served **same-origin** — its `fetch('api/v1/...')` calls resolve
-against this server, so no CORS is needed or enabled. Open it at
-`http://127.0.0.1:5000/` rather than as a `file://` page.
+place; built against the spec screen
+`enterprise_licensing_tier_entitlements_node_quotas/`). It is served
+**same-origin** — its `fetch('api/v1/...')` calls resolve against this server,
+so no CORS is needed or enabled. Open it at `http://127.0.0.1:5000/` rather
+than as a `file://` page.
 
 Admin actions (issue / revoke / restore / download) send the token as
 `X-Admin-Token`; enter it once in the UI (kept in `sessionStorage` for that tab
 only). If `LICENSE_ADMIN_TOKEN` is unset the server runs in open mode.
 
 First start creates `phase2_license_server/licenses.db` (override with
-`LICENSE_DATABASE_URI`) and validates the key pair in the repository root.
+`LICENSE_DATABASE_URI`), validates the key pairs in the repository root and
+adds any columns introduced by a later spec revision.
 
 ```bash
-python -m pytest tests -q     # 26 tests
+python -m pytest tests -q     # 49 tests  (131 across both phases, run from the repo root)
 ```
 
 ## Configuration
 
 See `.env.example`. Highlights:
 
-- `LICENSE_ADMIN_TOKEN` — bearer token guarding issue/revoke/restore/download.
-  Unset means open mode (responses then carry `X-Auth-Mode: open`); always set it
-  outside a trusted network.
-- `LICENSE_PRIVATE_KEY_PATH` / `LICENSE_PUBLIC_KEY_PATH` — defaults to the Phase 1
-  keys at the repository root. Startup aborts if the pair does not match.
+- `LICENSE_ADMIN_TOKEN` — bearer token guarding issue/revoke/restore/usage/
+  download. Unset means open mode (responses then carry `X-Auth-Mode: open`);
+  always set it outside a trusted network.
+- `LICENSE_PRIVATE_KEY_PATH` / `LICENSE_PUBLIC_KEY_PATH` — RSA pair, defaults to
+  the Phase 1 keys at the repository root. Startup aborts if the pair does not
+  match.
+- `LICENSE_ED25519_PRIVATE_KEY_PATH` / `LICENSE_ED25519_PUBLIC_KEY_PATH` —
+  optional second algorithm (default `license_ed25519_*.pem` at the repository
+  root); created on first Ed25519 issuance when autogeneration is enabled.
 - `LICENSE_AUTOGENERATE_KEYS=1` — allow creating a missing key pair (dev only;
   it changes which licenses are verifiable).
+- `LICENSE_DATABASE_URI` — defaults to SQLite next to this README.
 
 ## API
 
-Base path `/api/v1`. All bodies are JSON.
+Base path `/api/v1`. All bodies are JSON except raw-token validation.
 
 | Method | Path | Auth | Purpose |
 | --- | --- | --- | --- |
-| GET | `/health` | – | Liveness + DB check |
+| GET | `/health` | – | Liveness + DB check, key paths, algorithms, formats |
+| GET | `/meta` | – | Capabilities: algorithms, formats, tiers, quota/usage fields, module catalog |
 | POST | `/licenses` | admin | Issue and sign a license (201) |
-| GET | `/licenses` | – | List/filter licenses (`status`, `license_type`, `issued_to`, `q`, `limit`, `offset`) |
-| GET | `/licenses/<key>` | – | Detail incl. audit events |
-| GET | `/licenses/<key>/file` | admin | Original signed license file (download) |
+| GET | `/licenses` | – | List/filter licenses (`status`, `license_type`, `issued_to`, `tier`, `q`, `limit`, `offset`) |
+| GET | `/licenses/<key>` | – | Detail incl. usage summary and audit events (`<key>` = license key **or** license ID) |
+| GET | `/licenses/<key>/file` | admin | Signed file, `?format=json` (envelope) or `?format=jwt` (compact token) |
 | POST | `/licenses/<key>/revoke` | admin | Soft-revoke with optional `{"reason"}` |
 | POST | `/licenses/<key>/restore` | admin | Undo a revocation |
-| POST | `/licenses/validate` | – | Full check: signature → revocation → expiry |
-| POST | `/licenses/<key>/check` | – | Feature / usage-limit checks |
+| POST | `/licenses/<key>/usage` | admin | Record runtime consumption (returns the recomputed summary) |
+| POST | `/licenses/<key>/check` | – | Feature / module / quota-limit checks |
+| POST | `/licenses/validate` | – | Full check: structure → signature → revocation → expiry |
 
 Admin auth: `Authorization: Bearer <token>` or `X-Admin-Token: <token>`.
 
@@ -95,45 +121,107 @@ Admin auth: `Authorization: Bearer <token>` or `X-Admin-Token: <token>`.
 ```bash
 curl -s -X POST http://127.0.0.1:5000/api/v1/licenses \
   -H "Authorization: Bearer $LICENSE_ADMIN_TOKEN" -H "Content-Type: application/json" \
-  -d '{"license_type":"subscription","issued_to":"Acme Ltd","usage_limits":{"max_users":25}}'
+  -d '{
+    "license_type": "enterprise",
+    "issued_to": "Northwind Federal Systems",
+    "license_id": "LIC-9942-AEGIS-SEC-PROD",
+    "tier": "ENTERPRISE ZSP ULTIMATE",
+    "plan": "Annual Multi-Cloud",
+    "subject_entity": "Northwind Federal Systems - AegisPAM Cluster PROD-7734",
+    "classification": "ENTERPRISE ZSP ULTIMATE - Tier 4 / Quantum-Safe",
+    "issuer": "licensing.aegispam.internal (Air-Gap Root)",
+    "enclave_binding": "TPM 2.0 PCR Registers 0 & 7",
+    "algorithm": "Ed25519",
+    "format": "jwt",
+    "usage_limits": {"max_users": 5000, "max_subnets": 512, "max_devices": 12000},
+    "account": {"customer_id": "ENT-88214-AEGIS", "tam": "Sasha Quill",
+                "tam_email": "sasha.quill@aegispam.internal",
+                "po_number": "PO-77193", "sla_response": "15 MIN P1",
+                "invoicing": "Annual Upfront"}
+  }'
 ```
 
-`license_type` is one of `trial`, `subscription`, `perpetual`, `enterprise`.
-Optional: `trial_days`, `features`, `usage_limits`, `metadata`. Defaults per type
-(features, limits, 30-day trial, 365-day subscription) come from the Phase 1
-generator. The response carries both the stored record and the ready-to-deliver
-`license_file` (`{license_data, signature, algorithm, version}`).
+- `license_type`: `trial`, `subscription`, `perpetual`, `enterprise`.
+- Signing: `algorithm` (`RSA-PSS-SHA256` | `Ed25519`) and `format`
+  (`json` | `jwt`), both defaulting to the Phase 1 defaults.
+- Spec fields (all optional): `tier`, `plan`, `license_id` (auto-generated as
+  `LIC-####-AEGIS-SEC-ENV` when omitted), `subject_entity`, `classification`,
+  `issuer`, `enclave_binding`, `environment`.
+- Quotas: `quotas` overrides the tier defaults — node quota, `concurrent_sessions`,
+  `bastion_tunnels`, `max_lease_hours`, `worm_retention_days` and a `pools` list
+  (`id`, `name`, `regions`, `quota_nodes`, `enforcement` with
+  `soft-warning` / `auto-scale` / `audit-log` / `hard-block`).
+- Entitlements: `modules` selects from the 8-module catalog; `features`,
+  `usage_limits`, `metadata` behave as before. `trial_days` applies to trials.
+- The response carries the stored record, the ready-to-deliver `license_file`
+  and, for `format: "jwt"`, the compact `token`.
+
+Optional fields that are not supplied are **omitted from the signed payload**,
+so a license issued before a field existed rebuilds byte-identically and stays
+valid.
+
+### Report runtime usage
+
+Quota numbers are signed ceilings; consumption is reported by the platform at
+runtime (never invented by the server):
+
+```bash
+curl -s -X POST http://127.0.0.1:5000/api/v1/licenses/<KEY>/usage \
+  -H "Authorization: Bearer $LICENSE_ADMIN_TOKEN" -H "Content-Type: application/json" \
+  -d '{"nodes_consumed": 2875, "sessions_active": 14, "bastion_tunnels_used": 482,
+       "pools": [{"id": "aws-prod", "nodes_consumed": 1420}]}'
+```
+
+The response's `usage` block recomputes quota, consumed, headroom, utilization
+and `over_quota` for the totals and for every pool (an over-quota report is
+flagged, not clamped), plus `reported` / `reported_at`.
 
 ### Validate
 
 ```bash
+# JSON envelope
 curl -s -X POST http://127.0.0.1:5000/api/v1/licenses/validate \
   -H "Content-Type: application/json" -d @license_<KEY>.json
+
+# compact token, pasted verbatim
+curl -s -X POST http://127.0.0.1:5000/api/v1/licenses/validate \
+  -H "Content-Type: text/plain" --data-binary @license_<KEY>.lic
 ```
 
 Responds with `valid`, `status` (`valid` / `revoked` / `expired` /
-`signature_invalid` / `malformed`), `registered` (present in this server's
-database), `matches_registered_record`, and the human-readable license info.
+`signature_invalid` / `malformed`), `algorithm`, `format`, `fingerprint`,
+`registered` (present in this server's database), `matches_registered_record`,
+and the human-readable license info.
 
 The check order is: structure → signature → revocation list → expiry. A license
 issued offline with the same key pair still validates (`registered: false`);
 only revocation and expiry are enforced by this server.
 
-### Check features / usage
+Because one signature is kept per license, the authority can re-serve the same
+claims in either serialization (`?format=`); the verifier accepts both signing
+inputs, so the fingerprint and `matches_registered_record` stay true.
+
+### Check features, modules and quotas
 
 ```bash
 curl -s -X POST http://127.0.0.1:5000/api/v1/licenses/<KEY>/check \
   -H "Content-Type: application/json" \
-  -d '{"feature":"api_access","limit_type":"max_users","current_usage":12}'
+  -d '{"feature": "api_access", "module_id": "hsm_integration",
+       "limit_type": "max_users", "current_usage": 12}'
 ```
+
+Any combination of `feature`, `module_id` (one of the 8 catalog ids) and
+`limit_type` + `current_usage` may be asked in one call.
 
 ## Design notes
 
 - **Revocation is server-side.** Phase 1 licenses are stateless; this server keeps
   the revocation list, so `POST /licenses/validate` is the authority for
   "is this license still good?".
-- **Audit trail.** Every issue/revoke/restore writes a `LicenseEvent` row,
-  returned with `GET /licenses/<key>`.
+- **Audit trail.** Every issue/revoke/restore/usage report writes a
+  `LicenseEvent` row, returned with `GET /licenses/<key>`.
+- **Usage is reported, not simulated.** The screen renders
+  `POST /licenses/<key>/usage` results only.
 - **Naive local datetimes.** Expiry is compared in Python, not SQL, so results do
   not depend on the database's timezone handling.
 - **Errors are JSON**: `{"error": "...", "details": {...}}` with 400/401/404/405/500.
