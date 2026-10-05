@@ -383,3 +383,138 @@ class SettingsEvent(db.Model):
             "actor": self.actor,
             "created_at": self.created_at.isoformat(),
         }
+
+
+# ---------------------------------------------------------------------------
+# credential vault (Credential Vault screen: inventory, rotation, checkouts)
+# ---------------------------------------------------------------------------
+VAULT_STATUS_AVAILABLE = "available"
+VAULT_STATUS_CHECKED_OUT = "checked_out"
+VAULT_STATUS_ROTATING = "rotating"
+VAULT_STATUS_ROTATION_DUE = "rotation_due"
+VAULT_STATUS_FAILED = "failed"
+VAULT_STATUSES = (
+    VAULT_STATUS_AVAILABLE,
+    VAULT_STATUS_CHECKED_OUT,
+    VAULT_STATUS_ROTATING,
+    VAULT_STATUS_ROTATION_DUE,
+    VAULT_STATUS_FAILED,
+)
+
+# Inventory categories; matches the Credential Vault screen's type filter.
+VAULT_TYPE_DATABASE = "database"
+VAULT_TYPE_CLOUD_IAM = "cloud_iam"
+VAULT_TYPE_SSH_KEY = "ssh_key"
+VAULT_TYPE_SERVICE_ACCOUNT = "service_account"
+VAULT_TYPE_DOMAIN_PASSWORD = "domain_password"
+VAULT_TYPE_API_TOKEN = "api_token"
+VAULT_TYPES = (
+    VAULT_TYPE_DATABASE,
+    VAULT_TYPE_CLOUD_IAM,
+    VAULT_TYPE_SSH_KEY,
+    VAULT_TYPE_SERVICE_ACCOUNT,
+    VAULT_TYPE_DOMAIN_PASSWORD,
+    VAULT_TYPE_API_TOKEN,
+)
+
+VAULT_ACTION_ONBOARDED = "onboarded"
+VAULT_ACTION_CHECKED_OUT = "checked_out"
+VAULT_ACTION_REVOKED = "revoked"
+VAULT_ACTION_ROTATED = "rotated"
+VAULT_ACTION_ROTATION_FAILED = "rotation_failed"
+
+
+class VaultItem(db.Model):
+    """One managed credential in the vault inventory."""
+
+    __tablename__ = "vault_items"
+
+    id = db.Column(db.Integer, primary_key=True)
+    name = db.Column(db.String(120), nullable=False, unique=True, index=True)
+    secret_type = db.Column(db.String(32), nullable=False, index=True)
+    description = db.Column(db.String(255), nullable=False, default="")
+    target = db.Column(db.String(255), nullable=False)
+    target_detail = db.Column(db.String(255), nullable=False, default="")
+    principal = db.Column(db.String(128), nullable=False)
+    access_tier = db.Column(db.String(16), nullable=False, default="Tier-2")
+    auth_method = db.Column(db.String(32), nullable=False, default="Password")
+
+    # 0 means on-demand rotation (no scheduled SLA).
+    rotation_interval_hours = db.Column(db.Integer, nullable=False, default=24)
+    last_rotated_at = db.Column(db.DateTime, nullable=True)
+
+    status = db.Column(
+        db.String(16), nullable=False, default=VAULT_STATUS_AVAILABLE, index=True
+    )
+    checked_out_by = db.Column(db.String(64), nullable=True)
+    checked_out_at = db.Column(db.DateTime, nullable=True)
+    created_at = db.Column(db.DateTime, nullable=False, default=datetime.now)
+
+    @property
+    def rotation_interval_label(self) -> str:
+        """Human label for the SLA: 'On-demand', 'Every 24h', 'Every 7d'..."""
+        hours = self.rotation_interval_hours or 0
+        if hours <= 0:
+            return "On-demand"
+        if hours % 24 == 0:
+            return f"Every {hours // 24}d"
+        return f"Every {hours}h"
+
+    @property
+    def rotation_hours_remaining(self) -> Optional[int]:
+        """Hours until the next rotation is due; None when on-demand."""
+        hours = self.rotation_interval_hours or 0
+        if hours <= 0 or self.last_rotated_at is None:
+            return None
+        elapsed = (datetime.now() - self.last_rotated_at).total_seconds() / 3600.0
+        return int(hours - elapsed)
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "id": self.id,
+            "name": self.name,
+            "secret_type": self.secret_type,
+            "description": self.description,
+            "target": self.target,
+            "target_detail": self.target_detail,
+            "principal": self.principal,
+            "access_tier": self.access_tier,
+            "auth_method": self.auth_method,
+            "rotation_interval_hours": self.rotation_interval_hours,
+            "rotation_interval_label": self.rotation_interval_label,
+            "rotation_hours_remaining": self.rotation_hours_remaining,
+            "last_rotated_at": (
+                self.last_rotated_at.isoformat() if self.last_rotated_at else None
+            ),
+            "status": self.status,
+            "checked_out_by": self.checked_out_by,
+            "checked_out_at": (
+                self.checked_out_at.isoformat() if self.checked_out_at else None
+            ),
+            "created_at": self.created_at.isoformat(),
+        }
+
+
+class VaultEvent(db.Model):
+    """Vault audit trail entry: onboarding, checkouts, rotations."""
+
+    __tablename__ = "vault_events"
+
+    id = db.Column(db.Integer, primary_key=True)
+    item_id = db.Column(db.Integer, nullable=False, index=True)
+    item_name = db.Column(db.String(120), nullable=False)
+    action = db.Column(db.String(32), nullable=False)
+    actor = db.Column(db.String(64), nullable=False, default="system")
+    detail = db.Column(db.JSON, nullable=False, default=dict)
+    created_at = db.Column(db.DateTime, nullable=False, default=datetime.now)
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "id": self.id,
+            "item_id": self.item_id,
+            "item_name": self.item_name,
+            "action": self.action,
+            "actor": self.actor,
+            "detail": self.detail,
+            "created_at": self.created_at.isoformat(),
+        }

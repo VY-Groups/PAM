@@ -656,7 +656,421 @@
   }
 
   function selectSecret(secretName) {
-    // Interactive hook for row selection feedback
+    // Row selection: highlight + refresh the inspector when live data is loaded
     console.log("Selected secret:", secretName);
+    if (window.vaultLive) window.vaultLive.select(secretName);
   }
+
+  // ---------------------------------------------------------------------------
+  // Live wiring: renders the real vault inventory served by the license server.
+  // When opened as file:// (or when the API is unreachable) the static design
+  // content above stays on screen as the fallback preview.
+  // ---------------------------------------------------------------------------
+  (function () {
+    const ROOT = location.protocol === 'file:' ? '' : '/';
+    const API = ROOT + 'api/v1/vault';
+    const TOKEN_KEY = 'aegispam_admin_token';
+    const WEEK = 7 * 24 * 60 * 60 * 1000;
+
+    const TYPE_LABELS = [
+      { label: 'All', types: null },
+      { label: 'SSH Keypairs', types: ['ssh_key'] },
+      { label: 'Database Superusers', types: ['database'] },
+      { label: 'Cloud IAM Roles', types: ['cloud_iam'] },
+      { label: 'API Tokens & Service Accounts', types: ['api_token', 'service_account'] },
+      { label: 'Domain Admin Passwords', types: ['domain_password'] },
+    ];
+    const STATUS_LABELS = [
+      { label: 'Healthy / In-Policy', status: 'healthy' },
+      { label: 'Rotation Due', status: 'rotation_due' },
+      { label: 'Failed Rotation', status: 'failed' },
+      { label: 'Checked Out', status: 'checked_out' },
+    ];
+    const TYPE_ICON = {
+      database: 'bg-primary-container/15 text-primary|database',
+      cloud_iam: 'bg-secondary/15 text-secondary|cloud',
+      ssh_key: 'bg-tertiary/15 text-tertiary|terminal',
+      service_account: 'bg-primary-container/15 text-primary|hub',
+      domain_password: 'bg-secondary-fixed/50 text-secondary|domain',
+      api_token: 'bg-tertiary-fixed/50 text-tertiary|memory',
+    };
+    const ACTIVE_PILL = 'px-2.5 py-1 rounded-full bg-primary-container text-on-primary-container font-code-sm text-code-sm font-semibold shadow-xs';
+    const IDLE_PILL = 'px-2.5 py-1 rounded-full bg-surface-container-high text-on-surface hover:bg-surface-container-highest font-code-sm text-code-sm transition-colors';
+
+    const state = {
+      stats: null, items: [], audit: [], auditTotal: 0,
+      type: null, status: null, q: '', page: 1, limit: 25,
+      selected: 'prod-postgres-superuser',
+    };
+
+    const esc = (value) => {
+      const div = document.createElement('div');
+      div.textContent = value == null ? '' : String(value);
+      return div.innerHTML;
+    };
+    const setText = (el, text) => { if (el) el.textContent = text; };
+
+    function relTime(iso) {
+      if (!iso) return 'never';
+      const mins = Math.max(0, Math.round((Date.now() - new Date(iso).getTime()) / 60000));
+      if (mins < 1) return 'just now';
+      if (mins < 60) return mins + 'm ago';
+      const hrs = Math.round(mins / 60);
+      if (hrs < 24) return hrs + 'h ago';
+      return Math.round(hrs / 24) + 'd ago';
+    }
+
+    // --- structural lookups (the frozen design markup needs no new ids) -----
+    const tiles = Array.from(document.querySelectorAll('span.font-headline-lg'));
+    const pills = Array.from(document.querySelectorAll('button.rounded-full'));
+    const typePills = pills.filter((b) =>
+      TYPE_LABELS.some((t) => b.textContent.trim().startsWith(t.label)));
+    const statusPills = pills.filter((b) =>
+      STATUS_LABELS.some((s) => b.textContent.trim().startsWith(s.label)));
+    const spans = Array.from(document.querySelectorAll('span'));
+    const showingEl = spans.find((s) => /^Showing \d+ of [\d,]+ items$/.test(s.textContent.trim()));
+    const pageEl = spans.find((s) => /^Page \d+ of \d+$/.test(s.textContent.trim()));
+    const pageSize = document.querySelector('select');
+    const pageBtns = pageEl ? Array.from(pageEl.parentElement.querySelectorAll('button')) : [];
+    const reloadBtn = document.querySelector('[title="Reload inventory"]');
+    const searchInput = document.getElementById('vault-search-input');
+    const tbody = document.querySelector('table tbody');
+    const auditHeading = spans.find((s) => s.textContent.includes('Audit Checkouts'));
+    const auditHeader = auditHeading ? auditHeading.closest('div') : null;
+    const auditList = auditHeader ? auditHeader.nextElementSibling : null;
+    const auditAll = auditHeader ? auditHeader.querySelector('span:last-child') : null;
+    const masked = document.getElementById('masked-secret-text');
+    const box = masked ? masked.parentElement.parentElement : null; // inner row -> box
+    const identity = box ? box.previousElementSibling : null;
+    const inspectorCard = box ? box.parentElement : null;
+    const inspectorName = identity ? identity.querySelector('span.font-bold') : null;
+    const inspectorTarget = identity && identity.lastElementChild
+      ? identity.lastElementChild.querySelector('span') : null;
+    const inspectorUser = identity && identity.lastElementChild
+      ? identity.lastElementChild.querySelector('span.font-medium') : null;
+    const inspectorTier = inspectorCard
+      ? inspectorCard.querySelector('span.font-label-badge') : null;
+    const inspectorUuid = inspectorCard
+      ? Array.from(inspectorCard.querySelectorAll('span'))
+          .find((s) => s.textContent.trim().startsWith('UUID:')) : null;
+
+    function setPillLabel(btn, text) {
+      const nodes = Array.from(btn.childNodes)
+        .filter((n) => n.nodeType === 3 && n.textContent.trim());
+      if (nodes.length) nodes[nodes.length - 1].textContent = '\n        ' + text + '\n      ';
+      else btn.textContent = text;
+    }
+
+    // --- row rendering -------------------------------------------------------
+    function statusBadge(item) {
+      if (item.status === 'checked_out') {
+        return '<span class="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-primary-container text-on-primary-container font-label-badge text-label-badge font-semibold">'
+          + '<span class="material-symbols-outlined text-[12px]">lock_open</span> '
+          + esc(item.checked_out_by || 'checked out') + ' (' + agoShort(item.checked_out_at) + ')</span>';
+      }
+      if (item.status === 'rotating') {
+        return '<span class="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-surface-container-high text-on-surface-variant font-label-badge text-label-badge font-semibold">'
+          + '<span class="w-1.5 h-1.5 rounded-full bg-primary animate-ping"></span> Rotating</span>';
+      }
+      if (item.status === 'rotation_due') {
+        return '<span class="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-secondary/15 text-secondary font-label-badge text-label-badge font-semibold">'
+          + '<span class="w-1.5 h-1.5 rounded-full bg-secondary"></span> Rotation Due</span>';
+      }
+      if (item.status === 'failed') {
+        return '<span class="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-error/15 text-error font-label-badge text-label-badge font-semibold">'
+          + '<span class="material-symbols-outlined text-[13px]">warning</span> Sync Error</span>';
+      }
+      return '<span class="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-tertiary/10 text-tertiary font-label-badge text-label-badge font-semibold">'
+        + '<span class="w-1.5 h-1.5 rounded-full bg-tertiary"></span> Available</span>';
+    }
+
+    function agoShort(iso) {
+      if (!iso) return '?';
+      const mins = Math.max(0, Math.round((Date.now() - new Date(iso).getTime()) / 60000));
+      if (mins < 60) return mins + 'm';
+      const hrs = Math.round(mins / 60);
+      if (hrs < 24) return hrs + 'h';
+      return Math.round(hrs / 24) + 'd';
+    }
+
+    function actionCell(item) {
+      const options = '<button class="p-1 rounded text-on-surface-variant hover:bg-surface-container" title="Options">'
+        + '<span class="material-symbols-outlined text-[16px]">more_vert</span></button>';
+      const hit = (act) => ' data-act="' + act + '" data-id="' + item.id + '"';
+      if (item.status === 'checked_out') {
+        return '<button class="px-2 py-1 rounded bg-surface-container-high text-on-surface font-label-md text-label-md hover:bg-surface-container-highest transition-colors"'
+          + hit('revoke') + '>Revoke</button>' + options;
+      }
+      if (item.status === 'rotating') {
+        return '<button class="px-2 py-1 rounded bg-surface-container text-outline font-label-md text-label-md cursor-not-allowed" disabled>Locked</button>'
+          + options;
+      }
+      if (item.status === 'failed') {
+        return '<button class="px-2 py-1 rounded bg-error text-on-error font-label-md text-label-md hover:bg-error/90 transition-colors"'
+          + hit('rotate') + '>Retry</button>' + options;
+      }
+      return '<button class="px-2 py-1 rounded bg-primary-container text-on-primary-container font-label-md text-label-md hover:bg-primary transition-colors"'
+        + hit('checkout') + '>Check Out</button>' + options;
+    }
+
+    function slaLine(item) {
+      if (item.status === 'rotating') {
+        return '<span class="font-code-sm text-code-sm text-primary animate-pulse font-semibold">Auto-Rotating...</span>';
+      }
+      if (item.status === 'failed') {
+        return '<span class="font-code-sm text-code-sm text-error font-semibold">Failed (Retry pending)</span>';
+      }
+      if (item.status === 'rotation_due') {
+        return '<span class="font-code-sm text-code-sm text-secondary font-semibold">Rotation due now</span>';
+      }
+      if (item.status === 'checked_out') {
+        return '<span class="font-code-sm text-code-sm text-primary font-semibold">Checked out by '
+          + esc(item.checked_out_by || '?') + '</span>';
+      }
+      return '<span class="font-code-sm text-code-sm text-tertiary">Rotated ' + relTime(item.last_rotated_at) + '</span>';
+    }
+
+    function rowHtml(item) {
+      const parts = (TYPE_ICON[item.secret_type] || 'bg-surface-container-high text-on-surface-variant|key').split('|');
+      const tierClass = item.access_tier === 'Tier-0' ? 'bg-error/10 text-error'
+        : item.access_tier === 'Tier-1' ? 'bg-primary/10 text-primary'
+        : 'bg-surface-container-high text-on-surface-variant';
+      const selected = item.name === state.selected;
+      return '<tr class="' + (selected ? 'bg-surface-container-high/60 ' : '')
+        + 'cursor-pointer hover:bg-surface-container transition-colors" data-name="' + esc(item.name)
+        + '" onclick="selectSecret(this.dataset.name)">'
+        + '<td class="py-3 px-3"><div class="flex items-center gap-2.5">'
+        + '<div class="w-7 h-7 rounded ' + parts[0] + ' flex items-center justify-center shrink-0">'
+        + '<span class="material-symbols-outlined text-[18px]">' + parts[1] + '</span></div>'
+        + '<div class="flex flex-col min-w-0">'
+        + '<span class="font-code-md text-code-md ' + (selected ? 'text-primary' : 'text-on-surface')
+        + ' font-semibold truncate">' + esc(item.name) + '</span>'
+        + '<span class="font-code-sm text-code-sm text-outline">' + esc(item.description) + '</span>'
+        + '</div></div></td>'
+        + '<td class="py-3 px-3">'
+        + '<span class="font-code-sm text-code-sm text-on-surface font-medium truncate block max-w-[140px]">'
+        + esc(item.target) + '</span>'
+        + '<span class="font-code-sm text-code-sm text-outline">' + esc(item.target_detail) + '</span></td>'
+        + '<td class="py-3 px-3"><span class="px-2 py-0.5 rounded bg-surface-container-high font-code-sm text-code-sm font-semibold text-on-surface">'
+        + esc(item.principal) + '</span></td>'
+        + '<td class="py-3 px-3"><div class="flex flex-col">'
+        + '<span class="font-code-sm text-code-sm text-on-surface">' + esc(item.rotation_interval_label) + '</span>'
+        + slaLine(item) + '</div></td>'
+        + '<td class="py-3 px-3"><span class="inline-flex items-center gap-1 px-2 py-0.5 rounded ' + tierClass
+        + ' font-label-badge text-label-badge font-bold">' + esc(item.access_tier) + ' / ' + esc(item.auth_method)
+        + '</span></td>'
+        + '<td class="py-3 px-3">' + statusBadge(item) + '</td>'
+        + '<td class="py-3 px-3 text-right"><div class="inline-flex items-center gap-1">'
+        + actionCell(item) + '</div></td></tr>';
+    }
+
+    function filteredRows() {
+      let rows = state.items.slice();
+      if (state.type) rows = rows.filter((i) => state.type.includes(i.secret_type));
+      if (state.status === 'healthy') {
+        rows = rows.filter((i) => i.status === 'available' || i.status === 'rotating');
+      } else if (state.status) {
+        rows = rows.filter((i) => i.status === state.status);
+      }
+      if (state.q) {
+        const q = state.q.toLowerCase();
+        rows = rows.filter((i) =>
+          [i.name, i.description, i.target, i.principal].join(' ').toLowerCase().includes(q));
+      }
+      return rows;
+    }
+
+    function renderAudit() {
+      if (!auditList) return;
+      if (!state.audit.length) {
+        auditList.innerHTML = '<p class="font-body-sm text-body-sm text-outline">'
+          + 'No vault audit events yet &mdash; check a credential out to start the trail.</p>';
+      } else {
+        const labels = {
+          checked_out: 'Checkout started', revoked: 'Checkout ended',
+          rotated: 'Rotation recorded', onboarded: 'Credential onboarded',
+        };
+        auditList.innerHTML = state.audit.map((e) => {
+          const reason = e.detail && e.detail.reason ? ' &mdash; ' + esc(e.detail.reason) : '';
+          return '<div class="p-2 rounded bg-surface-container-low flex flex-col gap-1">'
+            + '<div class="flex items-center justify-between">'
+            + '<span class="font-code-sm text-code-sm font-semibold text-on-surface">' + esc(e.actor) + '</span>'
+            + '<span class="font-code-sm text-code-sm text-outline">' + relTime(e.created_at) + '</span></div>'
+            + '<p class="font-body-sm text-body-sm text-on-surface-variant">'
+            + '<span class="text-primary font-code-sm font-medium">' + esc(e.action) + '</span>' + reason + '</p>'
+            + '<div class="flex items-center justify-between text-code-sm font-code-sm text-outline pt-0.5">'
+            + '<span>' + esc(e.item_name) + '</span>'
+            + '<span class="text-tertiary">' + esc(labels[e.action] || e.action) + '</span></div></div>';
+        }).join('');
+      }
+      setText(auditAll, 'View All (' + state.auditTotal + ')');
+    }
+
+    function render() {
+      if (!state.stats || tiles.length < 4) return;
+      const s = state.stats;
+
+      // stat tiles
+      setText(tiles[0], s.total.toLocaleString());
+      const recent = state.items.filter((i) =>
+        Date.now() - new Date(i.created_at).getTime() < WEEK).length;
+      setText(tiles[0].nextElementSibling, '+' + recent + ' this week');
+      setText(tiles[1], s.rotation.compliance_pct.toFixed(2) + '%');
+      const valueRow = tiles[1].closest('div.flex.items-baseline');
+      const barWrap = valueRow ? valueRow.nextElementSibling : null;
+      const barFill = barWrap ? barWrap.querySelector('div') : null;
+      if (barFill) barFill.style.width = s.rotation.compliance_pct + '%';
+      setText(tiles[2], s.checked_out + (s.checked_out === 1 ? ' Session' : ' Sessions'));
+      setText(tiles[2].nextElementSibling, s.events_today.checkouts + ' today');
+      setText(tiles[3], s.attention.failed + ' Failed');
+      setText(tiles[3].nextElementSibling,
+        s.rotation.due + ' rotation' + (s.rotation.due === 1 ? '' : 's') + ' due');
+      setText(tiles[3].parentElement.nextElementSibling, s.total + ' credentials monitored');
+
+      // type + posture pill counts and selection state
+      typePills.forEach((btn) => {
+        const def = TYPE_LABELS.find((t) => btn.textContent.trim().startsWith(t.label));
+        if (!def) return;
+        const count = def.types
+          ? def.types.reduce((sum, t) => sum + (s.by_type[t] || 0), 0)
+          : s.total;
+        setPillLabel(btn, def.label + ' (' + count.toLocaleString() + ')');
+        const active = def.types === null
+          ? state.type === null
+          : !!state.type && state.type.join() === def.types.join();
+        btn.className = active ? ACTIVE_PILL : IDLE_PILL;
+      });
+      const healthy = s.total - s.by_status.rotation_due - s.by_status.failed - s.by_status.checked_out;
+      statusPills.forEach((btn) => {
+        const def = STATUS_LABELS.find((x) => btn.textContent.trim().startsWith(x.label));
+        if (!def) return;
+        const count = def.status === 'healthy' ? healthy : s.by_status[def.status] || 0;
+        setPillLabel(btn, def.label + ' (' + count + ')');
+        btn.style.boxShadow = state.status === def.status
+          ? '0 0 0 2px rgba(11,28,48,0.35)' : '';
+      });
+
+      // table page
+      const rows = filteredRows();
+      const pages = Math.max(1, Math.ceil(rows.length / state.limit));
+      if (state.page > pages) state.page = pages;
+      const start = (state.page - 1) * state.limit;
+      const pageRows = rows.slice(start, start + state.limit);
+      if (tbody) {
+        tbody.innerHTML = pageRows.length
+          ? pageRows.map(rowHtml).join('')
+          : '<tr><td colspan="7" class="py-6 px-3 text-center font-body-sm text-body-sm text-outline">'
+            + 'No credentials match the current filters.</td></tr>';
+      }
+      setText(showingEl, 'Showing ' + pageRows.length + ' of ' + rows.length.toLocaleString() + ' items');
+      setText(pageEl, 'Page ' + state.page + ' of ' + pages);
+      if (pageBtns[0]) pageBtns[0].disabled = state.page <= 1;
+      if (pageBtns[1]) pageBtns[1].disabled = state.page >= pages;
+
+      renderAudit();
+    }
+
+    function select(name) {
+      state.selected = name;
+      const item = state.items.find((i) => i.name === name);
+      render();
+      if (!item) return;
+      setText(inspectorName, item.name);
+      setText(inspectorTarget, item.target);
+      setText(inspectorUser, 'user: ' + item.principal);
+      setText(inspectorTier, item.access_tier + ' Isolated');
+      setText(inspectorUuid, 'ID: vault-item-' + item.id);
+    }
+
+    async function act(action, id) {
+      try {
+        const headers = { 'Content-Type': 'application/json', 'X-Actor': 'credential-vault-ui' };
+        const token = sessionStorage.getItem(TOKEN_KEY) || '';
+        if (token) headers['X-Admin-Token'] = token;
+        const res = await fetch(API + '/items/' + id + '/' + action, {
+          method: 'POST',
+          headers: headers,
+          body: action === 'checkout'
+            ? JSON.stringify({ reason: 'Checked out from Credential Vault screen' })
+            : undefined,
+        });
+        if (!res.ok) {
+          console.warn('Vault action failed:', action, res.status, await res.text());
+          return;
+        }
+        await load();
+      } catch (err) {
+        console.warn('Vault action unreachable:', err);
+      }
+    }
+
+    async function load() {
+      if (ROOT === '') return; // file:// preview keeps the static design
+      try {
+        const json = (path) => fetch(API + path).then((r) => {
+          if (!r.ok) throw new Error(path + ' -> ' + r.status);
+          return r.json();
+        });
+        const [stats, items, audit] = await Promise.all([
+          json('/stats'), json('/items?limit=200'), json('/events?limit=3'),
+        ]);
+        state.stats = stats;
+        state.items = items.items;
+        state.audit = audit.events;
+        state.auditTotal = audit.total;
+        render();
+      } catch (err) {
+        console.info('Vault API unreachable - showing the static design preview.', err);
+      }
+    }
+
+    // --- interactions --------------------------------------------------------
+    if (tbody) {
+      tbody.addEventListener('click', (ev) => {
+        const btn = ev.target.closest('button[data-act]');
+        if (!btn) return;
+        ev.stopPropagation(); // don't let the row's selectSecret fire
+        act(btn.dataset.act, parseInt(btn.dataset.id, 10));
+      }, true);
+    }
+    typePills.forEach((btn) => {
+      const def = TYPE_LABELS.find((t) => btn.textContent.trim().startsWith(t.label));
+      if (!def) return;
+      btn.addEventListener('click', () => {
+        state.type = def.types;
+        state.page = 1;
+        render();
+      });
+    });
+    statusPills.forEach((btn) => {
+      const def = STATUS_LABELS.find((x) => btn.textContent.trim().startsWith(x.label));
+      if (!def) return;
+      btn.addEventListener('click', () => {
+        state.status = state.status === def.status ? null : def.status;
+        state.page = 1;
+        render();
+      });
+    });
+    if (pageBtns[0]) pageBtns[0].addEventListener('click', () => {
+      if (state.page > 1) { state.page -= 1; render(); }
+    });
+    if (pageBtns[1]) pageBtns[1].addEventListener('click', () => {
+      const pages = Math.max(1, Math.ceil(filteredRows().length / state.limit));
+      if (state.page < pages) { state.page += 1; render(); }
+    });
+    if (pageSize) pageSize.addEventListener('change', () => {
+      state.limit = parseInt(pageSize.value, 10) || 25;
+      state.page = 1;
+      render();
+    });
+    if (reloadBtn) reloadBtn.addEventListener('click', () => load());
+    if (searchInput) searchInput.addEventListener('input', () => {
+      state.q = searchInput.value.trim();
+      state.page = 1;
+      render();
+    });
+
+    window.vaultLive = { select: select, load: load };
+    load();
+  })();
 </script></main><footer class="fixed bottom-0 left-64 right-0 h-10 bg-surface-container-lowest/95 backdrop-blur-sm border-t border-outline-variant/30 z-30 flex items-center justify-between px-space-xl text-on-surface-variant font-code-sm text-code-sm shadow-[0_-1px_4px_rgba(0,0,0,0.02)]"><div class="flex items-center gap-space-md"><div class="flex items-center gap-1.5"><span class="w-2 h-2 rounded-full bg-tertiary"></span><span class="text-on-surface font-medium">Zero-Trust Gateway: Healthy</span><span class="text-outline">(18 Nodes connected)</span></div><span class="text-outline-variant">•</span><span class="text-tertiary font-semibold">0 standing admin accounts</span></div><div class="flex items-center gap-space-lg text-outline"><span>Session TLS 1.3 Strict</span><span>mTLS Enforced</span><span>Audit Digest Verified</span></div></footer></div></body></html>

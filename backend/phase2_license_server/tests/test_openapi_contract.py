@@ -32,6 +32,10 @@ ADMIN_OPERATIONS = [
     ("post", "/api/v1/licenses/{license_key}/restore"),
     ("post", "/api/v1/licenses/{license_key}/usage"),
     ("put", "/api/v1/settings/{group}"),
+    ("post", "/api/v1/vault/items"),
+    ("post", "/api/v1/vault/items/{item_id}/checkout"),
+    ("post", "/api/v1/vault/items/{item_id}/revoke"),
+    ("post", "/api/v1/vault/items/{item_id}/rotate"),
 ]
 
 

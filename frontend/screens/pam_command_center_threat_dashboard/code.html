@@ -682,4 +682,168 @@
       this.innerHTML = '<span class="material-symbols-outlined text-[18px]">verified</span> LOCKDOWN ENGAGED';
     }
   });
+
+  // ---------------------------------------------------------------------------
+  // Live wiring: pulls the real posture aggregate (health, licenses, vault,
+  // settings, activity) from the license server. When opened as file:// or the
+  // API is unreachable, the static design content above stays on screen.
+  // Tiles without a live module yet (standing privileges, JIT approval time,
+  // per-provider infrastructure cards, threat radar) keep their design values.
+  // ---------------------------------------------------------------------------
+  (function () {
+    const ROOT = location.protocol === 'file:' ? '' : '/';
+    if (!ROOT) return;
+
+    const esc = (value) => {
+      const div = document.createElement('div');
+      div.textContent = value == null ? '' : String(value);
+      return div.innerHTML;
+    };
+    const setText = (el, text) => { if (el) el.textContent = text; };
+
+    function relTime(iso) {
+      if (!iso) return 'never';
+      const mins = Math.max(0, Math.round((Date.now() - new Date(iso).getTime()) / 60000));
+      if (mins < 1) return 'just now';
+      if (mins < 60) return mins + 'm ago';
+      const hrs = Math.round(mins / 60);
+      if (hrs < 24) return hrs + 'h ago';
+      return Math.round(hrs / 24) + 'd ago';
+    }
+
+    // headline-xl spans: [sessions, standing, secrets, JIT, SOC2 readiness]
+    const tiles = Array.from(document.querySelectorAll('span.font-headline-xl'));
+    const sections = Array.from(document.querySelectorAll('section'));
+    const socSection = sections.find((s) => s.textContent.includes('SOC2 & ISO 27001 Posture'));
+    const feedSection = sections.find((s) => s.textContent.includes('Credential Lifecycle Feed'));
+    const infraSection = sections.find((s) =>
+      s.textContent.includes('Privileged Infrastructure & Target Health'));
+    const infraNodes = infraSection
+      ? Array.from(infraSection.querySelectorAll('span'))
+          .find((s) => s.classList.contains('font-bold') && s.textContent.includes('Nodes'))
+      : null;
+    const feedList = feedSection ? feedSection.children[1] : null;
+    const gauge = socSection ? socSection.querySelector('svg') : null;
+    const gaugeCircles = gauge ? gauge.querySelectorAll('circle') : [];
+    const chipsGrid = socSection ? socSection.querySelector('div.grid') : null;
+    const chips = chipsGrid ? Array.from(chipsGrid.children) : [];
+
+    const FEED_ICONS = {
+      rotated: ['check_circle', 'text-tertiary'],
+      checked_out: ['lock_open', 'text-primary'],
+      revoked: ['gavel', 'text-secondary'],
+      onboarded: ['add_circle', 'text-tertiary'],
+      rotation_failed: ['warning', 'text-error'],
+    };
+    const FEED_LABELS = {
+      rotated: 'Automated rotation completed.',
+      checked_out: 'JIT checkout started.',
+      revoked: 'Checkout revoked, credential released.',
+      onboarded: 'Credential onboarded into the vault.',
+      rotation_failed: 'Rotation failed - retry queued.',
+    };
+
+    function renderFeed(events) {
+      if (!feedList) return;
+      if (!events.length) {
+        feedList.innerHTML = '<p class="font-body-sm text-body-sm text-outline">'
+          + 'No credential lifecycle events yet &mdash; rotations and checkouts appear here.</p>';
+        return;
+      }
+      feedList.innerHTML = events.map((e) => {
+        const icon = FEED_ICONS[e.action] || ['sync_alt', 'text-primary'];
+        const reason = e.detail && e.detail.reason ? ' ' + esc(e.detail.reason) : '';
+        return '<div class="flex items-start gap-space-sm p-space-sm rounded-lg bg-surface hover:bg-surface-container-low transition-colors">'
+          + '<span class="material-symbols-outlined ' + icon[1] + ' text-[18px] mt-0.5">' + icon[0] + '</span>'
+          + '<div class="flex flex-col flex-1">'
+          + '<div class="flex items-center justify-between">'
+          + '<span class="font-code-sm text-code-sm font-semibold text-on-surface">vault/'
+          + esc(e.item_name) + '</span>'
+          + '<span class="font-code-sm text-code-sm text-outline">' + relTime(e.created_at) + '</span>'
+          + '</div>'
+          + '<span class="font-body-sm text-body-sm text-on-surface-variant">'
+          + esc(FEED_LABELS[e.action] || e.action) + reason + '</span>'
+          + '</div></div>';
+      }).join('');
+    }
+
+    async function load() {
+      try {
+        const json = (path) => fetch(ROOT + path).then((r) => {
+          if (!r.ok) throw new Error(path + ' -> ' + r.status);
+          return r.json();
+        });
+        const [data, feed] = await Promise.all([
+          json('api/v1/overview'), json('api/v1/vault/events?limit=4'),
+        ]);
+        const usage = data.licenses.usage;
+        const vault = data.vault;
+
+        // Metric 1: active privileged sessions (from reported license usage)
+        if (tiles.length >= 1) {
+          setText(tiles[0], usage.sessions.toLocaleString());
+          const flagged = tiles[0].nextElementSibling;
+          if (flagged) {
+            flagged.innerHTML = '<span class="material-symbols-outlined text-[14px]">warning</span> '
+              + usage.reported_licenses + ' license(s) reporting';
+          }
+          const bottom = tiles[0].parentElement
+            ? tiles[0].parentElement.nextElementSibling : null;
+          const trend = bottom && bottom.children[0] ? bottom.children[0] : null;
+          if (trend) {
+            trend.innerHTML = '<span class="material-symbols-outlined text-[14px]">trending_up</span> '
+              + usage.nodes.toLocaleString() + ' nodes under management';
+          }
+        }
+
+        // Metric 3: managed secrets (from the vault inventory)
+        if (tiles.length >= 3) {
+          setText(tiles[2], vault.total.toLocaleString());
+          setText(tiles[2].nextElementSibling,
+            vault.rotation.compliance_pct.toFixed(1) + '% In Policy');
+          const bottom = tiles[2].parentElement
+            ? tiles[2].parentElement.nextElementSibling : null;
+          if (bottom && bottom.children[0]) {
+            setText(bottom.children[0], vault.events_today.rotations + ' rotated today');
+          }
+        }
+
+        // Privileged infrastructure: aggregated licensed target nodes
+        setText(infraNodes, usage.nodes.toLocaleString() + ' Nodes');
+        // The footer sits after this script in the document: look it up here,
+        // once fetching has given the parser time to reach it.
+        const footer = document.querySelector('footer');
+        const footerNodes = footer
+          ? Array.from(footer.querySelectorAll('span'))
+              .find((s) => s.textContent.includes('Nodes connected'))
+          : null;
+        setText(footerNodes, '(' + usage.nodes.toLocaleString() + ' licensed nodes)');
+
+        // SOC2 posture gauge + control chips (computed from real checks)
+        const score = data.posture.score;
+        if (tiles.length >= 5) setText(tiles[4], score.toFixed(1) + '%');
+        if (gaugeCircles[1]) {
+          gaugeCircles[1].setAttribute('stroke-dashoffset',
+            (264 * (1 - score / 100)).toFixed(1));
+        }
+        chips.forEach((chip, i) => {
+          const control = data.posture.controls[i];
+          if (!control) return;
+          const dot = chip.querySelector('span');
+          const label = chip.lastElementChild;
+          if (dot) {
+            dot.className = 'w-2 h-2 rounded-full ' + (control.passed ? 'bg-tertiary' : 'bg-error');
+          }
+          if (label) label.textContent = control.label;
+        });
+
+        // Credential lifecycle feed (vault audit trail)
+        renderFeed(feed.events);
+      } catch (err) {
+        console.info('Command Center API unreachable - static design preview kept.', err);
+      }
+    }
+
+    load();
+  })();
 </script></main><footer class="fixed bottom-0 left-64 right-0 h-10 bg-surface-container-lowest/95 backdrop-blur-sm border-t border-outline-variant/30 z-30 flex items-center justify-between px-space-xl text-on-surface-variant font-code-sm text-code-sm shadow-[0_-1px_4px_rgba(0,0,0,0.02)]"><div class="flex items-center gap-space-md"><div class="flex items-center gap-1.5"><span class="w-2 h-2 rounded-full bg-tertiary"></span><span class="text-on-surface font-medium">Zero-Trust Gateway: Healthy</span><span class="text-outline">(18 Nodes connected)</span></div><span class="text-outline-variant">•</span><span class="text-tertiary font-semibold">0 standing admin accounts</span></div><div class="flex items-center gap-space-lg text-outline"><span>Session TLS 1.3 Strict</span><span>mTLS Enforced</span><span>Audit Digest Verified</span></div></footer></div></body></html>

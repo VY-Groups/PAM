@@ -62,7 +62,7 @@ cd backend/phase2_license_server && python app.py     # http://127.0.0.1:5000
 #   /index.html  console launcher          /screens/…  every other screen
 
 # Tests (both phases + the API contract)
-python -m pytest backend/ipam_licensing backend/phase2_license_server/tests -q   # 168 tests
+python -m pytest backend/ipam_licensing backend/phase2_license_server/tests -q   # 186 tests
 ```
 
 ## How it fits together
@@ -86,10 +86,13 @@ python -m pytest backend/ipam_licensing backend/phase2_license_server/tests -q  
   directions, so docs cannot drift from the server.
 - The console lives in `frontend/` — a copy of the frozen design reference in
   `stitch_pam_suite_dashboard_ui/`. Every screen carries the same sidebar with
-  real links, `frontend/index.html` is the launcher. Served by Phase 2, two
-  screens are **live** - licensing (`/`) and platform settings (`/settings`,
-  backed by `GET/PUT /api/v1/settings` with an audit changelog); the rest are
-  static pages under `/screens/`.
+  real links, `frontend/index.html` is the launcher. Served by Phase 2, five
+  screens are **live**: licensing (`/`), platform settings (`/settings`,
+  backed by `GET/PUT /api/v1/settings` with an audit changelog), the Command
+  Center and Compliance screens (backed by `GET /api/v1/overview` and the
+  unified `GET /api/v1/events` feed), and the Credential Vault (backed by
+  `GET/POST /api/v1/vault/*` — inventory, rotation SLA and JIT checkouts).
+  The rest are static pages under `/screens/`.
 
 ## What a license carries
 

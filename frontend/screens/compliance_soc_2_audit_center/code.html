@@ -591,4 +591,189 @@
       }
     })();
   </script>
+  <script>
+    // ---------------------------------------------------------------------------
+    // Live wiring: pulls the real posture aggregate and the unified audit feed
+    // from the license server. file:// or an unreachable API keeps the static
+    // design content above. Evidence cells without a live module yet (JIT
+    // tokens, quorum sign-offs, command mitigation) keep their design values.
+    // ---------------------------------------------------------------------------
+    (function () {
+      const ROOT = location.protocol === 'file:' ? '' : '/';
+      if (!ROOT) return;
+
+      const setText = (el, text) => { if (el) el.textContent = text; };
+
+      function relTime(iso) {
+        if (!iso) return 'never';
+        const mins = Math.max(0, Math.round((Date.now() - new Date(iso).getTime()) / 60000));
+        if (mins < 1) return 'just now';
+        if (mins < 60) return mins + 'm ago';
+        const hrs = Math.round(mins / 60);
+        if (hrs < 24) return hrs + 'h ago';
+        return Math.round(hrs / 24) + 'd ago';
+      }
+
+      const ACTION_LABELS = {
+        'license:issued': 'License issued',
+        'license:revoked': 'License revoked',
+        'license:restored': 'License restored',
+        'license:usage_reported': 'License usage reported',
+        'settings:updated': 'Platform settings updated',
+        'vault:rotated': 'Credential rotated',
+        'vault:checked_out': 'Credential checked out',
+        'vault:revoked': 'Checkout revoked',
+        'vault:onboarded': 'Credential onboarded',
+        'vault:rotation_failed': 'Rotation failed',
+      };
+      const SOURCE_ICONS = {
+        license: 'workspace_premium', settings: 'tune', vault: 'key',
+      };
+      const SOURCE_LABELS = {
+        license: 'License audit trail', settings: 'Settings audit trail',
+        vault: 'Vault audit trail',
+      };
+
+      // headline-xl spans: [overall posture, SOC-2 pass, evidence, next cycle]
+      const tiles = Array.from(document.querySelectorAll('span.font-headline-xl'));
+      const matrixRows = Array.from(document.querySelectorAll('table tbody tr'));
+      const probeHeading = Array.from(document.querySelectorAll('h3'))
+        .find((h) => h.textContent.includes('Continuous Compliance Probes'));
+      const probeCard = probeHeading ? probeHeading.closest('div[class*="rounded-xl"]') : null;
+      const probeList = probeCard ? probeCard.children[1] : null;
+      const wormBadge = Array.from(document.querySelectorAll('span'))
+        .find((s) => s.textContent.includes('WORM LEDGER IN SYNC'));
+
+      function rowByCode(code) {
+        return matrixRows.find((row) => {
+          const first = row.querySelector('td span');
+          return first && first.textContent.trim() === code;
+        });
+      }
+
+      function evidenceCell(row) {
+        if (!row) return null;
+        const cell = row.querySelectorAll('td')[2];
+        return cell ? cell.querySelector('span.font-code-sm') : null;
+      }
+
+      function renderProbes(events) {
+        if (!probeList) return;
+        if (!events.length) {
+          probeList.innerHTML = '<p class="font-body-sm text-body-sm text-outline">'
+            + 'No probe activity yet &mdash; license, settings and vault events stream here.</p>';
+          return;
+        }
+        probeList.innerHTML = events.map((e) => {
+          const label = ACTION_LABELS[e.source + ':' + e.action] || e.action;
+          const parts = e.detail && typeof e.detail === 'object'
+            ? Object.entries(e.detail).slice(0, 2).map(([k, v]) =>
+                k + '=' + (typeof v === 'object' ? JSON.stringify(v) : String(v)).slice(0, 40))
+            : [];
+          const sub = [e.actor].concat(parts).join(' &middot; ');
+          return '<div class="flex items-start gap-2.5 p-2 rounded-lg hover:bg-surface-container-low transition-colors">'
+            + '<span class="material-symbols-outlined text-tertiary text-[18px] shrink-0 mt-0.5">'
+            + (SOURCE_ICONS[e.source] || 'check_circle') + '</span>'
+            + '<div class="flex flex-col min-w-0">'
+            + '<span class="font-body-sm text-body-sm font-medium text-on-surface">'
+            + label + ' &mdash; ' + e.subject + '</span>'
+            + '<span class="font-code-sm text-[10px] text-outline">' + sub + '</span>'
+            + '<span class="font-code-sm text-[10px] text-on-surface-variant mt-0.5">'
+            + relTime(e.created_at) + ' &bull; ' + (SOURCE_LABELS[e.source] || e.source)
+            + '</span></div></div>';
+        }).join('');
+      }
+
+      async function load() {
+        try {
+          const json = (path) => fetch(ROOT + path).then((r) => {
+            if (!r.ok) throw new Error(path + ' -> ' + r.status);
+            return r.json();
+          });
+          const [data, feed] = await Promise.all([
+            json('api/v1/overview'), json('api/v1/events?limit=3'),
+          ]);
+          const posture = data.posture;
+          const score = posture.score;
+          const violations = posture.violations;
+          const controls = posture.controls;
+          const vault = data.vault;
+          const usage = data.licenses.usage;
+
+          // Tile 1: overall posture (computed from the real control checks)
+          if (tiles[0]) {
+            const row = tiles[0].parentElement;
+            setText(tiles[0], score.toFixed(1) + '%');
+            const badge = tiles[0].nextElementSibling;
+            if (badge) {
+              const word = score >= 95 ? 'Optimal' : score >= 80 ? 'Stable' : 'Attention';
+              badge.className = 'font-label-badge text-label-badge bg-surface-container-low px-1.5 py-0.5 rounded '
+                + (word === 'Optimal' ? 'text-tertiary' : word === 'Stable' ? 'text-primary' : 'text-error');
+              badge.textContent = word;
+            }
+            const bottom = row ? row.nextElementSibling : null;
+            if (bottom && bottom.children[0]) {
+              setText(bottom.children[0], 'All ' + controls.length + ' Controls Checked');
+            }
+            if (bottom && bottom.children[1]) {
+              setText(bottom.children[1],
+                violations + ' Violation' + (violations === 1 ? '' : 's'));
+              bottom.children[1].className = violations === 0
+                ? 'text-tertiary font-medium' : 'text-error font-medium';
+            }
+            const barWrap = bottom ? bottom.nextElementSibling : null;
+            const bar = barWrap ? barWrap.querySelector('div') : null;
+            if (bar) bar.style.width = score + '%';
+          }
+
+          // Tile 2: SOC-2 pass derived from the same control checks
+          if (tiles[1]) {
+            const row = tiles[1].parentElement;
+            setText(tiles[1], score.toFixed(1) + '% Pass');
+            const badge = tiles[1].nextElementSibling;
+            if (badge) badge.textContent = violations === 0 ? 'TSC Ready' : 'Review Needed';
+            const bottom = row ? row.nextElementSibling : null;
+            if (bottom && bottom.children[0]) {
+              setText(bottom.children[0], violations === 0
+                ? 'Zero Non-Conformities' : violations + ' Non-Conformities');
+            }
+            if (bottom && bottom.children[1]) {
+              setText(bottom.children[1], controls.length + ' Criteria Validated');
+            }
+            const barWrap = bottom ? bottom.nextElementSibling : null;
+            const bar = barWrap ? barWrap.querySelector('div') : null;
+            if (bar) bar.style.width = score + '%';
+          }
+
+          // Tile 3: evidence records = total audit-trail entries
+          setText(tiles[2], data.counters.total_events.toLocaleString());
+
+          // Controls matrix: cells backed by the vault inventory and license usage
+          setText(evidenceCell(rowByCode('CC6.2')),
+            Math.max(0, vault.total - vault.rotation.due - vault.attention.failed)
+              + ' rotated creds');
+          setText(evidenceCell(rowByCode('CC6.6')),
+            usage.nodes.toLocaleString() + ' target bastions');
+
+          // Continuous compliance probes = unified audit feed
+          renderProbes(feed.events);
+
+          // Header WORM badge follows the immutability setting; footer node count
+          if (wormBadge && !data.settings.worm_immutable) {
+            wormBadge.textContent = 'WORM LOCK DISABLED';
+          }
+          const footer = document.querySelector('footer');
+          const footerNodes = footer
+            ? Array.from(footer.querySelectorAll('span'))
+                .find((s) => s.textContent.includes('Nodes connected'))
+            : null;
+          setText(footerNodes, '(' + usage.nodes.toLocaleString() + ' licensed nodes)');
+        } catch (err) {
+          console.info('Compliance API unreachable - static design preview kept.', err);
+        }
+      }
+
+      load();
+    })();
+  </script>
 </div></main><footer class="fixed bottom-0 left-64 right-0 h-10 bg-surface-container-lowest/95 backdrop-blur-sm border-t border-outline-variant/30 z-30 flex items-center justify-between px-space-xl text-on-surface-variant font-code-sm text-code-sm shadow-[0_-1px_4px_rgba(0,0,0,0.02)]"><div class="flex items-center gap-space-md"><div class="flex items-center gap-1.5"><span class="w-2 h-2 rounded-full bg-tertiary"></span><span class="text-on-surface font-medium">Zero-Trust Gateway: Healthy</span><span class="text-outline">(18 Nodes connected)</span></div><span class="text-outline-variant">•</span><span class="text-tertiary font-semibold">0 standing admin accounts</span></div><div class="flex items-center gap-space-lg text-outline"><span>Session TLS 1.3 Strict</span><span>mTLS Enforced</span><span>Audit Digest Verified</span></div></footer></div></body></html>

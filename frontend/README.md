@@ -28,12 +28,19 @@ frontend/
 | `GET /index.html` | launcher |
 | `GET /` · `GET /license` | **live** Licensing screen (talks to `/api/v1/licenses*`) |
 | `GET /settings` | **live** Platform Settings screen (talks to `/api/v1/settings*`) |
+| `GET /screens/pam_command_center_threat_dashboard/code.html` | **live** Command Center (talks to `/api/v1/overview` + `/api/v1/events`) |
+| `GET /screens/credential_vault_secrets_inventory/code.html` | **live** Credential Vault (talks to `/api/v1/vault/*`) |
+| `GET /screens/compliance_soc_2_audit_center/code.html` | **live** Compliance (talks to `/api/v1/overview` + `/api/v1/events`) |
 | `GET /screens/<name>/code.html` | any other screen |
 | `GET /screens/<name>/screen.png` | preview image |
 
 Screens are **siblings** under `screens/`, which is exactly what makes the
 shared sidebar's `../<screen>/code.html` links resolve — keep new screens at
 that level.
+
+Live screens fetch on load and keep their static design content as the
+fallback, so they still render when opened as `file://` or when the API is
+unreachable.
 
 ## Adding a screen (the contract)
 

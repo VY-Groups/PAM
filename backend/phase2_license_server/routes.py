@@ -286,3 +286,102 @@ def put_platform_settings(group: str):
     body = _json_body()
     actor = (request.headers.get("X-Actor") or "admin").strip()[:64] or "admin"
     return jsonify(service.update_settings(group, body, actor=actor))
+
+
+# ---------------------------------------------------------------------------
+# dashboard (Command Center + Compliance screens)
+# ---------------------------------------------------------------------------
+def _actor(default: str = "admin") -> str:
+    """Who is acting: X-Actor header, else the configured default."""
+    return (request.headers.get("X-Actor") or default).strip()[:64] or default
+
+
+@api.get("/overview")
+def get_overview():
+    """One aggregate: health, license posture, vault, settings, activity."""
+    return jsonify(service.overview())
+
+
+@api.get("/events")
+def get_events():
+    """Recent activity across the license, settings and vault audit trails."""
+    limit = min(_int_param("limit", 20), MAX_PAGE_SIZE)
+    return jsonify(service.unified_events(source=request.args.get("source"), limit=limit))
+
+
+# ---------------------------------------------------------------------------
+# credential vault (Credential Vault screen)
+# ---------------------------------------------------------------------------
+@api.get("/vault/stats")
+def get_vault_stats():
+    """Inventory aggregates: totals by type/status, rotation compliance."""
+    return jsonify(service.vault_stats())
+
+
+@api.get("/vault/items")
+def list_vault_items():
+    limit = min(_int_param("limit", 50), MAX_PAGE_SIZE)
+    offset = _int_param("offset", 0)
+    items, total = service.list_vault_items(
+        q=request.args.get("q"),
+        secret_type=request.args.get("type"),
+        status=request.args.get("status"),
+        limit=limit,
+        offset=offset,
+    )
+    return jsonify(
+        {
+            "items": [item.to_dict() for item in items],
+            "total": total,
+            "limit": limit,
+            "offset": offset,
+        }
+    )
+
+
+@api.get("/vault/items/<int:item_id>")
+def get_vault_item(item_id: int):
+    item = service.get_vault_item(item_id)
+    payload = item.to_dict()
+    payload["events"] = [
+        event.to_dict() for event in service.vault_item_events(item_id, limit=10)
+    ]
+    return jsonify({"item": payload})
+
+
+@api.post("/vault/items")
+@require_admin
+def create_vault_item():
+    item = service.onboard_vault_item(_json_body(), actor=_actor())
+    return jsonify({"item": item.to_dict(), "message": "Credential onboarded"}), 201
+
+
+@api.post("/vault/items/<int:item_id>/checkout")
+@require_admin
+def checkout_vault_item(item_id: int):
+    body = _json_body(required=False)
+    item = service.checkout_vault_item(
+        item_id, actor=_actor(), reason=body.get("reason")
+    )
+    return jsonify({"item": item.to_dict(), "message": "Credential checked out"})
+
+
+@api.post("/vault/items/<int:item_id>/revoke")
+@require_admin
+def revoke_vault_checkout(item_id: int):
+    item = service.revoke_vault_checkout(item_id, actor=_actor())
+    return jsonify({"item": item.to_dict(), "message": "Checkout revoked"})
+
+
+@api.post("/vault/items/<int:item_id>/rotate")
+@require_admin
+def rotate_vault_item(item_id: int):
+    item = service.rotate_vault_item(item_id, actor=_actor())
+    return jsonify({"item": item.to_dict(), "message": "Rotation recorded"})
+
+
+@api.get("/vault/events")
+def get_vault_events():
+    """Vault audit trail (onboarding, checkouts, rotations), newest first."""
+    limit = min(_int_param("limit", 20), MAX_PAGE_SIZE)
+    return jsonify(service.vault_events(limit))

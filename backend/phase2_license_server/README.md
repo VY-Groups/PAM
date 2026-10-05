@@ -22,12 +22,13 @@ Supported wire formats and algorithms:
 | `app.py` | Flask app factory, error handlers, `/health`, screen routes, `python app.py` entrypoint |
 | `config.py` | Environment-driven configuration (`.env` supported) |
 | `routes.py` | HTTP layer: parsing, auth, status codes |
-| `service.py` | Business logic: issue, list, revoke, restore, validate, usage, checks, `meta`, platform settings |
-| `models.py` | `LicenseRecord` (signed license + spec fields), `LicenseEvent`, `SettingGroup` + `SettingsEvent` (config changelog) |
+| `service.py` | Business logic: issue, list, revoke, restore, validate, usage, checks, `meta`, platform settings, credential vault, dashboard overview + unified events |
+| `models.py` | `LicenseRecord` (signed license + spec fields), `LicenseEvent`, `SettingGroup` + `SettingsEvent` (config changelog), `VaultItem` + `VaultEvent` (vault inventory + audit) |
 | `keys.py` | Startup key checks (fail fast, public/private must match, both algorithms) |
 | `licensing_bridge.py` | Path bootstrap + cached Phase 1 `LicenseGenerator`/`LicenseValidator` |
 | `tests/test_api.py` | End-to-end license API tests |
 | `tests/test_settings_and_ui.py` | Settings CRUD/auth/validation/audit + frontend navigation tests |
+| `tests/test_vault_dashboard.py` | Vault inventory/rotation/checkout + dashboard overview + unified event feed tests |
 | `tests/test_openapi_contract.py` | `apis/openapi.yaml` ↔ live route map (both directions) |
 
 ## Quick start
@@ -80,6 +81,15 @@ it loads the four configuration groups plus their schema, renders editable
 controls, tracks dirty fields, saves through the admin token and shows the live
 configuration changelog.
 
+Three more screens render from the dashboard API: the **Command Center** and
+**Compliance** screens (`GET /api/v1/overview` + the unified
+`GET /api/v1/events` feed — health, license posture, vault stats, computed
+control posture, recent activity) and the **Credential Vault**
+(`GET/POST /api/v1/vault/*` — seeded inventory with rotation SLA, type/status
+filters, JIT checkouts and an audit trail). Each fetches on load and keeps its
+static design content as the fallback, so it still renders when opened as
+`file://` or when the API is unreachable.
+
 The rest of the console is served read-only from `../frontend` by a
 catch-all route: open `GET /index.html` for the launcher (every screen with
 LIVE / STATIC / SPEC badges), then any `screens/<name>/code.html`. The
@@ -87,11 +97,12 @@ catch-all never shadows `/health` or `/api/v1/*` and refuses any path
 resolving outside the frontend folder.
 
 First start creates `licenses.db` in this folder (override with
-`LICENSE_DATABASE_URI`), validates the key pairs in the repository root and
-adds any columns introduced by a later spec revision.
+`LICENSE_DATABASE_URI`), validates the key pairs in the repository root, adds
+any columns introduced by a later spec revision and seeds the initial vault
+inventory once (20 credentials with genuine rotation/checkout state).
 
 ```bash
-python -m pytest tests -q     # 86 tests  (168 across both phases, run from the repo root)
+python -m pytest tests -q     # 104 tests  (186 across both phases, run from the repo root)
 ```
 
 ## Configuration
@@ -133,6 +144,16 @@ cross-checked against these routes by `tests/test_openapi_contract.py`.
 | GET | `/settings` | – | Stored configuration + editable schema (`sso`, `hsm`, `zsp`, `worm`) |
 | GET | `/settings/audit?limit=` | – | Configuration changelog, newest first |
 | PUT | `/settings/<group>` | admin | Merge-update one group, returns the per-field change diff |
+| GET | `/overview` | – | Dashboard aggregate: health, license posture, vault stats, settings, counters, computed control posture, recent activity |
+| GET | `/events?limit=&source=` | – | Unified audit feed across the license / settings / vault trails, newest first |
+| GET | `/vault/stats` | – | Inventory aggregates: totals by type/status, rotation compliance, checkouts, today's events |
+| GET | `/vault/items?…` | – | List inventory (`q`, `type`, `status`, `limit`, `offset`) |
+| POST | `/vault/items` | admin | Onboard a credential (201, strictly validated) |
+| GET | `/vault/items/<id>` | – | One credential plus its recent audit events |
+| POST | `/vault/items/<id>/checkout` | admin | JIT checkout (body `{"reason"}`), records who and when |
+| POST | `/vault/items/<id>/revoke` | admin | End an active checkout |
+| POST | `/vault/items/<id>/rotate` | admin | Rotate now — also retries a failed rotation |
+| GET | `/vault/events?limit=` | – | Vault audit trail (onboarding, checkouts, rotations) |
 
 Admin auth: `Authorization: Bearer <token>` or `X-Admin-Token: <token>`.
 
@@ -263,6 +284,45 @@ curl -s "http://127.0.0.1:5000/api/v1/settings/audit?limit=20"
 - Reads are public so the screen can render read-only without a token; `PUT`
   requires the admin token unless `LICENSE_ADMIN_TOKEN` is unset (open mode,
   responses then carry `X-Auth-Mode: open`).
+
+### Vault & dashboard
+
+```bash
+# dashboard aggregate powering the Command Center / Compliance screens
+curl -s http://127.0.0.1:5000/api/v1/overview
+
+# unified audit feed (license + settings + vault trails, newest first)
+curl -s "http://127.0.0.1:5000/api/v1/events?limit=10"
+
+# inventory aggregates: rotation compliance, checkouts, attention list
+curl -s http://127.0.0.1:5000/api/v1/vault/stats
+
+# filter the inventory: q / type / status / limit / offset
+curl -s "http://127.0.0.1:5000/api/v1/vault/items?type=ssh_key&status=available"
+
+# JIT checkout then release it (admin) - both write the vault audit trail
+curl -s -X POST http://127.0.0.1:5000/api/v1/vault/items/3/checkout \
+  -H "Authorization: Bearer $LICENSE_ADMIN_TOKEN" -H "X-Actor: alice" \
+  -H "Content-Type: application/json" \
+  -d '{"reason": "INC-9942 database maintenance"}'
+curl -s -X POST http://127.0.0.1:5000/api/v1/vault/items/3/revoke \
+  -H "Authorization: Bearer $LICENSE_ADMIN_TOKEN" -H "X-Actor: alice"
+
+# rotate now - also the retry path for a failed rotation
+curl -s -X POST http://127.0.0.1:5000/api/v1/vault/items/5/rotate \
+  -H "Authorization: Bearer $LICENSE_ADMIN_TOKEN" -H "X-Actor: alice"
+```
+
+- First start seeds 20 credentials covering every type/status combination the
+  vault screen filters on; the seed only runs against an empty table.
+- Rotation compliance = `in-policy / total` where in-policy excludes
+  rotation-due and failed items. The dashboard posture score computes from
+  eight real controls (`worm_retention`, `audit_evidence`, `quantum_safe`,
+  `rotation_sla`, `sso_mfa`, `tier0_quorum`, `admin_auth`, `hsm_backed`) —
+  `audit_evidence` only passes once the audit trail has entries, so a fresh
+  database honestly reports a lower score.
+- Reads are public; the three write routes require the admin token in token
+  mode (open mode stays open) and record who acted via `X-Actor`.
 
 ## Design notes
 

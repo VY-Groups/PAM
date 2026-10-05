@@ -30,6 +30,8 @@ tags:
     description: Offline-parity validation and entitlement checks
   - name: settings
     description: Platform Settings screen (SSO / HSM / ZSP / WORM)
+  - name: vault
+    description: Credential vault inventory, rotation and checkouts
 paths:
   /health:
     get:
@@ -377,6 +379,226 @@ paths:
         "400": {$ref: "#/components/responses/BadRequest"}
         "401": {$ref: "#/components/responses/Unauthorized"}
         "404": {$ref: "#/components/responses/NotFound"}
+
+  /api/v1/overview:
+    get:
+      tags: [ops]
+      summary: Dashboard aggregate for the Command Center and Compliance screens
+      description: |
+        Health, license posture, vault stats, settings posture, event
+        counters, a computed control posture (`score`, `violations`, per-control
+        `passed` / `evidence`) and the six most recent activity entries.
+      responses:
+        "200":
+          description: Aggregated dashboard payload
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/Overview"}
+
+  /api/v1/events:
+    get:
+      tags: [ops]
+      summary: Unified recent activity feed
+      description: Recent entries across the license, settings and vault audit trails, newest first.
+      parameters:
+        - name: source
+          in: query
+          schema: {type: string, enum: [license, settings, vault]}
+        - name: limit
+          in: query
+          schema: {type: integer, minimum: 0, maximum: 200, default: 20}
+      responses:
+        "200":
+          description: Events newest first across the selected trails
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/EventFeed"}
+        "400": {$ref: "#/components/responses/BadRequest"}
+
+  /api/v1/vault/stats:
+    get:
+      tags: [vault]
+      summary: Inventory aggregates
+      description: Totals by type and status, rotation compliance, checkout count and today's events.
+      responses:
+        "200":
+          description: Vault statistics
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/VaultStats"}
+
+  /api/v1/vault/items:
+    get:
+      tags: [vault]
+      summary: List inventory rows
+      parameters:
+        - name: q
+          in: query
+          description: Free-text search across name, description, target and principal.
+          schema: {type: string}
+        - name: type
+          in: query
+          schema:
+            type: string
+            enum: [database, cloud_iam, ssh_key, service_account, domain_password, api_token]
+        - name: status
+          in: query
+          schema:
+            type: string
+            enum: [available, checked_out, rotating, rotation_due, failed]
+        - {$ref: "#/components/parameters/Limit"}
+        - {$ref: "#/components/parameters/Offset"}
+      responses:
+        "200":
+          description: Page of inventory rows
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/VaultItemList"}
+        "400": {$ref: "#/components/responses/BadRequest"}
+    post:
+      tags: [vault]
+      summary: Onboard a credential
+      description: Validates the payload strictly, stamps the first rotation window and records an audit event.
+      security:
+        - bearerAuth: []
+        - adminTokenHeader: []
+        - {}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: "#/components/schemas/VaultOnboardRequest"}
+      responses:
+        "201":
+          description: Credential added to the inventory
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/VaultActionResponse"}
+        "400": {$ref: "#/components/responses/BadRequest"}
+        "401": {$ref: "#/components/responses/Unauthorized"}
+
+  /api/v1/vault/items/{item_id}:
+    get:
+      tags: [vault]
+      summary: Inventory row detail with its audit trail
+      parameters:
+        - name: item_id
+          in: path
+          required: true
+          schema: {type: integer, minimum: 1}
+      responses:
+        "200":
+          description: One credential plus its recent events
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/VaultItemDetail"}
+        "404": {$ref: "#/components/responses/NotFound"}
+
+  /api/v1/vault/items/{item_id}/checkout:
+    post:
+      tags: [vault]
+      summary: Check a credential out (JIT)
+      security:
+        - bearerAuth: []
+        - adminTokenHeader: []
+        - {}
+      parameters:
+        - name: item_id
+          in: path
+          required: true
+          schema: {type: integer, minimum: 1}
+        - name: X-Actor
+          in: header
+          description: Who is checking the credential out (recorded in the audit trail).
+          schema: {type: string, maxLength: 64}
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                reason: {type: string, maxLength: 255}
+      responses:
+        "200":
+          description: Credential checked out
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/VaultActionResponse"}
+        "400": {$ref: "#/components/responses/BadRequest"}
+        "401": {$ref: "#/components/responses/Unauthorized"}
+        "404": {$ref: "#/components/responses/NotFound"}
+
+  /api/v1/vault/items/{item_id}/revoke:
+    post:
+      tags: [vault]
+      summary: End an active checkout
+      security:
+        - bearerAuth: []
+        - adminTokenHeader: []
+        - {}
+      parameters:
+        - name: item_id
+          in: path
+          required: true
+          schema: {type: integer, minimum: 1}
+        - name: X-Actor
+          in: header
+          description: Who revokes the checkout (recorded in the audit trail).
+          schema: {type: string, maxLength: 64}
+      responses:
+        "200":
+          description: Checkout ended, credential available again
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/VaultActionResponse"}
+        "400": {$ref: "#/components/responses/BadRequest"}
+        "401": {$ref: "#/components/responses/Unauthorized"}
+        "404": {$ref: "#/components/responses/NotFound"}
+
+  /api/v1/vault/items/{item_id}/rotate:
+    post:
+      tags: [vault]
+      summary: Rotate now (also retries a failed rotation)
+      description: Stamps a fresh rotation window, clears any checkout and records a `rotated` event.
+      security:
+        - bearerAuth: []
+        - adminTokenHeader: []
+        - {}
+      parameters:
+        - name: item_id
+          in: path
+          required: true
+          schema: {type: integer, minimum: 1}
+        - name: X-Actor
+          in: header
+          description: Who triggers the rotation (recorded in the audit trail).
+          schema: {type: string, maxLength: 64}
+      responses:
+        "200":
+          description: Rotation recorded, status available
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/VaultActionResponse"}
+        "400": {$ref: "#/components/responses/BadRequest"}
+        "401": {$ref: "#/components/responses/Unauthorized"}
+        "404": {$ref: "#/components/responses/NotFound"}
+
+  /api/v1/vault/events:
+    get:
+      tags: [vault]
+      summary: Vault audit trail
+      description: Onboarding, checkouts, revocations and rotations, newest first.
+      parameters:
+        - name: limit
+          in: query
+          schema: {type: integer, minimum: 0, maximum: 200, default: 20}
+      responses:
+        "200":
+          description: Vault events
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/VaultEventFeed"}
 
 components:
   securitySchemes:
@@ -735,3 +957,212 @@ components:
               created_at: {type: string}
         total: {type: integer}
         limit: {type: integer}
+
+    # --- dashboard + credential vault -------------------------------------
+    Overview:
+      type: object
+      required: [generated_at, health, licenses, vault, settings, counters, posture, activity]
+      properties:
+        generated_at: {type: string}
+        health:
+          type: object
+          properties:
+            status: {type: string, enum: [ok, degraded]}
+            auth: {type: string, enum: [token, open]}
+            algorithms: {type: array, items: {type: string}}
+            formats: {type: array, items: {type: string}}
+        licenses:
+          type: object
+          properties:
+            total: {type: integer}
+            active: {type: integer}
+            revoked: {type: integer}
+            expired: {type: integer}
+            expiring_soon: {type: integer}
+            by_tier: {type: object, additionalProperties: {type: integer}}
+            usage:
+              type: object
+              properties:
+                nodes: {type: integer}
+                sessions: {type: integer}
+                bastion_tunnels: {type: integer}
+                reported_licenses: {type: integer}
+        vault: {$ref: "#/components/schemas/VaultStats"}
+        settings:
+          type: object
+          properties:
+            groups: {type: integer}
+            groups_stored: {type: integer}
+            worm_retention_days: {type: integer}
+            worm_immutable: {type: boolean}
+            zsp_quorum_approvers: {type: integer}
+            sso_provider: {type: string}
+        counters:
+          type: object
+          properties:
+            license_events: {type: integer}
+            settings_events: {type: integer}
+            vault_events: {type: integer}
+            total_events: {type: integer}
+        posture:
+          type: object
+          required: [score, violations, controls]
+          properties:
+            score: {type: number}
+            violations: {type: integer}
+            controls:
+              type: array
+              items:
+                type: object
+                required: [id, label, passed, evidence]
+                properties:
+                  id: {type: string}
+                  label: {type: string}
+                  passed: {type: boolean}
+                  evidence: {type: string}
+        activity:
+          type: array
+          items: {$ref: "#/components/schemas/UnifiedEvent"}
+
+    UnifiedEvent:
+      type: object
+      required: [id, source, action, subject, actor, created_at]
+      properties:
+        id: {type: string, description: 'Source-prefixed id, e.g. "vault:12".'}
+        source: {type: string, enum: [license, settings, vault]}
+        action: {type: string}
+        subject: {type: string, description: License key, settings group or vault item name}
+        actor: {type: string}
+        detail: {type: object, additionalProperties: true}
+        created_at: {type: string}
+
+    EventFeed:
+      type: object
+      required: [events, total, limit, source]
+      properties:
+        events:
+          type: array
+          items: {$ref: "#/components/schemas/UnifiedEvent"}
+        total: {type: integer}
+        limit: {type: integer}
+        source: {type: string, enum: [license, settings, vault, all]}
+
+    VaultStats:
+      type: object
+      required: [total, by_type, by_status, rotation, attention, checked_out, events_today]
+      properties:
+        total: {type: integer}
+        by_type: {type: object, additionalProperties: {type: integer}}
+        by_status: {type: object, additionalProperties: {type: integer}}
+        rotation:
+          type: object
+          properties:
+            compliance_pct: {type: number}
+            due: {type: integer}
+            on_demand: {type: integer}
+        attention:
+          type: object
+          properties:
+            failed: {type: integer}
+        checked_out: {type: integer}
+        events_today:
+          type: object
+          properties:
+            checkouts: {type: integer}
+            rotations: {type: integer}
+
+    VaultItem:
+      type: object
+      required: [id, name, secret_type, target, principal, rotation_interval_hours,
+                 rotation_interval_label, status, created_at]
+      properties:
+        id: {type: integer}
+        name: {type: string}
+        secret_type:
+          type: string
+          enum: [database, cloud_iam, ssh_key, service_account, domain_password, api_token]
+        description: {type: string}
+        target: {type: string}
+        target_detail: {type: string}
+        principal: {type: string}
+        access_tier: {type: string, enum: [Tier-0, Tier-1, Tier-2]}
+        auth_method: {type: string}
+        rotation_interval_hours: {type: integer, minimum: 0, maximum: 8760}
+        rotation_interval_label: {type: string, description: "On-demand, Every 24h or Every 7d"}
+        rotation_hours_remaining: {type: [integer, "null"]}
+        last_rotated_at: {type: [string, "null"]}
+        status: {type: string, enum: [available, checked_out, rotating, rotation_due, failed]}
+        checked_out_by: {type: [string, "null"]}
+        checked_out_at: {type: [string, "null"]}
+        created_at: {type: string}
+
+    VaultItemList:
+      type: object
+      required: [items, total, limit, offset]
+      properties:
+        items:
+          type: array
+          items: {$ref: "#/components/schemas/VaultItem"}
+        total: {type: integer}
+        limit: {type: integer}
+        offset: {type: integer}
+
+    VaultItemDetail:
+      type: object
+      required: [item]
+      properties:
+        item:
+          allOf:
+            - $ref: "#/components/schemas/VaultItem"
+            - type: object
+              properties:
+                events:
+                  type: array
+                  items: {$ref: "#/components/schemas/VaultEvent"}
+
+    VaultEvent:
+      type: object
+      required: [id, item_id, item_name, action, actor, created_at]
+      properties:
+        id: {type: integer}
+        item_id: {type: integer}
+        item_name: {type: string}
+        action:
+          type: string
+          enum: [onboarded, checked_out, revoked, rotated, rotation_failed]
+        actor: {type: string}
+        detail: {type: object, additionalProperties: true}
+        created_at: {type: string}
+
+    VaultEventFeed:
+      type: object
+      required: [events, total, limit]
+      properties:
+        events:
+          type: array
+          items: {$ref: "#/components/schemas/VaultEvent"}
+        total: {type: integer}
+        limit: {type: integer}
+
+    VaultOnboardRequest:
+      type: object
+      required: [name, secret_type, target, principal]
+      properties:
+        name: {type: string, maxLength: 120}
+        secret_type:
+          type: string
+          enum: [database, cloud_iam, ssh_key, service_account, domain_password, api_token]
+        description: {type: string, maxLength: 255}
+        target: {type: string, maxLength: 255}
+        target_detail: {type: string, maxLength: 255}
+        principal: {type: string, maxLength: 128}
+        access_tier: {type: string, enum: [Tier-0, Tier-1, Tier-2], default: Tier-2}
+        auth_method: {type: string, maxLength: 32, default: Password}
+        rotation_interval_hours: {type: integer, minimum: 0, maximum: 8760, default: 24}
+
+    VaultActionResponse:
+      type: object
+      required: [item, message]
+      properties:
+        item: {$ref: "#/components/schemas/VaultItem"}
+        message: {type: string}
