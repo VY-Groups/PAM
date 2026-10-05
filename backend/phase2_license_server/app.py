@@ -22,7 +22,6 @@ from keys import KeyConfigError, ensure_keys
 from licensing_bridge import sig
 from models import ensure_schema
 from routes import api
-from service import seed_vault_if_empty
 
 logger = logging.getLogger(__name__)
 
@@ -133,18 +132,15 @@ def create_app(config: Optional[Config] = None) -> Flask:
             abort(404)
         return send_from_directory(str(target.parent), target.name)
 
-    # Fail fast on unusable signing keys, then create missing tables, append
-    # any columns introduced by later spec revisions, and load the initial
-    # vault inventory on a fresh database.
+    # Fail fast on unusable signing keys, then create missing tables and append
+    # any columns introduced by later spec revisions. The vault starts empty:
+    # credentials only ever enter it through the onboarding API (no fake data).
     ensure_keys(config)
     with app.app_context():
         db.create_all()
         added = ensure_schema(db.engine)
         if added:
             logger.info("Schema migrated, added columns: %s", ", ".join(added))
-        seeded = seed_vault_if_empty()
-        if seeded:
-            logger.info("Vault seeded with %d credentials", seeded)
 
     return app
 

@@ -38,9 +38,12 @@ Screens are **siblings** under `screens/`, which is exactly what makes the
 shared sidebar's `../<screen>/code.html` links resolve — keep new screens at
 that level.
 
-Live screens fetch on load and keep their static design content as the
-fallback, so they still render when opened as `file://` or when the API is
-unreachable.
+Live screens fetch on load and fall back to **honest placeholders** — never
+invented values. Opened as `file://` or with the API unreachable, `—` and
+"not connected" markers stay on screen; sections without a backing module say
+so instead of showing numbers; when data does load, every figure comes from the
+API response (the three live screens are scanned for legacy fake strings in
+`shots_tool/__verify_live.mjs`, HTTP and `file://` modes).
 
 ## Adding a screen (the contract)
 
@@ -55,6 +58,9 @@ unreachable.
    (`OWN_INDEX`, plus `CANONICAL_NAV` when it joins the sidebar) — the nav
    and launcher tests fail on drift.
 5. Capture `screens/<name>/screen.png` at the screen's viewport size.
+6. **No fake data, ever**: static markup, JS render paths, failure toasts and
+   empty states must show only real, computed, or honestly-empty values
+   (`—` / "module not connected") in every load mode (live, `file://`, API down).
 
 ## Future
 

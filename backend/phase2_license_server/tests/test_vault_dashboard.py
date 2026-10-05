@@ -1,10 +1,17 @@
 """Tests for the credential vault, dashboard overview and activity feed.
 
+The vault starts empty -- there is no seeded or fabricated inventory, only
+credentials onboarded through the public API, exactly like a real deployment.
+Tests therefore create everything they assert on: via `POST /vault/items` for
+normal flow, or a direct model insert for states no API produces yet
+(`rotating`, `failed`, an overdue SLA window).
+
 Run with:  python -m pytest backend/phase2_license_server/tests -q
 """
 from __future__ import annotations
 
 import sys
+from datetime import datetime, timedelta
 from pathlib import Path
 
 import pytest
@@ -16,15 +23,16 @@ if str(SERVER_DIR) not in sys.path:
 
 from app import create_app  # noqa: E402
 from config import Config  # noqa: E402
-from models import VAULT_TYPES  # noqa: E402
+from models import (  # noqa: E402
+    VAULT_STATUS_FAILED,
+    VAULT_STATUS_ROTATING,
+    VAULT_TYPES,
+    VaultItem,
+    db,
+)
 
 ADMIN = {"Authorization": "Bearer test-admin-token"}
 ACTOR = {"X-Actor": "tester", "Authorization": "Bearer test-admin-token"}
-
-# Seeded workflow rows (insertion order): rotating, failed and checked-out ids.
-ROTATING_ID = 4
-FAILED_ID = 5
-CHECKED_OUT_ID = 2
 
 
 @pytest.fixture
@@ -43,9 +51,14 @@ def config(tmp_path: Path) -> Config:
 
 
 @pytest.fixture
-def client(config: Config):
-    app = create_app(config)
-    app.config["TESTING"] = True
+def app(config: Config):
+    application = create_app(config)
+    application.config["TESTING"] = True
+    return application
+
+
+@pytest.fixture
+def client(app):
     return app.test_client()
 
 
@@ -55,65 +68,122 @@ def issue(client, **overrides):
     return client.post("/api/v1/licenses", json=payload, headers=ADMIN)
 
 
+def onboard(client, name, **overrides):
+    """Onboard a credential through the public API (the only way in)."""
+    payload = {
+        "name": name,
+        "secret_type": "database",
+        "target": "db.internal",
+        "principal": "admin",
+        "access_tier": "Tier-1",
+        "auth_method": "Password",
+        "rotation_interval_hours": 24,
+    }
+    payload.update(overrides)
+    response = client.post("/api/v1/vault/items", json=payload, headers=ACTOR)
+    assert response.status_code == 201, response.get_json()
+    return response.get_json()["item"]
+
+
+def insert_item(app, name, *, status="available", secret_type="database",
+                rotation_interval_hours=24, rotated_hours_ago=None):
+    """Model-level insert for states the API does not produce yet.
+
+    `rotating` and `failed` only originate from a real rotation engine, and an
+    overdue window needs a backdated `last_rotated_at`; tests stand them up
+    directly instead of faking an endpoint for them.
+    """
+    with app.app_context():
+        item = VaultItem(
+            name=name,
+            secret_type=secret_type,
+            description="test fixture",
+            target="db.test.internal",
+            target_detail="",
+            principal="admin",
+            access_tier="Tier-1",
+            auth_method="Password",
+            rotation_interval_hours=rotation_interval_hours,
+            last_rotated_at=(
+                datetime.now() - timedelta(hours=rotated_hours_ago)
+                if rotated_hours_ago is not None
+                else datetime.now()
+            ),
+            status=status,
+        )
+        db.session.add(item)
+        db.session.commit()
+        return item.id
+
+
 # ---------------------------------------------------------------------------
 # vault inventory
 # ---------------------------------------------------------------------------
-def test_seed_loads_initial_inventory(client):
+def test_vault_starts_empty_no_fabricated_inventory(client):
     stats = client.get("/api/v1/vault/stats").get_json()
-    assert stats["total"] == 20
-    assert sum(stats["by_status"].values()) == stats["total"]
-    assert set(stats["by_type"]) == set(VAULT_TYPES)
-    assert stats["by_status"]["checked_out"] == 2
-    assert stats["by_status"]["rotating"] == 1
-    assert stats["by_status"]["failed"] == 1
-    assert stats["rotation"]["due"] >= 1
-    assert 0 < stats["rotation"]["compliance_pct"] <= 100
-    assert stats["attention"]["failed"] == 1
+    assert stats["total"] == 0
+    assert stats["by_type"] == {kind: 0 for kind in VAULT_TYPES}
+    assert sum(stats["by_status"].values()) == 0
+    assert stats["rotation"] == {"compliance_pct": 100.0, "due": 0, "on_demand": 0}
+    assert stats["attention"] == {"failed": 0}
+    assert stats["checked_out"] == 0
     assert stats["events_today"] == {"checkouts": 0, "rotations": 0}
 
+    page = client.get("/api/v1/vault/items").get_json()
+    assert page == {"items": [], "total": 0, "limit": 50, "offset": 0}
 
-def test_seed_runs_once_per_database(config, tmp_path):
-    app = create_app(config)
-    app.config["TESTING"] = True
-    other = create_app(config)  # same database file: must not duplicate rows
-    with app.app_context():
-        from models import VaultItem
 
-        assert VaultItem.query.count() == 20
-    with other.app_context():
-        from models import VaultItem
+def test_onboarding_is_the_only_inventory_source(config):
+    first = create_app(config)
+    first.config["TESTING"] = True
+    # a second app on the same database must not invent extra rows (no seed)
+    second = create_app(config)
+    second.config["TESTING"] = True
 
-        assert VaultItem.query.count() == 20
+    onboard(first.test_client(), "shared-credential", target="db.shared.internal")
+
+    for application in (first, second):
+        with application.app_context():
+            assert VaultItem.query.count() == 1
 
 
 def test_list_items_and_filters(client):
+    onboard(client, "pg-primary", target="pg-primary.internal")
+    onboard(client, "pg-replica", target="pg-replica.internal")
+    onboard(client, "aws-root", secret_type="cloud_iam", target="iam.amazonaws.com")
+    onboard(client, "bastion-ssh", secret_type="ssh_key", target="bastion.internal")
+    onboard(client, "ci-token", secret_type="api_token", target="ci.internal")
+    onboard(client, "ad-admin", secret_type="domain_password", target="dc01.internal")
+    onboard(client, "k8s-admin", secret_type="service_account", target="k8s.internal")
+    client.post("/api/v1/vault/items/5/checkout", headers=ACTOR)
+
     page = client.get("/api/v1/vault/items").get_json()
-    assert page["total"] == 20
-    assert len(page["items"]) == 20
+    assert page["total"] == 7
+    assert len(page["items"]) == 7
 
     databases = client.get(
         "/api/v1/vault/items", query_string={"type": "database"}
     ).get_json()
-    assert databases["total"] >= 2
+    assert databases["total"] == 2
     assert all(item["secret_type"] == "database" for item in databases["items"])
 
     checked_out = client.get(
         "/api/v1/vault/items", query_string={"status": "checked_out"}
     ).get_json()
-    assert checked_out["total"] == 2
+    assert checked_out["total"] == 1
 
     search = client.get(
-        "/api/v1/vault/items", query_string={"q": "postgres"}
+        "/api/v1/vault/items", query_string={"q": "pg-"}
     ).get_json()
-    assert search["total"] >= 1
-    assert any("postgres" in item["name"] for item in search["items"])
+    assert search["total"] == 2
+    assert all("pg-" in item["name"] for item in search["items"])
 
     window = client.get(
-        "/api/v1/vault/items", query_string={"limit": 5, "offset": 5}
+        "/api/v1/vault/items", query_string={"limit": 3, "offset": 4}
     ).get_json()
-    assert len(window["items"]) == 5
-    assert window["total"] == 20
-    assert window["offset"] == 5
+    assert len(window["items"]) == 3
+    assert window["total"] == 7
+    assert window["offset"] == 4
 
 
 def test_list_items_rejects_unknown_filters(client):
@@ -124,19 +194,23 @@ def test_list_items_rejects_unknown_filters(client):
 
 
 def test_detail_includes_item_and_its_events(client):
+    onboard(client, "pg-primary", target="pg-primary.internal")
+
     detail = client.get("/api/v1/vault/items/1").get_json()
     item = detail["item"]
-    assert item["name"] == "prod-postgres-superuser"
+    assert item["name"] == "pg-primary"
     assert item["secret_type"] == "database"
     assert item["rotation_interval_label"] == "Every 1d"
-    assert item["events"] == []
+    assert [event["action"] for event in item["events"]] == ["onboarded"]
 
     assert client.get("/api/v1/vault/items/999").status_code == 404
 
 
 def test_checkout_revoke_cycle_writes_audit(client):
+    onboard(client, "pg-primary", target="pg-primary.internal")
+
     response = client.post(
-        f"/api/v1/vault/items/1/checkout",
+        "/api/v1/vault/items/1/checkout",
         json={"reason": "INC-9942"},
         headers=ACTOR,
     )
@@ -150,10 +224,11 @@ def test_checkout_revoke_cycle_writes_audit(client):
     assert again.status_code == 400
 
     events = client.get("/api/v1/vault/events").get_json()
-    assert events["total"] == 1
-    assert events["events"][0]["action"] == "checked_out"
-    assert events["events"][0]["actor"] == "tester"
-    assert events["events"][0]["detail"]["reason"] == "INC-9942"
+    assert events["total"] == 2  # onboarded + checked_out
+    newest = events["events"][0]
+    assert newest["action"] == "checked_out"
+    assert newest["actor"] == "tester"
+    assert newest["detail"]["reason"] == "INC-9942"
 
     revoke = client.post("/api/v1/vault/items/1/revoke", headers=ACTOR)
     assert revoke.status_code == 200
@@ -162,7 +237,7 @@ def test_checkout_revoke_cycle_writes_audit(client):
     assert revoked["checked_out_by"] is None
 
     assert client.post("/api/v1/vault/items/1/revoke", headers=ACTOR).status_code == 400
-    assert client.get("/api/v1/vault/events").get_json()["total"] == 2
+    assert client.get("/api/v1/vault/events").get_json()["total"] == 3
 
 
 def test_vault_actions_require_admin_token(client):
@@ -179,8 +254,10 @@ def test_vault_actions_require_admin_token(client):
     assert client.get("/api/v1/vault/stats").status_code == 200
 
 
-def test_rotate_clears_failed_status(client):
-    response = client.post(f"/api/v1/vault/items/{FAILED_ID}/rotate", headers=ACTOR)
+def test_rotate_clears_failed_status(app, client):
+    item_id = insert_item(app, "failed-rotation", status=VAULT_STATUS_FAILED)
+
+    response = client.post(f"/api/v1/vault/items/{item_id}/rotate", headers=ACTOR)
     assert response.status_code == 200
     item = response.get_json()["item"]
     assert item["status"] == "available"
@@ -193,15 +270,17 @@ def test_rotate_clears_failed_status(client):
     assert events["events"][0]["detail"]["previous_status"] == "failed"
 
 
-def test_rotate_rejects_in_flight_states(client):
-    rotating = client.post(f"/api/v1/vault/items/{ROTATING_ID}/rotate", headers=ACTOR)
-    assert rotating.status_code == 400
+def test_rotate_rejects_in_flight_states(app, client):
+    rotating_id = insert_item(app, "mid-rotation", status=VAULT_STATUS_ROTATING)
+    onboard(client, "checked-out-target")
+    client.post("/api/v1/vault/items/2/checkout", headers=ACTOR)
 
-    checked_out = client.post(
-        f"/api/v1/vault/items/{CHECKED_OUT_ID}/rotate", headers=ACTOR
-    )
-    assert checked_out.status_code == 400
-
+    assert client.post(
+        f"/api/v1/vault/items/{rotating_id}/rotate", headers=ACTOR
+    ).status_code == 400
+    assert client.post(
+        "/api/v1/vault/items/2/rotate", headers=ACTOR
+    ).status_code == 400
     assert client.post("/api/v1/vault/items/999/rotate", headers=ACTOR).status_code == 404
 
 
@@ -237,7 +316,7 @@ def test_onboard_validates_and_persists(client):
     )
     assert created.status_code == 201
     item = created.get_json()["item"]
-    assert item["id"] == 21
+    assert item["id"] == 1  # first credential in a fresh vault
     assert item["status"] == "available"
     assert item["rotation_interval_label"] == "Every 7d"
 
@@ -250,7 +329,7 @@ def test_onboard_validates_and_persists(client):
     assert duplicate.status_code == 400
 
     stats = client.get("/api/v1/vault/stats").get_json()
-    assert stats["total"] == 21
+    assert stats["total"] == 1  # rejected payloads created nothing
     events = client.get("/api/v1/vault/events").get_json()
     assert events["events"][0]["action"] == "onboarded"
 
@@ -259,11 +338,31 @@ def test_vault_events_limit(client):
     assert client.get("/api/v1/vault/events").get_json() == {
         "events": [], "total": 0, "limit": 20,
     }
+    onboard(client, "pg-primary")
     client.post("/api/v1/vault/items/1/checkout", headers=ACTOR)
-    client.post("/api/v1/vault/items/1/revoke", headers=ACTOR)
     limited = client.get("/api/v1/vault/events", query_string={"limit": 1}).get_json()
     assert len(limited["events"]) == 1
-    assert limited["total"] == 2
+    assert limited["total"] == 2  # onboarded + checked_out
+
+
+def test_posture_rotation_sla_reflects_overdue_items(app, client):
+    # fresh: nothing overdue -> rotation SLA passes
+    data = client.get("/api/v1/overview").get_json()
+    by_id = {control["id"]: control for control in data["posture"]["controls"]}
+    assert by_id["rotation_sla"]["passed"] is True
+
+    # an item past its window -> the control fails on the next read
+    insert_item(app, "overdue-credential", rotation_interval_hours=24,
+                rotated_hours_ago=48)
+    stats = client.get("/api/v1/vault/stats").get_json()
+    assert stats["rotation"]["due"] == 1
+
+    data = client.get("/api/v1/overview").get_json()
+    by_id = {control["id"]: control for control in data["posture"]["controls"]}
+    assert by_id["rotation_sla"]["passed"] is False
+    assert data["posture"]["violations"] == sum(
+        1 for control in data["posture"]["controls"] if not control["passed"]
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -274,7 +373,7 @@ def test_overview_shape_and_defaults(client):
     assert data["health"]["auth"] == "token"
     assert data["health"]["status"] == "ok"
     assert data["licenses"]["total"] == 0
-    assert data["vault"]["total"] == 20
+    assert data["vault"]["total"] == 0  # empty until real credentials onboard
     assert data["settings"]["groups"] == 4
     assert data["settings"]["worm_retention_days"] == 2555
     assert data["settings"]["zsp_quorum_approvers"] == 2
@@ -291,7 +390,9 @@ def test_overview_shape_and_defaults(client):
     assert by_id["admin_auth"]["passed"] is True      # token mode
     assert by_id["quantum_safe"]["passed"] is True    # RSA-PSS + Ed25519
     assert by_id["worm_retention"]["passed"] is True  # 2555d COMPLIANCE lock
-    assert by_id["rotation_sla"]["passed"] is False   # seed has due + failed rows
+    assert by_id["rotation_sla"]["passed"] is True    # nothing overdue yet
+    assert by_id["audit_evidence"]["passed"] is False  # no records yet
+    assert by_id["audit_evidence"]["evidence"] == "0 records"
     assert 0 <= posture["score"] <= 100
 
 
@@ -366,7 +467,7 @@ def test_events_empty_on_fresh_database(client):
 
 
 def test_unified_feed_merges_all_sources_newest_first(client):
-    client.post("/api/v1/vault/items/1/checkout", headers=ACTOR)
+    onboard(client, "pg-primary")
     client.put("/api/v1/settings/zsp", json={"tier0_quorum_approvers": 3},
                headers=ACTOR)
     issue(client)
@@ -381,10 +482,11 @@ def test_unified_feed_merges_all_sources_newest_first(client):
     settings_event = data["events"][1]
     assert settings_event["actor"] == "tester"
     assert "tier0_quorum_approvers" in settings_event["detail"]
+    assert data["events"][2]["action"] == "onboarded"
 
 
 def test_events_source_filter_and_validation(client):
-    client.post("/api/v1/vault/items/1/checkout", headers=ACTOR)
+    onboard(client, "pg-primary")
     issue(client)
 
     vault_only = client.get(

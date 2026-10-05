@@ -85,10 +85,10 @@ Three more screens render from the dashboard API: the **Command Center** and
 **Compliance** screens (`GET /api/v1/overview` + the unified
 `GET /api/v1/events` feed — health, license posture, vault stats, computed
 control posture, recent activity) and the **Credential Vault**
-(`GET/POST /api/v1/vault/*` — seeded inventory with rotation SLA, type/status
-filters, JIT checkouts and an audit trail). Each fetches on load and keeps its
-static design content as the fallback, so it still renders when opened as
-`file://` or when the API is unreachable.
+(`GET/POST /api/v1/vault/*` — onboarding via **Onboard New Credential**, rotation
+SLA, type/status filters, JIT checkouts and an audit trail). Each fetches on load
+and keeps its honest placeholder content as the fallback, so it still renders
+when opened as `file://` or when the API is unreachable.
 
 The rest of the console is served read-only from `../frontend` by a
 catch-all route: open `GET /index.html` for the launcher (every screen with
@@ -97,12 +97,14 @@ catch-all never shadows `/health` or `/api/v1/*` and refuses any path
 resolving outside the frontend folder.
 
 First start creates `licenses.db` in this folder (override with
-`LICENSE_DATABASE_URI`), validates the key pairs in the repository root, adds
-any columns introduced by a later spec revision and seeds the initial vault
-inventory once (20 credentials with genuine rotation/checkout state).
+`LICENSE_DATABASE_URI`), validates the key pairs in the repository root and adds
+any columns introduced by a later spec revision. The vault starts empty — there
+is no seed inventory: every credential enters through **Onboard New Credential**
+(`POST /api/v1/vault/items`), and the screens show real counts or honest
+"not connected" states instead of sample rows.
 
 ```bash
-python -m pytest tests -q     # 104 tests  (186 across both phases, run from the repo root)
+python -m pytest tests -q     # 105 tests  (187 across both phases, run from the repo root)
 ```
 
 ## Configuration
@@ -300,7 +302,8 @@ curl -s http://127.0.0.1:5000/api/v1/vault/stats
 # filter the inventory: q / type / status / limit / offset
 curl -s "http://127.0.0.1:5000/api/v1/vault/items?type=ssh_key&status=available"
 
-# JIT checkout then release it (admin) - both write the vault audit trail
+# inventory starts empty: onboard first (POST /api/v1/vault/items) and use the
+# returned id below - JIT checkout then release (admin), both write the vault audit trail
 curl -s -X POST http://127.0.0.1:5000/api/v1/vault/items/3/checkout \
   -H "Authorization: Bearer $LICENSE_ADMIN_TOKEN" -H "X-Actor: alice" \
   -H "Content-Type: application/json" \
@@ -313,8 +316,9 @@ curl -s -X POST http://127.0.0.1:5000/api/v1/vault/items/5/rotate \
   -H "Authorization: Bearer $LICENSE_ADMIN_TOKEN" -H "X-Actor: alice"
 ```
 
-- First start seeds 20 credentials covering every type/status combination the
-  vault screen filters on; the seed only runs against an empty table.
+- The vault starts empty — there is no seed inventory. Onboard credentials via
+  the screen's **Onboard New Credential** button or `POST /api/v1/vault/items`;
+  tests build their own fixtures.
 - Rotation compliance = `in-policy / total` where in-policy excludes
   rotation-due and failed items. The dashboard posture score computes from
   eight real controls (`worm_retention`, `audit_evidence`, `quantum_safe`,

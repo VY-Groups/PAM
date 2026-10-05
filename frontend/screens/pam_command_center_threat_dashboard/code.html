@@ -9,10 +9,10 @@
 <div class="flex items-center gap-space-sm">
 <span class="px-2 py-0.5 rounded bg-surface-container font-code-sm text-code-sm text-primary font-semibold tracking-wider uppercase">Cluster Ops / Realtime Telemetry</span>
 <span class="flex h-2 w-2 relative">
-<span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-tertiary opacity-75"></span>
-<span class="relative inline-flex rounded-full h-2 w-2 bg-tertiary"></span>
+<span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-outline opacity-75"></span>
+<span class="relative inline-flex rounded-full h-2 w-2 bg-outline"></span>
 </span>
-<span class="font-code-sm text-code-sm text-outline">Sync Delta: 0.14s</span>
+<span class="font-code-sm text-code-sm text-outline">Sync: &mdash;</span>
 </div>
 <h1 class="font-headline-xl text-headline-xl text-on-surface tracking-tight">PAM Command Center & Posture Overview</h1>
 <p class="font-body-md text-body-md text-on-surface-variant max-w-3xl">
@@ -27,7 +27,7 @@
 </button>
 <button class="flex items-center gap-1.5 px-space-md py-2 rounded-lg bg-surface-container-lowest hover:bg-surface-container text-on-surface font-label-md text-label-md transition-all shadow-sm">
 <span class="material-symbols-outlined text-[18px] text-secondary">assignment_turned_in</span>
-<span>Generate Audit Snapshot</span>
+<span>Export Audit Events (CSV)</span>
 </button>
 <button class="flex items-center gap-1.5 px-space-md py-2 rounded-lg bg-error hover:bg-error/90 text-on-error font-label-md text-label-md transition-all shadow-sm font-semibold tracking-wide" id="btn-lockdown">
 <span class="material-symbols-outlined text-[18px]">lock_reset</span>
@@ -43,18 +43,18 @@
 <div class="flex items-start justify-between">
 <span class="font-label-md text-label-md text-on-surface-variant font-medium">Active Privileged Sessions</span>
 <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded font-label-badge text-label-badge bg-surface-container text-primary font-semibold">
-<span class="w-1.5 h-1.5 rounded-full bg-primary animate-pulse"></span>LIVE MONITORING
+<span class="w-1.5 h-1.5 rounded-full bg-primary animate-pulse"></span>REPORTED USAGE
         </span>
 </div>
 <div class="my-space-md flex items-baseline gap-space-sm">
-<span class="font-headline-xl text-headline-xl text-on-surface tracking-tight">14</span>
-<span class="font-code-sm text-code-sm text-error font-semibold flex items-center gap-0.5">
-<span class="material-symbols-outlined text-[14px]">warning</span> 3 Flagged Anomalous
+<span class="font-headline-xl text-headline-xl text-on-surface tracking-tight">&mdash;</span>
+<span class="font-code-sm text-code-sm text-outline font-semibold flex items-center gap-0.5">
+&mdash;
         </span>
 </div>
 <div class="flex items-center justify-between text-on-surface-variant font-body-sm text-body-sm pt-2">
 <span class="text-tertiary font-medium flex items-center gap-1">
-<span class="material-symbols-outlined text-[14px]">trending_up</span> +2 from last hour
+&mdash;
         </span>
 <span class="font-code-sm text-code-sm text-outline">SSH, K8s, RDP</span>
 </div>
@@ -64,19 +64,19 @@
 <div class="absolute top-0 left-0 right-0 h-1 bg-tertiary"></div>
 <div class="flex items-start justify-between">
 <span class="font-label-md text-label-md text-on-surface-variant font-medium">Standing Privileges Remaining</span>
-<span class="inline-flex items-center gap-1 px-2 py-0.5 rounded font-label-badge text-label-badge bg-tertiary-container/15 text-tertiary font-semibold">
-<span class="material-symbols-outlined text-[12px]">verified</span>TARGET REACHED
+<span class="inline-flex items-center gap-1 px-2 py-0.5 rounded font-label-badge text-label-badge bg-surface-container text-on-surface-variant font-semibold">
+<span class="material-symbols-outlined text-[12px]">block</span>NOT CONNECTED
         </span>
 </div>
 <div class="my-space-md flex items-baseline gap-space-sm">
-<span class="font-headline-xl text-headline-xl text-tertiary tracking-tight">0</span>
+<span class="font-headline-xl text-headline-xl text-on-surface tracking-tight">&mdash;</span>
 <span class="font-label-md text-label-md text-on-surface-variant">Accounts</span>
 </div>
 <div class="flex items-center justify-between text-on-surface-variant font-body-sm text-body-sm pt-2">
-<span class="text-tertiary font-medium flex items-center gap-1">
-<span class="material-symbols-outlined text-[14px]">check_circle</span> 100% ZSP Enforced
+<span class="text-outline font-medium flex items-center gap-1">
+<span class="material-symbols-outlined text-[14px]">block</span> Standing-privilege module
         </span>
-<span class="font-code-sm text-code-sm text-outline">Zero Static Keys</span>
+<span class="font-code-sm text-code-sm text-outline">&mdash;</span>
 </div>
 </div>
 <!-- Metric 3: Managed Secrets -->
@@ -89,12 +89,12 @@
         </span>
 </div>
 <div class="my-space-md flex items-baseline gap-space-sm">
-<span class="font-headline-xl text-headline-xl text-on-surface tracking-tight">4,892</span>
-<span class="font-code-sm text-code-sm text-tertiary font-semibold">99.8% Automated</span>
+<span class="font-headline-xl text-headline-xl text-on-surface tracking-tight">&mdash;</span>
+<span class="font-code-sm text-code-sm text-tertiary font-semibold">&mdash;</span>
 </div>
 <div class="flex items-center justify-between text-on-surface-variant font-body-sm text-body-sm pt-2">
-<span class="text-on-surface font-medium">12 rotating today</span>
-<span class="font-code-sm text-code-sm text-outline">KMS / HSM Backed</span>
+<span class="text-on-surface font-medium">&mdash;</span>
+<span class="font-code-sm text-code-sm text-outline">Rotation SLA tracked</span>
 </div>
 </div>
 <!-- Metric 4: JIT Approval Time -->
@@ -103,18 +103,18 @@
 <div class="flex items-start justify-between">
 <span class="font-label-md text-label-md text-on-surface-variant font-medium">Average JIT Time-to-Approval</span>
 <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded font-label-badge text-label-badge bg-surface-container-high text-primary font-semibold">
-          SLA 99.9%
+          NOT CONNECTED
         </span>
 </div>
 <div class="my-space-md flex items-baseline gap-space-sm">
-<span class="font-headline-xl text-headline-xl text-on-surface tracking-tight">3.4</span>
+<span class="font-headline-xl text-headline-xl text-on-surface tracking-tight">&mdash;</span>
 <span class="font-label-md text-label-md text-on-surface-variant">Minutes</span>
 </div>
 <div class="flex items-center justify-between text-on-surface-variant font-body-sm text-body-sm pt-2">
-<span class="text-error font-medium flex items-center gap-1">
-<span class="w-2 h-2 rounded-full bg-error animate-ping"></span> 4 Pending Quorum
+<span class="text-outline font-medium flex items-center gap-1">
+<span class="w-2 h-2 rounded-full bg-outline"></span> JIT module not connected
         </span>
-<span class="font-code-sm text-code-sm text-outline">Target: < 5m</span>
+<span class="font-code-sm text-code-sm text-outline">&mdash;</span>
 </div>
 </div>
 </section>
@@ -134,73 +134,74 @@
 </div>
 <div class="flex items-center gap-space-xs font-code-sm text-code-sm text-on-surface-variant bg-surface-container px-space-sm py-1 rounded">
 <span>Aggregated Targets:</span>
-<span class="font-bold text-on-surface">2,875 Nodes</span>
+<span class="font-bold text-on-surface">&mdash; Nodes</span>
 </div>
 </div>
 <!-- 5 Infrastructure Target Cards -->
+<div class="flex items-center justify-between pb-1"><span class="px-2 py-0.5 rounded bg-surface-container-high text-on-surface-variant font-code-sm text-code-sm uppercase">Per-provider discovery: not connected</span></div>
 <div class="grid grid-cols-1 md:grid-cols-5 gap-space-sm pt-space-xs">
 <!-- Item 1: AWS IAM -->
 <div class="bg-surface rounded-lg p-space-md flex flex-col justify-between hover:bg-surface-container-low transition-colors shadow-sm">
 <div class="flex items-center justify-between mb-2">
 <span class="material-symbols-outlined text-primary text-[20px]">cloud</span>
-<span class="w-2 h-2 rounded-full bg-tertiary"></span>
+<span class="w-2 h-2 rounded-full bg-outline"></span>
 </div>
 <div>
 <span class="font-label-badge text-label-badge text-outline uppercase block">AWS Cloud IAM</span>
-<span class="font-headline-sm text-headline-sm text-on-surface font-semibold">840</span>
+<span class="font-headline-sm text-headline-sm text-on-surface font-semibold">&mdash;</span>
 <span class="block font-body-sm text-body-sm text-on-surface-variant">Identities mapped</span>
 </div>
 <div class="mt-space-sm pt-space-xs flex items-center justify-between font-code-sm text-code-sm">
-<span class="text-tertiary">100% JIT</span>
-<span class="text-outline">6 live</span>
+<span class="text-outline">&mdash;</span>
+<span class="text-outline">&mdash;</span>
 </div>
 </div>
 <!-- Item 2: Kubernetes -->
 <div class="bg-surface rounded-lg p-space-md flex flex-col justify-between hover:bg-surface-container-low transition-colors shadow-sm">
 <div class="flex items-center justify-between mb-2">
 <span class="material-symbols-outlined text-primary-container text-[20px]">hub</span>
-<span class="w-2 h-2 rounded-full bg-error animate-pulse"></span>
+<span class="w-2 h-2 rounded-full bg-outline"></span>
 </div>
 <div>
 <span class="font-label-badge text-label-badge text-outline uppercase block">K8s RBAC</span>
-<span class="font-headline-sm text-headline-sm text-on-surface font-semibold">1,220</span>
+<span class="font-headline-sm text-headline-sm text-on-surface font-semibold">&mdash;</span>
 <span class="block font-body-sm text-body-sm text-on-surface-variant">Pods / Service Accts</span>
 </div>
 <div class="mt-space-sm pt-space-xs flex items-center justify-between font-code-sm text-code-sm">
-<span class="text-error font-semibold">1 anomaly</span>
-<span class="text-outline">5 live</span>
+<span class="text-outline">&mdash;</span>
+<span class="text-outline">&mdash;</span>
 </div>
 </div>
 <!-- Item 3: Linux Bastions -->
 <div class="bg-surface rounded-lg p-space-md flex flex-col justify-between hover:bg-surface-container-low transition-colors shadow-sm">
 <div class="flex items-center justify-between mb-2">
 <span class="material-symbols-outlined text-secondary text-[20px]">terminal</span>
-<span class="w-2 h-2 rounded-full bg-tertiary"></span>
+<span class="w-2 h-2 rounded-full bg-outline"></span>
 </div>
 <div>
 <span class="font-label-badge text-label-badge text-outline uppercase block">Linux SSH Bastion</span>
-<span class="font-headline-sm text-headline-sm text-on-surface font-semibold">540</span>
+<span class="font-headline-sm text-headline-sm text-on-surface font-semibold">&mdash;</span>
 <span class="block font-body-sm text-body-sm text-on-surface-variant">Core Servers</span>
 </div>
 <div class="mt-space-sm pt-space-xs flex items-center justify-between font-code-sm text-code-sm">
-<span class="text-tertiary">mTLS Clean</span>
-<span class="text-outline">2 live</span>
+<span class="text-outline">&mdash;</span>
+<span class="text-outline">&mdash;</span>
 </div>
 </div>
 <!-- Item 4: Windows RDP -->
 <div class="bg-surface rounded-lg p-space-md flex flex-col justify-between hover:bg-surface-container-low transition-colors shadow-sm">
 <div class="flex items-center justify-between mb-2">
 <span class="material-symbols-outlined text-secondary text-[20px]">desktop_windows</span>
-<span class="w-2 h-2 rounded-full bg-tertiary"></span>
+<span class="w-2 h-2 rounded-full bg-outline"></span>
 </div>
 <div>
 <span class="font-label-badge text-label-badge text-outline uppercase block">Windows Ent. RDP</span>
-<span class="font-headline-sm text-headline-sm text-on-surface font-semibold">180</span>
+<span class="font-headline-sm text-headline-sm text-on-surface font-semibold">&mdash;</span>
 <span class="block font-body-sm text-body-sm text-on-surface-variant">AD Joined Nodes</span>
 </div>
 <div class="mt-space-sm pt-space-xs flex items-center justify-between font-code-sm text-code-sm">
-<span class="text-tertiary">Rotated 4h ago</span>
-<span class="text-outline">0 live</span>
+<span class="text-outline">&mdash;</span>
+<span class="text-outline">&mdash;</span>
 </div>
 </div>
 <!-- Item 5: Production DBs -->
@@ -211,12 +212,12 @@
 </div>
 <div>
 <span class="font-label-badge text-label-badge text-outline uppercase block">Postgres / Snowflake</span>
-<span class="font-headline-sm text-headline-sm text-on-surface font-semibold">95</span>
+<span class="font-headline-sm text-headline-sm text-on-surface font-semibold">&mdash;</span>
 <span class="block font-body-sm text-body-sm text-on-surface-variant">DB Clusters Managed</span>
 </div>
 <div class="mt-space-sm pt-space-xs flex items-center justify-between font-code-sm text-code-sm">
-<span class="text-on-surface-variant">TLS Enforced</span>
-<span class="text-outline">1 live</span>
+<span class="text-outline">&mdash;</span>
+<span class="text-outline">&mdash;</span>
 </div>
 </div>
 </div>
@@ -232,6 +233,7 @@
 </div>
 </div>
 <div class="flex items-center gap-space-xs">
+<span class="px-2 py-0.5 rounded bg-error/10 text-error font-code-sm text-code-sm font-bold">NOT CONNECTED</span>
 <span class="font-code-sm text-code-sm text-outline">Filter by:</span>
 <button class="px-2 py-1 rounded bg-surface-container text-on-surface font-code-sm text-code-sm font-semibold">High Risk Only</button>
 <button class="px-2 py-1 rounded bg-surface text-on-surface-variant font-code-sm text-code-sm hover:bg-surface-container">All Live</button>
@@ -249,154 +251,7 @@
 <th class="py-2.5 px-space-md text-right rounded-r">Intervention Actions</th>
 </tr>
 </thead>
-<tbody class="text-on-surface divide-y-0">
-<!-- Threat 1: Critical Alex Miller -->
-<tr class="hover:bg-error-container/20 transition-colors group">
-<td class="py-3 px-space-md">
-<div class="flex items-center gap-space-sm">
-<div class="w-8 h-8 rounded-full bg-error-container flex items-center justify-center text-error font-bold font-code-sm text-code-sm">
-                      AM
-                    </div>
-<div class="flex flex-col">
-<span class="font-headline-sm text-headline-sm font-semibold text-on-surface">alex.miller@aegis.corp</span>
-<span class="font-code-sm text-code-sm text-outline">IP: 198.51.100.44 (VPN-Egress-US)</span>
-</div>
-</div>
-</td>
-<td class="py-3 px-space-md">
-<div class="flex items-center gap-1 font-code-sm text-code-sm text-on-surface">
-<span class="material-symbols-outlined text-[16px] text-primary">terminal</span>
-<span class="font-semibold">k8s-prod-us-east-cluster-01</span>
-</div>
-<span class="font-body-sm text-body-sm text-on-surface-variant">Namespace: production-checkout</span>
-</td>
-<td class="py-3 px-space-md">
-<span class="inline-flex items-center px-2 py-0.5 rounded font-label-badge text-label-badge bg-surface-container-high text-primary font-semibold">
-                    ClusterAdmin (Ephemeral)
-                  </span>
-<span class="block font-code-sm text-code-sm text-outline mt-0.5">TTL: 22m remaining</span>
-</td>
-<td class="py-3 px-space-md">
-<div class="flex items-center gap-space-sm">
-<div class="flex items-center justify-center px-2 py-1 rounded bg-error text-on-error font-code-md text-code-md font-bold shadow-sm">
-                      88 / 100
-                    </div>
-<div class="flex flex-col">
-<span class="font-label-badge text-label-badge text-error font-bold uppercase tracking-wider">CRITICAL BREACH RISK</span>
-<span class="font-body-sm text-body-sm text-on-surface-variant">Unexpected mass curl command to external URI</span>
-</div>
-</div>
-</td>
-<td class="py-3 px-space-md text-right">
-<div class="flex items-center justify-end gap-space-xs">
-<button class="px-space-sm py-1 rounded bg-surface hover:bg-surface-container text-on-surface font-label-md text-label-md flex items-center gap-1 shadow-sm">
-<span class="material-symbols-outlined text-[16px] text-primary">visibility</span>
-<span>Inspect</span>
-</button>
-<button class="px-space-sm py-1 rounded bg-error text-on-error hover:bg-error/90 font-label-md text-label-md font-semibold flex items-center gap-1 shadow-sm">
-<span class="material-symbols-outlined text-[16px]">close</span>
-<span>Terminate</span>
-</button>
-</div>
-</td>
-</tr>
-<!-- Threat 2: Low DevOps Bot -->
-<tr class="hover:bg-surface-container-low transition-colors group">
-<td class="py-3 px-space-md">
-<div class="flex items-center gap-space-sm">
-<div class="w-8 h-8 rounded-full bg-surface-container flex items-center justify-center text-primary font-bold font-code-sm text-code-sm">
-<span class="material-symbols-outlined text-[16px]">smart_toy</span>
-</div>
-<div class="flex flex-col">
-<span class="font-headline-sm text-headline-sm font-semibold text-on-surface">devops-automation-bot</span>
-<span class="font-code-sm text-code-sm text-outline">Service Account (GitHub CI Pipeline)</span>
-</div>
-</div>
-</td>
-<td class="py-3 px-space-md">
-<div class="flex items-center gap-1 font-code-sm text-code-sm text-on-surface">
-<span class="material-symbols-outlined text-[16px] text-primary">cloud</span>
-<span class="font-semibold">aws-iam-role/ProdDeployer</span>
-</div>
-<span class="font-body-sm text-body-sm text-on-surface-variant">Multi-region CDK sync</span>
-</td>
-<td class="py-3 px-space-md">
-<span class="inline-flex items-center px-2 py-0.5 rounded font-label-badge text-label-badge bg-surface-container text-on-surface-variant font-semibold">
-                    RoleAssume (STS)
-                  </span>
-<span class="block font-code-sm text-code-sm text-outline mt-0.5">TTL: 48m remaining</span>
-</td>
-<td class="py-3 px-space-md">
-<div class="flex items-center gap-space-sm">
-<div class="flex items-center justify-center px-2 py-1 rounded bg-tertiary-container/20 text-tertiary font-code-md text-code-md font-bold">
-                      12 / 100
-                    </div>
-<div class="flex flex-col">
-<span class="font-label-badge text-label-badge text-tertiary font-semibold uppercase">Nominal Behavior</span>
-<span class="font-body-sm text-body-sm text-on-surface-variant">Scheduled release hash match confirmed</span>
-</div>
-</div>
-</td>
-<td class="py-3 px-space-md text-right">
-<div class="flex items-center justify-end">
-<button class="px-space-sm py-1 rounded bg-surface hover:bg-surface-container text-on-surface font-label-md text-label-md flex items-center gap-1 shadow-sm">
-<span class="material-symbols-outlined text-[16px] text-primary">visibility</span>
-<span>Inspect</span>
-</button>
-</div>
-</td>
-</tr>
-<!-- Threat 3: Medium Sarah Chen -->
-<tr class="hover:bg-surface-container-low transition-colors group">
-<td class="py-3 px-space-md">
-<div class="flex items-center gap-space-sm">
-<div class="w-8 h-8 rounded-full bg-surface-container flex items-center justify-center text-primary font-bold font-code-sm text-code-sm">
-                      SC
-                    </div>
-<div class="flex flex-col">
-<span class="font-headline-sm text-headline-sm font-semibold text-on-surface">sarah.chen@aegis.corp</span>
-<span class="font-code-sm text-code-sm text-outline">Lead Database Architect</span>
-</div>
-</div>
-</td>
-<td class="py-3 px-space-md">
-<div class="flex items-center gap-1 font-code-sm text-code-sm text-on-surface">
-<span class="material-symbols-outlined text-[16px] text-secondary">database</span>
-<span class="font-semibold">db-master-prod-postgres</span>
-</div>
-<span class="font-body-sm text-body-sm text-on-surface-variant">Instance: aurora-cluster-pg15</span>
-</td>
-<td class="py-3 px-space-md">
-<span class="inline-flex items-center px-2 py-0.5 rounded font-label-badge text-label-badge bg-surface-container-high text-on-surface font-semibold">
-                    pg_dba (Break-Glass JIT)
-                  </span>
-<span class="block font-code-sm text-code-sm text-outline mt-0.5">TTL: 1h 14m remaining</span>
-</td>
-<td class="py-3 px-space-md">
-<div class="flex items-center gap-space-sm">
-<div class="flex items-center justify-center px-2 py-1 rounded bg-surface-container-highest text-on-surface font-code-md text-code-md font-bold">
-                      45 / 100
-                    </div>
-<div class="flex flex-col">
-<span class="font-label-badge text-label-badge text-on-surface-variant font-semibold uppercase">ELEVATED ATTENTION</span>
-<span class="font-body-sm text-body-sm text-on-surface-variant">Off-hours query against billing audit trail</span>
-</div>
-</div>
-</td>
-<td class="py-3 px-space-md text-right">
-<div class="flex items-center justify-end gap-space-xs">
-<button class="px-space-sm py-1 rounded bg-surface hover:bg-surface-container text-on-surface font-label-md text-label-md flex items-center gap-1 shadow-sm">
-<span class="material-symbols-outlined text-[16px] text-primary">visibility</span>
-<span>Inspect</span>
-</button>
-<button class="px-space-sm py-1 rounded bg-surface-container-high hover:bg-surface-container-highest text-on-surface font-label-md text-label-md flex items-center gap-1 shadow-sm">
-<span class="material-symbols-outlined text-[16px] text-outline">help_outline</span>
-<span>Request Reason</span>
-</button>
-</div>
-</td>
-</tr>
-</tbody>
+<tr><td colspan="5" class="py-6 px-space-md text-center font-body-sm text-body-sm text-outline">Threat &amp; anomaly analysis module not connected &mdash; no session telemetry source exists yet.</td></tr></tbody>
 </table>
 </div>
 </section>
@@ -406,69 +261,58 @@
 <div class="bg-surface-container-lowest rounded-xl p-space-lg shadow-sm flex flex-col justify-between">
 <div class="flex items-center justify-between mb-space-sm">
 <span class="font-headline-sm text-headline-sm text-on-surface font-semibold">Real-Time Threat Telemetry Curve</span>
-<span class="font-code-sm text-code-sm text-outline">24 Hour Window</span>
+<span class="font-code-sm text-code-sm text-outline">No telemetry module</span>
 </div>
 <p class="font-body-sm text-body-sm text-on-surface-variant mb-space-md">Aggregate risk score distributions across active ephemeral proxy channels.</p>
 <!-- Inline Sparkline / Area SVG -->
-<div class="w-full h-32 flex items-end">
-<svg class="w-full h-full text-primary" fill="none" preserveaspectratio="none" viewbox="0 0 500 120">
-<defs>
-<lineargradient id="gradient-risk" x1="0" x2="0" y1="0" y2="1">
-<stop offset="0%" stop-color="#004ac6" stop-opacity="0.25"></stop>
-<stop offset="100%" stop-color="#004ac6" stop-opacity="0.0"></stop>
-</lineargradient>
-</defs>
-<path d="M 0,90 Q 50,60 100,75 T 200,40 T 300,65 T 380,20 T 450,45 L 500,30 L 500,120 L 0,120 Z" fill="url(#gradient-risk)"></path>
-<path d="M 0,90 Q 50,60 100,75 T 200,40 T 300,65 T 380,20 T 450,45 L 500,30" fill="none" stroke="#004ac6" stroke-linecap="round" stroke-width="2.5"></path>
-<!-- Highlight Anomalous Pulse Point -->
-<circle class="animate-pulse" cx="380" cy="20" fill="#ba1a1a" r="4"></circle>
-</svg>
+<div class="w-full h-32 flex items-center justify-center">
+<p class="font-body-sm text-body-sm text-outline">Threat telemetry not connected</p>
 </div>
 <div class="flex items-center justify-between pt-space-sm font-code-sm text-code-sm text-outline border-t-0">
-<span>00:00 UTC</span>
-<span class="text-error font-semibold flex items-center gap-1"><span class="w-1.5 h-1.5 rounded-full bg-error"></span>Spike detected: 14:22 UTC</span>
-<span>Current: 18:45 UTC</span>
+<span>&mdash;</span>
+<span class="font-semibold">No telemetry module connected</span>
+<span>&mdash;</span>
 </div>
 </div>
 <!-- Infrastructure Target Distribution Visual -->
 <div class="bg-surface-container-lowest rounded-xl p-space-lg shadow-sm flex flex-col justify-between">
 <div class="flex items-center justify-between mb-space-sm">
 <span class="font-headline-sm text-headline-sm text-on-surface font-semibold">Perimeter Surface Hardening</span>
-<span class="font-label-badge text-label-badge text-tertiary bg-tertiary-container/20 px-2 py-0.5 rounded">FORTIFIED</span>
+<span class="font-label-badge text-label-badge text-tertiary bg-tertiary-container/20 px-2 py-0.5 rounded">NOT CONNECTED</span>
 </div>
 <p class="font-body-sm text-body-sm text-on-surface-variant mb-space-sm">Zero-trust network policy status across target cloud topologies.</p>
 <div class="flex flex-col gap-space-sm py-space-xs">
 <div class="flex flex-col gap-1">
 <div class="flex justify-between font-code-sm text-code-sm">
 <span class="text-on-surface">Mutual TLS 1.3 Bastion Tunneling</span>
-<span class="font-bold text-on-surface">100%</span>
+<span class="font-bold text-outline">&mdash;</span>
 </div>
 <div class="w-full bg-surface-container h-2 rounded-full overflow-hidden">
-<div class="bg-tertiary h-full rounded-full" style="width: 100%;"></div>
+<div class="bg-tertiary h-full rounded-full" style="width: 0%;"></div>
 </div>
 </div>
 <div class="flex flex-col gap-1">
 <div class="flex justify-between font-code-sm text-code-sm">
 <span class="text-on-surface">Static Root Credentials Purged</span>
-<span class="font-bold text-on-surface">99.4%</span>
+<span class="font-bold text-outline">&mdash;</span>
 </div>
 <div class="w-full bg-surface-container h-2 rounded-full overflow-hidden">
-<div class="bg-primary h-full rounded-full" style="width: 99.4%;"></div>
+<div class="bg-primary h-full rounded-full" style="width: 0%;"></div>
 </div>
 </div>
 <div class="flex flex-col gap-1">
 <div class="flex justify-between font-code-sm text-code-sm">
 <span class="text-on-surface">Hardware Token Attestation (WebAuthn/FIDO2)</span>
-<span class="font-bold text-on-surface">96.8%</span>
+<span class="font-bold text-outline">&mdash;</span>
 </div>
 <div class="w-full bg-surface-container h-2 rounded-full overflow-hidden">
-<div class="bg-primary h-full rounded-full" style="width: 96.8%;"></div>
+<div class="bg-primary h-full rounded-full" style="width: 0%;"></div>
 </div>
 </div>
 </div>
 <div class="pt-2 flex items-center justify-between font-body-sm text-body-sm text-on-surface-variant">
-<span>Next perimeter posture scan: <strong>14m</strong></span>
-<a class="text-primary hover:underline font-label-md text-label-md font-semibold" href="#">Inspect Policies</a>
+<span>Posture scan: <strong>&mdash;</strong> (not connected)</span>
+<span class="font-label-md text-label-md text-outline font-semibold">Policy inspection not connected</span>
 </div>
 </div>
 </section>
@@ -482,102 +326,13 @@
 <span class="material-symbols-outlined text-primary text-[22px]">hourglass_top</span>
 <h2 class="font-headline-md text-headline-md text-on-surface">Pending JIT Quorum</h2>
 </div>
-<span class="px-2 py-0.5 rounded-full bg-error text-on-error font-code-sm text-code-sm font-bold">4 Requiring Action</span>
+<span class="px-2 py-0.5 rounded-full bg-error text-on-error font-code-sm text-code-sm font-bold">NOT CONNECTED</span>
 </div>
 <p class="font-body-sm text-body-sm text-on-surface-variant">Multi-party authorization rules require 2-person approval for production resource escalation.</p>
-<!-- Approval Cards -->
 <div class="flex flex-col gap-space-md">
-<!-- Request 1 -->
-<div class="rounded-lg bg-surface p-space-md shadow-sm hover:shadow-md transition-all flex flex-col gap-space-sm">
-<div class="flex items-start justify-between">
-<div class="flex items-center gap-space-sm">
-<img class="w-9 h-9 rounded-full object-cover shadow-sm" data-alt="Corporate headshot portrait of senior site reliability engineer wearing neutral glasses in a clean architectural office setting with cool soft lighting." src="https://lh3.googleusercontent.com/aida-public/AB6AXuCg_qmWrLcR89lRGz76jd_7d8tIOKg60YXdUSKbyIkpv34Lmy9_i1tvY9netmjDziFcTR-dpweMtwylG7ZFKUzktK9GxPCIfIkWazUNn8r6D-lOcI420ztwJ-T6V-TuoOIo-WeZdrOfQ_shwd_y25o1sqnlDWtWB3yvd9wYjC1465xUPNPsQ2dZCjeGrnClKroXufhmYA0pOvdpsZgm-9sO4t3rYWcQkoqCPHIAkgC2b0t5v_Tu3-qmVQ"/>
-<div>
-<span class="font-headline-sm text-headline-sm text-on-surface font-semibold block leading-tight">Marcus Vance</span>
-<span class="font-code-sm text-code-sm text-outline">SRE Senior Specialist</span>
-</div>
-</div>
-<span class="font-code-sm text-code-sm px-2 py-0.5 rounded bg-surface-container text-primary font-bold">JIRA-4821</span>
-</div>
-<div class="bg-surface-container-low p-2 rounded flex flex-col gap-1 font-body-sm text-body-sm">
-<div class="flex justify-between">
-<span class="text-on-surface-variant">Resource:</span>
-<span class="font-code-sm text-code-sm font-semibold text-on-surface">aws-prod-database-aurora-01</span>
-</div>
-<div class="flex justify-between">
-<span class="text-on-surface-variant">Role Requested:</span>
-<span class="font-code-sm text-code-sm text-primary font-semibold">RDS:MasterDBA</span>
-</div>
-<div class="flex justify-between">
-<span class="text-on-surface-variant">Requested TTL:</span>
-<span class="font-code-sm text-code-sm text-error font-semibold flex items-center gap-1">
-<span class="material-symbols-outlined text-[14px]">timer</span> 1h 30m
-                </span>
-</div>
-</div>
-<div class="flex items-center justify-between">
-<span class="inline-flex items-center gap-1 font-label-badge text-label-badge text-tertiary bg-tertiary-container/20 px-2 py-0.5 rounded">
-<span class="w-1.5 h-1.5 rounded-full bg-tertiary"></span>Risk: Low (Ticket Verified)
-              </span>
-<span class="font-code-sm text-code-sm text-outline">Approvals: 1/2</span>
-</div>
-<!-- Actions -->
-<div class="grid grid-cols-2 gap-space-xs pt-1">
-<button class="w-full py-1.5 rounded bg-primary hover:bg-primary-container text-on-primary font-label-md text-label-md font-semibold transition-colors flex items-center justify-center gap-1 shadow-sm">
-<span class="material-symbols-outlined text-[16px]">check</span> Approve
-              </button>
-<button class="w-full py-1.5 rounded bg-surface-container hover:bg-surface-container-high text-on-surface font-label-md text-label-md transition-colors flex items-center justify-center gap-1">
-<span class="material-symbols-outlined text-[16px]">close</span> Deny
-              </button>
-</div>
-</div>
-<!-- Request 2 -->
-<div class="rounded-lg bg-surface p-space-md shadow-sm hover:shadow-md transition-all flex flex-col gap-space-sm">
-<div class="flex items-start justify-between">
-<div class="flex items-center gap-space-sm">
-<img class="w-9 h-9 rounded-full object-cover shadow-sm" data-alt="Professional studio portrait of an enterprise infrastructure engineer with minimalist styling against an off-white modern tech background." src="https://lh3.googleusercontent.com/aida-public/AB6AXuC3ogtf6ZTv6jnV6glihGca5m-VsKJ5rBauqpxRkjaxyvQcsMjVG_dE8mUfR44XllWNVXbmeAKHZbS_yq_HV_fo7AIjhrzzqMsw98qKhYp_iH_nv5lkTmUH4BG8GWChL4-OfkN8_ojZE8SA-FMRjLaQYPAzuba-xPUloQ2_xYs_W1XrMJKhG5Vw9oQ9MQMFZEicgq01_KMiiGrHuiasQTauYycPt9Dh1CM6l8yQVVdcfweOgwH0PwZBFw"/>
-<div>
-<span class="font-headline-sm text-headline-sm text-on-surface font-semibold block leading-tight">Elena Rostova</span>
-<span class="font-code-sm text-code-sm text-outline">DevSecOps Tech Lead</span>
-</div>
-</div>
-<span class="font-code-sm text-code-sm px-2 py-0.5 rounded bg-surface-container text-primary font-bold">INC-9018</span>
-</div>
-<div class="bg-surface-container-low p-2 rounded flex flex-col gap-1 font-body-sm text-body-sm">
-<div class="flex justify-between">
-<span class="text-on-surface-variant">Resource:</span>
-<span class="font-code-sm text-code-sm font-semibold text-on-surface">pci-payment-gateway-k8s</span>
-</div>
-<div class="flex justify-between">
-<span class="text-on-surface-variant">Role Requested:</span>
-<span class="font-code-sm text-code-sm text-primary font-semibold">RootShell / Debug</span>
-</div>
-<div class="flex justify-between">
-<span class="text-on-surface-variant">Requested TTL:</span>
-<span class="font-code-sm text-code-sm text-error font-semibold flex items-center gap-1">
-<span class="material-symbols-outlined text-[14px]">timer</span> 45m
-                </span>
-</div>
-</div>
-<div class="flex items-center justify-between">
-<span class="inline-flex items-center gap-1 font-label-badge text-label-badge text-error bg-error-container/30 px-2 py-0.5 rounded font-bold">
-<span class="w-1.5 h-1.5 rounded-full bg-error"></span>Risk: Elevated (PCI Scope)
-              </span>
-<span class="font-code-sm text-code-sm text-outline">Approvals: 0/2</span>
-</div>
-<!-- Actions -->
-<div class="grid grid-cols-2 gap-space-xs pt-1">
-<button class="w-full py-1.5 rounded bg-primary hover:bg-primary-container text-on-primary font-label-md text-label-md font-semibold transition-colors flex items-center justify-center gap-1 shadow-sm">
-<span class="material-symbols-outlined text-[16px]">check</span> Approve
-              </button>
-<button class="w-full py-1.5 rounded bg-surface-container hover:bg-surface-container-high text-on-surface font-label-md text-label-md transition-colors flex items-center justify-center gap-1">
-<span class="material-symbols-outlined text-[16px]">close</span> Deny
-              </button>
-</div>
-</div>
-</div>
-<button class="w-full py-2 rounded-lg bg-surface-container hover:bg-surface-container-high text-on-surface font-label-md text-label-md font-semibold transition-colors text-center">
-          View All 4 Pending Approvals →
+<p class="font-body-sm text-body-sm text-outline">JIT approval workflow not connected &mdash; no request or quorum module is running.</p>
+</div><button class="w-full py-2 rounded-lg bg-surface-container text-outline font-label-md text-label-md font-semibold transition-colors text-center cursor-not-allowed" disabled>
+          JIT approvals not connected
         </button>
 </section>
 <!-- Automated Credential Health & Rotation Feed -->
@@ -590,40 +345,7 @@
 <span class="font-code-sm text-code-sm text-outline">Auto-Managed</span>
 </div>
 <div class="flex flex-col gap-space-sm">
-<!-- Item 1: Rotated Secret -->
-<div class="flex items-start gap-space-sm p-space-sm rounded-lg bg-surface hover:bg-surface-container-low transition-colors">
-<span class="material-symbols-outlined text-tertiary text-[18px] mt-0.5">check_circle</span>
-<div class="flex flex-col flex-1">
-<div class="flex items-center justify-between">
-<span class="font-code-sm text-code-sm font-semibold text-on-surface">vault/prod/stripe_api_key</span>
-<span class="font-code-sm text-code-sm text-outline">2m ago</span>
-</div>
-<span class="font-body-sm text-body-sm text-on-surface-variant">Automated 24h key rotation successful. In-flight leases re-anchored.</span>
-</div>
-</div>
-<!-- Item 2: SSH Key Rotated -->
-<div class="flex items-start gap-space-sm p-space-sm rounded-lg bg-surface hover:bg-surface-container-low transition-colors">
-<span class="material-symbols-outlined text-tertiary text-[18px] mt-0.5">vpn_key</span>
-<div class="flex flex-col flex-1">
-<div class="flex items-center justify-between">
-<span class="font-code-sm text-code-sm font-semibold text-on-surface">ssh-ed25519/bastion-east-04</span>
-<span class="font-code-sm text-code-sm text-outline">18m ago</span>
-</div>
-<span class="font-body-sm text-body-sm text-on-surface-variant">Host certificate signed via ephemeral CA (TTL 8 hrs).</span>
-</div>
-</div>
-<!-- Item 3: Rotation Scheduled -->
-<div class="flex items-start gap-space-sm p-space-sm rounded-lg bg-surface hover:bg-surface-container-low transition-colors">
-<span class="material-symbols-outlined text-primary text-[18px] mt-0.5">schedule</span>
-<div class="flex flex-col flex-1">
-<div class="flex items-center justify-between">
-<span class="font-code-sm text-code-sm font-semibold text-on-surface">db-svc-snowflake-bi-warehouse</span>
-<span class="font-code-sm text-code-sm text-outline">in 32m</span>
-</div>
-<span class="font-body-sm text-body-sm text-on-surface-variant">Scheduled password regeneration cycle initiated by policy agent.</span>
-</div>
-</div>
-</div>
+<p class="font-body-sm text-body-sm text-outline">No lifecycle events loaded &mdash; start the license server for real data.</p></div>
 </section>
 <!-- SOC2 & ISO 27001 Readiness Gauge Card -->
 <section class="bg-surface-container-lowest rounded-xl p-space-lg shadow-sm flex flex-col gap-space-md">
@@ -632,63 +354,144 @@
 <span class="material-symbols-outlined text-primary text-[22px]">verified_user</span>
 <h2 class="font-headline-md text-headline-md text-on-surface">SOC2 & ISO 27001 Posture</h2>
 </div>
-<span class="font-code-sm text-code-sm text-tertiary font-semibold uppercase">Continuous Audit</span>
+<span class="font-code-sm text-code-sm text-tertiary font-semibold uppercase">Computed live</span>
 </div>
 <div class="flex items-center justify-center p-space-md bg-surface rounded-lg">
 <div class="relative w-40 h-40 flex items-center justify-center">
 <!-- Circular Progress SVG -->
 <svg class="w-full h-full transform -rotate-90" viewbox="0 0 100 100">
 <circle class="text-surface-container" cx="50" cy="50" fill="transparent" r="42" stroke="currentColor" stroke-width="8"></circle>
-<circle class="text-primary transition-all duration-1000 ease-out" cx="50" cy="50" fill="transparent" r="42" stroke="currentColor" stroke-dasharray="264" stroke-dashoffset="3.7" stroke-linecap="round" stroke-width="8"></circle>
+<circle class="text-primary transition-all duration-1000 ease-out" cx="50" cy="50" fill="transparent" r="42" stroke="currentColor" stroke-dasharray="264" stroke-dashoffset="264" stroke-linecap="round" stroke-width="8"></circle>
 </svg>
 <div class="absolute flex flex-col items-center justify-center text-center">
-<span class="font-headline-xl text-headline-xl font-bold text-on-surface leading-none">98.6%</span>
+<span class="font-headline-xl text-headline-xl font-bold text-on-surface leading-none">&mdash;</span>
 <span class="font-code-sm text-code-sm text-on-surface-variant font-medium mt-1">READINESS</span>
 </div>
 </div>
 </div>
 <div class="grid grid-cols-2 gap-space-sm font-body-sm text-body-sm text-on-surface-variant pt-1">
 <div class="flex items-center gap-1.5">
-<span class="w-2 h-2 rounded-full bg-tertiary"></span>
-<span>CC6.1 Logical Controls</span>
+<span class="w-2 h-2 rounded-full bg-outline"></span>
+<span>&mdash;</span>
 </div>
 <div class="flex items-center gap-1.5">
-<span class="w-2 h-2 rounded-full bg-tertiary"></span>
-<span>CC6.3 Least Privilege</span>
+<span class="w-2 h-2 rounded-full bg-outline"></span>
+<span>&mdash;</span>
 </div>
 <div class="flex items-center gap-1.5">
-<span class="w-2 h-2 rounded-full bg-tertiary"></span>
-<span>A.9.2 User Registration</span>
+<span class="w-2 h-2 rounded-full bg-outline"></span>
+<span>&mdash;</span>
 </div>
 <div class="flex items-center gap-1.5">
-<span class="w-2 h-2 rounded-full bg-tertiary"></span>
-<span>A.9.4 Secret Mgmt</span>
+<span class="w-2 h-2 rounded-full bg-outline"></span>
+<span>&mdash;</span>
 </div>
 </div>
 <button class="w-full py-2 rounded-lg bg-surface-container-low hover:bg-surface-container text-primary font-label-md text-label-md font-semibold transition-colors flex items-center justify-center gap-1">
-<span class="material-symbols-outlined text-[16px]">download</span> Export Auditor Package
+<span class="material-symbols-outlined text-[16px]">download</span> Export Audit Events (CSV)
         </button>
 </section>
 </div>
 </div>
 </div>
 <script>
-  // Simple interactive mock handler for Emergency Lockdown
-  document.getElementById('btn-lockdown')?.addEventListener('click', function() {
-    const confirmation = confirm('CRITICAL WARNING: This will immediately revoke all ephemeral access tokens, freeze static credential vaults, and trigger mandatory 2FA re-authentication across all 2,875 target infrastructure nodes. Proceed?');
-    if (confirmation) {
+  // Emergency Lockdown: revokes every active credential checkout for real.
+  document.getElementById('btn-lockdown')?.addEventListener('click', async function () {
+    const token = sessionStorage.getItem('aegispam_admin_token') || '';
+    try {
+      const res = await fetch('/api/v1/vault/items?status=checked_out&limit=200');
+      if (!res.ok) throw new Error('items -> ' + res.status);
+      const page = await res.json();
+      const n = page.total || 0;
+      const msg = n === 0
+        ? 'No credential checkouts are active - lockdown would change nothing. Proceed anyway?'
+        : 'CRITICAL: revoke all ' + n + ' active credential checkout(s) now? '
+          + 'Each checked-out credential returns to available.';
+      if (!confirm(msg)) return;
+      let revoked = 0;
+      for (const item of page.items) {
+        const headers = {
+          'Content-Type': 'application/json',
+          'X-Actor': 'command-center-ui',
+        };
+        if (token) headers['X-Admin-Token'] = token;
+        const r = await fetch('/api/v1/vault/items/' + item.id + '/revoke', {
+          method: 'POST', headers: headers,
+        });
+        if (r.ok) revoked += 1;
+      }
       this.classList.remove('bg-error');
       this.classList.add('bg-on-error-container', 'text-on-error');
-      this.innerHTML = '<span class="material-symbols-outlined text-[18px]">verified</span> LOCKDOWN ENGAGED';
+      this.innerHTML = '<span class="material-symbols-outlined text-[18px]">verified</span> LOCKDOWN: '
+        + revoked + ' REVOKED';
+    } catch (err) {
+      console.warn('Lockdown unreachable:', err);
+      this.innerHTML = '<span class="material-symbols-outlined text-[18px]">error</span> '
+        + 'LOCKDOWN FAILED - API UNREACHABLE';
     }
   });
 
+  // Header actions: real navigation and a real CSV export of the audit feed.
+  function ccToast(msg) {
+    let t = document.getElementById('cc-live-toast');
+    if (!t) {
+      t = document.createElement('div');
+      t.id = 'cc-live-toast';
+      t.className = 'fixed bottom-14 right-8 z-50 px-4 py-2.5 rounded-lg bg-inverse-surface '
+        + 'text-inverse-on-surface shadow-lg font-body-sm text-body-sm hidden';
+      document.body.appendChild(t);
+    }
+    t.textContent = msg;
+    t.classList.remove('hidden');
+    clearTimeout(window.__ccToastTimer);
+    window.__ccToastTimer = setTimeout(() => t.classList.add('hidden'), 3400);
+  }
+
+  const findBtn = (text) => Array.from(document.querySelectorAll('button'))
+    .find((b) => b.textContent.includes(text));
+  const quickCheckout = findBtn('Quick Check-Out Credential');
+  if (quickCheckout) quickCheckout.addEventListener('click', () => {
+    location.href = '../credential_vault_secrets_inventory/code.html';
+  });
+
+  async function exportEventsCsv() {
+    try {
+      const res = await fetch('/api/v1/events?limit=500');
+      if (!res.ok) throw new Error('events -> ' + res.status);
+      const data = await res.json();
+      const rows = [['created_at', 'source', 'action', 'actor', 'subject', 'detail']];
+      data.events.forEach((e) => rows.push([
+        e.created_at, e.source, e.action, e.actor, e.subject,
+        JSON.stringify(e.detail || {}),
+      ]));
+      const csv = rows.map((r) => r.map((v) => {
+        const s = v == null ? '' : String(v);
+        return /[",\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s;
+      }).join(',')).join('\n');
+      const url = URL.createObjectURL(new Blob([csv], { type: 'text/csv' }));
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = 'audit-events-' + new Date().toISOString().slice(0, 10) + '.csv';
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 4000);
+      ccToast('Exported ' + data.total + ' audit events (CSV).');
+    } catch (err) {
+      console.warn('Export unreachable:', err);
+      ccToast('Export failed - license server unreachable.');
+    }
+  }
+  Array.from(document.querySelectorAll('button'))
+    .filter((b) => b.textContent.includes('Export Audit Events (CSV)'))
+    .forEach((b) => b.addEventListener('click', exportEventsCsv));
+
   // ---------------------------------------------------------------------------
   // Live wiring: pulls the real posture aggregate (health, licenses, vault,
-  // settings, activity) from the license server. When opened as file:// or the
-  // API is unreachable, the static design content above stays on screen.
-  // Tiles without a live module yet (standing privileges, JIT approval time,
-  // per-provider infrastructure cards, threat radar) keep their design values.
+  // settings, activity) from the license server. file:// and API-down keep the
+  // honest placeholders above - sections without a live module (standing
+  // privileges, JIT approvals, per-provider discovery, threat radar) stay
+  // "not connected" and are never filled with invented values.
   // ---------------------------------------------------------------------------
   (function () {
     const ROOT = location.protocol === 'file:' ? '' : '/';
@@ -700,6 +503,31 @@
       return div.innerHTML;
     };
     const setText = (el, text) => { if (el) el.textContent = text; };
+
+    const headerSync = Array.from(document.querySelectorAll('span'))
+      .find((s) => s.textContent.includes('Sync:'));
+    function setSync(text) { setText(headerSync, text); }
+
+    function fillFooter(data) {
+      const footer = document.querySelector('footer');
+      if (!footer) return; // footer parses after this script
+      const fspans = Array.from(footer.querySelectorAll('span'));
+      const setF = (match, value) => {
+        const el = fspans.find((s) => s.textContent.includes(match));
+        if (el) el.textContent = value;
+      };
+      if (!data) {
+        setF('License server', 'License server: not connected');
+        return;
+      }
+      setF('License server',
+        'License server: ' + (data.health.status === 'ok' ? 'Healthy' : data.health.status));
+      setF('nodes', '(' + data.licenses.usage.nodes.toLocaleString() + ' licensed nodes)');
+      setF('checked out', data.vault.checked_out + ' credentials checked out');
+      setF('Auth:', 'Auth: ' + data.health.auth);
+      setF('WORM:', 'WORM: ' + (data.settings.worm_immutable ? 'immutable' : 'mutable'));
+      setF('Audit:', 'Audit: ' + data.counters.total_events.toLocaleString() + ' events');
+    }
 
     function relTime(iso) {
       if (!iso) return 'never';
@@ -810,14 +638,10 @@
 
         // Privileged infrastructure: aggregated licensed target nodes
         setText(infraNodes, usage.nodes.toLocaleString() + ' Nodes');
-        // The footer sits after this script in the document: look it up here,
-        // once fetching has given the parser time to reach it.
-        const footer = document.querySelector('footer');
-        const footerNodes = footer
-          ? Array.from(footer.querySelectorAll('span'))
-              .find((s) => s.textContent.includes('Nodes connected'))
-          : null;
-        setText(footerNodes, '(' + usage.nodes.toLocaleString() + ' licensed nodes)');
+        // Footer facts + header sync marker (the footer parses after this
+        // script, but fetching has given the parser time to reach it).
+        fillFooter(data);
+        setSync('Sync: OK ' + new Date().toLocaleTimeString());
 
         // SOC2 posture gauge + control chips (computed from real checks)
         const score = data.posture.score;
@@ -840,10 +664,12 @@
         // Credential lifecycle feed (vault audit trail)
         renderFeed(feed.events);
       } catch (err) {
-        console.info('Command Center API unreachable - static design preview kept.', err);
+        console.info('Command Center API unreachable - honest placeholders stay on screen.', err);
+        setSync('Sync: not connected');
+        fillFooter(null);
       }
     }
 
     load();
   })();
-</script></main><footer class="fixed bottom-0 left-64 right-0 h-10 bg-surface-container-lowest/95 backdrop-blur-sm border-t border-outline-variant/30 z-30 flex items-center justify-between px-space-xl text-on-surface-variant font-code-sm text-code-sm shadow-[0_-1px_4px_rgba(0,0,0,0.02)]"><div class="flex items-center gap-space-md"><div class="flex items-center gap-1.5"><span class="w-2 h-2 rounded-full bg-tertiary"></span><span class="text-on-surface font-medium">Zero-Trust Gateway: Healthy</span><span class="text-outline">(18 Nodes connected)</span></div><span class="text-outline-variant">•</span><span class="text-tertiary font-semibold">0 standing admin accounts</span></div><div class="flex items-center gap-space-lg text-outline"><span>Session TLS 1.3 Strict</span><span>mTLS Enforced</span><span>Audit Digest Verified</span></div></footer></div></body></html>
+</script></main><footer class="fixed bottom-0 left-64 right-0 h-10 bg-surface-container-lowest/95 backdrop-blur-sm border-t border-outline-variant/30 z-30 flex items-center justify-between px-space-xl text-on-surface-variant font-code-sm text-code-sm shadow-[0_-1px_4px_rgba(0,0,0,0.02)]"><div class="flex items-center gap-space-md"><div class="flex items-center gap-1.5"><span class="w-2 h-2 rounded-full bg-tertiary"></span><span class="text-on-surface font-medium">License server: &mdash;</span><span class="text-outline">(&mdash; nodes)</span></div><span class="text-outline-variant">•</span><span class="text-tertiary font-semibold">&mdash; credentials checked out</span></div><div class="flex items-center gap-space-lg text-outline"><span>Auth: &mdash;</span><span>WORM: &mdash;</span><span>Audit: &mdash; events</span></div></footer></div></body></html>

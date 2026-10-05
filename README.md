@@ -62,7 +62,7 @@ cd backend/phase2_license_server && python app.py     # http://127.0.0.1:5000
 #   /index.html  console launcher          /screens/…  every other screen
 
 # Tests (both phases + the API contract)
-python -m pytest backend/ipam_licensing backend/phase2_license_server/tests -q   # 186 tests
+python -m pytest backend/ipam_licensing backend/phase2_license_server/tests -q   # 187 tests
 ```
 
 ## How it fits together
