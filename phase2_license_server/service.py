@@ -8,6 +8,7 @@ via licensing_bridge.
 from __future__ import annotations
 
 import base64
+import re
 from datetime import datetime
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -30,9 +31,12 @@ from models import (
     EVENT_RESTORED,
     EVENT_REVOKED,
     EVENT_USAGE_REPORTED,
+    SETTINGS_ACTION_UPDATED,
     STATUS_ACTIVE,
     STATUS_REVOKED,
     LicenseRecord,
+    SettingGroup,
+    SettingsEvent,
     log_event,
 )
 
@@ -744,4 +748,292 @@ def meta() -> Dict[str, Any]:
         "modules": MODULE_CATALOG,
         "quota_fields": list(_QUOTA_SCALARS),
         "usage_fields": list(_USAGE_FIELDS),
+    }
+
+
+# ---------------------------------------------------------------------------
+# platform settings (SSO / HSM / ZSP / WORM ledger)
+#
+# Every field is validated server-side against SETTINGS_SCHEMA; unknown groups
+# and unknown/ill-typed/out-of-range fields are rejected before anything is
+# stored, and each accepted change is written to the config audit changelog.
+# Secrets are never stored here -- only references (e.g. a Vault path).
+# ---------------------------------------------------------------------------
+_IDP_PROVIDERS = ("okta", "entra", "ping-federate", "adfs", "keycloak")
+_HSM_PROVIDERS = (
+    "aws-cloudhsm",
+    "azure-dedicated-hsm",
+    "gcp-cloud-hsm",
+    "hashicorp-vault",
+    "local-pkcs11",
+)
+_BUCKET_RE = re.compile(r"^[a-z0-9][a-z0-9.\-]{1,61}[a-z0-9]$")
+
+SETTINGS_SCHEMA: Dict[str, Dict[str, Dict[str, Any]]] = {
+    "sso": {
+        "primary_provider": {"type": "enum", "choices": _IDP_PROVIDERS, "default": "okta"},
+        "primary_metadata_url": {
+            "type": "url",
+            "default": "https://aegispam.okta.com/app/aegis-sso/sso/saml/metadata",
+        },
+        "primary_entity_id": {
+            "type": "str",
+            "max_length": 255,
+            "default": "urn:aegispam.internal:sp:primary",
+        },
+        "secondary_provider": {
+            "type": "enum",
+            "choices": _IDP_PROVIDERS + ("disabled",),
+            "default": "entra",
+        },
+        "secondary_metadata_url": {
+            "type": "url",
+            "allow_empty": True,
+            "default": "https://login.microsoftonline.com/8c1f2a64-3d77-4b1e-9f5a-2e6b0d4c7a91"
+            "/federationmetadata/2.000/federationmetadata.xml",
+        },
+        "enforce_sso": {"type": "bool", "default": True},
+        "jit_provisioning": {"type": "bool", "default": True},
+        "require_mfa": {"type": "bool", "default": True},
+        "session_ttl_minutes": {"type": "int", "min": 5, "max": 1440, "default": 480},
+    },
+    "hsm": {
+        "provider": {"type": "enum", "choices": _HSM_PROVIDERS, "default": "aws-cloudhsm"},
+        "cluster_id": {"type": "str", "max_length": 64, "default": "hsm-cluster-k10-east"},
+        "region": {"type": "str", "max_length": 32, "default": "us-east-1"},
+        "kms_endpoint": {
+            "type": "url",
+            "default": "https://hsm-cluster-k10-east.prod.aegis.internal:443",
+        },
+        "master_key_label": {"type": "str", "max_length": 64, "default": "aegispam-root-lmk"},
+        "pin_reference": {
+            "type": "str",
+            "max_length": 255,
+            "default": "vault://kv/pam/hsm",
+        },
+        "key_rotation_hours": {"type": "int", "min": 1, "max": 720, "default": 24},
+        "seal_delay_seconds": {"type": "int", "min": 0, "max": 120, "default": 18},
+        "fips_profile": {
+            "type": "enum",
+            "choices": ("fips-140-2-level-3", "fips-140-2-level-4", "fips-140-3-level-1"),
+            "default": "fips-140-2-level-4",
+        },
+    },
+    "zsp": {
+        "default_jit_ttl_minutes": {"type": "int", "min": 1, "max": 1440, "default": 60},
+        "max_ttl_extension_minutes": {"type": "int", "min": 0, "max": 4320, "default": 120},
+        "tier0_quorum_approvers": {"type": "int", "min": 1, "max": 10, "default": 2},
+        "session_inactivity_timeout_minutes": {"type": "int", "min": 1, "max": 240, "default": 15},
+    },
+    "worm": {
+        "destination": {
+            "type": "enum",
+            "choices": ("s3-object-lock", "azure-blob-immutability", "gcs-locked", "offline-archive"),
+            "default": "s3-object-lock",
+        },
+        "bucket": {"type": "slug", "default": "aegispam-immutable-worm-audit-prod-01"},
+        "region": {"type": "str", "max_length": 32, "default": "us-east-1"},
+        "retention_days": {"type": "int", "min": 30, "max": 3650, "default": 2555},
+        "object_lock_mode": {"type": "enum", "choices": ("COMPLIANCE", "GOVERNANCE"), "default": "COMPLIANCE"},
+        "immutability_enabled": {"type": "bool", "default": True},
+    },
+}
+
+SETTINGS_GROUPS = tuple(SETTINGS_SCHEMA)
+
+
+def settings_schema() -> Dict[str, Any]:
+    """Field metadata (types, choices, ranges, defaults) for the settings UI."""
+    return {
+        group: {
+            name: {
+                key: (list(value) if isinstance(value, tuple) else value)
+                for key, value in spec.items()
+            }
+            for name, spec in fields.items()
+        }
+        for group, fields in SETTINGS_SCHEMA.items()
+    }
+
+
+def _validate_setting(group: str, field: str, spec: Dict[str, Any], value: Any) -> Any:
+    where = f"{group}.{field}"
+    ftype = spec["type"]
+
+    if ftype == "bool":
+        if not isinstance(value, bool):
+            raise ValidationFailed(f"'{where}' must be true or false", {"field": where})
+        return value
+
+    if ftype == "int":
+        if not isinstance(value, int) or isinstance(value, bool):
+            raise ValidationFailed(f"'{where}' must be an integer", {"field": where})
+        low, high = spec.get("min"), spec.get("max")
+        if low is not None and value < low:
+            raise ValidationFailed(
+                f"'{where}' must be >= {low}", {"field": where, "min": low}
+            )
+        if high is not None and value > high:
+            raise ValidationFailed(
+                f"'{where}' must be <= {high}", {"field": where, "max": high}
+            )
+        return value
+
+    if not isinstance(value, str):
+        raise ValidationFailed(f"'{where}' must be a string", {"field": where})
+    value = value.strip()
+
+    if ftype == "enum":
+        if value not in spec["choices"]:
+            raise ValidationFailed(
+                f"'{where}' must be one of {', '.join(spec['choices'])}",
+                {"field": where, "allowed": list(spec["choices"])},
+            )
+        return value
+
+    if len(value) > spec.get("max_length", 255):
+        raise ValidationFailed(
+            f"'{where}' must be at most {spec.get('max_length', 255)} characters",
+            {"field": where, "max_length": spec.get("max_length", 255)},
+        )
+
+    if ftype == "url":
+        if not value:
+            if spec.get("allow_empty"):
+                return ""
+            raise ValidationFailed(f"'{where}' is required", {"field": where})
+        if not value.startswith("https://") or len(value) <= len("https://"):
+            raise ValidationFailed(
+                f"'{where}' must be an https URL", {"field": where, "scheme": "https"}
+            )
+        return value
+
+    if ftype == "slug":
+        if not _BUCKET_RE.match(value):
+            raise ValidationFailed(
+                f"'{where}' must be a DNS-style name (lowercase letters, digits, dots, dashes)",
+                {"field": where},
+            )
+        return value
+
+    # plain string
+    if not value and not spec.get("allow_empty"):
+        raise ValidationFailed(f"'{where}' is required", {"field": where})
+    return value
+
+
+def _settings_row(group: str) -> Dict[str, Any]:
+    """Stored values for one group, merged over the schema defaults."""
+    fields = SETTINGS_SCHEMA[group]
+    row = SettingGroup.query.filter_by(group_name=group).first()
+    saved = dict(row.value or {}) if row else {}
+    merged = {
+        name: saved[name] if name in saved else spec["default"]
+        for name, spec in fields.items()
+    }
+    if row is None:
+        return {
+            "group": group,
+            "values": merged,
+            "stored": False,
+            "updated_at": None,
+            "updated_by": None,
+        }
+    return row.to_dict(merged)
+
+
+def get_settings() -> Dict[str, Any]:
+    """All settings groups (defaults merged in for anything never saved)."""
+    return {group: _settings_row(group) for group in SETTINGS_GROUPS}
+
+
+def update_settings(group: str, payload: Any, actor: str = "admin") -> Dict[str, Any]:
+    """Validate and persist one settings group, then log the audit entry."""
+    fields = SETTINGS_SCHEMA.get(group)
+    if fields is None:
+        raise NotFound(f"Unknown settings group '{group}'")
+
+    if not isinstance(payload, dict):
+        raise ValidationFailed(
+            "Settings payload must be a JSON object",
+            {"field": "values", "allowed": sorted(fields)},
+        )
+
+    unknown = sorted(name for name in payload if name not in fields)
+    if unknown:
+        raise ValidationFailed(
+            f"Unknown field(s) in '{group}'",
+            {"group": group, "fields": unknown, "allowed": sorted(fields)},
+        )
+    if not payload:
+        raise ValidationFailed(
+            f"Provide at least one '{group}' field to update",
+            {"group": group, "allowed": sorted(fields)},
+        )
+
+    current = _settings_row(group)["values"]
+    changes: Dict[str, Dict[str, Any]] = {}
+    for name, raw in payload.items():
+        new_value = _validate_setting(group, name, fields[name], raw)
+        old_value = current.get(name)
+        if new_value != old_value:
+            changes[name] = {"old": old_value, "new": new_value}
+
+    if not changes:
+        return {
+            "group": group,
+            "values": current,
+            "changes": {},
+            "changed_fields": [],
+            "message": "No changes",
+        }
+
+    merged = {**current, **{name: change["new"] for name, change in changes.items()}}
+    now = datetime.now()
+    row = SettingGroup.query.filter_by(group_name=group).first()
+    if row is None:
+        row = SettingGroup(
+            group_name=group, value=merged, updated_at=now, updated_by=actor
+        )
+        db.session.add(row)
+    else:
+        row.value = merged
+        row.updated_at = now
+        row.updated_by = actor
+    db.session.add(
+        SettingsEvent(
+            group_name=group,
+            action=SETTINGS_ACTION_UPDATED,
+            changes=changes,
+            actor=actor,
+        )
+    )
+    db.session.commit()
+
+    return {
+        "group": group,
+        "values": merged,
+        "changes": changes,
+        "changed_fields": sorted(changes),
+        "message": "Settings stored",
+        "stored": True,
+        "updated_at": now.isoformat(),
+        "updated_by": actor,
+    }
+
+
+def settings_audit(limit: int = 20) -> Dict[str, Any]:
+    """Recent config-audit entries, newest first."""
+    total = SettingsEvent.query.count()
+    events = (
+        SettingsEvent.query.order_by(
+            SettingsEvent.created_at.desc(), SettingsEvent.id.desc()
+        )
+        .limit(limit)
+        .all()
+    )
+    return {
+        "events": [event.to_dict() for event in events],
+        "total": total,
+        "limit": limit,
     }

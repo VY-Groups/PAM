@@ -259,3 +259,30 @@ def check_license_access(license_key: str):
         current_usage=body.get("current_usage"),
     )
     return jsonify(result)
+
+
+# ---------------------------------------------------------------------------
+# platform settings (Platform Settings screen)
+# ---------------------------------------------------------------------------
+@api.get("/settings")
+def get_platform_settings():
+    """Every settings group (defaults merged in) plus the render schema."""
+    return jsonify(
+        {"settings": service.get_settings(), "schema": service.settings_schema()}
+    )
+
+
+@api.get("/settings/audit")
+def get_settings_audit():
+    """Config audit changelog: which fields changed, by whom, and when."""
+    limit = min(_int_param("limit", 20), MAX_PAGE_SIZE)
+    return jsonify(service.settings_audit(limit))
+
+
+@api.put("/settings/<string:group>")
+@require_admin
+def put_platform_settings(group: str):
+    """Replace fields in one settings group (validated, audited, committed)."""
+    body = _json_body()
+    actor = (request.headers.get("X-Actor") or "admin").strip()[:64] or "admin"
+    return jsonify(service.update_settings(group, body, actor=actor))

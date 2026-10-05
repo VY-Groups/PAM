@@ -12,7 +12,7 @@ import logging
 import os
 from typing import Optional
 
-from flask import Flask, jsonify, send_from_directory
+from flask import Flask, abort, jsonify, send_from_directory
 from sqlalchemy import text
 
 from config import REPO_ROOT, Config
@@ -26,9 +26,11 @@ from routes import api
 logger = logging.getLogger(__name__)
 
 # The UI screens live with the rest of the Stitch design suite so the visual
-# language stays in one place; the server just serves the licensed screen.
+# language stays in one place; the server serves the licensed screen plus the
+# rest of the suite (the sidebars link between screens).
 UI_ROOT = REPO_ROOT / "stitch_pam_suite_dashboard_ui"
 LICENSE_SCREEN = UI_ROOT / "license_entitlement_center" / "code.html"
+SETTINGS_SCREEN = UI_ROOT / "platform_settings_center" / "code.html"
 
 
 def _register_error_handlers(app: Flask) -> None:
@@ -101,6 +103,34 @@ def create_app(config: Optional[Config] = None) -> Flask:
         if not LICENSE_SCREEN.is_file():
             return jsonify({"error": f"License screen not found at {LICENSE_SCREEN}"}), 404
         return send_from_directory(str(LICENSE_SCREEN.parent), LICENSE_SCREEN.name)
+
+    @app.get("/settings")
+    def settings_screen():
+        """Serve the live Platform Settings screen from the design suite."""
+        if not SETTINGS_SCREEN.is_file():
+            return jsonify({"error": f"Settings screen not found at {SETTINGS_SCREEN}"}), 404
+        return send_from_directory(str(SETTINGS_SCREEN.parent), SETTINGS_SCREEN.name)
+
+    @app.get("/<path:suite_path>")
+    def suite_files(suite_path: str):
+        """Serve the rest of the Stitch design suite (sidebars link to it).
+
+        Registered last and least specific: /health, /, /license, /settings and
+        every /api/v1 route still win. The API and health namespaces are
+        refused outright so a missing API path keeps returning JSON 404s
+        instead of a file lookup.
+        """
+        if suite_path == "health" or suite_path == "api" or suite_path.startswith("api/"):
+            abort(404)
+        root = UI_ROOT.resolve()
+        try:
+            target = (UI_ROOT / suite_path).resolve()
+            target.relative_to(root)
+        except (OSError, ValueError):
+            abort(404)
+        if not target.is_file():
+            abort(404)
+        return send_from_directory(str(target.parent), target.name)
 
     # Fail fast on unusable signing keys, then create missing tables and append
     # any columns introduced by later spec revisions.

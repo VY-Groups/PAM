@@ -333,3 +333,53 @@ def log_event(license_key: str, action: str, detail: Optional[Dict[str, Any]] = 
             detail=detail or {},
         )
     )
+
+
+# ---------------------------------------------------------------------------
+# platform settings (Platform Settings screen: SSO / HSM / ZSP / WORM)
+# ---------------------------------------------------------------------------
+SETTINGS_ACTION_UPDATED = "updated"
+
+
+class SettingGroup(db.Model):
+    """One saved block of platform settings (sso / hsm / zsp / worm)."""
+
+    __tablename__ = "platform_settings"
+
+    id = db.Column(db.Integer, primary_key=True)
+    group_name = db.Column(db.String(32), nullable=False, unique=True, index=True)
+    value = db.Column(db.JSON, nullable=False, default=dict)
+    updated_at = db.Column(db.DateTime, nullable=False, default=datetime.now)
+    updated_by = db.Column(db.String(64), nullable=False, default="admin")
+
+    def to_dict(self, values: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+        return {
+            "group": self.group_name,
+            "values": self.value if values is None else values,
+            "stored": True,
+            "updated_at": self.updated_at.isoformat(),
+            "updated_by": self.updated_by,
+        }
+
+
+class SettingsEvent(db.Model):
+    """Config audit changelog entry: which fields changed, who, when."""
+
+    __tablename__ = "settings_events"
+
+    id = db.Column(db.Integer, primary_key=True)
+    group_name = db.Column(db.String(32), nullable=False, index=True)
+    action = db.Column(db.String(32), nullable=False)
+    changes = db.Column(db.JSON, nullable=False, default=dict)
+    actor = db.Column(db.String(64), nullable=False, default="admin")
+    created_at = db.Column(db.DateTime, nullable=False, default=datetime.now)
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "id": self.id,
+            "group": self.group_name,
+            "action": self.action,
+            "changes": self.changes,
+            "actor": self.actor,
+            "created_at": self.created_at.isoformat(),
+        }

@@ -22,11 +22,12 @@ Supported wire formats and algorithms:
 | `app.py` | Flask app factory, error handlers, `/health`, screen routes, `python app.py` entrypoint |
 | `config.py` | Environment-driven configuration (`.env` supported) |
 | `routes.py` | HTTP layer: parsing, auth, status codes |
-| `service.py` | Business logic: issue, list, revoke, restore, validate, usage, checks, `meta` |
-| `models.py` | `LicenseRecord` (signed license + spec fields) and `LicenseEvent` (audit trail) |
+| `service.py` | Business logic: issue, list, revoke, restore, validate, usage, checks, `meta`, platform settings |
+| `models.py` | `LicenseRecord` (signed license + spec fields), `LicenseEvent`, `SettingGroup` + `SettingsEvent` (config changelog) |
 | `keys.py` | Startup key checks (fail fast, public/private must match, both algorithms) |
 | `licensing_bridge.py` | Path bootstrap + cached Phase 1 `LicenseGenerator`/`LicenseValidator` |
-| `tests/test_api.py` | End-to-end API tests |
+| `tests/test_api.py` | End-to-end license API tests |
+| `tests/test_settings_and_ui.py` | Settings CRUD/auth/validation/audit + suite navigation tests |
 
 ## Quick start
 
@@ -71,12 +72,25 @@ Admin actions (issue / revoke / restore / download) send the token as
 `X-Admin-Token`; enter it once in the UI (kept in `sessionStorage` for that tab
 only). If `LICENSE_ADMIN_TOKEN` is unset the server runs in open mode.
 
+`GET /settings` serves the **Platform Settings** screen
+(`platform_settings_center/`), built from the spec screen
+`platform_settings_idp_hsm_configuration/` and wired to the settings API below:
+it loads the four configuration groups plus their schema, renders editable
+controls, tracks dirty fields, saves through the admin token and shows the live
+configuration changelog.
+
+The rest of the suite is served read-only from
+`../stitch_pam_suite_dashboard_ui` by a catch-all route: open
+`GET /index.html` for the launcher (every screen with LIVE / STATIC / SPEC
+badges), then any `<folder>/code.html`. The catch-all never shadows `/health`
+or `/api/v1/*` and refuses any path resolving outside the suite folder.
+
 First start creates `phase2_license_server/licenses.db` (override with
 `LICENSE_DATABASE_URI`), validates the key pairs in the repository root and
 adds any columns introduced by a later spec revision.
 
 ```bash
-python -m pytest tests -q     # 49 tests  (131 across both phases, run from the repo root)
+python -m pytest tests -q     # 80 tests  (162 across both phases, run from the repo root)
 ```
 
 ## Configuration
@@ -113,6 +127,9 @@ Base path `/api/v1`. All bodies are JSON except raw-token validation.
 | POST | `/licenses/<key>/usage` | admin | Record runtime consumption (returns the recomputed summary) |
 | POST | `/licenses/<key>/check` | – | Feature / module / quota-limit checks |
 | POST | `/licenses/validate` | – | Full check: structure → signature → revocation → expiry |
+| GET | `/settings` | – | Stored configuration + editable schema (`sso`, `hsm`, `zsp`, `worm`) |
+| GET | `/settings/audit?limit=` | – | Configuration changelog, newest first |
+| PUT | `/settings/<group>` | admin | Merge-update one group, returns the per-field change diff |
 
 Admin auth: `Authorization: Bearer <token>` or `X-Admin-Token: <token>`.
 
@@ -213,6 +230,37 @@ curl -s -X POST http://127.0.0.1:5000/api/v1/licenses/<KEY>/check \
 Any combination of `feature`, `module_id` (one of the 8 catalog ids) and
 `limit_type` + `current_usage` may be asked in one call.
 
+### Platform settings
+
+```bash
+# read everything (public) - values + per-field schema with defaults/ranges
+curl -s http://127.0.0.1:5000/api/v1/settings
+
+# change one group (admin) - X-Actor names who made the change
+curl -s -X PUT http://127.0.0.1:5000/api/v1/settings/zsp \
+  -H "Authorization: Bearer $LICENSE_ADMIN_TOKEN" -H "X-Actor: alice" \
+  -H "Content-Type: application/json" \
+  -d '{"tier0_quorum_approvers": 4}'
+
+# the configuration changelog this write produced
+curl -s "http://127.0.0.1:5000/api/v1/settings/audit?limit=20"
+```
+
+- Four groups: `sso` (9 fields), `hsm` (9), `zsp` (4), `worm` (6). The schema
+  lives in `service.py` (`SETTINGS_SCHEMA`); defaults mirror the values the
+  spec screen displays (2-of-3 quorum, 120-minute TTL extension, 2,555-day
+  retention, the spec's bucket and cluster host).
+- Writes merge into the stored row. Unknown groups/fields, wrong types,
+  out-of-range numbers, non-`https` metadata URLs, invalid enum values and
+  malformed bucket names are rejected with
+  `400 {"error": "...", "details": {"field": ...}}` before anything is saved;
+  a no-op write returns `{"message": "No changes"}` and writes no event.
+- Every accepted change records a `SettingsEvent` with the actor
+  (`X-Actor`, else the authenticated admin) and a per-field old/new diff.
+- Reads are public so the screen can render read-only without a token; `PUT`
+  requires the admin token unless `LICENSE_ADMIN_TOKEN` is unset (open mode,
+  responses then carry `X-Auth-Mode: open`).
+
 ## Design notes
 
 - **Revocation is server-side.** Phase 1 licenses are stateless; this server keeps
@@ -222,6 +270,10 @@ Any combination of `feature`, `module_id` (one of the 8 catalog ids) and
   `LicenseEvent` row, returned with `GET /licenses/<key>`.
 - **Usage is reported, not simulated.** The screen renders
   `POST /licenses/<key>/usage` results only.
+- **Settings are stored, not re-derived.** One `SettingGroup` row per group is
+  upserted on write and merged with the built-in defaults on read, so a field
+  that was never changed still shows its spec value; every write is mirrored
+  into `SettingsEvent` for the changelog.
 - **Naive local datetimes.** Expiry is compared in Python, not SQL, so results do
   not depend on the database's timezone handling.
 - **Errors are JSON**: `{"error": "...", "details": {...}}` with 400/401/404/405/500.

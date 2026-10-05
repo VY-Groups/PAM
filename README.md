@@ -19,13 +19,17 @@ PAM/
 │   ├── test_license_core.py     #   pytest suite (47 tests)
 │   └── test_license_spec.py     #   spec/crypto suite (35 tests)
 ├── stitch_pam_suite_dashboard_ui/  # Stitch design suite (AegisPAM)
+│   ├── index.html                #   launcher: every screen, LIVE badges
 │   ├── zero_trust_sentinel/DESIGN.md   # design tokens + system spec
 │   ├── enterprise_licensing_tier_entitlements_node_quotas/  # spec screen (source of truth)
-│   ├── pam_command_center_threat_dashboard/ ...  # static suite screens
-│   └── license_entitlement_center/code.html      # live screen (served by Phase 2)
+│   ├── platform_settings_idp_hsm_configuration/  # settings spec (source of truth)
+│   ├── pam_command_center_threat_dashboard/ ...  # static suite screens (shared sidebar)
+│   ├── license_entitlement_center/code.html      # live licensing screen (served at /)
+│   └── platform_settings_center/code.html        # live settings screen (served at /settings)
 └── phase2_license_server/       # Phase 2: Flask API (see its README.md)
     ├── app.py / routes.py / service.py / models.py
-    ├── tests/test_api.py        #   pytest suite (49 tests)
+    ├── tests/test_api.py        #   license API suite (49 tests)
+    ├── tests/test_settings_and_ui.py  #  settings API + suite nav (31 tests)
     └── README.md                #   full API reference
 ```
 
@@ -47,7 +51,7 @@ python ipam_licensing/license_validator.py license_<UUID>.lic
 cd phase2_license_server && python app.py     # http://127.0.0.1:5000
 
 # Tests (both phases)
-python -m pytest -q                           # 131 tests
+python -m pytest -q                           # 162 tests
 ```
 
 ## How it fits together
@@ -63,9 +67,14 @@ python -m pytest -q                           # 131 tests
 - One signature is kept per license; the authority may re-serve the same claims
   as an envelope or as a token, so the verifier accepts either signing input.
 - Phase 1 verifies a license **offline**: signature → structure → expiry.
-- Phase 2 adds the things that cannot be known offline — **revocation**, an
+- Phase 2 adds the things that cannot be known offline - **revocation**, an
   issuing **audit trail**, and a central place to look up who holds what. A
   license issued by the server validates with the Phase 1 CLI and vice versa.
+- The design suite is browsable: every screen carries the same sidebar with
+  real links, and `stitch_pam_suite_dashboard_ui/index.html` is the launcher.
+  Served by Phase 2, two screens are **live** - licensing (`/`) and platform
+  settings (`/settings`, backed by `GET/PUT /api/v1/settings` with an audit
+  changelog); the rest render as static `file://` pages.
 
 ## What a license carries
 
