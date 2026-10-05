@@ -8,7 +8,7 @@ Pytest suite for the enterprise licensing spec additions:
 - entitlement module catalog
 
 Everything runs inside pytest's tmp_path; the repository key pair is never
-touched.  Run:  python -m pytest ipam_licensing -q
+touched.  Run:  python -m pytest backend/ipam_licensing -q
 """
 from __future__ import annotations
 

@@ -27,12 +27,13 @@ Supported wire formats and algorithms:
 | `keys.py` | Startup key checks (fail fast, public/private must match, both algorithms) |
 | `licensing_bridge.py` | Path bootstrap + cached Phase 1 `LicenseGenerator`/`LicenseValidator` |
 | `tests/test_api.py` | End-to-end license API tests |
-| `tests/test_settings_and_ui.py` | Settings CRUD/auth/validation/audit + suite navigation tests |
+| `tests/test_settings_and_ui.py` | Settings CRUD/auth/validation/audit + frontend navigation tests |
+| `tests/test_openapi_contract.py` | `apis/openapi.yaml` ↔ live route map (both directions) |
 
 ## Quick start
 
 ```bash
-cd phase2_license_server
+cd backend/phase2_license_server     # from the repository root
 pip install -r requirements.txt
 
 python app.py                 # http://127.0.0.1:5000  -> web UI at /
@@ -60,8 +61,8 @@ that drives the API below. It renders the spec layout against real data:
 - entitlement registry (search + status/type filters, issue/detail/revoke) and
   a public signature-validation console
 
-Source: `../stitch_pam_suite_dashboard_ui/license_entitlement_center/code.html`
-(kept with the rest of the Stitch screens so the visual language stays in one
+Source: `../frontend/screens/license_entitlement_center/code.html`
+(kept with the rest of the console screens so the visual language stays in one
 place; built against the spec screen
 `enterprise_licensing_tier_entitlements_node_quotas/`). It is served
 **same-origin** — its `fetch('api/v1/...')` calls resolve against this server,
@@ -73,24 +74,24 @@ Admin actions (issue / revoke / restore / download) send the token as
 only). If `LICENSE_ADMIN_TOKEN` is unset the server runs in open mode.
 
 `GET /settings` serves the **Platform Settings** screen
-(`platform_settings_center/`), built from the spec screen
+(`frontend/screens/platform_settings_center/`), built from the spec screen
 `platform_settings_idp_hsm_configuration/` and wired to the settings API below:
 it loads the four configuration groups plus their schema, renders editable
 controls, tracks dirty fields, saves through the admin token and shows the live
 configuration changelog.
 
-The rest of the suite is served read-only from
-`../stitch_pam_suite_dashboard_ui` by a catch-all route: open
-`GET /index.html` for the launcher (every screen with LIVE / STATIC / SPEC
-badges), then any `<folder>/code.html`. The catch-all never shadows `/health`
-or `/api/v1/*` and refuses any path resolving outside the suite folder.
+The rest of the console is served read-only from `../frontend` by a
+catch-all route: open `GET /index.html` for the launcher (every screen with
+LIVE / STATIC / SPEC badges), then any `screens/<name>/code.html`. The
+catch-all never shadows `/health` or `/api/v1/*` and refuses any path
+resolving outside the frontend folder.
 
-First start creates `phase2_license_server/licenses.db` (override with
+First start creates `licenses.db` in this folder (override with
 `LICENSE_DATABASE_URI`), validates the key pairs in the repository root and
 adds any columns introduced by a later spec revision.
 
 ```bash
-python -m pytest tests -q     # 80 tests  (162 across both phases, run from the repo root)
+python -m pytest tests -q     # 86 tests  (168 across both phases, run from the repo root)
 ```
 
 ## Configuration
@@ -112,7 +113,9 @@ See `.env.example`. Highlights:
 
 ## API
 
-Base path `/api/v1`. All bodies are JSON except raw-token validation.
+Base path `/api/v1`. All bodies are JSON except raw-token validation. The
+machine-readable contract lives in `../../apis/openapi.yaml` and is
+cross-checked against these routes by `tests/test_openapi_contract.py`.
 
 | Method | Path | Auth | Purpose |
 | --- | --- | --- | --- |

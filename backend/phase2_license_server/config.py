@@ -16,7 +16,8 @@ from typing import Optional
 from dotenv import load_dotenv
 
 SERVER_DIR = Path(__file__).resolve().parent
-REPO_ROOT = SERVER_DIR.parent
+BACKEND_DIR = SERVER_DIR.parent
+REPO_ROOT = BACKEND_DIR.parent
 
 # Load .env overrides next to this file (no-op when the file is absent).
 load_dotenv(SERVER_DIR / ".env")

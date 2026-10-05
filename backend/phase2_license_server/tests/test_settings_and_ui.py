@@ -1,6 +1,6 @@
 """Tests for the Platform Settings API and the wired-up design suite.
 
-Run with:  python -m pytest phase2_license_server/tests -q
+Run with:  python -m pytest backend/phase2_license_server/tests -q
 """
 from __future__ import annotations
 
@@ -11,7 +11,7 @@ from pathlib import Path
 import pytest
 
 SERVER_DIR = Path(__file__).resolve().parent.parent
-REPO_ROOT = SERVER_DIR.parent
+REPO_ROOT = SERVER_DIR.parent.parent
 if str(SERVER_DIR) not in sys.path:
     sys.path.insert(0, str(SERVER_DIR))
 
@@ -19,7 +19,8 @@ from app import create_app  # noqa: E402
 from config import Config  # noqa: E402
 
 ADMIN = {"Authorization": "Bearer test-admin-token"}
-UI_ROOT = REPO_ROOT / "stitch_pam_suite_dashboard_ui"
+UI_ROOT = REPO_ROOT / "frontend"
+SCREENS_DIR = UI_ROOT / "screens"
 
 # The canonical sidebar every screen carries, in order (spec screens' order).
 CANONICAL_NAV = [
@@ -335,7 +336,7 @@ def _nav_block(html: str) -> str:
 
 def test_every_screen_has_the_canonical_nav():
     for folder in WIRED_SCREENS:
-        path = UI_ROOT / folder / "code.html"
+        path = SCREENS_DIR / folder / "code.html"
         assert path.is_file(), f"{folder}/code.html missing"
         nav = _nav_block(path.read_text(encoding="utf-8"))
 
@@ -355,22 +356,23 @@ def test_every_screen_has_the_canonical_nav():
 
         # every target the sidebar names must exist on disk
         for href in hrefs:
-            assert (UI_ROOT / folder / href).resolve().is_file(), f"{folder} -> {href}"
+            assert (SCREENS_DIR / folder / href).resolve().is_file(), f"{folder} -> {href}"
 
 
 def test_no_screen_has_dead_sidebar_links():
     for folder in WIRED_SCREENS:
-        html = (UI_ROOT / folder / "code.html").read_text(encoding="utf-8")
+        html = (SCREENS_DIR / folder / "code.html").read_text(encoding="utf-8")
         dead = re.findall(r'<a\s[^>]*data-path="[^"]+"[^>]*href="#"', html)
         assert not dead, f"{folder} still has {len(dead)} dead sidebar links"
 
 
 def test_launcher_links_every_screen():
     index = UI_ROOT / "index.html"
-    assert index.is_file(), "suite launcher index.html missing"
+    assert index.is_file(), "frontend launcher index.html missing"
     html = index.read_text(encoding="utf-8")
     for folder in WIRED_SCREENS:
-        assert folder + "/code.html" in html, folder
+        assert f"screens/{folder}/code.html" in html, folder
+        assert f"screens/{folder}/screen.png" in html, folder
 
 
 # ---------------------------------------------------------------------------
@@ -379,13 +381,23 @@ def test_launcher_links_every_screen():
 def test_server_serves_the_suite(client):
     assert client.get("/index.html").status_code == 200
     for folder in WIRED_SCREENS:
-        response = client.get(f"/{folder}/code.html")
+        response = client.get(f"/screens/{folder}/code.html")
         assert response.status_code == 200, folder
         assert response.content_type.startswith("text/html"), folder
 
     # the live screens keep their own routes
     for path in ("/", "/license", "/settings"):
         assert client.get(path).status_code == 200, path
+
+
+def test_server_serves_previews_and_design_doc(client):
+    for folder in WIRED_SCREENS:
+        response = client.get(f"/screens/{folder}/screen.png")
+        assert response.status_code == 200, folder
+        assert response.content_type.startswith("image/"), folder
+
+    design = client.get("/screens/zero_trust_sentinel/DESIGN.md")
+    assert design.status_code == 200
 
 
 def test_static_serving_does_not_shadow_the_api(client):

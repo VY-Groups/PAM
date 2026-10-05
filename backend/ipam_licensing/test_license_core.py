@@ -5,7 +5,7 @@ Everything runs against keys and license files inside pytest's tmp_path, so
 the suite is safe to run from any working directory and never touches the
 production key pair in the repository root.
 
-Run:  python -m pytest ipam_licensing -q
+Run:  python -m pytest backend/ipam_licensing -q
 """
 from __future__ import annotations
 

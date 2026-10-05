@@ -1,0 +1,737 @@
+openapi: 3.1.0
+info:
+  title: VY-PAM License Server API
+  version: 1.0.0
+  description: |
+    Issuing, revocation, validation and platform settings for VY-PAM
+    (see `VY-PAM_Enterprise_PAM_Architecture.md`).
+
+    Served by `backend/phase2_license_server`. Conventions:
+
+    - All business endpoints live under `/api/v1`; `/health` is the
+      unauthenticated liveness probe.
+    - Errors are JSON: `{"error": "<message>", "details": {...}}`.
+    - Admin operations require the admin token as
+      `Authorization: Bearer <token>` **or** `X-Admin-Token: <token>`.
+      When `LICENSE_ADMIN_TOKEN` is unset the server runs in open/dev mode
+      and every route is allowed (responses then carry `X-Auth-Mode: open`).
+    - Writes that name an actor accept an `X-Actor` header (settings).
+    - List endpoints paginate with `limit` / `offset` (limit max 200).
+    - Timestamps are ISO 8601 strings.
+servers:
+  - url: http://127.0.0.1:5000
+    description: Local development server (LICENSE_SERVER_HOST/PORT)
+tags:
+  - name: ops
+    description: Liveness and capability probes
+  - name: licenses
+    description: Issue, read, lifecycle and runtime usage of licenses
+  - name: validation
+    description: Offline-parity validation and entitlement checks
+  - name: settings
+    description: Platform Settings screen (SSO / HSM / ZSP / WORM)
+paths:
+  /health:
+    get:
+      tags: [ops]
+      summary: Health probe
+      description: Liveness plus database connectivity, configured key paths, supported algorithms and formats.
+      responses:
+        "200":
+          description: Service healthy
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/Health"}
+        "503":
+          description: Database unreachable (status "degraded")
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/Health"}
+
+  /api/v1/meta:
+    get:
+      tags: [ops]
+      summary: Server capabilities
+      description: Algorithms, wire formats, license types, plans, tiers and the 8-module entitlement catalog.
+      responses:
+        "200":
+          description: Capability document
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/Meta"}
+
+  /api/v1/licenses:
+    get:
+      tags: [licenses]
+      summary: List licenses
+      parameters:
+        - name: status
+          in: query
+          schema: {type: string, enum: [active, revoked, expired]}
+        - name: license_type
+          in: query
+          schema: {type: string}
+        - name: issued_to
+          in: query
+          schema: {type: string}
+        - name: tier
+          in: query
+          schema: {type: string}
+        - name: q
+          in: query
+          description: Free-text search across key, ID and subject.
+          schema: {type: string}
+        - {$ref: "#/components/parameters/Limit"}
+        - {$ref: "#/components/parameters/Offset"}
+      responses:
+        "200":
+          description: Page of licenses
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/LicenseList"}
+        "400": {$ref: "#/components/responses/BadRequest"}
+    post:
+      tags: [licenses]
+      summary: Issue a license
+      security:
+        - bearerAuth: []
+        - adminTokenHeader: []
+        - {}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: "#/components/schemas/IssueLicenseRequest"}
+      responses:
+        "201":
+          description: License signed and stored
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/IssueLicenseResponse"}
+        "400": {$ref: "#/components/responses/BadRequest"}
+        "401": {$ref: "#/components/responses/Unauthorized"}
+
+  /api/v1/licenses/{license_key}:
+    get:
+      tags: [licenses]
+      summary: License detail
+      description: Full record including usage summary and audit events.
+      parameters:
+        - {$ref: "#/components/parameters/LicenseKey"}
+      responses:
+        "200":
+          description: One license
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [license]
+                properties:
+                  license: {$ref: "#/components/schemas/LicenseRecord"}
+        "404": {$ref: "#/components/responses/NotFound"}
+
+  /api/v1/licenses/{license_key}/file:
+    get:
+      tags: [licenses]
+      summary: Download the signed license file
+      security:
+        - bearerAuth: []
+        - adminTokenHeader: []
+        - {}
+      parameters:
+        - {$ref: "#/components/parameters/LicenseKey"}
+        - name: format
+          in: query
+          description: Defaults to the format the license was issued with.
+          schema: {type: string, enum: [json, jwt]}
+      responses:
+        "200":
+          description: Signed envelope (json) or compact token (jwt) as an attachment
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/LicenseEnvelope"}
+            text/plain:
+              schema: {type: string, description: Compact `header.payload.signature` token}
+        "400": {$ref: "#/components/responses/BadRequest"}
+        "401": {$ref: "#/components/responses/Unauthorized"}
+        "404": {$ref: "#/components/responses/NotFound"}
+
+  /api/v1/licenses/{license_key}/revoke:
+    post:
+      tags: [licenses]
+      summary: Revoke a license
+      security:
+        - bearerAuth: []
+        - adminTokenHeader: []
+        - {}
+      parameters:
+        - {$ref: "#/components/parameters/LicenseKey"}
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                reason: {type: string}
+      responses:
+        "200":
+          description: License revoked
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/LicenseMutationResponse"}
+        "400": {$ref: "#/components/responses/BadRequest"}
+        "401": {$ref: "#/components/responses/Unauthorized"}
+        "404": {$ref: "#/components/responses/NotFound"}
+
+  /api/v1/licenses/{license_key}/restore:
+    post:
+      tags: [licenses]
+      summary: Restore a revoked license
+      security:
+        - bearerAuth: []
+        - adminTokenHeader: []
+        - {}
+      parameters:
+        - {$ref: "#/components/parameters/LicenseKey"}
+      responses:
+        "200":
+          description: License restored to active
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/LicenseMutationResponse"}
+        "401": {$ref: "#/components/responses/Unauthorized"}
+        "404": {$ref: "#/components/responses/NotFound"}
+
+  /api/v1/licenses/{license_key}/usage:
+    post:
+      tags: [licenses]
+      summary: Report runtime usage
+      description: |
+        A deployed instance reports consumption. Only the known usage fields
+        plus `pools` (node-quota pools by id) are accepted; values are
+        non-negative integers. The report is appended to the audit trail.
+      security:
+        - bearerAuth: []
+        - adminTokenHeader: []
+        - {}
+      parameters:
+        - {$ref: "#/components/parameters/LicenseKey"}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: "#/components/schemas/UsageReportRequest"}
+      responses:
+        "201":
+          description: Usage recorded
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [license, usage, message]
+                properties:
+                  license: {$ref: "#/components/schemas/LicenseRecord"}
+                  usage: {$ref: "#/components/schemas/UsageSummary"}
+                  message: {type: string}
+        "400": {$ref: "#/components/responses/BadRequest"}
+        "401": {$ref: "#/components/responses/Unauthorized"}
+        "404": {$ref: "#/components/responses/NotFound"}
+
+  /api/v1/licenses/validate:
+    post:
+      tags: [validation]
+      summary: Validate a license payload
+      description: |
+        Full check: structure -> cryptographic signature -> revocation list ->
+        expiry. Accepts a JSON envelope, a `{license: ...}` / `{token: ...}`
+        wrapper, or a compact token as a raw string body
+        (`curl --data-binary @license.lic`).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              description: Envelope, wrapper, or the compact token as a JSON string.
+              anyOf:
+                - {$ref: "#/components/schemas/LicenseEnvelope"}
+                - type: object
+                  properties:
+                    license: {type: object, additionalProperties: true}
+                  additionalProperties: true
+                - type: object
+                  properties:
+                    token: {type: string}
+                  additionalProperties: true
+                - type: string
+          text/plain:
+            schema: {type: string, description: Compact token (three dot-separated segments)}
+      responses:
+        "200":
+          description: Verdict (also returned for invalid licenses)
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/ValidationResult"}
+        "400": {$ref: "#/components/responses/BadRequest"}
+
+  /api/v1/licenses/{license_key}/check:
+    post:
+      tags: [validation]
+      summary: Check feature / module / quota access
+      description: Ask any combination of `feature`, `module_id` (one of the 8 catalog ids) and `limit_type` + `current_usage` in one call.
+      parameters:
+        - {$ref: "#/components/parameters/LicenseKey"}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                feature: {type: string}
+                module_id:
+                  type: string
+                  description: One of the 8 entitlement module ids.
+                limit_type: {type: string}
+                current_usage: {type: integer, minimum: 0}
+              additionalProperties: false
+      responses:
+        "200":
+          description: Per-dimension verdict
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/AccessCheck"}
+        "400": {$ref: "#/components/responses/BadRequest"}
+        "404": {$ref: "#/components/responses/NotFound"}
+
+  /api/v1/settings:
+    get:
+      tags: [settings]
+      summary: Read all settings groups + schema
+      description: |
+        Every group (`sso`, `hsm`, `zsp`, `worm`) with its stored-or-default
+        values plus the render schema (types, ranges, enums, defaults).
+        Public so the Platform Settings screen can render read-only.
+      responses:
+        "200":
+          description: Settings and schema
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/SettingsResponse"}
+
+  /api/v1/settings/audit:
+    get:
+      tags: [settings]
+      summary: Configuration changelog
+      parameters:
+        - name: limit
+          in: query
+          schema: {type: integer, minimum: 0, maximum: 200, default: 20}
+      responses:
+        "200":
+          description: Settings events, newest first
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/SettingsAuditResponse"}
+        "400": {$ref: "#/components/responses/BadRequest"}
+
+  /api/v1/settings/{group}:
+    put:
+      tags: [settings]
+      summary: Update one settings group
+      description: |
+        Merges the given fields into the group after strict validation
+        (unknown fields/groups, wrong types, out-of-range values, malformed
+        enums/URLs/bucket names are rejected with 400). A no-op write returns
+        `{"message": "No changes"}` and records no event. Every accepted
+        change appends a `SettingsEvent` with the actor (`X-Actor` header,
+        else the authenticated admin) and a per-field old/new diff.
+      security:
+        - bearerAuth: []
+        - adminTokenHeader: []
+        - {}
+      parameters:
+        - name: group
+          in: path
+          required: true
+          schema: {type: string, enum: [sso, hsm, zsp, worm]}
+        - name: X-Actor
+          in: header
+          description: Who is making the change (recorded in the audit changelog).
+          schema: {type: string, maxLength: 64}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              minProperties: 1
+              description: One or more fields of the group (see `schema` in GET /api/v1/settings).
+              additionalProperties: true
+      responses:
+        "200":
+          description: Stored (or no changes)
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/SettingsWriteResponse"}
+        "400": {$ref: "#/components/responses/BadRequest"}
+        "401": {$ref: "#/components/responses/Unauthorized"}
+        "404": {$ref: "#/components/responses/NotFound"}
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      description: "Admin token as `Authorization: Bearer <token>`."
+    adminTokenHeader:
+      type: apiKey
+      in: header
+      name: X-Admin-Token
+      description: The same admin token in a custom header (either is accepted).
+  parameters:
+    LicenseKey:
+      name: license_key
+      in: path
+      required: true
+      description: License key (UUID) **or** license ID (`LIC-...`).
+      schema: {type: string}
+    Limit:
+      name: limit
+      in: query
+      schema: {type: integer, minimum: 0, maximum: 200, default: 50}
+    Offset:
+      name: offset
+      in: query
+      schema: {type: integer, minimum: 0, default: 0}
+  responses:
+    BadRequest:
+      description: Validation failed (`details` names the offending field(s)).
+      content:
+        application/json:
+          schema: {$ref: "#/components/schemas/Error"}
+    Unauthorized:
+      description: Admin token missing or wrong.
+      content:
+        application/json:
+          schema: {$ref: "#/components/schemas/Error"}
+    NotFound:
+      description: Unknown license, settings group or route.
+      content:
+        application/json:
+          schema: {$ref: "#/components/schemas/Error"}
+  schemas:
+    Error:
+      type: object
+      required: [error]
+      properties:
+        error: {type: string}
+        details:
+          type: object
+          additionalProperties: true
+      additionalProperties: false
+
+    Health:
+      type: object
+      required: [status, database, auth, algorithms, formats]
+      properties:
+        status: {type: string, enum: [ok, degraded]}
+        database: {type: string, enum: [ok, error]}
+        auth: {type: string, enum: [token, open]}
+        private_key: {type: string, description: Configured RSA key path}
+        algorithms:
+          type: array
+          items: {type: string, enum: [rsa-pss-sha256, ed25519]}
+        formats:
+          type: array
+          items: {type: string, enum: [json, jwt]}
+        ed25519_key: {type: boolean, description: Ed25519 key pair present}
+
+    Meta:
+      type: object
+      required: [algorithms, formats, license_types, tiers, modules]
+      properties:
+        algorithms:
+          type: array
+          items: {type: string}
+        formats:
+          type: array
+          items: {type: string}
+        license_types:
+          type: array
+          items: {type: string}
+        plans:
+          type: array
+          items: {type: string}
+        tiers:
+          type: array
+          items: {type: string}
+        modules:
+          type: array
+          description: The 8-entry entitlement module catalog.
+          items:
+            type: object
+            required: [id]
+            properties:
+              id: {type: string}
+              name: {type: string}
+              description: {type: string}
+            additionalProperties: true
+
+    LicenseEnvelope:
+      type: object
+      required: [license_data, signature]
+      properties:
+        license_data: {type: object, additionalProperties: true}
+        signature: {type: string}
+        algorithm: {type: string, enum: [rsa-pss-sha256, ed25519]}
+        version: {type: integer}
+        format: {type: string}
+      additionalProperties: true
+
+    UsageSummary:
+      type: object
+      description: Reported consumption per usage field plus per-pool node counts.
+      additionalProperties: true
+
+    LicenseRecord:
+      type: object
+      required: [license_key, license_type, status, effective_status, created_at]
+      properties:
+        license_key: {type: string}
+        license_type: {type: string}
+        issued_to: {type: string}
+        issued_date: {type: string, format: date}
+        expires_on: {oneOf: [{type: string, format: date}, {type: "null"}]}
+        features: {type: array, items: {type: string}}
+        usage_limits: {type: object, additionalProperties: true}
+        metadata: {type: object, additionalProperties: true}
+        license_id: {type: string, nullable: true}
+        tier: {type: string, nullable: true}
+        plan: {type: string, nullable: true}
+        subject_entity: {type: string, nullable: true}
+        classification: {type: string, nullable: true}
+        issuer: {type: string, nullable: true}
+        enclave_binding: {type: object, additionalProperties: true}
+        quotas:
+          type: object
+          description: Node/session/tunnel quota pools with enforcement levels.
+          additionalProperties: true
+        modules:
+          type: array
+          items:
+            type: object
+            required: [id]
+            properties:
+              id: {type: string}
+              entitled: {type: string, enum: [entitled, not_entitled]}
+            additionalProperties: true
+        account: {type: object, additionalProperties: true}
+        status: {type: string, enum: [active, revoked]}
+        effective_status: {type: string, enum: [active, revoked, expired]}
+        algorithm: {type: string, enum: [rsa-pss-sha256, ed25519]}
+        signature_format: {type: string, enum: [json, jwt]}
+        fingerprint: {type: string}
+        days_until_expiry: {type: integer, nullable: true}
+        revoked_at: {type: string, nullable: true}
+        revoked_reason: {type: string, nullable: true}
+        created_at: {type: string}
+        usage: {$ref: "#/components/schemas/UsageSummary"}
+        last_reported_at: {type: string, nullable: true}
+        events:
+          type: array
+          description: Only on the detail endpoint.
+          items: {$ref: "#/components/schemas/LicenseEvent"}
+
+    LicenseEvent:
+      type: object
+      required: [id, license_key, action, created_at]
+      properties:
+        id: {type: integer}
+        license_key: {type: string}
+        action: {type: string}
+        detail: {type: object, additionalProperties: true}
+        created_at: {type: string}
+
+    LicenseList:
+      type: object
+      required: [licenses, total, limit, offset]
+      properties:
+        licenses:
+          type: array
+          items: {$ref: "#/components/schemas/LicenseRecord"}
+        total: {type: integer}
+        limit: {type: integer}
+        offset: {type: integer}
+
+    IssueLicenseRequest:
+      type: object
+      required: [license_type]
+      properties:
+        license_type: {type: string, description: 'e.g. "subscription", "trial", "enterprise"'}
+        issued_to: {type: string}
+        trial_days: {type: integer, minimum: 1}
+        features: {type: array, items: {type: string}}
+        usage_limits: {type: object, additionalProperties: true}
+        metadata: {type: object, additionalProperties: true}
+        tier: {type: string}
+        plan: {type: string}
+        license_id: {type: string}
+        subject_entity: {type: string}
+        classification: {type: string}
+        issuer: {type: string}
+        enclave_binding: {type: object, additionalProperties: true}
+        quotas: {type: object, additionalProperties: true}
+        modules:
+          type: array
+          description: 'Entries are objects, e.g. `[{"id": "hsm_integration"}]`.'
+          items: {type: object, additionalProperties: true}
+        account: {type: object, additionalProperties: true}
+        environment: {type: string}
+        algorithm: {type: string, enum: [rsa-pss-sha256, ed25519], default: rsa-pss-sha256}
+        format: {type: string, enum: [json, jwt], default: json}
+      additionalProperties: false
+
+    IssueLicenseResponse:
+      type: object
+      required: [license, license_file, message]
+      properties:
+        license: {$ref: "#/components/schemas/LicenseRecord"}
+        license_file: {$ref: "#/components/schemas/LicenseEnvelope"}
+        token: {type: string, description: Compact token when issued as jwt}
+        message: {type: string}
+
+    LicenseMutationResponse:
+      type: object
+      required: [license, message]
+      properties:
+        license: {$ref: "#/components/schemas/LicenseRecord"}
+        message: {type: string}
+
+    UsageReportRequest:
+      type: object
+      properties:
+        nodes_consumed: {type: integer, minimum: 0}
+        sessions_active: {type: integer, minimum: 0}
+        bastion_tunnels_used: {type: integer, minimum: 0}
+        pools:
+          type: array
+          items:
+            type: object
+            required: [id, nodes_consumed]
+            properties:
+              id: {type: string}
+              nodes_consumed: {type: integer, minimum: 0}
+            additionalProperties: false
+      additionalProperties: false
+
+    ValidationResult:
+      type: object
+      required: [valid, status, signature_valid, registered]
+      properties:
+        valid: {type: boolean}
+        status:
+          type: string
+          enum: [valid, revoked, expired, malformed, signature_invalid]
+        signature_valid: {type: boolean}
+        registered: {type: boolean}
+        revoked: {type: boolean}
+        expired: {type: boolean}
+        matches_registered_record: {type: [boolean, "null"]}
+        reason: {type: [string, "null"]}
+        license: {type: [object, "null"], additionalProperties: true}
+        revoked_reason: {type: [string, "null"]}
+        algorithm: {type: [string, "null"]}
+        format: {type: [string, "null"]}
+        fingerprint: {type: [string, "null"]}
+
+    AccessCheck:
+      type: object
+      required: [license_key, status, active]
+      properties:
+        license_key: {type: string}
+        license_id: {type: string, nullable: true}
+        status: {type: string}
+        active: {type: boolean}
+        feature: {type: string}
+        feature_allowed: {type: boolean}
+        module_id: {type: string}
+        module_allowed: {type: boolean}
+        limit_type: {type: string}
+        current_usage: {type: integer}
+        limit: {type: [integer, "null"]}
+        limit_allowed: {type: boolean}
+
+    SettingsGroupValues:
+      type: object
+      description: Field -> value for one settings group (see the schema in GET /api/v1/settings).
+      additionalProperties: true
+
+    SettingsGroup:
+      type: object
+      required: [group, values, stored, updated_at, updated_by]
+      properties:
+        group: {type: string, enum: [sso, hsm, zsp, worm]}
+        values: {$ref: "#/components/schemas/SettingsGroupValues"}
+        stored: {type: boolean, description: "false = built-in defaults, never saved"}
+        updated_at: {type: [string, "null"]}
+        updated_by: {type: [string, "null"]}
+
+    SettingsResponse:
+      type: object
+      required: [settings, schema]
+      properties:
+        settings:
+          type: object
+          properties:
+            sso: {$ref: "#/components/schemas/SettingsGroup"}
+            hsm: {$ref: "#/components/schemas/SettingsGroup"}
+            zsp: {$ref: "#/components/schemas/SettingsGroup"}
+            worm: {$ref: "#/components/schemas/SettingsGroup"}
+        schema:
+          type: object
+          description: Per-group, per-field render schema (type, min/max, default, choices).
+          additionalProperties: true
+
+    SettingsWriteResponse:
+      type: object
+      required: [group, values, changes, changed_fields, message, updated_by]
+      properties:
+        group: {type: string}
+        values: {$ref: "#/components/schemas/SettingsGroupValues"}
+        changes:
+          type: object
+          description: Per-field old/new diff.
+          additionalProperties:
+            type: object
+            properties:
+              old: {}
+              new: {}
+        changed_fields: {type: array, items: {type: string}}
+        message: {type: string, enum: [Settings stored, No changes]}
+        updated_by: {type: string}
+
+    SettingsAuditResponse:
+      type: object
+      required: [events, total, limit]
+      properties:
+        events:
+          type: array
+          items:
+            type: object
+            required: [id, group, action, changes, actor, created_at]
+            properties:
+              id: {type: integer}
+              group: {type: string, enum: [sso, hsm, zsp, worm]}
+              action: {type: string, enum: [updated]}
+              changes:
+                type: object
+                additionalProperties:
+                  type: object
+                  properties:
+                    old: {}
+                    new: {}
+              actor: {type: string}
+              created_at: {type: string}
+        total: {type: integer}
+        limit: {type: integer}

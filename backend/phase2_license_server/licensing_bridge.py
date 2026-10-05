@@ -1,5 +1,5 @@
 """
-Bridge to the Phase 1 licensing library (ipam_licensing/).
+Bridge to the Phase 1 licensing library (backend/ipam_licensing/).
 
 The Phase 2 server never re-implements cryptography: it imports
 LicenseGenerator / LicenseValidator straight from Phase 1 so that signing
@@ -14,8 +14,9 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Dict, Tuple
 
 SERVER_DIR = Path(__file__).resolve().parent
-REPO_ROOT = SERVER_DIR.parent
-IPAM_LICENSING_DIR = REPO_ROOT / "ipam_licensing"
+BACKEND_DIR = SERVER_DIR.parent
+REPO_ROOT = BACKEND_DIR.parent
+IPAM_LICENSING_DIR = BACKEND_DIR / "ipam_licensing"
 
 if not IPAM_LICENSING_DIR.is_dir():
     raise ImportError(

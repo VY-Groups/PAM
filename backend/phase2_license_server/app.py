@@ -25,12 +25,12 @@ from routes import api
 
 logger = logging.getLogger(__name__)
 
-# The UI screens live with the rest of the Stitch design suite so the visual
-# language stays in one place; the server serves the licensed screen plus the
-# rest of the suite (the sidebars link between screens).
-UI_ROOT = REPO_ROOT / "stitch_pam_suite_dashboard_ui"
-LICENSE_SCREEN = UI_ROOT / "license_entitlement_center" / "code.html"
-SETTINGS_SCREEN = UI_ROOT / "platform_settings_center" / "code.html"
+# The product frontend (copied from the frozen design reference in
+# stitch_pam_suite_dashboard_ui/): the server serves the launcher, the two
+# live screens and every sidebar-linked screen from here.
+UI_ROOT = REPO_ROOT / "frontend"
+LICENSE_SCREEN = UI_ROOT / "screens" / "license_entitlement_center" / "code.html"
+SETTINGS_SCREEN = UI_ROOT / "screens" / "platform_settings_center" / "code.html"
 
 
 def _register_error_handlers(app: Flask) -> None:
@@ -113,7 +113,7 @@ def create_app(config: Optional[Config] = None) -> Flask:
 
     @app.get("/<path:suite_path>")
     def suite_files(suite_path: str):
-        """Serve the rest of the Stitch design suite (sidebars link to it).
+        """Serve the rest of the frontend (sidebars link to it).
 
         Registered last and least specific: /health, /, /license, /settings and
         every /api/v1 route still win. The API and health namespaces are

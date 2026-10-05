@@ -1,0 +1,305 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>AegisPAM · Design Suite</title>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Geist:wght@100..900&amp;family=JetBrains+Mono:wght@100..900&amp;display=swap" rel="stylesheet"/>
+<script src="https://cdn.tailwindcss.com"></script>
+<script id="tailwind-config">
+tailwind.config = {
+  darkMode: "class",
+  theme: {
+    extend: {
+      colors: {
+        primary: "#004ac6", "primary-container": "#b4c5ff", "on-primary": "#ffffff",
+        "on-primary-container": "#00174b", surface: "#f8f9ff",
+        "surface-container-lowest": "#ffffff", "surface-container-low": "#eff4ff",
+        "surface-container": "#e5eeff", "surface-container-high": "#dce9ff",
+        "surface-container-highest": "#d3e4fe", "on-surface": "#0b1c30",
+        "on-surface-variant": "#434655", outline: "#737686", "outline-variant": "#c3c6d7",
+        tertiary: "#006242", "tertiary-fixed": "#6ffbbe", "on-tertiary-fixed": "#005236",
+        secondary: "#565e74", "secondary-container": "#dae2fd",
+        "on-secondary-container": "#5c647a"
+      }
+    }
+  }
+};
+</script>
+<style>
+  body { font-family: Geist, system-ui, sans-serif; }
+  .mono { font-family: "JetBrains Mono", ui-monospace, monospace; }
+  .material-symbols-outlined { font-variation-settings: "FILL" 1, "wght" 500, "GRAD" 0, "opsz" 24; }
+  .card { transition: transform .15s ease, box-shadow .15s ease; }
+  .card:hover { transform: translateY(-2px); box-shadow: 0 8px 24px rgba(0, 43, 122, 0.10); }
+  .filter[aria-pressed="true"] { background: #b4c5ff; color: #00174b; border-color: transparent; box-shadow: 0 1px 3px rgba(0,0,0,.12); }
+</style>
+</head>
+<body class="bg-surface text-on-surface antialiased min-h-screen">
+<div class="max-w-7xl mx-auto px-6 py-8 flex flex-col gap-8">
+
+  <!-- ============================ header ============================ -->
+  <header class="flex flex-col gap-4">
+    <div class="flex items-center justify-between gap-4 flex-wrap">
+      <div class="flex items-center gap-3">
+        <div class="h-11 w-11 rounded-xl bg-primary-container text-on-primary-container flex items-center justify-center">
+          <span class="material-symbols-outlined text-[24px]">shield_lock</span>
+        </div>
+        <div class="flex flex-col">
+          <h1 class="text-[26px] leading-none font-semibold tracking-tight">Aegis<span class="text-primary">PAM</span> Design Suite</h1>
+          <span class="mono text-[11px] text-on-surface-variant tracking-wide mt-1">ZERO-TRUST PRIVILEGED ACCESS · STITCH SCREENS</span>
+        </div>
+      </div>
+      <div class="flex items-center gap-2">
+        <a class="flex items-center gap-1.5 px-3 py-2 rounded-lg bg-surface-container-lowest border border-outline-variant/40 text-sm text-on-surface-variant hover:text-on-surface hover:bg-surface-container transition-colors" href="screens/zero_trust_sentinel/DESIGN.md">
+          <span class="material-symbols-outlined text-[18px]">description</span><span>Design tokens</span>
+        </a>
+        <span class="flex items-center gap-2 px-3 py-2 rounded-lg bg-surface-container-lowest border border-outline-variant/40 mono text-[12px] text-on-surface-variant" id="serverState">
+          <span class="h-2 w-2 rounded-full bg-outline" id="serverDot"></span>
+          <span id="serverText">checking server…</span>
+        </span>
+      </div>
+    </div>
+    <p class="text-[15px] text-on-surface-variant max-w-3xl">
+      Every screen shares one sidebar; its items open the corresponding screen directly, whether the suite is
+      served by the Phase 2 license server (<span class="mono text-[13px]">python app.py</span>) or browsed as
+      files. Two screens talk to live APIs: <strong class="text-on-surface">Licensing &amp; Entitlements</strong>
+      (issues and validates licenses) and <strong class="text-on-surface">Platform Settings</strong>
+      (stores configuration with an audit changelog).
+    </p>
+  </header>
+
+  <!-- ============================ filters ============================ -->
+  <div class="flex items-center gap-2 flex-wrap" id="filters">
+    <button aria-pressed="true" class="filter px-3 py-1.5 rounded-lg text-[13px] font-medium bg-surface-container-lowest border border-outline-variant/40 text-on-surface-variant hover:bg-surface-container" data-filter="all" type="button">All screens</button>
+    <button aria-pressed="false" class="filter px-3 py-1.5 rounded-lg text-[13px] font-medium bg-surface-container-lowest border border-outline-variant/40 text-on-surface-variant hover:bg-surface-container" data-filter="live" type="button">Live (API)</button>
+    <button aria-pressed="false" class="filter px-3 py-1.5 rounded-lg text-[13px] font-medium bg-surface-container-lowest border border-outline-variant/40 text-on-surface-variant hover:bg-surface-container" data-filter="static" type="button">Static design</button>
+    <button aria-pressed="false" class="filter px-3 py-1.5 rounded-lg text-[13px] font-medium bg-surface-container-lowest border border-outline-variant/40 text-on-surface-variant hover:bg-surface-container" data-filter="spec" type="button">Spec (authoritative)</button>
+  </div>
+
+  <!-- ============================ grid ============================ -->
+  <main class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5" id="grid">
+
+    <a class="card group flex flex-col overflow-hidden rounded-xl bg-surface-container-lowest border border-outline-variant/40 shadow-sm" data-kind="static" href="screens/pam_command_center_threat_dashboard/code.html">
+      <div class="aspect-[16/10] overflow-hidden border-b border-outline-variant/30 bg-surface-container">
+        <img alt="Command Center preview" class="w-full h-full object-cover object-top group-hover:scale-[1.02] transition-transform duration-200" loading="lazy" src="screens/pam_command_center_threat_dashboard/screen.png"/>
+      </div>
+      <div class="flex flex-col gap-1.5 p-4">
+        <div class="flex items-center justify-between gap-2">
+          <h2 class="text-[15px] font-semibold tracking-tight">Command Center</h2>
+          <span class="mono text-[10px] px-2 py-0.5 rounded-full font-semibold bg-surface-container text-on-surface-variant">STATIC</span>
+        </div>
+        <p class="text-[13px] leading-snug text-on-surface-variant">Global threat posture, live alerts and cluster-wide privileged activity.</p>
+        <span class="mono text-[11px] text-outline mt-1 flex items-center gap-1"><span class="material-symbols-outlined text-[14px]">arrow_forward</span>pam_command_center_threat_dashboard</span>
+      </div>
+    </a>
+
+    <a class="card group flex flex-col overflow-hidden rounded-xl bg-surface-container-lowest border border-outline-variant/40 shadow-sm" data-kind="static" href="screens/credential_vault_secrets_inventory/code.html">
+      <div class="aspect-[16/10] overflow-hidden border-b border-outline-variant/30 bg-surface-container">
+        <img alt="Credential Vault preview" class="w-full h-full object-cover object-top group-hover:scale-[1.02] transition-transform duration-200" loading="lazy" src="screens/credential_vault_secrets_inventory/screen.png"/>
+      </div>
+      <div class="flex flex-col gap-1.5 p-4">
+        <div class="flex items-center justify-between gap-2">
+          <h2 class="text-[15px] font-semibold tracking-tight">Credential Vault</h2>
+          <span class="mono text-[10px] px-2 py-0.5 rounded-full font-semibold bg-surface-container text-on-surface-variant">STATIC</span>
+        </div>
+        <p class="text-[13px] leading-snug text-on-surface-variant">Secrets inventory, rotation posture and just-in-time credential brokering.</p>
+        <span class="mono text-[11px] text-outline mt-1 flex items-center gap-1"><span class="material-symbols-outlined text-[14px]">arrow_forward</span>credential_vault_secrets_inventory</span>
+      </div>
+    </a>
+
+    <a class="card group flex flex-col overflow-hidden rounded-xl bg-surface-container-lowest border border-outline-variant/40 shadow-sm" data-kind="static" href="screens/jit_access_ephemeral_approvals/code.html">
+      <div class="aspect-[16/10] overflow-hidden border-b border-outline-variant/30 bg-surface-container">
+        <img alt="JIT Access &amp; Approvals preview" class="w-full h-full object-cover object-top group-hover:scale-[1.02] transition-transform duration-200" loading="lazy" src="screens/jit_access_ephemeral_approvals/screen.png"/>
+      </div>
+      <div class="flex flex-col gap-1.5 p-4">
+        <div class="flex items-center justify-between gap-2">
+          <h2 class="text-[15px] font-semibold tracking-tight">JIT Access &amp; Approvals</h2>
+          <span class="mono text-[10px] px-2 py-0.5 rounded-full font-semibold bg-surface-container text-on-surface-variant">STATIC</span>
+        </div>
+        <p class="text-[13px] leading-snug text-on-surface-variant">Ephemeral elevation requests, quorum approvals and TTL countdowns.</p>
+        <span class="mono text-[11px] text-outline mt-1 flex items-center gap-1"><span class="material-symbols-outlined text-[14px]">arrow_forward</span>jit_access_ephemeral_approvals</span>
+      </div>
+    </a>
+
+    <a class="card group flex flex-col overflow-hidden rounded-xl bg-surface-container-lowest border border-outline-variant/40 shadow-sm" data-kind="static" href="screens/live_session_recording_inspection_hub/code.html">
+      <div class="aspect-[16/10] overflow-hidden border-b border-outline-variant/30 bg-surface-container">
+        <img alt="Live Session Hub preview" class="w-full h-full object-cover object-top group-hover:scale-[1.02] transition-transform duration-200" loading="lazy" src="screens/live_session_recording_inspection_hub/screen.png"/>
+      </div>
+      <div class="flex flex-col gap-1.5 p-4">
+        <div class="flex items-center justify-between gap-2">
+          <h2 class="text-[15px] font-semibold tracking-tight">Live Session Hub</h2>
+          <span class="mono text-[10px] px-2 py-0.5 rounded-full font-semibold bg-surface-container text-on-surface-variant">STATIC</span>
+        </div>
+        <p class="text-[13px] leading-snug text-on-surface-variant">Recorded SSH/RDP sessions with playback, inspection and keystroke search.</p>
+        <span class="mono text-[11px] text-outline mt-1 flex items-center gap-1"><span class="material-symbols-outlined text-[14px]">arrow_forward</span>live_session_recording_inspection_hub</span>
+      </div>
+    </a>
+
+    <a class="card group flex flex-col overflow-hidden rounded-xl bg-surface-container-lowest border border-outline-variant/40 shadow-sm" data-kind="static" href="screens/target_infrastructure_connectors/code.html">
+      <div class="aspect-[16/10] overflow-hidden border-b border-outline-variant/30 bg-surface-container">
+        <img alt="Target Infrastructure preview" class="w-full h-full object-cover object-top group-hover:scale-[1.02] transition-transform duration-200" loading="lazy" src="screens/target_infrastructure_connectors/screen.png"/>
+      </div>
+      <div class="flex flex-col gap-1.5 p-4">
+        <div class="flex items-center justify-between gap-2">
+          <h2 class="text-[15px] font-semibold tracking-tight">Target Infrastructure</h2>
+          <span class="mono text-[10px] px-2 py-0.5 rounded-full font-semibold bg-surface-container text-on-surface-variant">STATIC</span>
+        </div>
+        <p class="text-[13px] leading-snug text-on-surface-variant">Cloud, on-prem and database connectors with discovery health.</p>
+        <span class="mono text-[11px] text-outline mt-1 flex items-center gap-1"><span class="material-symbols-outlined text-[14px]">arrow_forward</span>target_infrastructure_connectors</span>
+      </div>
+    </a>
+
+    <a class="card group flex flex-col overflow-hidden rounded-xl bg-surface-container-lowest border border-outline-variant/40 shadow-sm" data-kind="static" href="screens/policy_zero_trust_rules_engine/code.html">
+      <div class="aspect-[16/10] overflow-hidden border-b border-outline-variant/30 bg-surface-container">
+        <img alt="Policy &amp; Zero Trust preview" class="w-full h-full object-cover object-top group-hover:scale-[1.02] transition-transform duration-200" loading="lazy" src="screens/policy_zero_trust_rules_engine/screen.png"/>
+      </div>
+      <div class="flex flex-col gap-1.5 p-4">
+        <div class="flex items-center justify-between gap-2">
+          <h2 class="text-[15px] font-semibold tracking-tight">Policy &amp; Zero Trust</h2>
+          <span class="mono text-[10px] px-2 py-0.5 rounded-full font-semibold bg-surface-container text-on-surface-variant">STATIC</span>
+        </div>
+        <p class="text-[13px] leading-snug text-on-surface-variant">Zero-trust rule engine: conditions, enforcement levels and simulation.</p>
+        <span class="mono text-[11px] text-outline mt-1 flex items-center gap-1"><span class="material-symbols-outlined text-[14px]">arrow_forward</span>policy_zero_trust_rules_engine</span>
+      </div>
+    </a>
+
+    <a class="card group flex flex-col overflow-hidden rounded-xl bg-surface-container-lowest border border-outline-variant/40 shadow-sm" data-kind="static" href="screens/compliance_soc_2_audit_center/code.html">
+      <div class="aspect-[16/10] overflow-hidden border-b border-outline-variant/30 bg-surface-container">
+        <img alt="Compliance &amp; SOC-2 preview" class="w-full h-full object-cover object-top group-hover:scale-[1.02] transition-transform duration-200" loading="lazy" src="screens/compliance_soc_2_audit_center/screen.png"/>
+      </div>
+      <div class="flex flex-col gap-1.5 p-4">
+        <div class="flex items-center justify-between gap-2">
+          <h2 class="text-[15px] font-semibold tracking-tight">Compliance &amp; SOC-2</h2>
+          <span class="mono text-[10px] px-2 py-0.5 rounded-full font-semibold bg-surface-container text-on-surface-variant">STATIC</span>
+        </div>
+        <p class="text-[13px] leading-snug text-on-surface-variant">SOC 2 evidence, control mapping and immutable audit exports.</p>
+        <span class="mono text-[11px] text-outline mt-1 flex items-center gap-1"><span class="material-symbols-outlined text-[14px]">arrow_forward</span>compliance_soc_2_audit_center</span>
+      </div>
+    </a>
+
+    <a class="card group flex flex-col overflow-hidden rounded-xl bg-surface-container-lowest border border-outline-variant/40 shadow-sm" data-kind="live" href="screens/license_entitlement_center/code.html">
+      <div class="aspect-[16/10] overflow-hidden border-b border-outline-variant/30 bg-surface-container">
+        <img alt="Licensing &amp; Entitlements preview" class="w-full h-full object-cover object-top group-hover:scale-[1.02] transition-transform duration-200" loading="lazy" src="screens/license_entitlement_center/screen.png"/>
+      </div>
+      <div class="flex flex-col gap-1.5 p-4">
+        <div class="flex items-center justify-between gap-2">
+          <h2 class="text-[15px] font-semibold tracking-tight">Licensing &amp; Entitlements</h2>
+          <span class="mono text-[10px] px-2 py-0.5 rounded-full font-semibold bg-tertiary-fixed text-on-tertiary-fixed">LIVE API</span>
+        </div>
+        <p class="text-[13px] leading-snug text-on-surface-variant">Issue, validate and consume licenses: tiers, node quotas, modules, revocation.</p>
+        <span class="mono text-[11px] text-tertiary mt-1 flex items-center gap-1"><span class="material-symbols-outlined text-[14px]">api</span>served at /</span>
+      </div>
+    </a>
+
+    <a class="card group flex flex-col overflow-hidden rounded-xl bg-surface-container-lowest border border-outline-variant/40 shadow-sm" data-kind="live" href="screens/platform_settings_center/code.html">
+      <div class="aspect-[16/10] overflow-hidden border-b border-outline-variant/30 bg-surface-container">
+        <img alt="Platform Settings preview" class="w-full h-full object-cover object-top group-hover:scale-[1.02] transition-transform duration-200" loading="lazy" src="screens/platform_settings_center/screen.png"/>
+      </div>
+      <div class="flex flex-col gap-1.5 p-4">
+        <div class="flex items-center justify-between gap-2">
+          <h2 class="text-[15px] font-semibold tracking-tight">Platform Settings</h2>
+          <span class="mono text-[10px] px-2 py-0.5 rounded-full font-semibold bg-tertiary-fixed text-on-tertiary-fixed">LIVE API</span>
+        </div>
+        <p class="text-[13px] leading-snug text-on-surface-variant">Stored SSO, HSM, ZSP and WORM settings with a config audit changelog.</p>
+        <span class="mono text-[11px] text-tertiary mt-1 flex items-center gap-1"><span class="material-symbols-outlined text-[14px]">api</span>served at /settings</span>
+      </div>
+    </a>
+
+    <a class="card group flex flex-col overflow-hidden rounded-xl bg-surface-container-lowest border border-outline-variant/40 shadow-sm" data-kind="static" href="screens/break_glass_emergency_protocol/code.html">
+      <div class="aspect-[16/10] overflow-hidden border-b border-outline-variant/30 bg-surface-container">
+        <img alt="Emergency Break-Glass preview" class="w-full h-full object-cover object-top group-hover:scale-[1.02] transition-transform duration-200" loading="lazy" src="screens/break_glass_emergency_protocol/screen.png"/>
+      </div>
+      <div class="flex flex-col gap-1.5 p-4">
+        <div class="flex items-center justify-between gap-2">
+          <h2 class="text-[15px] font-semibold tracking-tight">Emergency Break-Glass</h2>
+          <span class="mono text-[10px] px-2 py-0.5 rounded-full font-semibold bg-surface-container text-on-surface-variant">STATIC</span>
+        </div>
+        <p class="text-[13px] leading-snug text-on-surface-variant">Sealed emergency access with dual custody and automatic revocation.</p>
+        <span class="mono text-[11px] text-outline mt-1 flex items-center gap-1"><span class="material-symbols-outlined text-[14px]">arrow_forward</span>break_glass_emergency_protocol</span>
+      </div>
+    </a>
+
+    <a class="card group flex flex-col overflow-hidden rounded-xl bg-surface-container-lowest border border-outline-variant/40 shadow-sm" data-kind="spec" href="screens/enterprise_licensing_tier_entitlements_node_quotas/code.html">
+      <div class="aspect-[16/10] overflow-hidden border-b border-outline-variant/30 bg-surface-container">
+        <img alt="Licensing spec preview" class="w-full h-full object-cover object-top group-hover:scale-[1.02] transition-transform duration-200" loading="lazy" src="screens/enterprise_licensing_tier_entitlements_node_quotas/screen.png"/>
+      </div>
+      <div class="flex flex-col gap-1.5 p-4">
+        <div class="flex items-center justify-between gap-2">
+          <h2 class="text-[15px] font-semibold tracking-tight">Licensing (spec)</h2>
+          <span class="mono text-[10px] px-2 py-0.5 rounded-full font-semibold bg-primary-container text-on-primary-container">SPEC</span>
+        </div>
+        <p class="text-[13px] leading-snug text-on-surface-variant">Authoritative spec screen the live licensing console was built from.</p>
+        <span class="mono text-[11px] text-outline mt-1 flex items-center gap-1"><span class="material-symbols-outlined text-[14px]">arrow_forward</span>enterprise_licensing_tier_entitlements_node_quotas</span>
+      </div>
+    </a>
+
+    <a class="card group flex flex-col overflow-hidden rounded-xl bg-surface-container-lowest border border-outline-variant/40 shadow-sm" data-kind="spec" href="screens/platform_settings_idp_hsm_configuration/code.html">
+      <div class="aspect-[16/10] overflow-hidden border-b border-outline-variant/30 bg-surface-container">
+        <img alt="Platform Settings spec preview" class="w-full h-full object-cover object-top group-hover:scale-[1.02] transition-transform duration-200" loading="lazy" src="screens/platform_settings_idp_hsm_configuration/screen.png"/>
+      </div>
+      <div class="flex flex-col gap-1.5 p-4">
+        <div class="flex items-center justify-between gap-2">
+          <h2 class="text-[15px] font-semibold tracking-tight">Platform Settings (spec)</h2>
+          <span class="mono text-[10px] px-2 py-0.5 rounded-full font-semibold bg-primary-container text-on-primary-container">SPEC</span>
+        </div>
+        <p class="text-[13px] leading-snug text-on-surface-variant">Authoritative spec screen the live settings console was built from.</p>
+        <span class="mono text-[11px] text-outline mt-1 flex items-center gap-1"><span class="material-symbols-outlined text-[14px]">arrow_forward</span>platform_settings_idp_hsm_configuration</span>
+      </div>
+    </a>
+
+  </main>
+
+  <!-- ============================ footer ============================ -->
+  <footer class="flex items-center justify-between gap-4 flex-wrap border-t border-outline-variant/30 pt-5 text-[12px] mono text-on-surface-variant">
+    <span>AegisPAM · Phase 1 crypto + Phase 2 license server + Stitch suite</span>
+    <span id="screenCount">12 screens</span>
+  </footer>
+</div>
+
+<script>
+(function () {
+  'use strict';
+
+  // Served by the license server, links are root-relative; opened as a file
+  // they are folder-relative. Both resolve to the same targets.
+  var ROOT = location.protocol === 'file:' ? '' : '/';
+  var cards = Array.prototype.slice.call(document.querySelectorAll('#grid [data-kind]'));
+  var count = document.getElementById('screenCount');
+
+  Array.prototype.forEach.call(document.querySelectorAll('.filter'), function (button) {
+    button.addEventListener('click', function () {
+      var filter = button.getAttribute('data-filter');
+      Array.prototype.forEach.call(document.querySelectorAll('.filter'), function (other) {
+        other.setAttribute('aria-pressed', other === button ? 'true' : 'false');
+      });
+      var shown = 0;
+      cards.forEach(function (card) {
+        var visible = filter === 'all' || card.getAttribute('data-kind') === filter;
+        card.classList.toggle('hidden', !visible);
+        if (visible) shown += 1;
+      });
+      count.textContent = shown + ' of ' + cards.length + ' screens';
+    });
+  });
+
+  // Server chip: only meaningful when this page is actually served.
+  if (ROOT) {
+    fetch(ROOT + 'health').then(function (res) { return res.json(); }).then(function (data) {
+      var ok = data.status === 'ok';
+      document.getElementById('serverDot').className =
+        'h-2 w-2 rounded-full ' + (ok ? 'bg-tertiary' : 'bg-error');
+      document.getElementById('serverText').textContent =
+        ok ? 'server ok · ' + data.auth + ' mode' : 'server degraded';
+    }).catch(function () {
+      document.getElementById('serverDot').className = 'h-2 w-2 rounded-full bg-error';
+      document.getElementById('serverText').textContent = 'server unreachable';
+    });
+  } else {
+    document.getElementById('serverText').textContent = 'browsing as files';
+  }
+})();
+</script>
+</body>
+</html>

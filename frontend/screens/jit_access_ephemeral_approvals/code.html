@@ -1,0 +1,534 @@
+<!DOCTYPE html>
+
+<html lang="en"><head><meta charset="utf-8"/><meta content="width=device-width, initial-scale=1.0" name="viewport"/><meta content="web_dashboard" name="shell-type"/><link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Geist:wght@100..900&family=JetBrains+Mono:wght@100..900&display=swap" rel="stylesheet"/><style>@layer base{html,body{margin:0;padding:0;}body{overscroll-behavior:none;}main>:first-child{margin-top:0!important;}main>:last-child{margin-bottom:0!important;}}::-webkit-scrollbar{display:none;}</style><script src="https://cdn.tailwindcss.com"></script><script id="tailwind-config">tailwind.config={darkMode:"class",theme:{extend:{"colors":{"inverse-primary":"#b4c5ff","outline":"#737686","on-secondary-fixed":"#131b2e","surface-bright":"#f8f9ff","on-surface":"#0b1c30","surface-container":"#e5eeff","surface-tint":"#0053db","surface-container-lowest":"#ffffff","on-secondary-fixed-variant":"#3f465c","on-tertiary-fixed-variant":"#005236","on-error":"#ffffff","tertiary-fixed":"#6ffbbe","error-container":"#ffdad6","surface-container-highest":"#d3e4fe","on-error-container":"#93000a","surface-variant":"#d3e4fe","tertiary-fixed-dim":"#4edea3","on-primary-fixed":"#00174b","tertiary-container":"#007d55","tertiary":"#006242","on-tertiary":"#ffffff","primary-container":"#2563eb","inverse-on-surface":"#eaf1ff","surface":"#f8f9ff","primary-fixed-dim":"#b4c5ff","surface-dim":"#cbdbf5","primary":"#004ac6","on-secondary":"#ffffff","on-background":"#0b1c30","secondary-fixed":"#dae2fd","on-surface-variant":"#434655","on-primary":"#ffffff","background":"#f8f9ff","secondary-container":"#dae2fd","secondary-fixed-dim":"#bec6e0","secondary":"#565e74","inverse-surface":"#213145","on-secondary-container":"#5c647a","on-tertiary-fixed":"#002113","on-tertiary-container":"#bdffdb","on-primary-fixed-variant":"#003ea8","surface-container-low":"#eff4ff","on-primary-container":"#eeefff","surface-container-high":"#dce9ff","primary-fixed":"#dbe1ff","error":"#ba1a1a","outline-variant":"#c3c6d7"},"borderRadius":{"DEFAULT":"0.125rem","lg":"0.25rem","xl":"0.5rem","full":"0.75rem"},"spacing":{"margin":"1rem","space-lg":"1rem","space-xs":"0.25rem","margin-lg":"2rem","space-md":"0.75rem","gutter":"1rem","space-xl":"1.5rem","gutter-lg":"1.5rem","margin-md":"1.5rem","space-sm":"0.5rem"},"fontFamily":{"headline-xl-mobile":["Geist"],"code-sm":["JetBrains Mono"],"body-md":["Geist"],"code-md":["JetBrains Mono"],"headline-sm":["Geist"],"headline-lg":["Geist"],"body-lg":["Geist"],"headline-md":["Geist"],"label-badge":["JetBrains Mono"],"headline-xl":["Geist"],"label-md":["Geist"],"body-sm":["Geist"]},"fontSize":{"headline-xl-mobile":["26px",{"lineHeight":"34px","letterSpacing":"-0.015em","fontWeight":"600"}],"code-sm":["11px",{"lineHeight":"16px","fontWeight":"500"}],"body-md":["14px",{"lineHeight":"20px","fontWeight":"400"}],"code-md":["13px",{"lineHeight":"20px","fontWeight":"500"}],"headline-sm":["16px",{"lineHeight":"24px","letterSpacing":"-0.005em","fontWeight":"600"}],"headline-lg":["24px",{"lineHeight":"32px","letterSpacing":"-0.015em","fontWeight":"600"}],"body-lg":["15px",{"lineHeight":"24px","fontWeight":"400"}],"headline-md":["20px",{"lineHeight":"28px","letterSpacing":"-0.01em","fontWeight":"600"}],"label-badge":["11px",{"lineHeight":"14px","letterSpacing":"0.02em","fontWeight":"600"}],"headline-xl":["32px",{"lineHeight":"40px","letterSpacing":"-0.02em","fontWeight":"600"}],"label-md":["12px",{"lineHeight":"16px","letterSpacing":"0.01em","fontWeight":"500"}],"body-sm":["12px",{"lineHeight":"18px","fontWeight":"400"}]}}}}</script></head><body class="bg-surface font-body-md text-on-surface antialiased min-h-screen"><aside class="fixed left-0 top-0 h-full w-64 bg-surface-container-lowest border-r border-outline-variant/30 z-50 flex flex-col justify-between shadow-[0_1px_8px_rgba(0,0,0,0.03)]"><div class="flex flex-col"><div class="h-16 px-space-lg flex items-center justify-between border-b border-outline-variant/20"><div class="flex items-center gap-space-sm"><img alt="AegisPAM Enterprise Security Logo" class="h-8 w-auto object-contain" src="https://lh3.googleusercontent.com/aida/AEtjO1WEmPdaCdyPoBs8dnKxEKdAt6JSUXwXqmGXxG_gr6NeV4pb06UrkoLnFj1qtuoA6VWkrHDkDqt2DrO-0xbHmfhcjFEXaSibToHJDcZJti8xxdzONeP7yqMKtQk47dMXIoIbTqpS99Hv1uiyvr6yKObhQ3LGvkhRp_pDC0oc-jevLG5BbqdiBkqomvOh-CAJbnCLe0lfcM5YxZYd9_rlpx7rcgG4Mmhkdl1q6D_GgBZ3yK2nwvLSVeTkCxLK"/><div class="flex flex-col"><span class="font-headline-sm text-headline-sm text-on-surface tracking-tight leading-none">Aegis<span class="text-primary">PAM</span></span><span class="font-code-sm text-code-sm text-on-surface-variant font-normal tracking-wide">ZERO-TRUST CORE</span></div></div><span class="material-symbols-outlined text-outline text-[18px]">verified_user</span></div><div class="px-space-md py-space-sm"><div class="px-space-sm py-space-xs mb-space-xs font-code-sm text-code-sm text-outline uppercase tracking-wider font-semibold">Privileged Controls</div><nav class="flex flex-col gap-1" data-active-classes="bg-primary-container text-on-primary-container font-semibold shadow-sm"><a class="flex items-center gap-space-sm px-space-md py-space-sm rounded-lg text-on-surface-variant hover:bg-surface-container hover:text-on-surface transition-colors font-body-md text-body-md" data-path="pam-command-center-threat-dashboard" href="../pam_command_center_threat_dashboard/code.html"><span class="material-symbols-outlined text-[20px]">grid_view</span><span>Command Center</span></a><a class="flex items-center gap-space-sm px-space-md py-space-sm rounded-lg text-on-surface-variant hover:bg-surface-container hover:text-on-surface transition-colors font-body-md text-body-md" data-path="credential-vault-secrets-inventory" href="../credential_vault_secrets_inventory/code.html"><span class="material-symbols-outlined text-[20px]">vpn_key</span><span>Credential Vault</span></a><a aria-current="page" class="flex items-center gap-space-sm px-space-md py-space-sm rounded-lg transition-colors bg-primary-container text-on-primary-container font-semibold shadow-sm" data-path="jit-access-ephemeral-approvals" href="../jit_access_ephemeral_approvals/code.html"><span class="material-symbols-outlined text-[20px]">hourglass_top</span><span>JIT Access & Approvals</span></a><a class="flex items-center gap-space-sm px-space-md py-space-sm rounded-lg text-on-surface-variant hover:bg-surface-container hover:text-on-surface transition-colors font-body-md text-body-md" data-path="live-session-recording-inspection-hub" href="../live_session_recording_inspection_hub/code.html"><span class="material-symbols-outlined text-[20px]">terminal</span><span>Live Session Hub</span></a><a class="flex items-center gap-space-sm px-space-md py-space-sm rounded-lg text-on-surface-variant hover:bg-surface-container hover:text-on-surface transition-colors font-body-md text-body-md" data-path="target-infrastructure-connectors" href="../target_infrastructure_connectors/code.html"><span class="material-symbols-outlined text-[20px]">dns</span><span>Target Infrastructure</span></a><a class="flex items-center gap-space-sm px-space-md py-space-sm rounded-lg text-on-surface-variant hover:bg-surface-container hover:text-on-surface transition-colors font-body-md text-body-md" data-path="policy-zero-trust-rules-engine" href="../policy_zero_trust_rules_engine/code.html"><span class="material-symbols-outlined text-[20px]">shield_lock</span><span>Policy & Zero Trust</span></a><a class="flex items-center gap-space-sm px-space-md py-space-sm rounded-lg text-on-surface-variant hover:bg-surface-container hover:text-on-surface transition-colors font-body-md text-body-md" data-path="compliance-soc-2-audit-center" href="../compliance_soc_2_audit_center/code.html"><span class="material-symbols-outlined text-[20px]">policy</span><span>Compliance & SOC2</span></a><a class="flex items-center gap-space-sm px-space-md py-space-sm rounded-lg text-on-surface-variant hover:bg-surface-container hover:text-on-surface transition-colors font-body-md text-body-md" data-path="license-entitlement-center" href="../license_entitlement_center/code.html"><span class="material-symbols-outlined text-[20px]">workspace_premium</span><span>Licensing &amp; Entitlements</span></a><a class="flex items-center gap-space-sm px-space-md py-space-sm rounded-lg text-on-surface-variant hover:bg-surface-container hover:text-on-surface transition-colors font-body-md text-body-md" data-path="break-glass-emergency-protocol" href="../break_glass_emergency_protocol/code.html"><span class="material-symbols-outlined text-[20px] text-error">emergency_home</span><span>Emergency Break-Glass</span></a><a class="flex items-center gap-space-sm px-space-md py-space-sm rounded-lg text-on-surface-variant hover:bg-surface-container hover:text-on-surface transition-colors font-body-md text-body-md" data-path="platform-settings-center" href="../platform_settings_center/code.html"><span class="material-symbols-outlined text-[20px]">tune</span><span>Settings</span></a></nav></div></div><div class="p-space-md border-t border-outline-variant/20 bg-surface-container-low/40"><div class="p-space-sm rounded-lg bg-surface-container-lowest border border-outline-variant/30 flex flex-col gap-1"><div class="flex items-center justify-between"><span class="font-code-sm text-code-sm text-outline uppercase">ZSP Policy</span><span class="inline-flex items-center gap-1 font-label-badge text-label-badge text-tertiary font-semibold"><span class="w-1.5 h-1.5 rounded-full bg-tertiary animate-pulse"></span>ENFORCED</span></div><p class="font-body-sm text-body-sm text-on-surface-variant">Zero Standing Privileges active across all cloud compute clusters.</p></div></div></aside><div class="pl-64"><header class="fixed top-0 left-64 right-0 h-16 bg-surface-container-lowest/90 backdrop-blur-md border-b border-outline-variant/25 z-40 flex items-center justify-between px-space-xl"><div class="flex items-center gap-space-md flex-1 max-w-2xl"><div class="flex items-center gap-space-xs px-space-sm py-1 rounded bg-surface-container text-on-surface font-code-sm text-code-sm border border-outline-variant/30 shrink-0"><span class="w-2 h-2 rounded-full bg-tertiary"></span><span>us-east-prod-cluster / Global Zone 1</span><span class="text-outline">|</span><span class="text-primary font-semibold">SOC2 Type II</span></div><div class="relative flex-1"><span class="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-outline text-[18px]">search</span><input class="w-full pl-9 pr-12 py-1.5 rounded-lg bg-surface border border-outline-variant/40 font-body-sm text-body-sm text-on-surface placeholder:text-outline focus:outline-none focus:border-primary-container focus:ring-1 focus:ring-primary-container transition-all" placeholder="Cmd + K to query credentials, targets, sessions..." readonly="" type="text"/><span class="absolute right-2.5 top-1/2 -translate-y-1/2 px-1.5 py-0.5 rounded font-code-sm text-code-sm bg-surface-container-high text-on-surface-variant border border-outline-variant/40">⌘K</span></div></div><div class="flex items-center gap-space-md"><div class="hidden xl:flex items-center gap-space-sm px-space-sm py-1 rounded bg-surface-container-low border border-outline-variant/30"><span class="material-symbols-outlined text-tertiary text-[16px]">fiber_manual_record</span><span class="font-code-sm text-code-sm text-on-surface">Audit Stream: 120 evt/s</span></div><button class="flex items-center gap-1.5 px-space-md py-1.5 rounded-lg bg-error text-on-error hover:bg-error/90 font-label-md text-label-md transition-colors shadow-sm font-semibold tracking-wide uppercase"><span class="material-symbols-outlined text-[16px]">warning</span><span>Break-Glass</span></button><div class="relative flex items-center justify-center p-2 rounded-lg text-on-surface-variant hover:bg-surface-container transition-colors cursor-pointer"><span class="material-symbols-outlined text-[20px]">notifications</span><span class="absolute top-1.5 right-1.5 flex h-4 w-4 items-center justify-center rounded-full bg-error text-on-error font-code-sm text-[10px] font-bold">3</span></div><div class="h-6 w-px bg-outline-variant/40"></div><div class="flex items-center gap-space-sm pl-1"><img alt="Profile" class="w-8 h-8 rounded-full object-cover border border-outline-variant" src="https://lh3.googleusercontent.com/aida-public/AB6AXuBZ43b4L1jvA4lZ6y0Y9Ilfph6oFQH275tub5o5spOGUvNi0q5YDF1GkNN0XrGxQYFEXdKWAmLVl4JhTpZ4E8WyXdlYMEaKgvHWK6aAlmN5v9-CQtC7wp3T_KUqGNd_yINPzdpFVuWfSIrXiWO_nzjjxCEe4BWyyHS6FahqlmhmZp2BZRNXc45lakv0PoHtwj-zPhdTQj-VcQSscV8lT0uEhRnypm1rzu0Gd72gNuQnjY3FvlXRvAsZkw"/><div class="flex flex-col text-left"><span class="font-headline-sm text-[13px] text-on-surface font-semibold leading-tight">Alex Mercer</span><span class="font-label-badge text-label-badge text-primary leading-none">Enterprise SecOps Lead</span></div></div></div></header><main class="relative pt-16 pb-12 min-h-screen bg-surface w-full px-space-xl"><div class="flex flex-col w-full">
+<!-- Top Command & Action Bar -->
+<div class="flex flex-col xl:flex-row xl:items-center justify-between gap-space-lg mb-space-xl">
+<div class="flex flex-col">
+<div class="flex items-center gap-space-sm mb-1">
+<span class="font-code-sm text-code-sm text-primary uppercase font-semibold tracking-wider">Zero Standing Privilege Control</span>
+<span class="inline-flex items-center px-1.5 py-0.5 rounded bg-surface-container font-code-sm text-code-sm text-on-surface-variant font-medium">NIST 800-207</span>
+</div>
+<h1 class="font-headline-xl text-headline-xl text-on-surface tracking-tight">Just-In-Time (JIT) Access & Quorum Approvals</h1>
+<p class="font-body-md text-body-md text-on-surface-variant max-w-3xl mt-1">
+        Eliminate standing privileges. Enforce multi-party peer approvals, automated ticket validation, and self-expiring zero-trust ephemeral tokens.
+      </p>
+</div>
+<div class="flex flex-wrap items-center gap-space-sm self-start xl:self-center shrink-0">
+<button class="px-space-md py-2 rounded-lg bg-surface-container-highest text-on-surface hover:bg-surface-container font-label-md text-label-md transition-all flex items-center gap-1.5 shadow-sm">
+<span class="material-symbols-outlined text-[18px]">rule_settings</span>
+<span>Quorum Rules</span>
+</button>
+<button class="px-space-md py-2 rounded-lg bg-surface-container-highest text-on-surface hover:bg-surface-container font-label-md text-label-md transition-all flex items-center gap-1.5 shadow-sm">
+<span class="material-symbols-outlined text-[18px]">shield</span>
+<span>Access Policies</span>
+</button>
+<button class="px-space-lg py-2 rounded-lg bg-primary text-on-primary hover:bg-primary-container font-label-md text-label-md font-semibold transition-all flex items-center gap-1.5 shadow-md">
+<span class="material-symbols-outlined text-[18px]">add</span>
+<span>Request Temporary Access</span>
+</button>
+</div>
+</div>
+<!-- Realtime Telemetry & SLA Metrics Grid -->
+<div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-space-md mb-space-xl">
+<!-- Metric 1: Pending Approvals -->
+<div class="relative overflow-hidden rounded-xl bg-surface-container-lowest p-space-lg shadow-sm flex flex-col justify-between">
+<div class="absolute top-0 left-0 right-0 h-1 bg-primary"></div>
+<div class="flex items-start justify-between">
+<div class="flex flex-col">
+<span class="font-code-sm text-code-sm text-outline uppercase tracking-wider font-medium">Pending My Approval</span>
+<span class="font-headline-xl text-headline-xl text-on-surface font-bold mt-1">3</span>
+</div>
+<div class="w-10 h-10 rounded-lg bg-surface-container flex items-center justify-center text-primary">
+<span class="material-symbols-outlined text-[22px]">assignment_late</span>
+</div>
+</div>
+<div class="mt-space-md flex items-center gap-2">
+<span class="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-surface-container-high font-code-sm text-code-sm text-primary font-semibold">
+<span class="w-1.5 h-1.5 rounded-full bg-primary animate-pulse"></span>2 High Urgency
+        </span>
+<span class="font-body-sm text-body-sm text-on-surface-variant">Sign-off required</span>
+</div>
+</div>
+<!-- Metric 2: Active Ephemeral Grants -->
+<div class="relative overflow-hidden rounded-xl bg-surface-container-lowest p-space-lg shadow-sm flex flex-col justify-between">
+<div class="absolute top-0 left-0 right-0 h-1 bg-tertiary"></div>
+<div class="flex items-start justify-between">
+<div class="flex flex-col">
+<span class="font-code-sm text-code-sm text-outline uppercase tracking-wider font-medium">Active Ephemeral Grants</span>
+<span class="font-headline-xl text-headline-xl text-on-surface font-bold mt-1">1</span>
+</div>
+<div class="w-10 h-10 rounded-lg bg-surface-container flex items-center justify-center text-tertiary">
+<span class="material-symbols-outlined text-[22px]">timer</span>
+</div>
+</div>
+<div class="mt-space-md flex items-center gap-2">
+<div class="flex items-center gap-1.5 px-2 py-0.5 rounded bg-surface-container font-code-sm text-code-sm text-tertiary font-semibold">
+<span class="material-symbols-outlined text-[14px]">lock_clock</span>41m remaining
+        </div>
+<span class="font-body-sm text-body-sm text-on-surface-variant">Token auto-rotates</span>
+</div>
+</div>
+<!-- Metric 3: Auto-Approved under Policy -->
+<div class="relative overflow-hidden rounded-xl bg-surface-container-lowest p-space-lg shadow-sm flex flex-col justify-between">
+<div class="absolute top-0 left-0 right-0 h-1 bg-secondary"></div>
+<div class="flex items-start justify-between">
+<div class="flex flex-col">
+<span class="font-code-sm text-code-sm text-outline uppercase tracking-wider font-medium">Policy Auto-Approved (24h)</span>
+<span class="font-headline-xl text-headline-xl text-on-surface font-bold mt-1">48</span>
+</div>
+<div class="w-10 h-10 rounded-lg bg-surface-container flex items-center justify-center text-secondary">
+<span class="material-symbols-outlined text-[22px]">verified</span>
+</div>
+</div>
+<div class="mt-space-md flex items-center justify-between">
+<span class="font-body-sm text-body-sm text-on-surface-variant truncate">Dev sandbox policy tier-1</span>
+<span class="font-code-sm text-code-sm text-on-surface font-medium">94.1%</span>
+</div>
+</div>
+<!-- Metric 4: Approver SLA Velocity -->
+<div class="relative overflow-hidden rounded-xl bg-surface-container-lowest p-space-lg shadow-sm flex flex-col justify-between">
+<div class="absolute top-0 left-0 right-0 h-1 bg-primary-container"></div>
+<div class="flex items-start justify-between">
+<div class="flex flex-col">
+<span class="font-code-sm text-code-sm text-outline uppercase tracking-wider font-medium">Average Approver SLA</span>
+<div class="flex items-baseline gap-1 mt-1">
+<span class="font-headline-xl text-headline-xl text-on-surface font-bold">4.2</span>
+<span class="font-body-sm text-body-sm text-on-surface-variant font-medium">mins</span>
+</div>
+</div>
+<div class="w-10 h-10 rounded-lg bg-surface-container flex items-center justify-center text-primary-container">
+<span class="material-symbols-outlined text-[22px]">speed</span>
+</div>
+</div>
+<div class="mt-space-md flex items-center gap-2">
+<span class="inline-flex items-center gap-0.5 text-tertiary font-code-sm text-code-sm font-semibold">
+<span class="material-symbols-outlined text-[16px]">arrow_downward</span> 18% vs avg
+        </span>
+<span class="font-body-sm text-body-sm text-on-surface-variant">Optimal posture</span>
+</div>
+</div>
+</div>
+<!-- Main Content 2-Column Split Console -->
+<div class="grid grid-cols-1 lg:grid-cols-12 gap-space-lg items-start">
+<!-- Left Column: Request Queue (5 Columns on Desktop) -->
+<div class="lg:col-span-5 flex flex-col gap-space-md">
+<!-- Queue Navigation Tabs -->
+<div class="bg-surface-container-lowest rounded-xl p-1.5 shadow-sm flex items-center justify-between">
+<div class="flex items-center gap-1 overflow-x-auto w-full">
+<button class="px-space-md py-1.5 rounded-lg bg-primary-container text-on-primary-container font-label-md text-label-md font-semibold whitespace-nowrap shadow-sm flex items-center gap-2">
+<span>Pending Approvals</span>
+<span class="w-5 h-5 rounded-full bg-surface-container-lowest text-primary font-code-sm text-[11px] font-bold flex items-center justify-center">3</span>
+</button>
+<button class="px-space-md py-1.5 rounded-lg text-on-surface-variant hover:bg-surface-container font-label-md text-label-md whitespace-nowrap transition-colors flex items-center gap-2">
+<span>Active Grants</span>
+<span class="font-code-sm text-code-sm text-outline">12</span>
+</button>
+<button class="px-space-md py-1.5 rounded-lg text-on-surface-variant hover:bg-surface-container font-label-md text-label-md whitespace-nowrap transition-colors">
+<span>Historical</span>
+</button>
+<button class="px-space-md py-1.5 rounded-lg text-on-surface-variant hover:bg-surface-container font-label-md text-label-md whitespace-nowrap transition-colors">
+<span>My Requests</span>
+</button>
+</div>
+</div>
+<!-- Filter / Search Row -->
+<div class="flex items-center justify-between gap-space-sm px-1">
+<span class="font-code-sm text-code-sm text-outline uppercase font-semibold">Queue Order: Risk & Urgency</span>
+<div class="flex items-center gap-2">
+<button class="p-1 rounded bg-surface-container hover:bg-surface-container-high text-on-surface-variant transition-colors" title="Filter list">
+<span class="material-symbols-outlined text-[18px]">filter_list</span>
+</button>
+<button class="p-1 rounded bg-surface-container hover:bg-surface-container-high text-on-surface-variant transition-colors" title="Sort by SLA">
+<span class="material-symbols-outlined text-[18px]">sort</span>
+</button>
+</div>
+</div>
+<!-- Request Cards Stack -->
+<div class="flex flex-col gap-space-sm">
+<!-- CARD 1 (Active/Selected) -->
+<div class="relative bg-surface-container-lowest rounded-xl p-space-lg shadow-md cursor-pointer transition-all hover:bg-surface-bright" id="card-8841">
+<!-- Selection indicator bar -->
+<div class="absolute left-0 top-0 bottom-0 w-1.5 bg-primary-container rounded-l-xl"></div>
+<div class="flex items-start justify-between mb-2">
+<div class="flex items-center gap-2">
+<span class="font-code-md text-code-md text-primary font-bold">#JIT-8841</span>
+<span class="px-2 py-0.5 rounded bg-error-container text-on-error-container font-label-badge text-label-badge font-semibold uppercase">High Urgency</span>
+</div>
+<span class="font-code-sm text-code-sm text-outline">Requested 11m ago</span>
+</div>
+<div class="flex items-center gap-space-sm mb-space-md">
+<img class="w-9 h-9 rounded-full object-cover shadow-sm" data-alt="Close-up professional portrait of Marcus Brody, senior male platform site reliability engineer with short hair, neutral background, sharp corporate attire, cool lighting" src="https://lh3.googleusercontent.com/aida-public/AB6AXuATsHfbt2s8DVinLO8-b58uy_LapvB6ypOEyiHFRCsNmHZ2VkhZEvX0VQyJJXTb6Y3Ic5-FqLygp7qlhfQbQfgxET-wKuMGVV73VFjq1Q3pficnuDFOH5NaT8Clru-RdirOKPFRJTYEpivcZSlcse8RUrKwbEcONpXYAwlmdEhOFcCg8vGEJ735t5mC8MgfJ0Az-xBh8kdY1aF50-sGOXa_nbR2lIZam--uXht2oYihtRkEM2lrD0yVqA"/>
+<div class="flex flex-col">
+<span class="font-headline-sm text-headline-sm text-on-surface font-semibold leading-tight">Marcus Brody</span>
+<span class="font-body-sm text-body-sm text-on-surface-variant">Senior SRE • Platform Core</span>
+</div>
+</div>
+<div class="bg-surface-container rounded-lg p-space-sm mb-space-md flex flex-col gap-1.5">
+<div class="flex items-center justify-between text-body-sm">
+<span class="text-on-surface-variant font-medium flex items-center gap-1.5">
+<span class="material-symbols-outlined text-[16px] text-primary">cloud_circle</span>
+                Target:
+              </span>
+<span class="font-code-sm text-code-sm text-on-surface font-semibold">AWS Prod EKS (admin)</span>
+</div>
+<div class="flex items-center justify-between text-body-sm">
+<span class="text-on-surface-variant font-medium flex items-center gap-1.5">
+<span class="material-symbols-outlined text-[16px] text-outline">confirmation_number</span>
+                Ticket Ref:
+              </span>
+<span class="font-code-sm text-code-sm text-primary font-semibold hover:underline">JIRA-5920</span>
+</div>
+</div>
+<p class="font-body-sm text-body-sm text-on-surface-variant line-clamp-2 mb-space-md">
+            "Hotfix memory leak in checkout service. Node pods OOMKilled in AZ us-east-1a, requires temporary elevated kubectl cluster-admin context."
+          </p>
+<!-- Card Footer Status -->
+<div class="flex items-center justify-between pt-space-xs">
+<div class="flex items-center gap-1.5">
+<span class="material-symbols-outlined text-[16px] text-primary">groups</span>
+<span class="font-label-badge text-label-badge text-on-surface font-semibold">Quorum: 1/2 Approved</span>
+</div>
+<span class="font-code-sm text-code-sm text-outline">Duration: 2.0h</span>
+</div>
+</div>
+<!-- CARD 2 -->
+<div class="relative bg-surface-container-lowest rounded-xl p-space-lg shadow-sm hover:shadow-md cursor-pointer transition-all hover:bg-surface-bright" id="card-8842">
+<div class="flex items-start justify-between mb-2">
+<div class="flex items-center gap-2">
+<span class="font-code-md text-code-md text-on-surface font-bold">#JIT-8842</span>
+<span class="px-2 py-0.5 rounded bg-surface-container font-label-badge text-label-badge text-on-surface-variant font-semibold uppercase">Standard</span>
+</div>
+<span class="font-code-sm text-code-sm text-outline">Requested 28m ago</span>
+</div>
+<div class="flex items-center gap-space-sm mb-space-md">
+<img class="w-9 h-9 rounded-full object-cover shadow-sm" data-alt="Portrait of Elena Rostova, female database reliability architect in crisp lighting, smart enterprise posture, confident gaze, tech office background" src="https://lh3.googleusercontent.com/aida-public/AB6AXuA3Nam_RZCPKbhmnhAdwoEMiPzMMJlIeeFsLP8ay5DxVvKBNVGGBWWZX9f_6tVk4oQ5x_F75sy-N-4bkpfWyMrFvjVgPNYV_2aBr0xQzcVHyGOSXCj42oY6DLWfgvG6OHwjDUs2SNvcl8nC_uSAkGA1l_xvqajsMC2XOLkMKs6gHDMWlxFUaYwf0WuWVnnT4T2jbNV8cGvvHOeBVXg4XPqxx11nAnEmN1zcSEXCnXADDzZctDGd8bbkDw"/>
+<div class="flex flex-col">
+<span class="font-headline-sm text-headline-sm text-on-surface font-semibold leading-tight">Elena Rostova</span>
+<span class="font-body-sm text-body-sm text-on-surface-variant">Lead Database Admin • Data Ops</span>
+</div>
+</div>
+<div class="bg-surface-container-low rounded-lg p-space-sm mb-space-md flex flex-col gap-1.5">
+<div class="flex items-center justify-between text-body-sm">
+<span class="text-on-surface-variant font-medium flex items-center gap-1.5">
+<span class="material-symbols-outlined text-[16px] text-secondary">database</span>
+                Target:
+              </span>
+<span class="font-code-sm text-code-sm text-on-surface font-semibold">Prod PG Analytics (RW)</span>
+</div>
+<div class="flex items-center justify-between text-body-sm">
+<span class="text-on-surface-variant font-medium flex items-center gap-1.5">
+<span class="material-symbols-outlined text-[16px] text-outline">confirmation_number</span>
+                Ticket Ref:
+              </span>
+<span class="font-code-sm text-code-sm text-secondary font-semibold">SNOW-44910</span>
+</div>
+</div>
+<p class="font-body-sm text-body-sm text-on-surface-variant line-clamp-2 mb-space-md">
+            "Re-indexing partitioned revenue tables prior to monthly ledger freeze. Read-write query optimization."
+          </p>
+<div class="flex items-center justify-between pt-space-xs">
+<div class="flex items-center gap-1.5">
+<span class="material-symbols-outlined text-[16px] text-outline">hourglass_empty</span>
+<span class="font-label-badge text-label-badge text-on-surface-variant font-semibold">Quorum: 0/1 Required</span>
+</div>
+<span class="font-code-sm text-code-sm text-outline">Duration: 45m</span>
+</div>
+</div>
+<!-- CARD 3 -->
+<div class="relative bg-surface-container-lowest rounded-xl p-space-lg shadow-sm hover:shadow-md cursor-pointer transition-all hover:bg-surface-bright" id="card-8843">
+<div class="flex items-start justify-between mb-2">
+<div class="flex items-center gap-2">
+<span class="font-code-md text-code-md text-error font-bold">#JIT-8843</span>
+<span class="px-2 py-0.5 rounded bg-error-container text-on-error-container font-label-badge text-label-badge font-bold uppercase">Break-Glass</span>
+</div>
+<span class="font-code-sm text-code-sm text-outline">Requested 4m ago</span>
+</div>
+<div class="flex items-center gap-space-sm mb-space-md">
+<div class="w-9 h-9 rounded-full bg-surface-container-high flex items-center justify-center text-primary font-bold">
+<span class="material-symbols-outlined text-[20px]">smart_toy</span>
+</div>
+<div class="flex flex-col">
+<span class="font-headline-sm text-headline-sm text-on-surface font-semibold leading-tight">Cloud Build CI/CD SA</span>
+<span class="font-body-sm text-body-sm text-on-surface-variant">Automated Workload Identity</span>
+</div>
+</div>
+<div class="bg-surface-container-low rounded-lg p-space-sm mb-space-md flex flex-col gap-1.5">
+<div class="flex items-center justify-between text-body-sm">
+<span class="text-on-surface-variant font-medium flex items-center gap-1.5">
+<span class="material-symbols-outlined text-[16px] text-error">key</span>
+                Target:
+              </span>
+<span class="font-code-sm text-code-sm text-on-surface font-semibold">Vault Master Key Unseal</span>
+</div>
+<div class="flex items-center justify-between text-body-sm">
+<span class="text-on-surface-variant font-medium flex items-center gap-1.5">
+<span class="material-symbols-outlined text-[16px] text-outline">warning</span>
+                Protocol:
+              </span>
+<span class="font-code-sm text-code-sm text-error font-semibold">Disaster Recovery Ring</span>
+</div>
+</div>
+<p class="font-body-sm text-body-sm text-on-surface-variant line-clamp-2 mb-space-md">
+            "Automated failover protocol triggered by healthcheck failure in secondary vault partition."
+          </p>
+<div class="flex items-center justify-between pt-space-xs">
+<div class="flex items-center gap-1.5">
+<span class="material-symbols-outlined text-[16px] text-error">notification_important</span>
+<span class="font-label-badge text-label-badge text-error font-semibold">Quorum: 0/3 Multi-party</span>
+</div>
+<span class="font-code-sm text-code-sm text-outline">Duration: 15m</span>
+</div>
+</div>
+</div>
+</div>
+<!-- Right Column: Interactive Approval & Policy Inspector (7 Columns) -->
+<div class="lg:col-span-7 flex flex-col gap-space-md">
+<!-- Primary Detail Container -->
+<div class="bg-surface-container-lowest rounded-xl p-space-xl shadow-md flex flex-col gap-space-lg">
+<!-- Header & Identity Verification Block -->
+<div class="flex flex-col sm:flex-row sm:items-center justify-between gap-space-md pb-space-md bg-surface-container-low rounded-lg p-space-md">
+<div class="flex items-center gap-space-md">
+<img class="w-12 h-12 rounded-full object-cover shadow-sm" data-alt="Marcus Brody enterprise badge photo, authentic tech lead profile, modern office background with cool blue zero-trust aesthetic" src="https://lh3.googleusercontent.com/aida-public/AB6AXuAzBvFrEs0NPZOw115zSZMMbvFMr_CwT8LsdQf4nepFd19oahZf_C8tpCC6wmBFnaKYuF8Smvdvsq9uqEzL0TBMS53U6NafM3dwn_oJGzviJUrI6GbOslZSPr2XmLEMm0wORxNTkGxzvzqWrz_vbjxgOjA9K3DT428FMbNVslxdeJGU7M-e5mzLFGDwf-uxAQ9L_ERUL4Y6Pw9sEhSHUcqsgRHQIGXcky_z6mRlNqAvaC7NXLeIBP39PQ"/>
+<div class="flex flex-col">
+<div class="flex items-center gap-2">
+<span class="font-headline-md text-headline-md text-on-surface font-bold">Marcus Brody</span>
+<span class="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-surface-container font-code-sm text-code-sm text-tertiary font-bold">
+<span class="w-2 h-2 rounded-full bg-tertiary"></span>VERIFIED
+                </span>
+</div>
+<span class="font-body-sm text-body-sm text-on-surface-variant">marcus.brody@enterprise.internal • Infrastructure Engineering Lead</span>
+</div>
+</div>
+<div class="flex flex-col items-start sm:items-end justify-center">
+<span class="font-code-sm text-code-sm text-outline uppercase font-semibold">User Threat Score</span>
+<div class="flex items-center gap-1.5 mt-0.5">
+<span class="font-headline-sm text-headline-sm text-tertiary font-bold">04 / 100</span>
+<span class="font-label-badge text-label-badge text-on-surface-variant font-medium">Low Risk</span>
+</div>
+</div>
+</div>
+<!-- Identity Factors & Ticket Verification Card -->
+<div class="grid grid-cols-1 md:grid-cols-2 gap-space-md">
+<!-- Auth Context -->
+<div class="p-space-md rounded-lg bg-surface flex flex-col gap-2">
+<span class="font-code-sm text-code-sm text-outline uppercase tracking-wider font-semibold">Authentication Factors</span>
+<div class="flex flex-col gap-1.5">
+<div class="flex items-center justify-between text-body-sm">
+<span class="text-on-surface-variant flex items-center gap-1.5">
+<span class="material-symbols-outlined text-[16px] text-tertiary">verified_user</span>
+                  Okta SSO + Duo Push
+                </span>
+<span class="font-code-sm text-code-sm text-on-surface font-medium">Passed</span>
+</div>
+<div class="flex items-center justify-between text-body-sm">
+<span class="text-on-surface-variant flex items-center gap-1.5">
+<span class="material-symbols-outlined text-[16px] text-tertiary">vpn_key</span>
+                  Hardware Token (FIDO2)
+                </span>
+<span class="font-code-sm text-code-sm text-tertiary font-semibold">YubiKey 5C NFC</span>
+</div>
+<div class="flex items-center justify-between text-body-sm">
+<span class="text-on-surface-variant flex items-center gap-1.5">
+<span class="material-symbols-outlined text-[16px] text-outline">devices</span>
+                  Corporate Device Trust
+                </span>
+<span class="font-code-sm text-code-sm text-on-surface">MDM Compliant</span>
+</div>
+</div>
+</div>
+<!-- Automated Ticket Integrity -->
+<div class="p-space-md rounded-lg bg-surface flex flex-col gap-2">
+<div class="flex items-center justify-between">
+<span class="font-code-sm text-code-sm text-outline uppercase tracking-wider font-semibold">Ticket Validation (Jira Cloud)</span>
+<span class="font-code-sm text-code-sm text-tertiary font-semibold flex items-center gap-1">
+<span class="material-symbols-outlined text-[14px]">check_circle</span> Live Synced
+              </span>
+</div>
+<div class="flex flex-col gap-1.5">
+<div class="flex items-center justify-between text-body-sm">
+<span class="text-on-surface-variant">Issue Key:</span>
+<span class="font-code-sm text-code-sm text-primary font-bold">JIRA-5920</span>
+</div>
+<div class="flex items-center justify-between text-body-sm">
+<span class="text-on-surface-variant">Incident Status:</span>
+<span class="px-1.5 py-0.5 rounded bg-surface-container font-code-sm text-code-sm text-on-surface font-medium">IN_PROGRESS</span>
+</div>
+<div class="flex items-center justify-between text-body-sm">
+<span class="text-on-surface-variant">Incident Severity:</span>
+<span class="px-1.5 py-0.5 rounded bg-error-container text-on-error-container font-code-sm text-code-sm font-semibold">P2 - PRODUCTION INCIDENT</span>
+</div>
+</div>
+</div>
+</div>
+<!-- Target Asset & Ephemeral STS Capability Scope -->
+<div class="flex flex-col gap-space-sm">
+<div class="flex items-center justify-between">
+<span class="font-headline-sm text-headline-sm text-on-surface font-semibold">Requested Ephemeral Scopes</span>
+<span class="font-code-sm text-code-sm text-outline">Target: arn:aws:eks:us-east-1:7189441209:cluster/prod-core-eks</span>
+</div>
+<div class="bg-surface rounded-lg p-space-md flex flex-col gap-2">
+<div class="flex flex-wrap gap-2">
+<span class="inline-flex items-center gap-1 px-2.5 py-1 rounded bg-surface-container-high text-on-surface font-code-sm text-code-sm font-medium">
+<span class="material-symbols-outlined text-[14px] text-primary">terminal</span>
+                kubectl: pods/exec
+              </span>
+<span class="inline-flex items-center gap-1 px-2.5 py-1 rounded bg-surface-container-high text-on-surface font-code-sm text-code-sm font-medium">
+<span class="material-symbols-outlined text-[14px] text-primary">restart_alt</span>
+                kubectl: rollout restart deployment/checkout
+              </span>
+<span class="inline-flex items-center gap-1 px-2.5 py-1 rounded bg-surface-container-high text-on-surface font-code-sm text-code-sm font-medium">
+<span class="material-symbols-outlined text-[14px] text-outline">visibility</span>
+                logs: GetLogStream (us-east-1)
+              </span>
+<span class="inline-flex items-center gap-1 px-2.5 py-1 rounded bg-error-container text-on-error-container font-code-sm text-code-sm font-semibold">
+<span class="material-symbols-outlined text-[14px]">block</span>
+                rm -rf & DROP Prohibited
+              </span>
+</div>
+<!-- Zero Standing Privilege Safety Boundary Note -->
+<div class="mt-2 p-space-sm rounded bg-surface-container-low flex items-start gap-space-sm">
+<span class="material-symbols-outlined text-primary text-[18px] shrink-0 mt-0.5">policy</span>
+<p class="font-body-sm text-body-sm text-on-surface-variant">
+<strong>Zero-Standing Rule Enforced:</strong> Ephemeral STS AssumeRole token will be generated exclusively upon quorum completion and will terminate abruptly after exactly 120 minutes. All interactive keystrokes are streamed to the SOC immutable audit ledger.
+              </p>
+</div>
+</div>
+</div>
+<!-- Quorum Approval Stepper Visualization -->
+<div class="flex flex-col gap-space-sm">
+<span class="font-headline-sm text-headline-sm text-on-surface font-semibold">Multi-Party Quorum Pipeline</span>
+<div class="bg-surface rounded-lg p-space-lg flex flex-col md:flex-row items-center justify-between gap-space-md">
+<!-- Step 1: Approved -->
+<div class="flex items-center gap-space-md w-full md:w-auto">
+<div class="w-10 h-10 rounded-full bg-surface-container-high text-tertiary flex items-center justify-center shrink-0">
+<span class="material-symbols-outlined text-[20px]">check</span>
+</div>
+<div class="flex flex-col">
+<div class="flex items-center gap-1.5">
+<span class="font-headline-sm text-[14px] text-on-surface font-bold">1. Security Team Sign-off</span>
+<span class="px-1.5 py-0.2 rounded bg-surface-container font-code-sm text-[10px] text-tertiary font-bold">APPROVED</span>
+</div>
+<span class="font-body-sm text-body-sm text-on-surface-variant">Sarah Chen (SecOps Specialist) • 8m ago</span>
+</div>
+</div>
+<!-- Connector SVG Graphic -->
+<div class="hidden md:flex items-center text-primary-container px-2">
+<span class="material-symbols-outlined text-[24px]">trending_flat</span>
+</div>
+<!-- Step 2: Pending (Current User Action) -->
+<div class="flex items-center gap-space-md w-full md:w-auto">
+<div class="w-10 h-10 rounded-full bg-primary-container text-on-primary-container flex items-center justify-center shrink-0 animate-pulse">
+<span class="material-symbols-outlined text-[20px]">pending</span>
+</div>
+<div class="flex flex-col">
+<div class="flex items-center gap-1.5">
+<span class="font-headline-sm text-[14px] text-on-surface font-bold">2. Resource Owner Approval</span>
+<span class="px-1.5 py-0.2 rounded bg-surface-container-high font-code-sm text-[10px] text-primary font-bold">ACTION REQUIRED</span>
+</div>
+<span class="font-body-sm text-body-sm text-on-surface font-medium">Alex Mercer (Assigned Resource Steward)</span>
+</div>
+</div>
+</div>
+</div>
+<!-- Approver Decision Console Area -->
+<div class="bg-surface-container-low rounded-xl p-space-lg flex flex-col gap-space-md">
+<div class="flex items-center justify-between">
+<span class="font-headline-sm text-headline-sm text-on-surface font-bold">Reviewer Decision & Constraints</span>
+<span class="font-code-sm text-code-sm text-outline">Session policy: STRICT_RECORDING</span>
+</div>
+<!-- Notes Textarea -->
+<div class="flex flex-col gap-1.5">
+<label class="font-label-md text-label-md text-on-surface font-medium" for="approver-notes">
+              Approver Notes & Conditions <span class="text-outline font-normal">(Optional audit digest append)</span>
+</label>
+<textarea class="w-full p-space-md rounded-lg bg-surface-container-lowest font-body-sm text-body-sm text-on-surface placeholder:text-outline focus:outline-none focus:bg-surface transition-all" id="approver-notes" placeholder="e.g. Approved strictly for rollout restart. Ensure ticket JIRA-5920 is updated with stdout logs..." rows="2"></textarea>
+</div>
+<!-- Duration Override & Actions Toolbar -->
+<div class="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-space-md pt-space-xs">
+<!-- Duration Selector -->
+<div class="flex items-center gap-2">
+<label class="font-body-sm text-body-sm text-on-surface-variant font-medium whitespace-nowrap" for="duration-select">Duration Limit:</label>
+<select class="bg-surface-container-lowest text-on-surface font-code-sm text-code-sm px-space-md py-2 rounded-lg font-semibold cursor-pointer focus:outline-none" id="duration-select">
+<option selected="" value="2h">Approve for requested 2 Hours (Standard)</option>
+<option value="1h">Override: Grant 1 Hour only (Restricted)</option>
+<option value="30m">Override: Grant 30 Minutes only (Rapid hotfix)</option>
+</select>
+</div>
+<!-- Action Buttons -->
+<div class="flex items-center gap-space-sm">
+<button class="px-space-md py-2.5 rounded-lg bg-surface-container-lowest hover:bg-error-container text-error font-label-md text-label-md font-semibold transition-colors flex items-center gap-1.5 shadow-sm" id="reject-btn">
+<span class="material-symbols-outlined text-[18px]">close</span>
+<span>Reject</span>
+</button>
+<button class="px-space-lg py-2.5 rounded-lg bg-tertiary text-on-tertiary hover:bg-tertiary-container font-label-md text-label-md font-semibold transition-all flex items-center gap-2 shadow-md" id="approve-btn">
+<span class="material-symbols-outlined text-[18px]">key</span>
+<span>Approve & Issue Ephemeral Token</span>
+</button>
+</div>
+</div>
+</div>
+</div>
+<!-- Live Session Stream Simulation Box -->
+<div class="bg-surface-container-lowest rounded-xl p-space-lg shadow-sm flex flex-col gap-space-sm">
+<div class="flex items-center justify-between">
+<div class="flex items-center gap-2">
+<span class="material-symbols-outlined text-outline text-[18px]">terminal</span>
+<span class="font-code-sm text-code-sm text-on-surface font-semibold uppercase">Audit Pre-Flight Simulation</span>
+</div>
+<span class="font-code-sm text-code-sm text-tertiary flex items-center gap-1 font-medium">
+<span class="w-1.5 h-1.5 rounded-full bg-tertiary"></span>Dry-run passes static policy check
+          </span>
+</div>
+<div class="bg-surface-container rounded-lg p-space-md font-code-sm text-code-sm text-on-surface-variant flex flex-col gap-1">
+<p><span class="text-primary font-bold">[AEGIS-POLICY]</span> Validating principal arn:aws:iam::7189441209:user/marcus.brody against TargetClusterPolicy#2024-Q3</p>
+<p><span class="text-tertiary font-bold">[QUORUM-CHECK]</span> Minimum 2 approvals configured for role: `prod-cluster-admin`. Sarah Chen signature verified (HMAC-SHA256).</p>
+<p><span class="text-outline font-bold">[SESSION-TTL]</span> Ephemeral token will be injected via STS AssumeRoleWithWebIdentity (TTL max 7200s).</p>
+</div>
+</div>
+</div>
+</div>
+<!-- Inline Script for Card Interaction and Dynamic Feedback -->
+<script>
+    (function initJITConsole() {
+      const approveBtn = document.getElementById('approve-btn');
+      const rejectBtn = document.getElementById('reject-btn');
+      const notes = document.getElementById('approver-notes');
+
+      if (approveBtn) {
+        approveBtn.addEventListener('click', () => {
+          approveBtn.disabled = true;
+          approveBtn.innerHTML = `
+            <span class="material-symbols-outlined text-[18px] animate-spin">refresh</span>
+            <span>Minting Ephemeral STS Token...</span>
+          `;
+          
+          setTimeout(() => {
+            approveBtn.classList.remove('bg-tertiary', 'hover:bg-tertiary-container');
+            approveBtn.classList.add('bg-surface-container-high', 'text-tertiary');
+            approveBtn.innerHTML = `
+              <span class="material-symbols-outlined text-[18px]">check_circle</span>
+              <span>Access Granted & Token Issued</span>
+            `;
+            if (notes) {
+              notes.disabled = true;
+              notes.placeholder = "Decision recorded: Ephemeral token active until 16:45 UTC.";
+            }
+          }, 1200);
+        });
+      }
+
+      if (rejectBtn) {
+        rejectBtn.addEventListener('click', () => {
+          const reason = prompt("Please provide a reason for rejecting this access request (required for SOC2 audit compliance):", "Policy breach / ticket details insufficient");
+          if (reason) {
+            rejectBtn.disabled = true;
+            rejectBtn.innerText = "Request Rejected";
+            if (approveBtn) approveBtn.style.display = 'none';
+          }
+        });
+      }
+    })();
+  </script>
+</div></main><footer class="fixed bottom-0 left-64 right-0 h-10 bg-surface-container-lowest/95 backdrop-blur-sm border-t border-outline-variant/30 z-30 flex items-center justify-between px-space-xl text-on-surface-variant font-code-sm text-code-sm shadow-[0_-1px_4px_rgba(0,0,0,0.02)]"><div class="flex items-center gap-space-md"><div class="flex items-center gap-1.5"><span class="w-2 h-2 rounded-full bg-tertiary"></span><span class="text-on-surface font-medium">Zero-Trust Gateway: Healthy</span><span class="text-outline">(18 Nodes connected)</span></div><span class="text-outline-variant">•</span><span class="text-tertiary font-semibold">0 standing admin accounts</span></div><div class="flex items-center gap-space-lg text-outline"><span>Session TLS 1.3 Strict</span><span>mTLS Enforced</span><span>Audit Digest Verified</span></div></footer></div></body></html>
