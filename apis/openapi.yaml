@@ -32,6 +32,8 @@ tags:
     description: Platform Settings screen (SSO / HSM / ZSP / WORM)
   - name: vault
     description: Credential vault inventory, rotation and checkouts
+  - name: discovery
+    description: Discovery Engine - target assets, accounts and real scans
 paths:
   /health:
     get:
@@ -399,11 +401,11 @@ paths:
     get:
       tags: [ops]
       summary: Unified recent activity feed
-      description: Recent entries across the license, settings and vault audit trails, newest first.
+      description: Recent entries across the license, settings, vault and discovery audit trails, newest first.
       parameters:
         - name: source
           in: query
-          schema: {type: string, enum: [license, settings, vault]}
+          schema: {type: string, enum: [license, settings, vault, discovery]}
         - name: limit
           in: query
           schema: {type: integer, minimum: 0, maximum: 200, default: 20}
@@ -599,6 +601,211 @@ paths:
           content:
             application/json:
               schema: {$ref: "#/components/schemas/VaultEventFeed"}
+
+  /api/v1/discovery/stats:
+    get:
+      tags: [discovery]
+      summary: Discovery aggregate (tiles, posture pills, type tabs)
+      description: |
+        Real counts over `discovered_assets`: totals, per-type / per-risk /
+        per-PAM-status breakdowns, recorded account count, and scan history
+        (`scans.last` is `null` until the first scan runs).
+      responses:
+        "200":
+          description: Discovery counts
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/DiscoveryStats"}
+
+  /api/v1/discovery/assets:
+    get:
+      tags: [discovery]
+      summary: Discovered target assets
+      description: |
+        Asset rows with free-text and type/risk/PAM-status filters, ordered
+        attention-first (unmanaged, then risk severity, then address). Each row
+        carries `vault_count`: vault credentials whose `target` matches the
+        asset address exactly.
+      parameters:
+        - name: q
+          in: query
+          schema: {type: string}
+        - name: type
+          in: query
+          schema: {$ref: "#/components/schemas/DiscoveryAssetType"}
+        - name: risk
+          in: query
+          schema: {$ref: "#/components/schemas/DiscoveryRisk"}
+        - name: pam_status
+          in: query
+          schema: {$ref: "#/components/schemas/DiscoveryPamStatus"}
+        - {$ref: "#/components/parameters/Limit"}
+        - {$ref: "#/components/parameters/Offset"}
+      responses:
+        "200":
+          description: Asset page
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/DiscoveredAssetList"}
+        "400": {$ref: "#/components/responses/BadRequest"}
+    post:
+      tags: [discovery]
+      summary: Register and classify a target, ingest its admin account
+      description: |
+        Manual onboarding ("Onboard Target Host"): the operator supplies the
+        address, the classification and the privileged principal. The asset
+        lands as `managed`, a metadata-only vault credential and a classified
+        account row are created, and both audit trails record the event.
+      security:
+        - bearerAuth: []
+        - adminTokenHeader: []
+        - {}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: "#/components/schemas/DiscoveryOnboardRequest"}
+      responses:
+        "201":
+          description: Target registered and vaulted
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/DiscoveryActionResponse"}
+        "400": {$ref: "#/components/responses/BadRequest"}
+        "401": {$ref: "#/components/responses/Unauthorized"}
+
+  /api/v1/discovery/assets/{asset_id}:
+    patch:
+      tags: [discovery]
+      summary: Operator overrides (PAM status, reclassification, notes)
+      description: |
+        Ignoring/ restoring an asset, reclassifying its family (recomputes the
+        risk score) or editing hostname/detail/notes. At least one effective
+        change is required.
+      security:
+        - bearerAuth: []
+        - adminTokenHeader: []
+        - {}
+      parameters:
+        - name: asset_id
+          in: path
+          required: true
+          schema: {type: integer}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: "#/components/schemas/DiscoveryAssetPatch"}
+      responses:
+        "200":
+          description: Updated asset
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/DiscoveryActionResponse"}
+        "400": {$ref: "#/components/responses/BadRequest"}
+        "401": {$ref: "#/components/responses/Unauthorized"}
+        "404": {$ref: "#/components/responses/NotFound"}
+
+  /api/v1/discovery/assets/{asset_id}/onboard:
+    post:
+      tags: [discovery]
+      summary: Adopt a discovered asset into the vault
+      description: |
+        The auto-onboard step of the pipeline, operator-triggered: the asset
+        becomes `managed` and its admin account is ingested as a metadata-only
+        vault credential plus a classified account row.
+      security:
+        - bearerAuth: []
+        - adminTokenHeader: []
+        - {}
+      parameters:
+        - name: asset_id
+          in: path
+          required: true
+          schema: {type: integer}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: "#/components/schemas/DiscoveryAdoptRequest"}
+      responses:
+        "201":
+          description: Asset adopted
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/DiscoveryActionResponse"}
+        "400": {$ref: "#/components/responses/BadRequest"}
+        "401": {$ref: "#/components/responses/Unauthorized"}
+        "404": {$ref: "#/components/responses/NotFound"}
+
+  /api/v1/discovery/accounts:
+    get:
+      tags: [discovery]
+      summary: Recorded privileged accounts
+      description: |
+        Account rows created when an asset is onboarded (username pattern-
+        classified into the reference taxonomy). Group-derived kinds (domain
+        admins, local admins) require directory enumeration, which no module
+        performs yet, so they are never guessed.
+      parameters:
+        - name: q
+          in: query
+          schema: {type: string}
+        - name: kind
+          in: query
+          schema:
+            type: string
+            enum: [builtin_admin, database_admin, service_account, other]
+        - {$ref: "#/components/parameters/Limit"}
+        - {$ref: "#/components/parameters/Offset"}
+      responses:
+        "200":
+          description: Account page
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/DiscoveredAccountList"}
+        "400": {$ref: "#/components/responses/BadRequest"}
+
+  /api/v1/discovery/scans:
+    get:
+      tags: [discovery]
+      summary: Scan history (newest first)
+      parameters:
+        - name: limit
+          in: query
+          schema: {type: integer, minimum: 0, maximum: 200, default: 20}
+      responses:
+        "200":
+          description: Scan history
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/DiscoveryScanList"}
+    post:
+      tags: [discovery]
+      summary: Run a real TCP-connect discovery scan
+      description: |
+        Single-flight, bounded (256 hosts / 24 ports per run) and synchronous:
+        the response returns the finished scan with honest counters. Only
+        scans targets the operator explicitly supplies - there is no default
+        scope. New hosts are recorded as unmanaged assets; known hosts get
+        their ports refreshed (managed keeps its operator classification).
+      security:
+        - bearerAuth: []
+        - adminTokenHeader: []
+        - {}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: "#/components/schemas/DiscoveryScanRequest"}
+      responses:
+        "201":
+          description: Scan finished
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/DiscoveryScanResponse"}
+        "400": {$ref: "#/components/responses/BadRequest"}
+        "401": {$ref: "#/components/responses/Unauthorized"}
 
 components:
   securitySchemes:
@@ -1003,6 +1210,7 @@ components:
             license_events: {type: integer}
             settings_events: {type: integer}
             vault_events: {type: integer}
+            discovery_events: {type: integer}
             total_events: {type: integer}
         posture:
           type: object
@@ -1165,4 +1373,182 @@ components:
       required: [item, message]
       properties:
         item: {$ref: "#/components/schemas/VaultItem"}
+        message: {type: string}
+
+    # --- discovery engine (module 3) -------------------------------------
+    DiscoveryAssetType:
+      type: string
+      enum: [windows, linux, unix, aix, solaris, vmware, hyperv, kubernetes, docker, network, firewall, loadbalancer, database, cloud, unknown]
+    DiscoveryRisk:
+      type: string
+      enum: [CRITICAL, HIGH, MEDIUM, LOW]
+    DiscoveryPamStatus:
+      type: string
+      enum: [unmanaged, managed, ignored]
+
+    DiscoveredAsset:
+      type: object
+      required: [id, address, asset_type, risk, pam_status, ports, source, method, recommended_policy, first_seen, last_seen]
+      properties:
+        id: {type: integer}
+        address: {type: string, description: "IP or hostname as probed / registered."}
+        hostname: {type: string}
+        asset_type: {$ref: "#/components/schemas/DiscoveryAssetType"}
+        risk: {$ref: "#/components/schemas/DiscoveryRisk"}
+        pam_status: {$ref: "#/components/schemas/DiscoveryPamStatus"}
+        detail: {type: string, description: "Probed service labels or greeting text (real probe output)."}
+        ports:
+          type: array
+          description: Open ports found by the real TCP-connect probe.
+          items:
+            type: object
+            required: [port, proto]
+            properties:
+              port: {type: integer}
+              proto: {type: string, enum: [TCP]}
+              service: {type: string}
+              banner: {type: string, description: "Greeting captured during the banner grab (empty when the service stayed silent)."}
+        source: {type: string, enum: [scan, manual]}
+        method: {type: string, enum: [tcp_probe, manual]}
+        notes: {type: string}
+        recommended_policy: {type: string, description: "Advisory policy for this asset family (rules v1), never auto-enforced."}
+        vault_count: {type: [integer, "null"], description: "Vault credentials whose target matches this address; present in list responses."}
+        first_seen: {type: string, format: date-time}
+        last_seen: {type: string, format: date-time}
+
+    DiscoveredAssetList:
+      type: object
+      required: [assets, total, limit, offset]
+      properties:
+        assets:
+          type: array
+          items: {$ref: "#/components/schemas/DiscoveredAsset"}
+        total: {type: integer}
+        limit: {type: integer}
+        offset: {type: integer}
+
+    DiscoveredAccount:
+      type: object
+      required: [id, asset_id, asset_address, username, kind, source, created_at]
+      properties:
+        id: {type: integer}
+        asset_id: {type: integer}
+        asset_address: {type: string}
+        username: {type: string}
+        kind: {type: string, enum: [builtin_admin, database_admin, service_account, other]}
+        source: {type: string, enum: [scan, manual]}
+        created_at: {type: string, format: date-time}
+
+    DiscoveredAccountList:
+      type: object
+      required: [accounts, total, limit, offset]
+      properties:
+        accounts:
+          type: array
+          items: {$ref: "#/components/schemas/DiscoveredAccount"}
+        total: {type: integer}
+        limit: {type: integer}
+        offset: {type: integer}
+
+    DiscoveryScan:
+      type: object
+      required: [id, scope, method, ports, status, hosts_probed, hosts_open, services_found, findings, triggered_by, started_at]
+      properties:
+        id: {type: integer}
+        scope: {type: string, description: "IPv4, CIDR or hostname actually scanned."}
+        method: {type: string, enum: [tcp_probe]}
+        ports: {type: array, items: {type: integer}}
+        status: {type: string, enum: [running, completed, failed]}
+        hosts_probed: {type: integer}
+        hosts_open: {type: integer}
+        services_found: {type: integer}
+        findings: {type: integer, description: "Hosts with open ports that were new to the inventory."}
+        error: {type: string}
+        triggered_by: {type: string}
+        started_at: {type: string, format: date-time}
+        finished_at: {type: [string, "null"], format: date-time}
+
+    DiscoveryScanList:
+      type: object
+      required: [scans, total, limit]
+      properties:
+        scans:
+          type: array
+          items: {$ref: "#/components/schemas/DiscoveryScan"}
+        total: {type: integer}
+        limit: {type: integer}
+
+    DiscoveryStats:
+      type: object
+      required: [total, by_type, by_risk, by_pam_status, accounts_total, scans]
+      properties:
+        total: {type: integer}
+        by_type: {type: object, additionalProperties: {type: integer}}
+        by_risk: {type: object, additionalProperties: {type: integer}}
+        by_pam_status: {type: object, additionalProperties: {type: integer}}
+        accounts_total: {type: integer}
+        scans:
+          type: object
+          required: [total, last]
+          properties:
+            total: {type: integer}
+            last: {type: [object, "null"], additionalProperties: true}
+
+    DiscoveryOnboardRequest:
+      type: object
+      required: [address, principal]
+      properties:
+        address: {type: string, maxLength: 64, description: "Single IPv4 address or hostname (not a CIDR)."}
+        hostname: {type: string, maxLength: 255}
+        asset_type: {$ref: "#/components/schemas/DiscoveryAssetType"}
+        detail: {type: string, maxLength: 255}
+        notes: {type: string, maxLength: 255}
+        principal: {type: string, maxLength: 128, description: "Privileged account ingested into the vault."}
+        access_tier: {type: string, enum: [Tier-0, Tier-1, Tier-2], default: Tier-2}
+        auth_method: {type: string, maxLength: 32, default: Password}
+        rotation_interval_hours: {type: integer, minimum: 0, maximum: 8760, default: 24}
+
+    DiscoveryAdoptRequest:
+      type: object
+      required: [principal]
+      properties:
+        principal: {type: string, maxLength: 128}
+        access_tier: {type: string, enum: [Tier-0, Tier-1, Tier-2], default: Tier-2}
+        auth_method: {type: string, maxLength: 32, default: Password}
+        rotation_interval_hours: {type: integer, minimum: 0, maximum: 8760, default: 24}
+
+    DiscoveryAssetPatch:
+      type: object
+      description: At least one effective change is required (400 otherwise).
+      properties:
+        pam_status: {$ref: "#/components/schemas/DiscoveryPamStatus"}
+        asset_type: {$ref: "#/components/schemas/DiscoveryAssetType"}
+        hostname: {type: string, maxLength: 255}
+        detail: {type: string, maxLength: 255}
+        notes: {type: string, maxLength: 255}
+
+    DiscoveryScanRequest:
+      type: object
+      required: [scope]
+      properties:
+        scope: {type: string, maxLength: 64, description: "IPv4 address, IPv4 CIDR (max 256 hosts) or hostname. No default scope - only what the operator supplies."}
+        ports:
+          type: array
+          maxItems: 24
+          description: Defaults to the standard management-plane port set.
+          items: {type: integer, minimum: 1, maximum: 65535}
+
+    DiscoveryActionResponse:
+      type: object
+      required: [asset, message]
+      properties:
+        asset: {$ref: "#/components/schemas/DiscoveredAsset"}
+        vault_item: {type: [object, "null"], additionalProperties: true, description: "Metadata-only vault credential created at onboarding (absent on patch)."}
+        message: {type: string}
+
+    DiscoveryScanResponse:
+      type: object
+      required: [scan, message]
+      properties:
+        scan: {$ref: "#/components/schemas/DiscoveryScan"}
         message: {type: string}

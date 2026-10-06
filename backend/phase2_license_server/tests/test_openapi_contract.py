@@ -36,6 +36,10 @@ ADMIN_OPERATIONS = [
     ("post", "/api/v1/vault/items/{item_id}/checkout"),
     ("post", "/api/v1/vault/items/{item_id}/revoke"),
     ("post", "/api/v1/vault/items/{item_id}/rotate"),
+    ("post", "/api/v1/discovery/assets"),
+    ("patch", "/api/v1/discovery/assets/{asset_id}"),
+    ("post", "/api/v1/discovery/assets/{asset_id}/onboard"),
+    ("post", "/api/v1/discovery/scans"),
 ]
 
 

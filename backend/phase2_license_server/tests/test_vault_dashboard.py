@@ -503,7 +503,12 @@ def test_events_source_filter_and_validation(client):
 
     bad = client.get("/api/v1/events", query_string={"source": "nope"})
     assert bad.status_code == 400
-    assert bad.get_json()["details"]["allowed"] == ["license", "settings", "vault"]
+    assert bad.get_json()["details"]["allowed"] == [
+        "license",
+        "settings",
+        "vault",
+        "discovery",
+    ]
 
     limited = client.get("/api/v1/events", query_string={"limit": 1}).get_json()
     assert len(limited["events"]) == 1

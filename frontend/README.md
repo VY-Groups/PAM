@@ -31,6 +31,7 @@ frontend/
 | `GET /screens/pam_command_center_threat_dashboard/code.html` | **live** Command Center (talks to `/api/v1/overview` + `/api/v1/events`) |
 | `GET /screens/credential_vault_secrets_inventory/code.html` | **live** Credential Vault (talks to `/api/v1/vault/*`) |
 | `GET /screens/compliance_soc_2_audit_center/code.html` | **live** Compliance (talks to `/api/v1/overview` + `/api/v1/events`) |
+| `GET /screens/target_infrastructure_connectors/code.html` | **live** Target Infrastructure (talks to `/api/v1/discovery/*`) |
 | `GET /screens/<name>/code.html` | any other screen |
 | `GET /screens/<name>/screen.png` | preview image |
 
@@ -42,8 +43,12 @@ Live screens fetch on load and fall back to **honest placeholders** — never
 invented values. Opened as `file://` or with the API unreachable, `—` and
 "not connected" markers stay on screen; sections without a backing module say
 so instead of showing numbers; when data does load, every figure comes from the
-API response (the three live screens are scanned for legacy fake strings in
-`shots_tool/__verify_live.mjs`, HTTP and `file://` modes).
+API response (the four API-driven screens are scanned for legacy fake strings in
+`../shots_tool/__verify_live.mjs`, HTTP and `file://` modes; the discovery
+screen additionally runs a full UI end-to-end in
+`../shots_tool/__verify_discovery.mjs` — real register, scan, ignore/restore,
+adopt and filter actions against a throwaway server, and
+`../shots_tool/__shots.mjs` recaptures every `screen.png`).
 
 ## Adding a screen (the contract)
 

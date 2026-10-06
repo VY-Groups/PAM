@@ -8,12 +8,16 @@ via licensing_bridge.
 from __future__ import annotations
 
 import base64
+import ipaddress
 import re
-from datetime import datetime
+import socket
+import threading
+from concurrent.futures import ThreadPoolExecutor
+from datetime import datetime, timedelta
 from typing import Any, Dict, List, Optional, Tuple
 
 from config import Config
-from errors import NotFound, ValidationFailed
+from errors import APIError, NotFound, ValidationFailed
 from licensing_bridge import (
     DEFAULT_TIERS,
     ENFORCEMENT_LEVELS,
@@ -27,6 +31,25 @@ from licensing_bridge import (
 )
 from extensions import db
 from models import (
+    ACCOUNT_KINDS,
+    ASSET_PAM_STATUSES,
+    ASSET_RISKS,
+    ASSET_SECRET_TYPES,
+    ASSET_TYPES,
+    BASE_RISK,
+    DISCOVERY_ACTION_ASSET_DISCOVERED,
+    DISCOVERY_ACTION_ASSET_ONBOARDED,
+    DISCOVERY_ACTION_ASSET_UPDATED,
+    DISCOVERY_ACTION_SCAN_COMPLETED,
+    DISCOVERY_ACTION_SCAN_FAILED,
+    DISCOVERY_ACTION_SCAN_STARTED,
+    DISCOVERY_METHOD_MANUAL,
+    DISCOVERY_METHOD_PROBE,
+    DISCOVERY_SCAN_COMPLETED,
+    DISCOVERY_SCAN_FAILED,
+    DISCOVERY_SCAN_RUNNING,
+    DISCOVERY_SOURCE_MANUAL,
+    DISCOVERY_SOURCE_SCAN,
     EVENT_ISSUED,
     EVENT_RESTORED,
     EVENT_REVOKED,
@@ -45,12 +68,17 @@ from models import (
     VAULT_STATUS_ROTATION_DUE,
     VAULT_STATUSES,
     VAULT_TYPES,
+    DiscoveredAccount,
+    DiscoveredAsset,
+    DiscoveryEvent,
+    DiscoveryScan,
     LicenseEvent,
     LicenseRecord,
     SettingGroup,
     SettingsEvent,
     VaultEvent,
     VaultItem,
+    classify_account_kind,
     log_event,
 )
 
@@ -1366,13 +1394,13 @@ def vault_events(limit: int = 20) -> Dict[str, Any]:
 # ---------------------------------------------------------------------------
 # dashboard (Command Center + Compliance screens)
 # ---------------------------------------------------------------------------
-_EVENT_SOURCES = ("license", "settings", "vault")
+_EVENT_SOURCES = ("license", "settings", "vault", "discovery")
 
 
 def unified_events(
     *, source: Optional[str] = None, limit: int = 20
 ) -> Dict[str, Any]:
-    """Recent activity across license, settings and vault audit trails."""
+    """Recent activity across the license, settings, vault and discovery trails."""
     if source and source not in _EVENT_SOURCES:
         raise ValidationFailed(
             f"Unknown event source '{source}'",
@@ -1439,6 +1467,25 @@ def unified_events(
                 },
             ))
 
+    if source in (None, "discovery"):
+        query = DiscoveryEvent.query
+        total += query.count()
+        for event in query.order_by(
+            DiscoveryEvent.created_at.desc(), DiscoveryEvent.id.desc()
+        ).limit(limit):
+            merged.append((
+                event.created_at,
+                {
+                    "id": f"discovery:{event.id}",
+                    "source": "discovery",
+                    "action": event.action,
+                    "subject": event.subject,
+                    "actor": event.actor,
+                    "detail": event.detail,
+                    "created_at": event.created_at.isoformat(),
+                },
+            ))
+
     merged.sort(key=lambda pair: pair[0], reverse=True)
     return {
         "events": [payload for _, payload in merged[:limit]],
@@ -1499,7 +1546,10 @@ def overview() -> Dict[str, Any]:
     license_events = LicenseEvent.query.count()
     settings_events = SettingsEvent.query.count()
     vault_events_total = VaultEvent.query.count()
-    total_events = license_events + settings_events + vault_events_total
+    discovery_events_total = DiscoveryEvent.query.count()
+    total_events = (
+        license_events + settings_events + vault_events_total + discovery_events_total
+    )
 
     auth_mode = "token" if _overview_auth_mode() else "open"
     algorithms = list(sig.SUPPORTED_ALGORITHMS)
@@ -1587,6 +1637,7 @@ def overview() -> Dict[str, Any]:
             "license_events": license_events,
             "settings_events": settings_events,
             "vault_events": vault_events_total,
+            "discovery_events": discovery_events_total,
             "total_events": total_events,
         },
         "posture": {
@@ -1603,3 +1654,836 @@ def _overview_auth_mode() -> bool:
     from flask import current_app
 
     return bool(current_app.config["LICENSE_CONFIG"].admin_token)
+
+
+# ---------------------------------------------------------------------------
+# discovery engine (module 3): real TCP-connect probes, classify, onboard
+# ---------------------------------------------------------------------------
+DEFAULT_SCAN_PORTS = (
+    22,
+    88,
+    135,
+    389,
+    443,
+    445,
+    636,
+    1433,
+    1521,
+    2375,
+    2379,
+    27017,
+    3306,
+    3389,
+    5432,
+    5985,
+    6379,
+    6443,
+)
+MAX_SCAN_HOSTS = 256
+MAX_SCAN_PORTS = 24
+SCAN_CONNECT_TIMEOUT = 0.35
+SCAN_BANNER_TIMEOUT = 0.2
+_SCAN_THREADS = 64
+
+_SERVICE_BY_PORT = {
+    22: "SSH",
+    88: "Kerberos",
+    135: "MSRPC",
+    389: "LDAP",
+    443: "HTTPS",
+    445: "SMB",
+    636: "LDAPS",
+    1433: "Microsoft SQL Server",
+    1521: "Oracle",
+    2375: "Docker API",
+    2379: "etcd",
+    27017: "MongoDB",
+    3306: "MySQL/MariaDB",
+    3389: "RDP",
+    5432: "PostgreSQL",
+    5985: "WinRM",
+    6379: "Redis",
+    6443: "Kubernetes API",
+}
+_WINDOWS_PORTS = frozenset({88, 135, 389, 445, 636, 3389, 5985})
+_DATABASE_PORTS = frozenset({1433, 1521, 3306, 5432, 6379, 27017})
+_K8S_PORTS = frozenset({6443, 2379})
+_DOCKER_PORTS = frozenset({2375})
+_SSH_PORTS = frozenset({22})
+
+_SCAN_LOCK = threading.Lock()
+
+
+def _clean_banner(raw: bytes) -> str:
+    """First banner line, printable only, capped for storage/display."""
+    text = raw.decode("ascii", errors="replace").replace("\x00", " ")
+    printable = "".join(ch for ch in text if ch.isprintable())
+    return " ".join(printable.split())[:80]
+
+
+def _probe_host(address: str, ports) -> List[Dict[str, Any]]:
+    """TCP-connect probe: which ports are open, plus a short banner grab
+    (greeting services answer immediately; others simply time out). Pure
+    sockets - safe to call from worker threads."""
+    found: List[Dict[str, Any]] = []
+    for port in ports:
+        try:
+            with socket.create_connection(
+                (address, port), timeout=SCAN_CONNECT_TIMEOUT
+            ) as sock:
+                banner = ""
+                try:
+                    sock.settimeout(SCAN_BANNER_TIMEOUT)
+                    chunk = sock.recv(256)
+                    if chunk:
+                        banner = _clean_banner(chunk)
+                except OSError:
+                    banner = ""
+                found.append(
+                    {
+                        "port": port,
+                        "proto": "TCP",
+                        "service": _SERVICE_BY_PORT.get(port, ""),
+                        "banner": banner,
+                    }
+                )
+        except OSError:
+            continue
+    return found
+
+
+def _classify_service(entries: List[Dict[str, Any]]) -> Tuple[str, str]:
+    """Open ports + greetings -> (asset_type, detail).
+
+    Port-to-service mapping classifies the family; an SSH/MySQL greeting
+    refines the OS where one was actually read. Anything unproven stays
+    'unknown' rather than being guessed.
+    """
+    open_ports = {int(entry["port"]) for entry in entries}
+    banners = {
+        int(entry["port"]): entry.get("banner", "") for entry in entries
+    }
+    order = sorted(open_ports)
+
+    def labels(port_set) -> str:
+        names: List[str] = []
+        for port in order:
+            if port not in port_set:
+                continue
+            name = _SERVICE_BY_PORT.get(port, f"TCP/{port}")
+            if name and name not in names:
+                names.append(name)
+            if len(names) == 2:
+                break
+        return " \u00b7 ".join(names)
+
+    if _WINDOWS_PORTS & open_ports:
+        return "windows", labels(_WINDOWS_PORTS)
+    if _DATABASE_PORTS & open_ports:
+        banner = next(
+            (
+                banners[port]
+                for port in order
+                if port in _DATABASE_PORTS and banners.get(port)
+            ),
+            "",
+        )
+        if banner:
+            return "database", banner
+        return "database", labels(_DATABASE_PORTS)
+    if _K8S_PORTS & open_ports:
+        return "kubernetes", labels(_K8S_PORTS)
+    if _DOCKER_PORTS & open_ports:
+        return "docker", labels(_DOCKER_PORTS)
+    # SSH evidence: port 22 open, or a greeting that identifies SSH on any port.
+    ssh_banner = banners.get(22, "") if _SSH_PORTS & open_ports else ""
+    if not ssh_banner:
+        ssh_banner = next(
+            (
+                banners[port]
+                for port in order
+                if banners.get(port, "").startswith("SSH-")
+            ),
+            "",
+        )
+    if _SSH_PORTS & open_ports or ssh_banner:
+        lower = ssh_banner.lower()
+        if "sun_ssh" in lower or "solaris" in lower:
+            return "solaris", ssh_banner
+        if "hp-ux" in lower:
+            return "unix", ssh_banner
+        if "aix" in lower:
+            return "aix", ssh_banner
+        if ssh_banner:
+            return "linux", ssh_banner
+        # SSH answered but no greeting was captured: do not guess the OS.
+        return "unknown", labels(_SSH_PORTS)
+    if order:
+        return "unknown", labels(open_ports)
+    return "unknown", ""
+
+
+def _expand_scope(scope: str, *, field: str = "scope") -> List[str]:
+    """Validated scan targets: single IPv4, IPv4 CIDR within the host cap, or
+    a hostname. Refuses multicast, unspecified and broadcast addresses.
+    `field` names the offending input in errors ('scope' for scans,
+    'address' for onboarding)."""
+    value = scope.strip()
+    if not value:
+        raise ValidationFailed(f"'{field}' is required", {"field": field})
+    if len(value) > 64:
+        raise ValidationFailed(f"'{field}' is too long", {"field": field})
+
+    if "/" in value:
+        try:
+            network = ipaddress.ip_network(value, strict=False)
+        except ValueError:
+            raise ValidationFailed(
+                f"'{value}' is not a valid IPv4 CIDR", {"field": field}
+            ) from None
+        if network.version != 4:
+            raise ValidationFailed(
+                "Only IPv4 scopes are supported", {"field": field}
+            )
+        if network.is_multicast or network.is_unspecified:
+            raise ValidationFailed(
+                "Multicast/unspecified scopes are refused", {"field": field}
+            )
+        # Count BEFORE materializing: a /8 would otherwise build 16M strings.
+        if network.prefixlen >= 31:
+            expected = network.num_addresses
+        else:
+            expected = network.num_addresses - 2  # network + broadcast
+        if expected > MAX_SCAN_HOSTS:
+            raise ValidationFailed(
+                f"Scope covers {expected} hosts; the limit is {MAX_SCAN_HOSTS}",
+                {"field": field, "max_hosts": MAX_SCAN_HOSTS},
+            )
+        hosts = [str(host) for host in network.hosts()]
+        return hosts or [str(network.network_address)]
+
+    try:
+        address = ipaddress.ip_address(value)
+    except ValueError:
+        address = None
+    if address is not None:
+        if address.version != 4:
+            raise ValidationFailed(
+                "Only IPv4 addresses are supported", {"field": field}
+            )
+        if (
+            address.is_multicast
+            or address.is_unspecified
+            or str(address) == "255.255.255.255"
+        ):
+            raise ValidationFailed(
+                "Multicast/unspecified addresses are refused", {"field": field}
+            )
+        return [str(address)]
+
+    if (
+        len(value) <= 253
+        and re.fullmatch(r"[A-Za-z0-9]([A-Za-z0-9\-\.]*[A-Za-z0-9])?", value)
+        and re.search(r"[A-Za-z]", value)
+    ):
+        return [value]
+    raise ValidationFailed(
+        f"'{field}' must be an IPv4 address, an IPv4 CIDR, or a hostname",
+        {"field": field},
+    )
+
+
+def _log_discovery_event(
+    action: str, subject: str, actor: str, detail: Dict[str, Any]
+) -> None:
+    db.session.add(
+        DiscoveryEvent(
+            action=action, subject=subject[:128], actor=actor, detail=detail
+        )
+    )
+
+
+def _get_asset(asset_id: int) -> DiscoveredAsset:
+    """Fetch one discovered asset or raise 404."""
+    asset = DiscoveredAsset.query.filter_by(id=asset_id).first()
+    if asset is None:
+        raise NotFound(f"No asset with id {asset_id}")
+    return asset
+
+
+def _heal_stale_scans() -> None:
+    """Mark abandoned 'running' rows failed (a crashed request never finished)."""
+    cutoff = datetime.now() - timedelta(minutes=10)
+    stale = (
+        DiscoveryScan.query.filter_by(status=DISCOVERY_SCAN_RUNNING)
+        .filter(DiscoveryScan.started_at <= cutoff)
+        .update(
+            {
+                "status": DISCOVERY_SCAN_FAILED,
+                "error": "interrupted",
+                "finished_at": datetime.now(),
+            },
+            synchronize_session=False,
+        )
+    )
+    if stale:
+        db.session.commit()
+
+
+def start_scan(payload: Any, *, actor: str) -> DiscoveryScan:
+    """Run a real TCP-connect discovery scan over the requested scope.
+
+    Single-flight (module lock), bounded (host/port caps) and synchronous:
+    the request returns the finished scan with honest counters. Only scans
+    an operator explicitly asks for - there is no default range.
+    """
+    if not isinstance(payload, dict):
+        raise ValidationFailed("Request body must be a JSON object")
+
+    scope_raw = payload.get("scope")
+    if not isinstance(scope_raw, str) or not scope_raw.strip():
+        raise ValidationFailed("'scope' is required", {"field": "scope"})
+    hosts = _expand_scope(scope_raw)
+
+    ports_raw = payload.get("ports")
+    if ports_raw is None:
+        ports = list(DEFAULT_SCAN_PORTS)
+    else:
+        if not isinstance(ports_raw, list) or not ports_raw:
+            raise ValidationFailed(
+                "'ports' must be a non-empty list of port numbers",
+                {"field": "ports"},
+            )
+        ports = []
+        for entry in ports_raw:
+            if (
+                isinstance(entry, bool)
+                or not isinstance(entry, int)
+                or not 1 <= entry <= 65535
+            ):
+                raise ValidationFailed(
+                    "Every port must be an integer between 1 and 65535",
+                    {"field": "ports"},
+                )
+            if entry not in ports:
+                ports.append(entry)
+        if len(ports) > MAX_SCAN_PORTS:
+            raise ValidationFailed(
+                f"At most {MAX_SCAN_PORTS} ports per scan",
+                {"field": "ports", "max_ports": MAX_SCAN_PORTS},
+            )
+
+    if not _SCAN_LOCK.acquire(blocking=False):
+        raise ValidationFailed("A discovery scan is already running")
+    scan_id: Optional[int] = None
+    try:
+        _heal_stale_scans()
+        scan = DiscoveryScan(
+            scope=scope_raw.strip()[:64],
+            method=DISCOVERY_METHOD_PROBE,
+            ports=ports,
+            status=DISCOVERY_SCAN_RUNNING,
+            triggered_by=actor,
+        )
+        db.session.add(scan)
+        db.session.flush()
+        scan_id = scan.id
+        _log_discovery_event(
+            DISCOVERY_ACTION_SCAN_STARTED,
+            scan.scope,
+            actor,
+            {"hosts": len(hosts), "ports": ports},
+        )
+        db.session.commit()
+
+        workers = min(_SCAN_THREADS, max(1, len(hosts)))
+        with ThreadPoolExecutor(max_workers=workers) as pool:
+            probed = list(
+                pool.map(lambda host: (host, _probe_host(host, ports)), hosts)
+            )
+
+        hosts_open = 0
+        services_found = 0
+        findings = 0
+        for host, entries in probed:
+            if not entries:
+                continue
+            hosts_open += 1
+            services_found += len(entries)
+            asset_type, detail = _classify_service(entries)
+            asset = DiscoveredAsset.query.filter_by(address=host).first()
+            if asset is None:
+                asset = DiscoveredAsset(
+                    address=host,
+                    asset_type=asset_type,
+                    risk=BASE_RISK.get(asset_type, "LOW"),
+                    pam_status="unmanaged",
+                    detail=detail,
+                    ports=entries,
+                    source=DISCOVERY_SOURCE_SCAN,
+                    method=DISCOVERY_METHOD_PROBE,
+                )
+                db.session.add(asset)
+                db.session.flush()
+                findings += 1
+                _log_discovery_event(
+                    DISCOVERY_ACTION_ASSET_DISCOVERED,
+                    host,
+                    actor,
+                    {
+                        "asset_type": asset_type,
+                        "risk": asset.risk,
+                        "ports": [entry["port"] for entry in entries],
+                    },
+                )
+            else:
+                asset.ports = entries
+                asset.last_seen = datetime.now()
+                if asset.pam_status != "managed":
+                    # Machine-owned rows follow the probe; operator-classified
+                    # (managed) rows keep the human's classification.
+                    asset.asset_type = asset_type
+                    asset.detail = detail
+                    asset.risk = BASE_RISK.get(asset_type, "LOW")
+
+        scan.hosts_probed = len(hosts)
+        scan.hosts_open = hosts_open
+        scan.services_found = services_found
+        scan.findings = findings
+        scan.status = DISCOVERY_SCAN_COMPLETED
+        scan.finished_at = datetime.now()
+        _log_discovery_event(
+            DISCOVERY_ACTION_SCAN_COMPLETED,
+            scan.scope,
+            actor,
+            {
+                "hosts_probed": len(hosts),
+                "hosts_open": hosts_open,
+                "services_found": services_found,
+                "findings": findings,
+            },
+        )
+        db.session.commit()
+        return scan
+    except APIError:
+        raise
+    except Exception as exc:  # pragma: no cover - defensive
+        db.session.rollback()
+        if scan_id is not None:
+            failed = DiscoveryScan.query.filter_by(id=scan_id).first()
+            if failed is not None:
+                failed.status = DISCOVERY_SCAN_FAILED
+                failed.error = str(exc)[:255]
+                failed.finished_at = datetime.now()
+                _log_discovery_event(
+                    DISCOVERY_ACTION_SCAN_FAILED,
+                    failed.scope,
+                    actor,
+                    {"error": str(exc)[:255]},
+                )
+                db.session.commit()
+        raise APIError(500, f"Discovery scan failed: {exc}")
+    finally:
+        _SCAN_LOCK.release()
+
+
+def list_scans(*, limit: int = 20) -> Tuple[List[DiscoveryScan], int]:
+    """Scan history, newest first."""
+    total = DiscoveryScan.query.count()
+    scans = DiscoveryScan.query.order_by(
+        DiscoveryScan.id.desc(), DiscoveryScan.started_at.desc()
+    ).limit(limit).all()
+    return scans, total
+
+
+def _vault_item_for_asset(
+    asset: DiscoveredAsset, principal: str, *, actor: str, **options
+) -> VaultItem:
+    """Ingest an asset's admin account into the vault (metadata only)."""
+    base = f"{asset.hostname or asset.address} {principal}".strip()
+    name = base[:120]
+    if VaultItem.query.filter_by(name=name).first() is not None:
+        suffix = f" #{asset.id}"
+        name = f"{base[:120 - len(suffix)]}{suffix}"
+        if VaultItem.query.filter_by(name=name).first() is not None:
+            raise ValidationFailed(
+                f"A credential named '{name}' already exists",
+                {"field": "principal"},
+            )
+    item = VaultItem(
+        name=name,
+        secret_type=ASSET_SECRET_TYPES.get(asset.asset_type, "service_account"),
+        description=f"Admin credential for {asset.hostname or asset.address}"[:255],
+        target=asset.address,
+        target_detail=asset.hostname[:255],
+        principal=principal,
+        last_rotated_at=datetime.now(),
+        status=VAULT_STATUS_AVAILABLE,
+        **options,
+    )
+    db.session.add(item)
+    db.session.flush()
+    _log_vault_event(
+        item,
+        VAULT_ACTION_ONBOARDED,
+        actor,
+        {"via": "discovery", "asset_id": asset.id},
+    )
+    return item
+
+
+def _record_account(
+    asset: DiscoveredAsset, username: str, *, source: str
+) -> DiscoveredAccount:
+    existing = DiscoveredAccount.query.filter_by(
+        asset_id=asset.id, username=username
+    ).first()
+    if existing is not None:
+        return existing
+    account = DiscoveredAccount(
+        asset_id=asset.id,
+        asset_address=asset.address,
+        username=username[:128],
+        kind=classify_account_kind(username),
+        source=source,
+    )
+    db.session.add(account)
+    db.session.flush()
+    return account
+
+
+def _required_text(payload: Dict[str, Any], field: str, max_length: int) -> str:
+    raw = payload.get(field)
+    if not isinstance(raw, str) or not raw.strip():
+        raise ValidationFailed(f"'{field}' is required", {"field": field})
+    return raw.strip()[:max_length]
+
+
+def _optional_text(
+    payload: Dict[str, Any], field: str, max_length: int
+) -> str:
+    raw = payload.get(field, "")
+    if raw is None:
+        raw = ""
+    if not isinstance(raw, str):
+        raise ValidationFailed(f"'{field}' must be a string", {"field": field})
+    return raw.strip()[:max_length]
+
+
+def _vault_options(payload: Dict[str, Any]) -> Dict[str, Any]:
+    interval = payload.get("rotation_interval_hours", 24)
+    if (
+        isinstance(interval, bool)
+        or not isinstance(interval, int)
+        or not 0 <= interval <= 8760
+    ):
+        raise ValidationFailed(
+            "'rotation_interval_hours' must be an integer between 0 and 8760",
+            {"field": "rotation_interval_hours"},
+        )
+    tier = payload.get("access_tier", "Tier-2")
+    if tier not in ("Tier-0", "Tier-1", "Tier-2"):
+        raise ValidationFailed(
+            "'access_tier' must be Tier-0, Tier-1 or Tier-2",
+            {"field": "access_tier", "allowed": ["Tier-0", "Tier-1", "Tier-2"]},
+        )
+    auth_method = payload.get("auth_method", "Password")
+    if not isinstance(auth_method, str) or not auth_method.strip():
+        raise ValidationFailed(
+            "'auth_method' must be a non-empty string", {"field": "auth_method"}
+        )
+    return {
+        "rotation_interval_hours": interval,
+        "access_tier": tier,
+        "auth_method": auth_method.strip()[:32],
+    }
+
+
+def onboard_asset(
+    payload: Any, *, actor: str
+) -> Tuple[DiscoveredAsset, VaultItem]:
+    """Manually register + classify a target and ingest its admin account.
+
+    The operator supplies the classification (asset_type) and the privileged
+    principal; the asset lands as managed with a real vault credential.
+    """
+    if not isinstance(payload, dict):
+        raise ValidationFailed("Request body must be a JSON object")
+
+    address = _required_text(payload, "address", 64)
+    if "/" in address:
+        raise ValidationFailed(
+            "'address' must be a single IP address or hostname",
+            {"field": "address"},
+        )
+    _expand_scope(address, field="address")  # shape validation (single host)
+    if DiscoveredAsset.query.filter_by(address=address).first() is not None:
+        raise ValidationFailed(
+            f"An asset at '{address}' already exists", {"field": "address"}
+        )
+
+    asset_type = payload.get("asset_type", "unknown")
+    if asset_type not in ASSET_TYPES:
+        raise ValidationFailed(
+            "'asset_type' must be one of the discovery types",
+            {"field": "asset_type", "allowed": list(ASSET_TYPES)},
+        )
+    hostname = _optional_text(payload, "hostname", 255)
+    detail = _optional_text(payload, "detail", 255)
+    notes = _optional_text(payload, "notes", 255)
+    principal = _required_text(payload, "principal", 128)
+    options = _vault_options(payload)
+
+    asset = DiscoveredAsset(
+        address=address,
+        hostname=hostname,
+        asset_type=asset_type,
+        risk=BASE_RISK.get(asset_type, "LOW"),
+        pam_status="managed",
+        detail=detail,
+        ports=[],
+        source=DISCOVERY_SOURCE_MANUAL,
+        method=DISCOVERY_METHOD_MANUAL,
+        notes=notes,
+    )
+    db.session.add(asset)
+    db.session.flush()
+    item = _vault_item_for_asset(asset, principal, actor=actor, **options)
+    _record_account(asset, principal, source=DISCOVERY_SOURCE_MANUAL)
+    _log_discovery_event(
+        DISCOVERY_ACTION_ASSET_ONBOARDED,
+        address,
+        actor,
+        {
+            "asset_type": asset_type,
+            "risk": asset.risk,
+            "principal": principal,
+            "vault_item_id": item.id,
+        },
+    )
+    db.session.commit()
+    return asset, item
+
+
+def adopt_asset(
+    asset_id: int, payload: Any, *, actor: str
+) -> Tuple[DiscoveredAsset, VaultItem]:
+    """Onboard an already-discovered asset: classify it as managed and ingest
+    its admin account into the vault (Discover -> Recommend -> Auto-onboard)."""
+    if not isinstance(payload, dict):
+        raise ValidationFailed("Request body must be a JSON object")
+    asset = _get_asset(asset_id)
+    if asset.pam_status == "managed":
+        raise ValidationFailed("Asset is already managed")
+    principal = _required_text(payload, "principal", 128)
+    options = _vault_options(payload)
+
+    asset.pam_status = "managed"
+    item = _vault_item_for_asset(asset, principal, actor=actor, **options)
+    _record_account(asset, principal, source=DISCOVERY_SOURCE_MANUAL)
+    _log_discovery_event(
+        DISCOVERY_ACTION_ASSET_ONBOARDED,
+        asset.address,
+        actor,
+        {
+            "asset_type": asset.asset_type,
+            "risk": asset.risk,
+            "principal": principal,
+            "vault_item_id": item.id,
+            "adopted": True,
+        },
+    )
+    db.session.commit()
+    return asset, item
+
+
+def update_asset(asset_id: int, payload: Any, *, actor: str) -> DiscoveredAsset:
+    """Operator overrides: PAM status (ignore/restore), reclassification,
+    hostname/notes. Reclassification recomputes the risk score."""
+    if not isinstance(payload, dict):
+        raise ValidationFailed("Request body must be a JSON object")
+    asset = _get_asset(asset_id)
+    changes: Dict[str, Any] = {}
+
+    if "pam_status" in payload:
+        status = payload["pam_status"]
+        if status not in ASSET_PAM_STATUSES:
+            raise ValidationFailed(
+                "'pam_status' must be unmanaged, managed or ignored",
+                {"field": "pam_status", "allowed": list(ASSET_PAM_STATUSES)},
+            )
+        if status != asset.pam_status:
+            changes["pam_status"] = {"from": asset.pam_status, "to": status}
+            asset.pam_status = status
+
+    if "asset_type" in payload:
+        asset_type = payload["asset_type"]
+        if asset_type not in ASSET_TYPES:
+            raise ValidationFailed(
+                "'asset_type' must be one of the discovery types",
+                {"field": "asset_type", "allowed": list(ASSET_TYPES)},
+            )
+        if asset_type != asset.asset_type:
+            changes["asset_type"] = {
+                "from": asset.asset_type,
+                "to": asset_type,
+            }
+            changes["risk"] = {
+                "from": asset.risk,
+                "to": BASE_RISK.get(asset_type, "LOW"),
+            }
+            asset.asset_type = asset_type
+            asset.risk = BASE_RISK.get(asset_type, "LOW")
+
+    for field, max_length in (
+        ("hostname", 255),
+        ("detail", 255),
+        ("notes", 255),
+    ):
+        if field in payload:
+            value = _optional_text(payload, field, max_length)
+            if value != getattr(asset, field):
+                changes[field] = value
+                setattr(asset, field, value)
+
+    if not changes:
+        raise ValidationFailed("No changes supplied", {"fields": sorted(payload)})
+
+    _log_discovery_event(
+        DISCOVERY_ACTION_ASSET_UPDATED, asset.address, actor, {"changes": changes}
+    )
+    db.session.commit()
+    return asset
+
+
+def list_discovered_assets(
+    *,
+    q: Optional[str] = None,
+    asset_type: Optional[str] = None,
+    risk: Optional[str] = None,
+    pam_status: Optional[str] = None,
+    limit: int = 50,
+    offset: int = 0,
+) -> Tuple[List[DiscoveredAsset], int]:
+    """Asset rows with the screen's type/risk/status/free-text filters."""
+    if asset_type and asset_type not in ASSET_TYPES:
+        raise ValidationFailed(
+            f"Unknown asset type '{asset_type}'",
+            {"field": "type", "allowed": list(ASSET_TYPES)},
+        )
+    if risk and risk not in ASSET_RISKS:
+        raise ValidationFailed(
+            f"Unknown risk '{risk}'",
+            {"field": "risk", "allowed": list(ASSET_RISKS)},
+        )
+    if pam_status and pam_status not in ASSET_PAM_STATUSES:
+        raise ValidationFailed(
+            f"Unknown PAM status '{pam_status}'",
+            {"field": "pam_status", "allowed": list(ASSET_PAM_STATUSES)},
+        )
+
+    query = DiscoveredAsset.query
+    if q:
+        pattern = f"%{q}%"
+        query = query.filter(
+            db.or_(
+                DiscoveredAsset.address.ilike(pattern),
+                DiscoveredAsset.hostname.ilike(pattern),
+                DiscoveredAsset.detail.ilike(pattern),
+                DiscoveredAsset.notes.ilike(pattern),
+            )
+        )
+    if asset_type:
+        query = query.filter(DiscoveredAsset.asset_type == asset_type)
+    if risk:
+        query = query.filter(DiscoveredAsset.risk == risk)
+    if pam_status:
+        query = query.filter(DiscoveredAsset.pam_status == pam_status)
+
+    total = query.count()
+    attention = db.case((DiscoveredAsset.pam_status == "unmanaged", 0), else_=1)
+    risk_rank = db.case(
+        (DiscoveredAsset.risk == "CRITICAL", 0),
+        (DiscoveredAsset.risk == "HIGH", 1),
+        (DiscoveredAsset.risk == "MEDIUM", 2),
+        (DiscoveredAsset.risk == "LOW", 3),
+        else_=4,
+    )
+    assets = (
+        query.order_by(attention, risk_rank, DiscoveredAsset.address.asc())
+        .offset(offset)
+        .limit(limit)
+        .all()
+    )
+    return assets, total
+
+
+def vault_counts_by_target(targets: List[str]) -> Dict[str, int]:
+    """Vault credentials per asset address (exact target match)."""
+    if not targets:
+        return {}
+    rows = (
+        db.session.query(VaultItem.target, db.func.count(VaultItem.id))
+        .filter(VaultItem.target.in_(targets))
+        .group_by(VaultItem.target)
+        .all()
+    )
+    return {target: count for target, count in rows}
+
+
+def list_discovered_accounts(
+    *,
+    q: Optional[str] = None,
+    kind: Optional[str] = None,
+    limit: int = 50,
+    offset: int = 0,
+) -> Tuple[List[DiscoveredAccount], int]:
+    """Recorded privileged accounts (real rows only - recorded at onboarding)."""
+    if kind and kind not in ACCOUNT_KINDS:
+        raise ValidationFailed(
+            f"Unknown account kind '{kind}'",
+            {"field": "kind", "allowed": list(ACCOUNT_KINDS)},
+        )
+    query = DiscoveredAccount.query
+    if q:
+        pattern = f"%{q}%"
+        query = query.filter(
+            db.or_(
+                DiscoveredAccount.username.ilike(pattern),
+                DiscoveredAccount.asset_address.ilike(pattern),
+            )
+        )
+    if kind:
+        query = query.filter(DiscoveredAccount.kind == kind)
+    total = query.count()
+    accounts = (
+        query.order_by(DiscoveredAccount.id.asc())
+        .offset(offset)
+        .limit(limit)
+        .all()
+    )
+    return accounts, total
+
+
+def discovery_stats() -> Dict[str, Any]:
+    """Counts powering the screen's tiles, posture pills and type tabs."""
+    assets = DiscoveredAsset.query.all()
+    by_type = {kind: 0 for kind in ASSET_TYPES}
+    by_risk = {level: 0 for level in ASSET_RISKS}
+    by_pam_status = {status: 0 for status in ASSET_PAM_STATUSES}
+    for asset in assets:
+        by_type[asset.asset_type] = by_type.get(asset.asset_type, 0) + 1
+        by_risk[asset.risk] = by_risk.get(asset.risk, 0) + 1
+        by_pam_status[asset.pam_status] = by_pam_status.get(asset.pam_status, 0) + 1
+    last_scan = DiscoveryScan.query.order_by(DiscoveryScan.id.desc()).first()
+    return {
+        "total": len(assets),
+        "by_type": by_type,
+        "by_risk": by_risk,
+        "by_pam_status": by_pam_status,
+        "accounts_total": DiscoveredAccount.query.count(),
+        "scans": {
+            "total": DiscoveryScan.query.count(),
+            "last": last_scan.to_dict() if last_scan else None,
+        },
+    }

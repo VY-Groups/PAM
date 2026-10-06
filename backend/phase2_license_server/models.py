@@ -518,3 +518,253 @@ class VaultEvent(db.Model):
             "detail": self.detail,
             "created_at": self.created_at.isoformat(),
         }
+
+
+# ---------------------------------------------------------------------------
+# discovery engine (module 3)
+# ---------------------------------------------------------------------------
+ASSET_TYPES = (
+    "windows",
+    "linux",
+    "unix",
+    "aix",
+    "solaris",
+    "vmware",
+    "hyperv",
+    "kubernetes",
+    "docker",
+    "network",
+    "firewall",
+    "loadbalancer",
+    "database",
+    "cloud",
+    "unknown",
+)
+ASSET_RISKS = ("CRITICAL", "HIGH", "MEDIUM", "LOW")
+ASSET_PAM_STATUSES = ("unmanaged", "managed", "ignored")
+ACCOUNT_KINDS = ("builtin_admin", "database_admin", "service_account", "other")
+
+# Classify -> risk-score (rules v1): base severity per asset family. Matches the
+# reference architecture's scoring: Linux/Windows/DB/Firewall/Cloud land at
+# HIGH-or-CRITICAL; edge devices stay MEDIUM until an operator reclassifies.
+BASE_RISK = {
+    "database": "CRITICAL",
+    "windows": "CRITICAL",
+    "cloud": "CRITICAL",
+    "firewall": "HIGH",
+    "loadbalancer": "HIGH",
+    "network": "HIGH",
+    "kubernetes": "HIGH",
+    "linux": "HIGH",
+    "unix": "MEDIUM",
+    "aix": "MEDIUM",
+    "solaris": "MEDIUM",
+    "vmware": "MEDIUM",
+    "hyperv": "MEDIUM",
+    "docker": "MEDIUM",
+    "unknown": "LOW",
+}
+
+# Recommend policy (advisory, rules v1): the policy an operator should apply
+# when ingesting this asset type. Shown during onboarding, never auto-enforced.
+RECOMMENDED_POLICY = {
+    "database": "JIT checkout + 24h credential rotation + session recording",
+    "windows": "JIT AD account + MFA + 8h credential rotation",
+    "cloud": "Federated role assumption + 4h credential rotation",
+    "firewall": "JIT admin + change-window approval + 7d rotation",
+    "loadbalancer": "JIT admin + change-window approval + 7d rotation",
+    "network": "JIT admin + 7d credential rotation",
+    "kubernetes": "Short-lived kubeconfig + 1h token TTL",
+    "linux": "SSH certificate JIT + 24h credential rotation",
+    "unix": "SSH certificate JIT + 24h credential rotation",
+    "aix": "SSH certificate JIT + 24h credential rotation",
+    "solaris": "SSH certificate JIT + 24h credential rotation",
+    "vmware": "Named admin account + MFA + 24h rotation",
+    "hyperv": "Named admin account + MFA + 24h rotation",
+    "docker": "Short-lived registry credential + 24h rotation",
+    "unknown": "Classify the asset, then apply a tier policy",
+}
+
+# Onboard -> the vault secret type that best describes the admin account.
+ASSET_SECRET_TYPES = {
+    "database": "database",
+    "cloud": "cloud_iam",
+    "windows": "domain_password",
+    "kubernetes": "ssh_key",
+    "docker": "ssh_key",
+    "linux": "ssh_key",
+    "unix": "ssh_key",
+    "aix": "ssh_key",
+    "solaris": "ssh_key",
+    "vmware": "service_account",
+    "hyperv": "service_account",
+    "firewall": "service_account",
+    "network": "service_account",
+    "loadbalancer": "service_account",
+    "unknown": "service_account",
+}
+
+DISCOVERY_ACTION_SCAN_STARTED = "scan_started"
+DISCOVERY_ACTION_SCAN_COMPLETED = "scan_completed"
+DISCOVERY_ACTION_SCAN_FAILED = "scan_failed"
+DISCOVERY_ACTION_ASSET_DISCOVERED = "asset_discovered"
+DISCOVERY_ACTION_ASSET_ONBOARDED = "asset_onboarded"
+DISCOVERY_ACTION_ASSET_UPDATED = "asset_updated"
+
+DISCOVERY_SOURCE_SCAN = "scan"
+DISCOVERY_SOURCE_MANUAL = "manual"
+DISCOVERY_METHOD_PROBE = "tcp_probe"
+DISCOVERY_METHOD_MANUAL = "manual"
+
+DISCOVERY_SCAN_RUNNING = "running"
+DISCOVERY_SCAN_COMPLETED = "completed"
+DISCOVERY_SCAN_FAILED = "failed"
+
+# Username pattern -> account kind (reference taxonomy: root, administrator,
+# postgres/oracle/sa/mysql, svc_*, backup_*). Group-derived kinds (domain
+# admins, local admins) require directory enumeration, which no module
+# performs yet, so they are never guessed.
+def classify_account_kind(username: str) -> str:
+    lower = (username or "").strip().lower()
+    if lower in ("root", "administrator", "admin", "adm"):
+        return "builtin_admin"
+    if lower in ("postgres", "oracle", "mysql", "mssql", "mongo", "mongodb", "sa"):
+        return "database_admin"
+    if lower.startswith(("svc_", "svc-", "backup_", "backup-")):
+        return "service_account"
+    return "other"
+
+
+class DiscoveredAsset(db.Model):
+    """One target host: discovered by a real probe or registered by an operator."""
+
+    __tablename__ = "discovered_assets"
+
+    id = db.Column(db.Integer, primary_key=True)
+    address = db.Column(db.String(64), nullable=False, unique=True, index=True)
+    hostname = db.Column(db.String(255), nullable=False, default="")
+    asset_type = db.Column(db.String(32), nullable=False, default="unknown", index=True)
+    risk = db.Column(db.String(16), nullable=False, default="LOW", index=True)
+    pam_status = db.Column(
+        db.String(16), nullable=False, default="unmanaged", index=True
+    )
+    detail = db.Column(db.String(255), nullable=False, default="")
+    ports = db.Column(db.JSON, nullable=False, default=list)
+    source = db.Column(db.String(16), nullable=False, default=DISCOVERY_SOURCE_SCAN)
+    method = db.Column(db.String(32), nullable=False, default=DISCOVERY_METHOD_PROBE)
+    notes = db.Column(db.String(255), nullable=False, default="")
+    first_seen = db.Column(db.DateTime, nullable=False, default=datetime.now)
+    last_seen = db.Column(db.DateTime, nullable=False, default=datetime.now)
+
+    @property
+    def recommended_policy(self) -> str:
+        return RECOMMENDED_POLICY.get(self.asset_type, RECOMMENDED_POLICY["unknown"])
+
+    @property
+    def open_ports(self) -> List[int]:
+        return [entry.get("port") for entry in (self.ports or []) if entry.get("port")]
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "id": self.id,
+            "address": self.address,
+            "hostname": self.hostname,
+            "asset_type": self.asset_type,
+            "risk": self.risk,
+            "pam_status": self.pam_status,
+            "detail": self.detail,
+            "ports": self.ports or [],
+            "source": self.source,
+            "method": self.method,
+            "notes": self.notes,
+            "recommended_policy": self.recommended_policy,
+            "first_seen": self.first_seen.isoformat(),
+            "last_seen": self.last_seen.isoformat(),
+        }
+
+
+class DiscoveredAccount(db.Model):
+    """A privileged account recorded against a discovered/onboarded asset."""
+
+    __tablename__ = "discovered_accounts"
+
+    id = db.Column(db.Integer, primary_key=True)
+    asset_id = db.Column(db.Integer, nullable=False, index=True)
+    asset_address = db.Column(db.String(64), nullable=False)
+    username = db.Column(db.String(128), nullable=False, index=True)
+    kind = db.Column(db.String(32), nullable=False, default="other", index=True)
+    source = db.Column(db.String(16), nullable=False, default=DISCOVERY_SOURCE_MANUAL)
+    created_at = db.Column(db.DateTime, nullable=False, default=datetime.now)
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "id": self.id,
+            "asset_id": self.asset_id,
+            "asset_address": self.asset_address,
+            "username": self.username,
+            "kind": self.kind,
+            "source": self.source,
+            "created_at": self.created_at.isoformat(),
+        }
+
+
+class DiscoveryScan(db.Model):
+    """One discovery scan run (scope, ports, honest counters)."""
+
+    __tablename__ = "discovery_scans"
+
+    id = db.Column(db.Integer, primary_key=True)
+    scope = db.Column(db.String(64), nullable=False)
+    method = db.Column(db.String(32), nullable=False, default=DISCOVERY_METHOD_PROBE)
+    ports = db.Column(db.JSON, nullable=False, default=list)
+    status = db.Column(
+        db.String(16), nullable=False, default=DISCOVERY_SCAN_RUNNING, index=True
+    )
+    hosts_probed = db.Column(db.Integer, nullable=False, default=0)
+    hosts_open = db.Column(db.Integer, nullable=False, default=0)
+    services_found = db.Column(db.Integer, nullable=False, default=0)
+    findings = db.Column(db.Integer, nullable=False, default=0)
+    error = db.Column(db.String(255), nullable=False, default="")
+    triggered_by = db.Column(db.String(64), nullable=False, default="system")
+    started_at = db.Column(db.DateTime, nullable=False, default=datetime.now)
+    finished_at = db.Column(db.DateTime, nullable=True)
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "id": self.id,
+            "scope": self.scope,
+            "method": self.method,
+            "ports": self.ports or [],
+            "status": self.status,
+            "hosts_probed": self.hosts_probed,
+            "hosts_open": self.hosts_open,
+            "services_found": self.services_found,
+            "findings": self.findings,
+            "error": self.error,
+            "triggered_by": self.triggered_by,
+            "started_at": self.started_at.isoformat(),
+            "finished_at": self.finished_at.isoformat() if self.finished_at else None,
+        }
+
+
+class DiscoveryEvent(db.Model):
+    """Discovery audit trail entry: scans, discoveries, onboarding, updates."""
+
+    __tablename__ = "discovery_events"
+
+    id = db.Column(db.Integer, primary_key=True)
+    action = db.Column(db.String(32), nullable=False)
+    subject = db.Column(db.String(128), nullable=False, default="")
+    actor = db.Column(db.String(64), nullable=False, default="system")
+    detail = db.Column(db.JSON, nullable=False, default=dict)
+    created_at = db.Column(db.DateTime, nullable=False, default=datetime.now)
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "id": self.id,
+            "action": self.action,
+            "subject": self.subject,
+            "actor": self.actor,
+            "detail": self.detail,
+            "created_at": self.created_at.isoformat(),
+        }

@@ -304,7 +304,7 @@ def get_overview():
 
 @api.get("/events")
 def get_events():
-    """Recent activity across the license, settings and vault audit trails."""
+    """Recent activity across the license, settings, vault and discovery trails."""
     limit = min(_int_param("limit", 20), MAX_PAGE_SIZE)
     return jsonify(service.unified_events(source=request.args.get("source"), limit=limit))
 
@@ -385,3 +385,132 @@ def get_vault_events():
     """Vault audit trail (onboarding, checkouts, rotations), newest first."""
     limit = min(_int_param("limit", 20), MAX_PAGE_SIZE)
     return jsonify(service.vault_events(limit))
+
+
+# ---------------------------------------------------------------------------
+# discovery engine (Discovery / Target Infrastructure screen)
+# ---------------------------------------------------------------------------
+@api.get("/discovery/stats")
+def get_discovery_stats():
+    """Aggregate counts: total assets, per-type/risk/status, last scan."""
+    return jsonify(service.discovery_stats())
+
+
+@api.get("/discovery/assets")
+def list_discovered_assets():
+    limit = min(_int_param("limit", 50), MAX_PAGE_SIZE)
+    offset = _int_param("offset", 0)
+    assets, total = service.list_discovered_assets(
+        q=request.args.get("q"),
+        asset_type=request.args.get("type"),
+        risk=request.args.get("risk"),
+        pam_status=request.args.get("pam_status"),
+        limit=limit,
+        offset=offset,
+    )
+    counts = service.vault_counts_by_target([asset.address for asset in assets])
+    return jsonify(
+        {
+            "assets": [
+                dict(asset.to_dict(), vault_count=counts.get(asset.address, 0))
+                for asset in assets
+            ],
+            "total": total,
+            "limit": limit,
+            "offset": offset,
+        }
+    )
+
+
+@api.post("/discovery/assets")
+@require_admin
+def onboard_discovered_asset():
+    """Manual target registration + vault ingestion in one call."""
+    asset, item = service.onboard_asset(_json_body(), actor=_actor())
+    return (
+        jsonify(
+            {
+                "asset": asset.to_dict(),
+                "vault_item": item.to_dict(),
+                "message": "Target onboarded",
+            }
+        ),
+        201,
+    )
+
+
+@api.patch("/discovery/assets/<int:asset_id>")
+@require_admin
+def patch_discovered_asset(asset_id: int):
+    """Operator overrides: pam_status (ignore/restore), reclassification."""
+    asset = service.update_asset(asset_id, _json_body(), actor=_actor())
+    return jsonify({"asset": asset.to_dict(), "message": "Asset updated"})
+
+
+@api.post("/discovery/assets/<int:asset_id>/onboard")
+@require_admin
+def adopt_discovered_asset(asset_id: int):
+    """Adopt a discovered asset: mark managed + ingest its admin account."""
+    asset, item = service.adopt_asset(asset_id, _json_body(), actor=_actor())
+    return (
+        jsonify(
+            {
+                "asset": asset.to_dict(),
+                "vault_item": item.to_dict(),
+                "message": "Target onboarded",
+            }
+        ),
+        201,
+    )
+
+
+@api.get("/discovery/accounts")
+def list_discovered_accounts():
+    limit = min(_int_param("limit", 50), MAX_PAGE_SIZE)
+    offset = _int_param("offset", 0)
+    accounts, total = service.list_discovered_accounts(
+        q=request.args.get("q"),
+        kind=request.args.get("kind"),
+        limit=limit,
+        offset=offset,
+    )
+    return jsonify(
+        {
+            "accounts": [account.to_dict() for account in accounts],
+            "total": total,
+            "limit": limit,
+            "offset": offset,
+        }
+    )
+
+
+@api.get("/discovery/scans")
+def list_discovery_scans():
+    limit = min(_int_param("limit", 20), MAX_PAGE_SIZE)
+    scans, total = service.list_scans(limit=limit)
+    return jsonify(
+        {
+            "scans": [scan.to_dict() for scan in scans],
+            "total": total,
+            "limit": limit,
+        }
+    )
+
+
+@api.post("/discovery/scans")
+@require_admin
+def start_discovery_scan():
+    """Run a real TCP-connect scan (bounded, single-flight, synchronous)."""
+    scan = service.start_scan(_json_body(), actor=_actor())
+    return (
+        jsonify(
+            {
+                "scan": scan.to_dict(),
+                "message": (
+                    f"Scan finished: {scan.hosts_open}/{scan.hosts_probed} hosts "
+                    f"open, {scan.findings} new asset(s)"
+                ),
+            }
+        ),
+        201,
+    )

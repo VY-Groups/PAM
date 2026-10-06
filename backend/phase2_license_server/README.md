@@ -147,7 +147,7 @@ cross-checked against these routes by `tests/test_openapi_contract.py`.
 | GET | `/settings/audit?limit=` | – | Configuration changelog, newest first |
 | PUT | `/settings/<group>` | admin | Merge-update one group, returns the per-field change diff |
 | GET | `/overview` | – | Dashboard aggregate: health, license posture, vault stats, settings, counters, computed control posture, recent activity |
-| GET | `/events?limit=&source=` | – | Unified audit feed across the license / settings / vault trails, newest first |
+| GET | `/events?limit=&source=` | – | Unified audit feed across the license / settings / vault / discovery trails, newest first |
 | GET | `/vault/stats` | – | Inventory aggregates: totals by type/status, rotation compliance, checkouts, today's events |
 | GET | `/vault/items?…` | – | List inventory (`q`, `type`, `status`, `limit`, `offset`) |
 | POST | `/vault/items` | admin | Onboard a credential (201, strictly validated) |
@@ -156,6 +156,14 @@ cross-checked against these routes by `tests/test_openapi_contract.py`.
 | POST | `/vault/items/<id>/revoke` | admin | End an active checkout |
 | POST | `/vault/items/<id>/rotate` | admin | Rotate now — also retries a failed rotation |
 | GET | `/vault/events?limit=` | – | Vault audit trail (onboarding, checkouts, rotations) |
+| GET | `/discovery/stats` | – | Discovery aggregates: totals, per-type/risk/status, recorded accounts, last scan |
+| GET | `/discovery/assets?…` | – | Discovered targets (`q`, `type`, `risk`, `pam_status`, `limit`, `offset`), each with `vault_count` |
+| POST | `/discovery/assets` | admin | Register + classify a target, ingest its admin account (201) |
+| PATCH | `/discovery/assets/<id>` | admin | Ignore/restore, reclassify (recomputes risk), edit hostname/detail/notes |
+| POST | `/discovery/assets/<id>/onboard` | admin | Adopt a discovered asset into the vault (201) |
+| GET | `/discovery/accounts?…` | – | Recorded privileged accounts (`q`, `kind`, `limit`, `offset`) |
+| GET | `/discovery/scans?limit=` | – | Scan history, newest first |
+| POST | `/discovery/scans` | admin | Run a real TCP-connect scan (201; IPv4/CIDR/hostname, ≤256 hosts, ≤24 ports) |
 
 Admin auth: `Authorization: Bearer <token>` or `X-Admin-Token: <token>`.
 
@@ -293,7 +301,7 @@ curl -s "http://127.0.0.1:5000/api/v1/settings/audit?limit=20"
 # dashboard aggregate powering the Command Center / Compliance screens
 curl -s http://127.0.0.1:5000/api/v1/overview
 
-# unified audit feed (license + settings + vault trails, newest first)
+# unified audit feed (license + settings + vault + discovery trails, newest first)
 curl -s "http://127.0.0.1:5000/api/v1/events?limit=10"
 
 # inventory aggregates: rotation compliance, checkouts, attention list
@@ -325,8 +333,37 @@ curl -s -X POST http://127.0.0.1:5000/api/v1/vault/items/5/rotate \
   `rotation_sla`, `sso_mfa`, `tier0_quorum`, `admin_auth`, `hsm_backed`) —
   `audit_evidence` only passes once the audit trail has entries, so a fresh
   database honestly reports a lower score.
-- Reads are public; the three write routes require the admin token in token
-  mode (open mode stays open) and record who acted via `X-Actor`.
+- Reads are public; the write routes (settings, vault, discovery) require the
+  admin token in token mode (open mode stays open) and record who acted via
+  `X-Actor`.
+
+### Discovery
+
+```bash
+# run a real TCP-connect scan (bounded: <=256 hosts, <=24 ports, single-flight)
+curl -s -X POST http://127.0.0.1:5000/api/v1/discovery/scans \
+  -H "Authorization: Bearer $LICENSE_ADMIN_TOKEN" -H "X-Actor: alice" \
+  -H "Content-Type: application/json" \
+  -d '{"scope": "10.20.0.0/28"}'
+
+# register + classify a target, ingesting its admin account into the vault
+curl -s -X POST http://127.0.0.1:5000/api/v1/discovery/assets \
+  -H "Authorization: Bearer $LICENSE_ADMIN_TOKEN" -H "X-Actor: alice" \
+  -H "Content-Type: application/json" \
+  -d '{"address": "10.20.0.5", "asset_type": "linux", "principal": "root"}'
+```
+
+- Scans are **real**: TCP connects against the operator-supplied scope only
+  (no default range), a short banner grab per open port, discovery events in
+  the unified feed. Type classification = port-to-service mapping refined by
+  greeting text (SSH family from an `SSH-` banner); anything unproven stays
+  `unknown` instead of being guessed.
+- Risk comes from `BASE_RISK` (rules v1, mirrors the reference architecture's
+  example scores) and `recommended_policy` is advisory only — onboarding is
+  always operator-triggered.
+- Rescans refresh ports/`last_seen` and reclassify only **unmanaged** rows;
+  managed rows keep the operator's classification. New hosts land as
+  `unmanaged` until adopted via `POST /discovery/assets/<id>/onboard`.
 
 ## Design notes
 

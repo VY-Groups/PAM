@@ -1,0 +1,10 @@
+{
+  "name": "vy-pam-shots-tool",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Verification + screenshot tooling for VY-PAM screens (dev-only; npm i here first).",
+  "type": "module",
+  "dependencies": {
+    "playwright-core": "^1.63.0"
+  }
+}
