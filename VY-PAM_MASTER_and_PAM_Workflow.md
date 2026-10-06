@@ -201,7 +201,8 @@ signs with it, PAM verifies with it).
   screenshots recaptured via `shots_tool/__shots.mjs`, launcher badge → LIVE —
   **verify:** `python -m pytest backend -q` → 206 + smoke 17/17 + both node
   verifiers ALL CHECKS PASSED
-- ☐ **1i** Commit + push (ephemeral token, verify not persisted)
+- ☑ **1i** Commit + push (ephemeral token, verify not persisted) — `9f83bd3`
+  pushed to `main`; no `ghp_` in git config, worktree, or history
 
 ### Phase 2 — VY-PAM MASTER (vendor tool, `pam_master/`)
 - ☐ **2a** Skeleton: own Flask app + config (private key custody lives ONLY
@@ -235,6 +236,7 @@ signs with it, PAM verifies with it).
 |---|---|---|
 | 2026-10-06 | 1a–1f ✅ (206 tests, 17/17 smoke, plan doc) | **1g** (screen wiring) |
 | 2026-10-06 | 1a–1h ✅ (206 tests, 17/17 smoke, 58+58 UI checks, 12 screenshots, launcher LIVE) | **1i** (commit + push) |
+| 2026-10-06 | **Phase 1 complete ✅** (`9f83bd3` pushed: Discovery module + honest screen + chrome purge + shots_tool) | **Phase 2 / 2a** (`pam_master/` skeleton) |
 
 ---
 
