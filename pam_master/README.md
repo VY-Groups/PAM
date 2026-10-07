@@ -9,7 +9,7 @@
 
 ## What is implemented
 
-Phase 2d (skeleton + registry + issuance + API contract):
+Phase 2 (complete: skeleton + registry + issuance + API contract):
 
 | Piece | State |
 | --- | --- |

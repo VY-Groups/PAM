@@ -235,7 +235,14 @@ signs with it, PAM verifies with it).
   against code constants, git-tracked-file private-key scan), anti-mixing
   scan extended (`phase2_license_server` + `from backend.` / `import backend`)
   — **verify:** `python -m pytest pam_master -q` → 46 passed
-- ☐ **2e** Docs + screenshots + commit/push — **verify:** pam_master test suite green
+- ☑ **2e** Docs + screenshots + commit/push — **done:** root README documents
+  the two-product split (intro, tree entry, quick-start, custody bullet,
+  test counts corrected to 206/46); `pam_master/README.md` complete
+  (endpoints, custody rules, API contract). Screenshots: **none apply** —
+  the MASTER is API-only, no UI exists in Phase 2 (console/screens
+  screenshots return with the shipped side in 3c)
+  — **verify (phase boundary):** `pytest backend` 206 + `pytest pam_master`
+  46 + smoke 17/17 + both shots verifiers `ALL CHECKS PASSED`
 
 ### Phase 3 — Decouple the shipped PAM surface
 - ☐ **3a** PAM keeps only `meta / validate / check / file / entitlement /
@@ -262,6 +269,7 @@ signs with it, PAM verifies with it).
 | 2026-10-07 | **Phase 2b ✅** (registry CRUD + PII AES-256-GCM at rest; 28 tests; live smoke: 201/list/PATCH/history + no plaintext in DB file) | **2c** (license generation + delivery bundle) |
 | 2026-10-07 | **Phase 2c ✅** (issuance: signed claims, encrypted archive, renewal supersedes, offline-verifiable bundle, audit; 40 tests; live smoke: exact 90d/365d spans, sha256 match, tables 0→4) | **2d** (own `openapi.yaml` + contract/anti-mixing tests) |
 | 2026-10-07 | **Phase 2d ✅** (own `openapi.yaml` + contract both ways + live shapes + enum mirrors + tracked-key scan + extended anti-mixing; 46 tests) | **2e** (docs + phase close + commit/push) |
+| 2026-10-07 | **Phase 2 complete ✅** (PAM-MASTER vendor tool: key custody, PII-encrypted registry, signed issuance/renewal/bundle/audit, own contract — 46 tests; root README split docs; full boundary regression green) | **Phase 3** (decouple shipped PAM surface — **3a**) |
 
 ---
 

@@ -1,10 +1,16 @@
 # VY-PAM
 
 Enterprise privileged identity security platform (full requirements:
-`VY-PAM_Enterprise_PAM_Architecture.md`). What exists today — the
-cryptographic licensing core (Phase 1), its issuing/revocation API
-(Phase 2) and the web console — is laid out for growth as
-`frontend/` + `apis/` + `backend/`.
+`VY-PAM_Enterprise_PAM_Architecture.md`). The repo carries **two products**:
+
+- **VY-PAM** — the shipped product: web console + HTTP APIs + PAM runtime,
+  laid out as `frontend/` + `apis/` + `backend/` (cryptographic licensing
+  core, its issuing/revocation API, the console).
+- **VY-PAM MASTER** (`pam_master/`) — VY-Groups' internal license-authority
+  vendor tool, **never shipped**: customer registry (PII encrypted at rest),
+  signed issuance + renewal, delivery bundles, audit trail, its own API
+  contract. Both sides sign/verify through the same shared engine
+  (`backend/ipam_licensing`), so they can never drift apart.
 
 ```
 PAM/
@@ -35,6 +41,12 @@ PAM/
 │       ├── tests/test_settings_and_ui.py # settings API + frontend nav (32 tests)
 │       ├── tests/test_openapi_contract.py # apis/openapi.yaml ↔ routes (5 tests)
 │       └── README.md                # full API reference
+├── pam_master/                        # VY-PAM MASTER: vendor tool (never shipped)
+│   ├── pam_master/               #   Flask package: registry, issuance, custody
+│   ├── tests/                    #   suite (temp keys/db only) + contract tests
+│   ├── openapi.yaml              #   own OpenAPI 3 contract (synced by a test)
+│   ├── Dockerfile + docker-compose.yml  # development only
+│   └── README.md                 #   custody rules + API reference
 └── stitch_pam_suite_dashboard_ui/  # Frozen design reference (frontend/ started as a copy)
     ├── index.html                #   launcher (reference copy)
     ├── zero_trust_sentinel/DESIGN.md   # design tokens + system spec
@@ -61,8 +73,14 @@ cd backend/phase2_license_server && python app.py     # http://127.0.0.1:5000
 #   /            live licensing screen     /settings   live settings screen
 #   /index.html  console launcher          /screens/…  every other screen
 
-# Tests (both phases + the API contract)
-python -m pytest backend/ipam_licensing backend/phase2_license_server/tests -q   # 187 tests
+# PAM-MASTER (vendor tool, never shipped): create its keys once, run it
+cd pam_master
+python -m pam_master.keygen                      # RSA + Ed25519 + registry PII key (never overwrites)
+python -m pam_master                             # http://127.0.0.1:5400
+
+# Tests (shared core + shipped API contract + vendor tool)
+python -m pytest backend -q                      # 206 tests
+python -m pytest pam_master -q                   # 46 tests (vendor tool)
 ```
 
 ## How it fits together
@@ -84,6 +102,13 @@ python -m pytest backend/ipam_licensing backend/phase2_license_server/tests -q  
 - The HTTP surface is contracted in `apis/openapi.yaml` (OpenAPI 3.1);
   `test_openapi_contract.py` cross-checks it against the live routes in both
   directions, so docs cannot drift from the server.
+- The **VY-PAM MASTER** vendor tool (`pam_master/`) is the only holder of the
+  trust root: it creates the signing keys (`python -m pam_master.keygen`),
+  keeps customer PII and every signed-license archive encrypted at rest
+  (AES-256-GCM), and shares nothing with the shipped side except
+  `backend/ipam_licensing` — its own contract lives in
+  `pam_master/openapi.yaml` with the same two-way test, and a tracked-file
+  scan guarantees no private key is ever part of the shipped repository.
 - The console lives in `frontend/` — a copy of the frozen design reference in
   `stitch_pam_suite_dashboard_ui/`. Every screen carries the same sidebar with
   real links, `frontend/index.html` is the launcher. Served by Phase 2, five
