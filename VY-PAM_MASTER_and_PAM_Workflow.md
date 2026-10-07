@@ -268,8 +268,20 @@ signs with it, PAM verifies with it).
   foreign-signature, unusable-file cases), smoke reworked to sign vendor-side
   and import — **verify (phase boundary):** pytest backend **216** +
   pytest pam_master 46 + smoke 17/17 + both shots verifiers `ALL CHECKS PASSED`
-- ☐ **3c** Docs/screens/launcher reflect the split (launcher text, licensing
-  screen ISSUE → import of a vendor `.lic`, frontend README); commit/push
+- ☑ **3c** Docs/screens/launcher reflect the split — console rework: the
+  `Renew / Upgrade Tier` issue form became `Import Vendor License` (file or
+  paste → `POST /licenses/import`, signature verified, claims recorded as
+  signed, re-download; `issue*` ids/JS renamed to `import*`); all issuing copy
+  → import copy (subtitle, empty states, token note, account note, badge);
+  launcher lines fixed; phase-2 server README re-scoped (intro, endpoint row,
+  `### Issue` curl section → `### Import`, config notes, audit bullet, test
+  counts 134/216); `apis/README` error list +409; frontend README checked —
+  already accurate; license `screen.png` recaptured; stale :5000 dev server
+  restarted on current code (`POST /licenses` → 405, `/licenses/import` → 400
+  on empty body, discovery still honest); live UI check: modal opens, server
+  refuses a malformed payload, dev registry untouched, no page errors —
+  **verify (phase boundary):** pytest backend **216** + pytest pam_master
+  **46** + smoke 17/17 + both shots verifiers `ALL CHECKS PASSED`
 
 ### Phase 4 — Continue `VY-PAM_Enterprise_PAM_Architecture.md` (the last goal)
 - ☐ **4a** Rotation (5) → ☐ **4b** JIT (6) → ☐ **4c** Sessions (8) →
@@ -289,6 +301,7 @@ signs with it, PAM verifies with it).
 | 2026-10-07 | **Phase 2d ✅** (own `openapi.yaml` + contract both ways + live shapes + enum mirrors + tracked-key scan + extended anti-mixing; 46 tests) | **2e** (docs + phase close + commit/push) |
 | 2026-10-07 | **Phase 2 complete ✅** (PAM-MASTER vendor tool: key custody, PII-encrypted registry, signed issuance/renewal/bundle/audit, own contract — 46 tests; root README split docs; full boundary regression green) | **Phase 3** (decouple shipped PAM surface — **3a**) |
 | 2026-10-07 | **Phase 3a+3b ✅** (self-issue removed → vendor-signed `POST /licenses/import`; form rules → claim-shape checks; no server code signs anymore; openapi/contract/tests/smoke lockstep; backend 216, pam_master 46, smoke 17/17, verifiers green) | **3c** (docs/screens/launcher reflect the split) |
+| 2026-10-07 | **Phase 3 complete ✅** (console ISSUE → vendor-import flow; launcher + phase-2/apis docs honest; screen recaptured; dev server restarted on current code; backend **216**, pam_master **46**, smoke 17/17, verifiers green, live UI check: modal/error path + registry untouched) | **Phase 4 / 4a** (Rotation (5)) |
 
 ---
 

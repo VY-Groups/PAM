@@ -1,11 +1,14 @@
 # IPAM License Server (Phase 2)
 
-Flask service that issues, stores, revokes and validates IPAM licenses.
+Flask service that imports, stores, revokes and validates IPAM licenses.
 
-It does **not** re-implement cryptography: signing and verification come
-straight from the Phase 1 library in `../ipam_licensing`, imported through
-`licensing_bridge.py`. A license produced by this server is byte-for-byte
-compatible with the Phase 1 `license_validator` CLI.
+It does **not** re-implement cryptography: verification comes straight from the
+Phase 1 library in `../ipam_licensing`, imported through `licensing_bridge.py`.
+It does **not** sign either — issuing belongs to the vendor tool (`pam_master/`)
+or the Phase 1 CLI; this server verifies a vendor-signed file, records its
+claims exactly as signed, and serves them back byte-for-byte, so what validates
+offline with the Phase 1 `license_validator` CLI is the very file the vendor
+produced.
 
 Supported wire formats and algorithms:
 
@@ -22,7 +25,7 @@ Supported wire formats and algorithms:
 | `app.py` | Flask app factory, error handlers, `/health`, screen routes, `python app.py` entrypoint |
 | `config.py` | Environment-driven configuration (`.env` supported) |
 | `routes.py` | HTTP layer: parsing, auth, status codes |
-| `service.py` | Business logic: issue, list, revoke, restore, validate, usage, checks, `meta`, platform settings, credential vault, dashboard overview + unified events |
+| `service.py` | Business logic: import, list, revoke, restore, validate, usage, checks, `meta`, platform settings, credential vault, dashboard overview + unified events |
 | `models.py` | `LicenseRecord` (signed license + spec fields), `LicenseEvent`, `SettingGroup` + `SettingsEvent` (config changelog), `VaultItem` + `VaultEvent` (vault inventory + audit) |
 | `keys.py` | Startup key checks (fail fast, public/private must match, both algorithms) |
 | `licensing_bridge.py` | Path bootstrap + cached Phase 1 `LicenseGenerator`/`LicenseValidator` |
@@ -59,7 +62,7 @@ that drives the API below. It renders the spec layout against real data:
 - payload signature card (subject, classification, fingerprint, issuer) with a
   decoded-claims inspector, offline air-gap ingestion, and the account & SLA
   block
-- entitlement registry (search + status/type filters, issue/detail/revoke) and
+- entitlement registry (search + status/type filters, detail/revoke) and
   a public signature-validation console
 
 Source: `../frontend/screens/license_entitlement_center/code.html`
@@ -70,7 +73,7 @@ place; built against the spec screen
 so no CORS is needed or enabled. Open it at `http://127.0.0.1:5000/` rather
 than as a `file://` page.
 
-Admin actions (issue / revoke / restore / download) send the token as
+Admin actions (import / revoke / restore / download) send the token as
 `X-Admin-Token`; enter it once in the UI (kept in `sessionStorage` for that tab
 only). If `LICENSE_ADMIN_TOKEN` is unset the server runs in open mode.
 
@@ -104,14 +107,15 @@ is no seed inventory: every credential enters through **Onboard New Credential**
 "not connected" states instead of sample rows.
 
 ```bash
-python -m pytest tests -q     # 105 tests  (187 across both phases, run from the repo root)
+python -m pytest tests -q     # 134 tests (from backend/phase2_license_server)
+python -m pytest backend -q   # 216 tests from the repo root (+ shared crypto core)
 ```
 
 ## Configuration
 
 See `.env.example`. Highlights:
 
-- `LICENSE_ADMIN_TOKEN` — bearer token guarding issue/revoke/restore/usage/
+- `LICENSE_ADMIN_TOKEN` — bearer token guarding import/revoke/restore/usage/
   download. Unset means open mode (responses then carry `X-Auth-Mode: open`);
   always set it outside a trusted network.
 - `LICENSE_PRIVATE_KEY_PATH` / `LICENSE_PUBLIC_KEY_PATH` — RSA pair, defaults to
@@ -119,7 +123,8 @@ See `.env.example`. Highlights:
   match.
 - `LICENSE_ED25519_PRIVATE_KEY_PATH` / `LICENSE_ED25519_PUBLIC_KEY_PATH` —
   optional second algorithm (default `license_ed25519_*.pem` at the repository
-  root); created on first Ed25519 issuance when autogeneration is enabled.
+  root). The server verifies with the public key only; issuing (and any key
+  generation) lives in PAM-MASTER / the Phase 1 CLI.
 - `LICENSE_AUTOGENERATE_KEYS=1` — allow creating a missing key pair (dev only;
   it changes which licenses are verifiable).
 - `LICENSE_DATABASE_URI` — defaults to SQLite next to this README.
@@ -134,7 +139,7 @@ cross-checked against these routes by `tests/test_openapi_contract.py`.
 | --- | --- | --- | --- |
 | GET | `/health` | – | Liveness + DB check, key paths, algorithms, formats |
 | GET | `/meta` | – | Capabilities: algorithms, formats, tiers, quota/usage fields, module catalog |
-| POST | `/licenses` | admin | Issue and sign a license (201) |
+| POST | `/licenses/import` | admin | Import a vendor-signed license file (201; 400 malformed/foreign/expired/invalid claims, 409 already installed) |
 | GET | `/licenses` | – | List/filter licenses (`status`, `license_type`, `issued_to`, `tier`, `q`, `limit`, `offset`) |
 | GET | `/licenses/<key>` | – | Detail incl. usage summary and audit events (`<key>` = license key **or** license ID) |
 | GET | `/licenses/<key>/file` | admin | Signed file, `?format=json` (envelope) or `?format=jwt` (compact token) |
@@ -167,49 +172,37 @@ cross-checked against these routes by `tests/test_openapi_contract.py`.
 
 Admin auth: `Authorization: Bearer <token>` or `X-Admin-Token: <token>`.
 
-### Issue
+### Import
+
+Issuing belongs to the vendor — PAM-MASTER (`pam_master/`) or the Phase 1 CLI
+sign the file and deliver it. This endpoint only verifies and records it:
 
 ```bash
-curl -s -X POST http://127.0.0.1:5000/api/v1/licenses \
+# JSON envelope straight from the delivery bundle
+curl -s -X POST http://127.0.0.1:5000/api/v1/licenses/import \
   -H "Authorization: Bearer $LICENSE_ADMIN_TOKEN" -H "Content-Type: application/json" \
-  -d '{
-    "license_type": "enterprise",
-    "issued_to": "Northwind Federal Systems",
-    "license_id": "LIC-9942-AEGIS-SEC-PROD",
-    "tier": "ENTERPRISE ZSP ULTIMATE",
-    "plan": "Annual Multi-Cloud",
-    "subject_entity": "Northwind Federal Systems - AegisPAM Cluster PROD-7734",
-    "classification": "ENTERPRISE ZSP ULTIMATE - Tier 4 / Quantum-Safe",
-    "issuer": "licensing.aegispam.internal (Air-Gap Root)",
-    "enclave_binding": "TPM 2.0 PCR Registers 0 & 7",
-    "algorithm": "Ed25519",
-    "format": "jwt",
-    "usage_limits": {"max_users": 5000, "max_subnets": 512, "max_devices": 12000},
-    "account": {"customer_id": "ENT-88214-AEGIS", "tam": "Sasha Quill",
-                "tam_email": "sasha.quill@aegispam.internal",
-                "po_number": "PO-77193", "sla_response": "15 MIN P1",
-                "invoicing": "Annual Upfront"}
-  }'
+  --data-binary @delivery/license_01J2f3g4.json
+
+# compact .lic token -> wrap it
+curl -s -X POST http://127.0.0.1:5000/api/v1/licenses/import \
+  -H "Authorization: Bearer $LICENSE_ADMIN_TOKEN" -H "Content-Type: application/json" \
+  -d "{\"token\": \"$(cat delivery/license_01J2f3g4.lic)\"}"
 ```
 
-- `license_type`: `trial`, `subscription`, `perpetual`, `enterprise`.
-- Signing: `algorithm` (`RSA-PSS-SHA256` | `Ed25519`) and `format`
-  (`json` | `jwt`), both defaulting to the Phase 1 defaults.
-- Spec fields (all optional): `tier`, `plan`, `license_id` (auto-generated as
-  `LIC-####-AEGIS-SEC-ENV` when omitted), `subject_entity`, `classification`,
-  `issuer`, `enclave_binding`, `environment`.
-- Quotas: `quotas` overrides the tier defaults — node quota, `concurrent_sessions`,
-  `bastion_tunnels`, `max_lease_hours`, `worm_retention_days` and a `pools` list
-  (`id`, `name`, `regions`, `quota_nodes`, `enforcement` with
-  `soft-warning` / `auto-scale` / `audit-log` / `hard-block`).
-- Entitlements: `modules` selects from the 8-module catalog; `features`,
-  `usage_limits`, `metadata` behave as before. `trial_days` applies to trials.
-- The response carries the stored record, the ready-to-deliver `license_file`
-  and, for `format: "jwt"`, the compact `token`.
-
-Optional fields that are not supplied are **omitted from the signed payload**,
-so a license issued before a field existed rebuilds byte-identically and stays
-valid.
+- The signature is checked against this deployment's trusted public key. A file
+  signed by any other key is refused (400), as are malformed envelopes, unknown
+  `algorithm`/`format`, expired licenses, and structurally invalid claims — the
+  same shape rules the old issuing form enforced (`license_type` in the
+  catalog, non-empty `issued_to`, `quotas`/`usage_limits`/`modules` well-formed,
+  module ids from the catalog, node pools with `id`, `name` and `quota_nodes`).
+- An already-installed file is refused with **409** (the existing record is
+  returned under `details`).
+- Claims are stored **exactly as signed** — never normalised or back-filled —
+  so a file signed before a field existed imports byte-identically and stays
+  valid.
+- The response carries the stored record, the verified `license_file` (echoed,
+  so the console can re-download it) and, when the file was a compact `.lic`
+  JWT, its `token`.
 
 ### Report runtime usage
 
@@ -370,7 +363,7 @@ curl -s -X POST http://127.0.0.1:5000/api/v1/discovery/assets \
 - **Revocation is server-side.** Phase 1 licenses are stateless; this server keeps
   the revocation list, so `POST /licenses/validate` is the authority for
   "is this license still good?".
-- **Audit trail.** Every issue/revoke/restore/usage report writes a
+- **Audit trail.** Every import/revoke/restore/usage report writes a
   `LicenseEvent` row, returned with `GET /licenses/<key>`.
 - **Usage is reported, not simulated.** The screen renders
   `POST /licenses/<key>/usage` results only.

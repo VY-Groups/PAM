@@ -126,7 +126,7 @@
 <span class="material-symbols-outlined text-outline text-[16px]">fiber_manual_record</span>
 <span class="font-code-sm text-code-sm text-on-surface" id="headerStream">Registry: loading...</span>
 </div>
-<button class="relative flex items-center gap-1.5 px-space-md py-1.5 rounded-lg border font-label-md text-label-md transition-colors shadow-sm font-semibold tracking-wide uppercase" id="tokenBtn" title="Admin token for issuing / revoking">
+<button class="relative flex items-center gap-1.5 px-space-md py-1.5 rounded-lg border font-label-md text-label-md transition-colors shadow-sm font-semibold tracking-wide uppercase" id="tokenBtn" title="Admin token for importing / revoking">
 <span class="material-symbols-outlined text-[16px]">key</span>
 <span id="tokenBtnLabel">Token</span>
 <span class="absolute -top-1 -right-1 w-2.5 h-2.5 rounded-full" id="tokenDot"></span>
@@ -170,7 +170,7 @@ OFFLINE SIGNATURE VERIFIED (RSA-PSS-SHA256)
 <span class="font-code-sm text-code-sm text-outline" id="enclaveBadge">Enclave: <span class="text-on-surface font-semibold">not bound (software license)</span></span>
 </div>
 <h1 class="font-headline-lg text-headline-lg text-on-surface tracking-tight">Enterprise Licensing, Tier Entitlements &amp; Node Quotas</h1>
-<p class="font-body-md text-body-md text-on-surface-variant max-w-4xl mt-0.5">Manage AegisPAM enterprise tier subscriptions, cryptographic license payloads, offline air-gap signatures, node quotas, and enabled Zero-Trust module entitlements &mdash; resolved live against the issuing authority ledger.</p>
+<p class="font-body-md text-body-md text-on-surface-variant max-w-4xl mt-0.5">Manage AegisPAM enterprise tier subscriptions, cryptographic license payloads, offline air-gap signatures, node quotas, and enabled Zero-Trust module entitlements &mdash; resolved live against this deployment's installed-license registry.</p>
 </div>
 <div class="flex flex-wrap items-center gap-space-sm shrink-0">
 <button class="inline-flex items-center gap-1.5 px-space-md py-2 rounded-lg bg-surface-container hover:bg-surface-container-high text-on-surface font-body-md text-body-md font-medium transition-all shadow-sm" id="uploadBtn">
@@ -181,9 +181,9 @@ OFFLINE SIGNATURE VERIFIED (RSA-PSS-SHA256)
 <span class="material-symbols-outlined text-[18px] text-outline">verified_user</span>
 <span>Export Entitlement Cert</span>
 </button>
-<button class="inline-flex items-center gap-1.5 px-space-md py-2 rounded-lg bg-primary-container text-on-primary font-body-md text-body-md font-semibold hover:bg-primary transition-all shadow-sm" id="renewBtn">
-<span class="material-symbols-outlined text-[18px]">upgrade</span>
-<span>Renew / Upgrade Tier</span>
+<button class="inline-flex items-center gap-1.5 px-space-md py-2 rounded-lg bg-primary-container text-on-primary font-body-md text-body-md font-semibold hover:bg-primary transition-all shadow-sm" id="importBtn">
+<span class="material-symbols-outlined text-[18px]">download</span>
+<span>Import Vendor License</span>
 </button>
 <input accept=".lic,.jwt,.json,.txt" class="hidden" id="uploadInput" type="file"/>
 </div>
@@ -203,7 +203,7 @@ OFFLINE SIGNATURE VERIFIED (RSA-PSS-SHA256)
 <div class="flex flex-wrap items-center gap-space-sm">
 <span class="font-code-sm text-code-sm text-outline uppercase tracking-wider font-semibold">Current entitlement</span>
 <select class="py-1.5 pl-2 pr-6 rounded-lg bg-surface border border-outline-variant/40 font-body-sm text-body-sm text-on-surface focus:outline-none focus:border-primary-container focus:ring-1 focus:ring-primary-container max-w-md" id="currentSelect">
-<option value="">No licenses issued yet</option>
+<option value="">No licenses imported yet</option>
 </select>
 <span id="currentStatus"></span>
 <div class="flex items-center gap-1 px-2 py-1 rounded bg-surface-container-low border border-outline-variant/30">
@@ -236,7 +236,7 @@ OFFLINE SIGNATURE VERIFIED (RSA-PSS-SHA256)
 <div class="font-headline-md text-headline-md text-on-surface mt-1 font-bold tracking-tight" id="kTier">&mdash;</div>
 <p class="font-body-sm text-body-sm text-on-surface-variant flex items-center gap-1">
 <span class="material-symbols-outlined text-[15px] text-tertiary">event_available</span>
-<span id="kRenewal">Issue a license to populate this card.</span>
+<span id="kRenewal">Import a license to populate this card.</span>
 </p>
 </div>
 <div class="mt-4 pt-3 bg-surface-container-low px-2.5 py-1.5 rounded flex items-center justify-between">
@@ -489,7 +489,7 @@ OFFLINE SIGNATURE VERIFIED (RSA-PSS-SHA256)
 <span class="material-symbols-outlined text-primary text-[20px]">dataset</span>
 <h2 class="font-headline-md text-headline-md text-on-surface">Entitlement Registry</h2>
 </div>
-<span class="font-body-sm text-body-sm text-on-surface-variant">Signed records held by the issuing authority</span>
+<span class="font-body-sm text-body-sm text-on-surface-variant">Signed license records installed on this deployment</span>
 </div>
 <div class="flex flex-wrap items-center gap-2">
 <div class="relative">
@@ -616,88 +616,45 @@ OFFLINE SIGNATURE VERIFIED (RSA-PSS-SHA256)
 
 </div><!-- /pl-64 -->
 
-<!-- ================= Issue modal ================= -->
-<div class="hidden fixed inset-0 z-50 flex items-center justify-center bg-inverse-surface/40 backdrop-blur-xs p-4" id="issueModal">
+<!-- ================= Import modal ================= -->
+<div class="hidden fixed inset-0 z-50 flex items-center justify-center bg-inverse-surface/40 backdrop-blur-xs p-4" id="importModal">
 <div class="bg-surface-container-lowest rounded-xl max-w-lg w-full p-space-xl shadow-xl flex flex-col gap-space-md max-h-[90vh] overflow-y-auto">
 <div class="flex items-center justify-between">
 <div class="flex items-center gap-2">
 <span class="material-symbols-outlined text-primary text-[24px]">workspace_premium</span>
-<h3 class="font-headline-md text-headline-md text-on-surface">Issue / Renew Signed License</h3>
+<h3 class="font-headline-md text-headline-md text-on-surface">Import Vendor License</h3>
 </div>
-<button class="p-1 rounded text-outline hover:text-on-surface" id="closeIssueModal">
+<button class="p-1 rounded text-outline hover:text-on-surface" id="closeImportModal">
 <span class="material-symbols-outlined text-[20px]">close</span>
 </button>
 </div>
-<p class="font-body-sm text-body-sm text-on-surface-variant">Signed server-side with the authority private key. The resulting file verifies offline with the Phase 1 validator.</p>
+<p class="font-body-sm text-body-sm text-on-surface-variant">Signed by VY-Groups' PAM-MASTER (the vendor tool, never shipped) and delivered with the license bundle. This deployment verifies the signature against its trusted public key and records the entitlement &mdash; nothing is signed here.</p>
 <div class="flex flex-col gap-3 font-body-sm text-body-sm">
 <label class="flex flex-col gap-1">
-<span class="font-label-md text-label-md text-on-surface-variant">License type</span>
-<select class="px-space-sm py-2 rounded-lg bg-surface border border-outline-variant/40 text-on-surface focus:outline-none focus:border-primary-container" id="issueType">
-<option value="trial">Trial (30 days, 3 modules, 100 nodes)</option>
-<option value="subscription">Subscription (365 days, 6 modules, 1,500 nodes)</option>
-<option value="perpetual">Perpetual (no expiry, 4 modules, 700 nodes)</option>
-<option value="enterprise">Enterprise (8 modules, 5,000 nodes)</option>
-</select>
+<span class="font-label-md text-label-md text-on-surface-variant">License file (.lic / .jwt / .json)</span>
+<input accept=".lic,.jwt,.json,.txt" class="px-space-sm py-2 rounded-lg bg-surface border border-outline-variant/40 text-on-surface text-code-sm file:mr-3 file:px-2 file:py-1 file:rounded file:border-0 file:bg-surface-container file:text-on-surface" id="importFile" type="file"/>
 </label>
 <label class="flex flex-col gap-1">
-<span class="font-label-md text-label-md text-on-surface-variant">Issued to</span>
-<input class="px-space-sm py-2 rounded-lg bg-surface border border-outline-variant/40 text-on-surface placeholder:text-outline focus:outline-none focus:border-primary-container" id="issueTo" placeholder="Customer or business unit" type="text"/>
-</label>
-<div class="grid grid-cols-2 gap-3">
-<label class="flex flex-col gap-1">
-<span class="font-label-md text-label-md text-on-surface-variant">Signature algorithm</span>
-<select class="px-space-sm py-2 rounded-lg bg-surface border border-outline-variant/40 text-on-surface font-code-sm text-code-sm focus:outline-none focus:border-primary-container" id="issueAlgo">
-<option value="RSA-PSS-SHA256">RSA-PSS-SHA256</option>
-<option value="Ed25519">Ed25519</option>
-</select>
-</label>
-<label class="flex flex-col gap-1">
-<span class="font-label-md text-label-md text-on-surface-variant">File format</span>
-<select class="px-space-sm py-2 rounded-lg bg-surface border border-outline-variant/40 text-on-surface font-code-sm text-code-sm focus:outline-none focus:border-primary-container" id="issueFormat">
-<option value="json">JSON envelope (.json)</option>
-<option value="jwt">Compact JWS (.lic / .jwt)</option>
-</select>
-</label>
-</div>
-<div class="grid grid-cols-2 gap-3">
-<label class="flex flex-col gap-1" id="trialDaysWrap">
-<span class="font-label-md text-label-md text-on-surface-variant">Trial days</span>
-<input class="px-space-sm py-2 rounded-lg bg-surface border border-outline-variant/40 text-on-surface focus:outline-none focus:border-primary-container" id="issueTrialDays" max="365" min="1" type="number" value="30"/>
-</label>
-<label class="flex flex-col gap-1">
-<span class="font-label-md text-label-md text-on-surface-variant">Max users</span>
-<input class="px-space-sm py-2 rounded-lg bg-surface border border-outline-variant/40 text-on-surface focus:outline-none focus:border-primary-container" id="issueMaxUsers" min="1" placeholder="tier default" type="number"/>
-</label>
-</div>
-<label class="flex flex-col gap-1">
-<span class="font-label-md text-label-md text-on-surface-variant">License ID (blank = auto)</span>
-<input class="px-space-sm py-2 rounded-lg bg-surface border border-outline-variant/40 text-on-surface placeholder:text-outline focus:outline-none focus:border-primary-container font-code-sm text-code-sm" id="issueLicenseId" placeholder="LIC-9942-AEGIS-SEC-PROD" type="text"/>
-</label>
-<label class="flex flex-col gap-1">
-<span class="font-label-md text-label-md text-on-surface-variant">Enclave binding (blank = software license)</span>
-<input class="px-space-sm py-2 rounded-lg bg-surface border border-outline-variant/40 text-on-surface placeholder:text-outline focus:outline-none focus:border-primary-container font-code-sm text-code-sm" id="issueEnclave" placeholder="TPM 2.0 PCR Registers 0 &amp; 7" type="text"/>
-</label>
-<label class="flex flex-col gap-1">
-<span class="font-label-md text-label-md text-on-surface-variant">Features (comma separated, blank = tier defaults)</span>
-<input class="px-space-sm py-2 rounded-lg bg-surface border border-outline-variant/40 text-on-surface placeholder:text-outline focus:outline-none focus:border-primary-container font-code-sm text-code-sm" id="issueFeatures" placeholder="ip_discovery, api_access" type="text"/>
+<span class="font-label-md text-label-md text-on-surface-variant">Signed payload (compact token or JSON envelope)</span>
+<textarea class="px-space-sm py-2 rounded-lg bg-surface border border-outline-variant/40 text-on-surface placeholder:text-outline focus:outline-none focus:border-primary-container font-code-sm text-code-sm min-h-[7rem]" id="importPayload" placeholder="header.payload.signature or {&quot;license_data&quot;: ..., &quot;signature&quot;: ...}" rows="5" spellcheck="false"></textarea>
 </label>
 </div>
 <div class="flex items-center justify-end gap-2 pt-2">
-<button class="px-space-md py-1.5 rounded-lg bg-surface-container hover:bg-surface-container-high text-on-surface font-label-md text-label-md" id="cancelIssueBtn">Cancel</button>
-<button class="px-space-md py-1.5 rounded-lg bg-primary-container text-on-primary font-label-md text-label-md font-semibold flex items-center gap-1.5 shadow-sm" id="confirmIssueBtn">
+<button class="px-space-md py-1.5 rounded-lg bg-surface-container hover:bg-surface-container-high text-on-surface font-label-md text-label-md" id="cancelImportBtn">Cancel</button>
+<button class="px-space-md py-1.5 rounded-lg bg-primary-container text-on-primary font-label-md text-label-md font-semibold flex items-center gap-1.5 shadow-sm" id="confirmImportBtn">
 <span class="material-symbols-outlined text-[16px]">gpp_good</span>
-<span>Sign &amp; Issue</span>
+<span>Verify &amp; Import</span>
 </button>
 </div>
-<div class="hidden flex-col gap-2 p-space-sm rounded-lg bg-tertiary/10 border border-tertiary/40" id="issueResult">
+<div class="hidden flex-col gap-2 p-space-sm rounded-lg bg-tertiary/10 border border-tertiary/40" id="importResult">
 <div class="flex items-center justify-between">
-<span class="font-label-badge text-label-badge text-tertiary font-bold">LICENSE ISSUED</span>
-<span class="font-code-sm text-code-sm text-on-surface-variant" id="issueResultKey"></span>
+<span class="font-label-badge text-label-badge text-tertiary font-bold">LICENSE IMPORTED</span>
+<span class="font-code-sm text-code-sm text-on-surface-variant" id="importResultKey"></span>
 </div>
-<pre class="max-h-40 overflow-auto rounded bg-surface p-space-sm font-code-sm text-code-sm text-on-surface" id="issueResultFile"></pre>
+<pre class="max-h-40 overflow-auto rounded bg-surface p-space-sm font-code-sm text-code-sm text-on-surface" id="importResultFile"></pre>
 <div class="flex gap-2">
-<button class="flex-1 px-space-md py-1.5 rounded-lg bg-surface-container hover:bg-surface-container-high text-on-surface font-label-md text-label-md" id="copyIssueBtn">Copy</button>
-<button class="flex-1 px-space-md py-1.5 rounded-lg bg-primary-container text-on-primary font-label-md text-label-md" id="downloadIssueBtn">Download</button>
+<button class="flex-1 px-space-md py-1.5 rounded-lg bg-surface-container hover:bg-surface-container-high text-on-surface font-label-md text-label-md" id="copyImportBtn">Copy</button>
+<button class="flex-1 px-space-md py-1.5 rounded-lg bg-primary-container text-on-primary font-label-md text-label-md" id="downloadImportBtn">Download</button>
 </div>
 </div>
 </div>
@@ -763,7 +720,7 @@ OFFLINE SIGNATURE VERIFIED (RSA-PSS-SHA256)
 <span class="material-symbols-outlined text-[20px]">close</span>
 </button>
 </div>
-<p class="font-body-sm text-body-sm text-on-surface-variant">Required to issue, revoke, restore, or download signed files. Held in this tab only (<span class="font-code-sm text-code-sm">sessionStorage</span>) and sent as <span class="font-code-sm text-code-sm">X-Admin-Token</span>.</p>
+<p class="font-body-sm text-body-sm text-on-surface-variant">Required to import, revoke, restore, or download signed files. Held in this tab only (<span class="font-code-sm text-code-sm">sessionStorage</span>) and sent as <span class="font-code-sm text-code-sm">X-Admin-Token</span>.</p>
 <input class="px-space-sm py-2 rounded-lg bg-surface border border-outline-variant/40 text-on-surface font-code-sm text-code-sm focus:outline-none focus:border-primary-container" id="tokenInput" placeholder="LICENSE_ADMIN_TOKEN" type="password"/>
 <div class="flex items-center justify-end gap-2 pt-2">
 <button class="px-space-md py-1.5 rounded-lg bg-surface-container hover:bg-surface-container-high text-on-surface font-label-md text-label-md" id="clearTokenBtn">Clear</button>
@@ -788,7 +745,7 @@ OFFLINE SIGNATURE VERIFIED (RSA-PSS-SHA256)
   var currentKey = sessionStorage.getItem(CURRENT_KEY) || '';
   var registryRecords = [];
   var serverMeta = null;
-  var lastIssued = null;
+  var lastImported = null;
   var lastClaims = null;
   var searchTimer = null;
 
@@ -1005,7 +962,7 @@ OFFLINE SIGNATURE VERIFIED (RSA-PSS-SHA256)
     setText('registryCount', 'Showing ' + records.length + ' of ' + total + ' records');
 
     if (!records.length) {
-      body.innerHTML = '<tr><td class="py-8 px-3 text-center text-outline font-code-sm text-code-sm" colspan="7">No licenses match the current filters. Use Renew / Upgrade Tier to issue the first one.</td></tr>';
+      body.innerHTML = '<tr><td class="py-8 px-3 text-center text-outline font-code-sm text-code-sm" colspan="7">No licenses match the current filters. Use Import Vendor License to install the first one.</td></tr>';
       return;
     }
 
@@ -1064,7 +1021,7 @@ OFFLINE SIGNATURE VERIFIED (RSA-PSS-SHA256)
   function renderSelector(records) {
     var select = document.getElementById('currentSelect');
     if (!records.length) {
-      select.innerHTML = '<option value="">No licenses issued yet</option>';
+      select.innerHTML = '<option value="">No licenses imported yet</option>';
       select.disabled = true;
       return;
     }
@@ -1110,7 +1067,7 @@ OFFLINE SIGNATURE VERIFIED (RSA-PSS-SHA256)
     setHtml('currentStatus', '');
     setHtml('kTier', '-');
     setText('kPlanBadge', '-');
-    setText('kRenewal', 'Issue a license to populate this card.');
+    setText('kRenewal', 'Import a license to populate this card.');
     setText('kLicenseIdText', '-');
     setText('kNodes', '0');
     setText('kNodesQuota', '/ 0 Nodes');
@@ -1124,9 +1081,9 @@ OFFLINE SIGNATURE VERIFIED (RSA-PSS-SHA256)
     setText('kIssuer', '-');
     setText('kFormatRow', '-');
     setHtml('attestBadge', '<span class="w-1.5 h-1.5 rounded-full bg-outline animate-pulse"></span>NO LICENSE SELECTED');
-    setHtml('verifiedBadge', '<span class="material-symbols-outlined text-[14px] text-outline">help</span>AWAITING FIRST ISSUE');
+    setHtml('verifiedBadge', '<span class="material-symbols-outlined text-[14px] text-outline">help</span>AWAITING FIRST IMPORT');
     setHtml('moduleCount', '0 OF 0 MODULES ACTIVE');
-    setHtml('modulesList', '<div class="p-space-md rounded-lg bg-surface-container-low/70 font-body-sm text-body-sm text-outline">No license selected. Issue one to load the entitlement catalog.</div>');
+    setHtml('modulesList', '<div class="p-space-md rounded-lg bg-surface-container-low/70 font-body-sm text-body-sm text-outline">No license selected. Import one to load the entitlement catalog.</div>');
     setHtml('poolBody', '<tr><td class="py-6 px-3 text-outline font-code-sm text-code-sm" colspan="6">No node pools on this license.</td></tr>');
     setText('poolHealthText', 'No quota health data.');
     setText('pSubject', '-');
@@ -1354,8 +1311,8 @@ OFFLINE SIGNATURE VERIFIED (RSA-PSS-SHA256)
 
     if (!keys.length) {
       setHtml('accBody', '<div class="p-space-sm rounded-lg bg-surface-container-low text-on-surface-variant font-body-sm text-body-sm">' +
-        'No account &amp; SLA block is signed into this license. Issue with an <span class="font-code-sm text-code-sm">account</span> object ' +
-        '(customer_id, tam, tam_email, po_number, sla_response, invoicing) to populate this card.</div>');
+        'No account &amp; SLA block is signed into this license. The vendor signs an <span class="font-code-sm text-code-sm">account</span> object ' +
+        '(customer_id, tam, tam_email, po_number, sla_response, invoicing) into the issued file to populate this card.</div>');
       return;
     }
 
@@ -1675,53 +1632,43 @@ OFFLINE SIGNATURE VERIFIED (RSA-PSS-SHA256)
     openModal('claimsModal');
   }
 
-  /* ---------------------------------------------------------------- issue */
-  async function issueLicense() {
-    var type = document.getElementById('issueType').value;
-    var to = document.getElementById('issueTo').value.trim();
-    if (!to) {
-      show('error', 'Enter the tenant or business unit this license is issued to.');
+  /* --------------------------------------------------------------- import */
+  async function importLicense() {
+    var raw = document.getElementById('importPayload').value.trim();
+    if (!raw) {
+      show('error', 'Paste the vendor-signed license file, or choose it from disk.');
       return;
     }
 
-    var payload = {
-      license_type: type,
-      issued_to: to,
-      algorithm: document.getElementById('issueAlgo').value,
-      format: document.getElementById('issueFormat').value
-    };
-    if (type === 'trial') {
-      payload.trial_days = Number(document.getElementById('issueTrialDays').value) || 30;
+    var payload;
+    try {
+      payload = JSON.parse(raw);
+      if (!payload || typeof payload !== 'object' || Array.isArray(payload)) {
+        throw new Error('not an envelope');
+      }
+    } catch (err) {
+      // A compact JWS token (header.payload.signature) rather than JSON.
+      payload = { token: raw };
     }
-    var maxUsers = document.getElementById('issueMaxUsers').value;
-    if (maxUsers) payload.usage_limits = { max_users: Number(maxUsers) };
-    var featuresRaw = document.getElementById('issueFeatures').value.trim();
-    if (featuresRaw) {
-      payload.features = featuresRaw.split(',').map(function (f) { return f.trim(); }).filter(Boolean);
-    }
-    var licenseId = document.getElementById('issueLicenseId').value.trim();
-    if (licenseId) payload.license_id = licenseId;
-    var enclave = document.getElementById('issueEnclave').value.trim();
-    if (enclave) payload.enclave_binding = enclave;
 
-    var btn = document.getElementById('confirmIssueBtn');
+    var btn = document.getElementById('confirmImportBtn');
     btn.disabled = true;
     btn.classList.add('opacity-60');
     try {
-      var data = await api('licenses', {
+      var data = await api('licenses/import', {
         method: 'POST', headers: headers(true), body: JSON.stringify(payload)
       });
-      lastIssued = data;
-      var issued = data.license || {};
+      lastImported = data;
+      var record = data.license || {};
       var fileText = data.token || JSON.stringify(data.license_file || {}, null, 2);
-      document.getElementById('issueResultKey').textContent = issued.license_id || issued.license_key || '';
-      document.getElementById('issueResultFile').textContent = fileText;
-      var resultBox = document.getElementById('issueResult');
+      document.getElementById('importResultKey').textContent = record.license_id || record.license_key || '';
+      document.getElementById('importResultFile').textContent = fileText;
+      var resultBox = document.getElementById('importResult');
       resultBox.classList.remove('hidden');
       resultBox.classList.add('flex');
-      currentKey = issued.license_key;
+      currentKey = record.license_key;
       sessionStorage.setItem(CURRENT_KEY, currentKey);
-      show('ok', 'License signed and recorded' + (issued.license_id ? ' as ' + issued.license_id : '') + '.');
+      show('ok', 'License verified and recorded' + (record.license_id ? ' as ' + record.license_id : '') + '.');
       loadRegistry();
     } catch (err) {
       show('error', err.message);
@@ -1741,14 +1688,14 @@ OFFLINE SIGNATURE VERIFIED (RSA-PSS-SHA256)
     return 'json';
   }
 
-  function downloadIssued() {
-    if (!lastIssued) return;
-    var asToken = !!lastIssued.token;
-    var text = asToken ? lastIssued.token : JSON.stringify(lastIssued.license_file || {}, null, 2);
+  function downloadImported() {
+    if (!lastImported) return;
+    var asToken = !!lastImported.token;
+    var text = asToken ? lastImported.token : JSON.stringify(lastImported.license_file || {}, null, 2);
     var blob = new Blob([text], { type: asToken ? 'text/plain' : 'application/json' });
-    var key = (lastIssued.license && lastIssued.license.license_key) || 'issued';
+    var key = (lastImported.license && lastImported.license.license_key) || 'imported';
     triggerDownload(blob, (asToken ? 'license_' : 'entitlement_cert_') + key + (asToken ? '.lic' : '.json'));
-    show('ok', asToken ? 'Compact token downloaded (.lic).' : 'Entitlement certificate downloaded (.json).');
+    show('ok', asToken ? 'Compact token re-downloaded (.lic).' : 'Imported entitlement file re-downloaded (.json).');
   }
 
   /* ---------------------------------------------------------------- token ui */
@@ -1823,11 +1770,11 @@ OFFLINE SIGNATURE VERIFIED (RSA-PSS-SHA256)
       if (!currentKey) { show('error', 'Select a license to export first.'); return; }
       downloadLicense(currentKey, 'json');
     });
-    document.getElementById('renewBtn').addEventListener('click', function () {
-      var box = document.getElementById('issueResult');
+    document.getElementById('importBtn').addEventListener('click', function () {
+      var box = document.getElementById('importResult');
       box.classList.add('hidden');
       box.classList.remove('flex');
-      openModal('issueModal');
+      openModal('importModal');
     });
 
     /* copy affordances */
@@ -1855,17 +1802,22 @@ OFFLINE SIGNATURE VERIFIED (RSA-PSS-SHA256)
     });
     document.getElementById('inspectBtn').addEventListener('click', inspectClaims);
 
-    /* issue modal */
-    document.getElementById('closeIssueModal').addEventListener('click', function () { closeModal('issueModal'); });
-    document.getElementById('cancelIssueBtn').addEventListener('click', function () { closeModal('issueModal'); });
-    document.getElementById('confirmIssueBtn').addEventListener('click', issueLicense);
-    document.getElementById('issueType').addEventListener('change', function () {
-      document.getElementById('trialDaysWrap').classList.toggle('hidden', this.value !== 'trial');
+    /* import modal */
+    document.getElementById('closeImportModal').addEventListener('click', function () { closeModal('importModal'); });
+    document.getElementById('cancelImportBtn').addEventListener('click', function () { closeModal('importModal'); });
+    document.getElementById('confirmImportBtn').addEventListener('click', importLicense);
+    document.getElementById('importFile').addEventListener('change', function () {
+      var file = this.files && this.files[0];
+      this.value = '';
+      if (!file) return;
+      file.text().then(function (text) {
+        document.getElementById('importPayload').value = text;
+      }).catch(function (err) { show('error', err.message); });
     });
-    document.getElementById('copyIssueBtn').addEventListener('click', function () {
-      copyText(document.getElementById('issueResultFile').textContent, 'License payload copied.');
+    document.getElementById('copyImportBtn').addEventListener('click', function () {
+      copyText(document.getElementById('importResultFile').textContent, 'License payload copied.');
     });
-    document.getElementById('downloadIssueBtn').addEventListener('click', downloadIssued);
+    document.getElementById('downloadImportBtn').addEventListener('click', downloadImported);
 
     /* detail modal */
     document.getElementById('closeDetailModal').addEventListener('click', function () { closeModal('detailModal'); });
@@ -1903,7 +1855,7 @@ OFFLINE SIGNATURE VERIFIED (RSA-PSS-SHA256)
 
     document.addEventListener('keydown', function (evt) {
       if (evt.key === 'Escape') {
-        ['issueModal', 'detailModal', 'claimsModal', 'tokenModal'].forEach(closeModal);
+        ['importModal', 'detailModal', 'claimsModal', 'tokenModal'].forEach(closeModal);
       }
     });
   }

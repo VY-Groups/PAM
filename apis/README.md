@@ -32,7 +32,7 @@ python -m pytest backend/phase2_license_server/tests/test_openapi_contract.py -q
 | --- | --- |
 | Base path | `/api/v1` — breaking changes bump the segment, not individual fields |
 | Content type | `application/json` (validation also accepts a raw compact token body) |
-| Errors | `{"error": "<message>", "details": {...}}` with 400 / 401 / 404 |
+| Errors | `{"error": "<message>", "details": {...}}` with 400 / 401 / 404 / 409 |
 | Admin auth | `Authorization: Bearer <token>` **or** `X-Admin-Token: <token>`; when `LICENSE_ADMIN_TOKEN` is unset the server runs in open dev mode (`X-Auth-Mode: open`) |
 | Actor | `X-Actor` header names who made a settings change (recorded in the audit changelog) |
 | Pagination | `limit` (max 200) + `offset`; responses echo both |

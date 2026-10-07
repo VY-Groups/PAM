@@ -65,7 +65,7 @@ tailwind.config = {
       Every screen shares one sidebar; its items open the corresponding screen directly, whether the suite is
       served by the Phase 2 license server (<span class="mono text-[13px]">python app.py</span>) or browsed as
       files. Two screens talk to live APIs: <strong class="text-on-surface">Licensing &amp; Entitlements</strong>
-      (issues and validates licenses) and <strong class="text-on-surface">Platform Settings</strong>
+      (imports, validates and revokes licenses) and <strong class="text-on-surface">Platform Settings</strong>
       (stores configuration with an audit changelog).
     </p>
   </header>
@@ -188,7 +188,7 @@ tailwind.config = {
           <h2 class="text-[15px] font-semibold tracking-tight">Licensing &amp; Entitlements</h2>
           <span class="mono text-[10px] px-2 py-0.5 rounded-full font-semibold bg-tertiary-fixed text-on-tertiary-fixed">LIVE API</span>
         </div>
-        <p class="text-[13px] leading-snug text-on-surface-variant">Issue, validate and consume licenses: tiers, node quotas, modules, revocation.</p>
+        <p class="text-[13px] leading-snug text-on-surface-variant">Import, validate and consume licenses: tiers, node quotas, modules, revocation.</p>
         <span class="mono text-[11px] text-tertiary mt-1 flex items-center gap-1"><span class="material-symbols-outlined text-[14px]">api</span>served at /</span>
       </div>
     </a>
