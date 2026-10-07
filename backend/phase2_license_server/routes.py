@@ -480,6 +480,153 @@ def close_jit_request(request_id: int):
 
 
 # ---------------------------------------------------------------------------
+# privileged session management (module 8: record -> monitor -> control)
+# ---------------------------------------------------------------------------
+@api.get("/sessions/stats")
+def session_stats():
+    """Real monitoring aggregates: per-status counts and recording totals."""
+    return jsonify(service.session_stats())
+
+
+@api.get("/sessions")
+def list_sessions():
+    """Live session list, newest first (status/protocol/search filters)."""
+    limit = min(_int_param("limit", 50), MAX_PAGE_SIZE)
+    offset = _int_param("offset", 0)
+    items, total = service.list_sessions(
+        status=request.args.get("status"),
+        protocol=request.args.get("protocol"),
+        q=request.args.get("q"),
+        limit=limit,
+        offset=offset,
+    )
+    return jsonify(
+        {
+            "items": [item.to_dict() for item in items],
+            "total": total,
+            "limit": limit,
+            "offset": offset,
+        }
+    )
+
+
+@api.post("/sessions")
+@require_admin
+def create_session():
+    """Start a session: protocol + target, optional checkout or JIT grant."""
+    session = service.create_session(_json_body(), actor=_actor())
+    return jsonify({"session": session.to_dict(), "message": "Session started"}), 201
+
+
+@api.get("/sessions/<int:session_id>")
+def get_session(session_id: int):
+    """One session with its latest recorded events (evaluates grant expiry)."""
+    return jsonify(service.session_detail(session_id))
+
+
+@api.get("/sessions/<int:session_id>/events")
+def get_session_events(session_id: int):
+    """Playback: the recording in sequence order (asc by default)."""
+    limit = min(_int_param("limit", 500), MAX_PAGE_SIZE)
+    offset = _int_param("offset", 0)
+    rows, total = service.list_session_events(
+        session_id,
+        limit=limit,
+        offset=offset,
+        event_type=request.args.get("type"),
+        order=request.args.get("order", "asc"),
+    )
+    return jsonify(
+        {
+            "events": [row.to_dict() for row in rows],
+            "total": total,
+            "limit": limit,
+            "offset": offset,
+        }
+    )
+
+
+@api.post("/sessions/<int:session_id>/events")
+@require_admin
+def post_session_event(session_id: int):
+    """Record one channel event; the control flags are enforced for real."""
+    event = service.post_session_event(session_id, _json_body(), actor=_actor())
+    return jsonify({"event": event.to_dict(), "message": "Event recorded"}), 201
+
+
+@api.post("/sessions/<int:session_id>/controls")
+@require_admin
+def update_session_controls(session_id: int):
+    """Flip control flags (record, watermark, clipboard, transfer...)."""
+    session = service.update_session_controls(
+        session_id, _json_body(), actor=_actor()
+    )
+    return jsonify({"session": session.to_dict(), "message": "Controls updated"})
+
+
+@api.post("/sessions/<int:session_id>/pause")
+@require_admin
+def pause_session(session_id: int):
+    """Supervisor pause: the channel refuses events until resumed."""
+    session = service.pause_session(session_id, actor=_actor())
+    return jsonify({"session": session.to_dict(), "message": "Session paused"})
+
+
+@api.post("/sessions/<int:session_id>/lock")
+@require_admin
+def lock_session(session_id: int):
+    """Lock pending review: events refused until resumed."""
+    session = service.lock_session(session_id, actor=_actor())
+    return jsonify({"session": session.to_dict(), "message": "Session locked"})
+
+
+@api.post("/sessions/<int:session_id>/resume")
+@require_admin
+def resume_session(session_id: int):
+    """Resume a paused or locked session."""
+    session = service.resume_session(session_id, actor=_actor())
+    return jsonify({"session": session.to_dict(), "message": "Session resumed"})
+
+
+@api.post("/sessions/<int:session_id>/terminate")
+@require_admin
+def terminate_session(session_id: int):
+    """Kill switch: end the session, release its checkout, rotate once."""
+    session, detail = service.end_session(
+        session_id,
+        actor=_actor(),
+        outcome="terminated",
+        payload=_json_body(required=False),
+    )
+    return jsonify(
+        {
+            "session": session.to_dict(),
+            "cascade": detail,
+            "message": "Session terminated",
+        }
+    )
+
+
+@api.post("/sessions/<int:session_id>/complete")
+@require_admin
+def complete_session(session_id: int):
+    """Natural end: same release-and-rotate cascade as terminate."""
+    session, detail = service.end_session(
+        session_id,
+        actor=_actor(),
+        outcome="completed",
+        payload=_json_body(required=False),
+    )
+    return jsonify(
+        {
+            "session": session.to_dict(),
+            "cascade": detail,
+            "message": "Session completed",
+        }
+    )
+
+
+# ---------------------------------------------------------------------------
 # discovery engine (Discovery / Target Infrastructure screen)
 # ---------------------------------------------------------------------------
 @api.get("/discovery/stats")

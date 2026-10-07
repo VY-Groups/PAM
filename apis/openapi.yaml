@@ -36,6 +36,8 @@ tags:
     description: Rotation engine - run due credentials, session-end trigger
   - name: jit
     description: JIT/JEA access - requests, risk evaluation, approvals, time-boxed grants
+  - name: sessions
+    description: Privileged sessions - recording, live monitoring, controls and playback
   - name: discovery
     description: Discovery Engine - target assets, accounts and real scans
 paths:
@@ -949,6 +951,336 @@ paths:
         "401": {$ref: "#/components/responses/Unauthorized"}
         "404": {$ref: "#/components/responses/NotFound"}
 
+  /api/v1/sessions/stats:
+    get:
+      tags: [sessions]
+      summary: Session monitoring counts
+      description: Real totals per session state plus recording counters (linked grants' expiry is evaluated on the way).
+      responses:
+        "200":
+          description: Session statistics
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/SessionStats"}
+
+  /api/v1/sessions:
+    get:
+      tags: [sessions]
+      summary: Live session list, newest first
+      parameters:
+        - name: status
+          in: query
+          schema: {type: string, enum: [active, paused, locked, terminated, completed]}
+        - name: protocol
+          in: query
+          schema: {$ref: "#/components/schemas/SessionProtocol"}
+        - name: q
+          in: query
+          description: Case-insensitive substring match on target, actor or session ref.
+          schema: {type: string}
+        - {$ref: "#/components/parameters/Limit"}
+        - {$ref: "#/components/parameters/Offset"}
+      responses:
+        "200":
+          description: Paged sessions
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/SessionList"}
+        "400": {$ref: "#/components/responses/BadRequest"}
+    post:
+      tags: [sessions]
+      summary: Start a privileged session
+      description: |
+        Protocol + target, optionally against a vault credential (checked out
+        for the session under `session_ref = sess-<hex>`) or riding an active
+        JIT grant (attached, no second checkout). Control flags default on;
+        every lifecycle change is appended to the recording as a status event.
+      security:
+        - bearerAuth: []
+        - adminTokenHeader: []
+        - {}
+      parameters:
+        - name: X-Actor
+          in: header
+          description: Who starts the session (recorded as the session actor).
+          schema: {type: string, maxLength: 64}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: "#/components/schemas/SessionStartRequest"}
+      responses:
+        "201":
+          description: Session started
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/SessionResponse"}
+        "400": {$ref: "#/components/responses/BadRequest"}
+        "401": {$ref: "#/components/responses/Unauthorized"}
+        "404": {$ref: "#/components/responses/NotFound"}
+        "409": {$ref: "#/components/responses/Conflict"}
+
+  /api/v1/sessions/{session_id}:
+    get:
+      tags: [sessions]
+      summary: One session with its latest recorded events
+      description: Evaluates linked grant expiry on the way, so a reading client always sees the real state.
+      parameters:
+        - name: session_id
+          in: path
+          required: true
+          schema: {type: integer, minimum: 1}
+      responses:
+        "200":
+          description: Session + events + counters
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/SessionDetail"}
+        "404": {$ref: "#/components/responses/NotFound"}
+
+  /api/v1/sessions/{session_id}/events:
+    get:
+      tags: [sessions]
+      summary: Session playback
+      description: The recording in sequence order (asc by default; desc for a live tail).
+      parameters:
+        - name: session_id
+          in: path
+          required: true
+          schema: {type: integer, minimum: 1}
+        - name: type
+          in: query
+          schema: {type: string, enum: [keystroke, command, file_upload, file_download, clipboard, screenshot, note, status]}
+        - name: order
+          in: query
+          schema: {type: string, enum: [asc, desc], default: asc}
+        - {$ref: "#/components/parameters/Limit"}
+        - {$ref: "#/components/parameters/Offset"}
+      responses:
+        "200":
+          description: Recorded events
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/SessionEventList"}
+        "400": {$ref: "#/components/responses/BadRequest"}
+        "404": {$ref: "#/components/responses/NotFound"}
+    post:
+      tags: [sessions]
+      summary: Record one channel event
+      description: |
+        Controls are enforced for real: a gated-off transfer/clipboard/
+        screenshot is stored with `allowed=false` as evidence, keystrokes are
+        content-withheld when `keystroke_log` is off, a paused/locked/ended
+        session refuses events (409), and with `record` off only command and
+        status events are kept (the safety channel is never silenced).
+      security:
+        - bearerAuth: []
+        - adminTokenHeader: []
+        - {}
+      parameters:
+        - name: session_id
+          in: path
+          required: true
+          schema: {type: integer, minimum: 1}
+        - name: X-Actor
+          in: header
+          description: Who posted the event (goes into the watermark when on).
+          schema: {type: string, maxLength: 64}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: "#/components/schemas/SessionEventPost"}
+      responses:
+        "201":
+          description: Event recorded
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/SessionEventResponse"}
+        "400": {$ref: "#/components/responses/BadRequest"}
+        "401": {$ref: "#/components/responses/Unauthorized"}
+        "404": {$ref: "#/components/responses/NotFound"}
+        "409": {$ref: "#/components/responses/Conflict"}
+
+  /api/v1/sessions/{session_id}/controls:
+    post:
+      tags: [sessions]
+      summary: Update session control flags
+      description: Flip recording/watermark/clipboard/transfer/screenshot controls on a live session (audited as a status event).
+      security:
+        - bearerAuth: []
+        - adminTokenHeader: []
+        - {}
+      parameters:
+        - name: session_id
+          in: path
+          required: true
+          schema: {type: integer, minimum: 1}
+        - name: X-Actor
+          in: header
+          schema: {type: string, maxLength: 64}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: "#/components/schemas/SessionControlsUpdate"}
+      responses:
+        "200":
+          description: Controls updated
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/SessionResponse"}
+        "400": {$ref: "#/components/responses/BadRequest"}
+        "401": {$ref: "#/components/responses/Unauthorized"}
+        "404": {$ref: "#/components/responses/NotFound"}
+
+  /api/v1/sessions/{session_id}/pause:
+    post:
+      tags: [sessions]
+      summary: Pause a running session
+      description: The channel refuses events until the session is resumed.
+      security:
+        - bearerAuth: []
+        - adminTokenHeader: []
+        - {}
+      parameters:
+        - name: session_id
+          in: path
+          required: true
+          schema: {type: integer, minimum: 1}
+        - name: X-Actor
+          in: header
+          schema: {type: string, maxLength: 64}
+      responses:
+        "200":
+          description: Session paused
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/SessionResponse"}
+        "400": {$ref: "#/components/responses/BadRequest"}
+        "401": {$ref: "#/components/responses/Unauthorized"}
+        "404": {$ref: "#/components/responses/NotFound"}
+
+  /api/v1/sessions/{session_id}/lock:
+    post:
+      tags: [sessions]
+      summary: Lock a session pending review
+      description: Events are refused while locked until it is resumed.
+      security:
+        - bearerAuth: []
+        - adminTokenHeader: []
+        - {}
+      parameters:
+        - name: session_id
+          in: path
+          required: true
+          schema: {type: integer, minimum: 1}
+        - name: X-Actor
+          in: header
+          schema: {type: string, maxLength: 64}
+      responses:
+        "200":
+          description: Session locked
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/SessionResponse"}
+        "400": {$ref: "#/components/responses/BadRequest"}
+        "401": {$ref: "#/components/responses/Unauthorized"}
+        "404": {$ref: "#/components/responses/NotFound"}
+
+  /api/v1/sessions/{session_id}/resume:
+    post:
+      tags: [sessions]
+      summary: Resume a paused or locked session
+      security:
+        - bearerAuth: []
+        - adminTokenHeader: []
+        - {}
+      parameters:
+        - name: session_id
+          in: path
+          required: true
+          schema: {type: integer, minimum: 1}
+        - name: X-Actor
+          in: header
+          schema: {type: string, maxLength: 64}
+      responses:
+        "200":
+          description: Session resumed
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/SessionResponse"}
+        "400": {$ref: "#/components/responses/BadRequest"}
+        "401": {$ref: "#/components/responses/Unauthorized"}
+        "404": {$ref: "#/components/responses/NotFound"}
+
+  /api/v1/sessions/{session_id}/terminate:
+    post:
+      tags: [sessions]
+      summary: Terminate a session (kill switch)
+      description: |
+        Ends the session and runs the release-and-rotate cascade exactly once:
+        a linked JIT grant is closed with it, a held vault checkout is
+        released and the credential rotated (`trigger=session_end`).
+      security:
+        - bearerAuth: []
+        - adminTokenHeader: []
+        - {}
+      parameters:
+        - name: session_id
+          in: path
+          required: true
+          schema: {type: integer, minimum: 1}
+        - name: X-Actor
+          in: header
+          schema: {type: string, maxLength: 64}
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema: {$ref: "#/components/schemas/SessionEndRequest"}
+      responses:
+        "200":
+          description: Session terminated
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/SessionEndResponse"}
+        "400": {$ref: "#/components/responses/BadRequest"}
+        "401": {$ref: "#/components/responses/Unauthorized"}
+        "404": {$ref: "#/components/responses/NotFound"}
+
+  /api/v1/sessions/{session_id}/complete:
+    post:
+      tags: [sessions]
+      summary: Complete a session (natural end)
+      description: Same release-and-rotate cascade as terminate, outcome `completed`.
+      security:
+        - bearerAuth: []
+        - adminTokenHeader: []
+        - {}
+      parameters:
+        - name: session_id
+          in: path
+          required: true
+          schema: {type: integer, minimum: 1}
+        - name: X-Actor
+          in: header
+          schema: {type: string, maxLength: 64}
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema: {$ref: "#/components/schemas/SessionEndRequest"}
+      responses:
+        "200":
+          description: Session completed
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/SessionEndResponse"}
+        "400": {$ref: "#/components/responses/BadRequest"}
+        "401": {$ref: "#/components/responses/Unauthorized"}
+        "404": {$ref: "#/components/responses/NotFound"}
+
   /api/v1/discovery/stats:
     get:
       tags: [discovery]
@@ -1197,7 +1529,7 @@ components:
         application/json:
           schema: {$ref: "#/components/schemas/Error"}
     Conflict:
-      description: The license is already installed on this deployment.
+      description: The request conflicts with the current state (license already installed, credential already checked out, session already ended).
       content:
         application/json:
           schema: {$ref: "#/components/schemas/Error"}
@@ -1981,6 +2313,181 @@ components:
           additionalProperties: {type: integer}
         active: {type: integer}
         pending: {type: integer}
+
+    # --- privileged session management (module 8) ------------------------
+    SessionProtocol:
+      type: string
+      enum: [ssh, rdp, telnet, vnc, http, https, sql, oracle, postgresql, mssql, mysql, sap, kubernetes]
+
+    SessionStatus:
+      type: string
+      enum: [active, paused, locked, terminated, completed]
+
+    SessionEventType:
+      type: string
+      enum: [keystroke, command, file_upload, file_download, clipboard, screenshot, note, status]
+
+    SessionControls:
+      type: object
+      required: [record, keystroke_log, watermark, clipboard_allowed, upload_allowed, download_allowed, screenshot_allowed]
+      properties:
+        record: {type: boolean}
+        keystroke_log: {type: boolean}
+        watermark: {type: boolean}
+        clipboard_allowed: {type: boolean}
+        upload_allowed: {type: boolean}
+        download_allowed: {type: boolean}
+        screenshot_allowed: {type: boolean}
+
+    Session:
+      type: object
+      required: [id, session_ref, protocol, target, actor, status, controls, started_at, duration_seconds, created_at]
+      properties:
+        id: {type: integer}
+        session_ref: {type: string, description: "sess-<hex>, the custody ref used in watermarks and rotation events."}
+        protocol: {$ref: "#/components/schemas/SessionProtocol"}
+        target: {type: string}
+        actor: {type: string}
+        item_id: {type: [integer, "null"], description: Vault credential the session runs against, if any.}
+        jit_request_id: {type: [integer, "null"], description: Active JIT grant the session rides, if any.}
+        status: {$ref: "#/components/schemas/SessionStatus"}
+        controls: {$ref: "#/components/schemas/SessionControls"}
+        started_at: {type: string}
+        ended_at: {type: [string, "null"]}
+        end_reason: {type: [string, "null"], enum: [terminated, completed, grant_expired, grant_closed, null]}
+        duration_seconds: {type: integer, description: Real wall-clock length (live sessions count to now).}
+        created_at: {type: string}
+
+    SessionEvent:
+      type: object
+      required: [id, session_id, seq, type, content, allowed, blocked_reason, withheld, watermark, actor, created_at]
+      properties:
+        id: {type: integer}
+        session_id: {type: integer}
+        seq: {type: integer, description: Monotonic playback position within the session.}
+        type: {$ref: "#/components/schemas/SessionEventType"}
+        content: {type: [string, "null"], description: Null when keystroke logging withheld the input.}
+        allowed: {type: boolean, description: False when a control blocked the action (kept as evidence).}
+        blocked_reason: {type: [string, "null"]}
+        withheld: {type: boolean}
+        watermark: {type: [string, "null"]}
+        actor: {type: string}
+        created_at: {type: string}
+
+    SessionList:
+      type: object
+      required: [items, total, limit, offset]
+      properties:
+        items:
+          type: array
+          items: {$ref: "#/components/schemas/Session"}
+        total: {type: integer}
+        limit: {type: integer}
+        offset: {type: integer}
+
+    SessionDetail:
+      type: object
+      required: [session, events, event_count, blocked_count]
+      properties:
+        session: {$ref: "#/components/schemas/Session"}
+        events:
+          type: array
+          description: Latest 20 events, newest first.
+          items: {$ref: "#/components/schemas/SessionEvent"}
+        event_count: {type: integer}
+        blocked_count: {type: integer}
+
+    SessionEventList:
+      type: object
+      required: [events, total, limit, offset]
+      properties:
+        events:
+          type: array
+          items: {$ref: "#/components/schemas/SessionEvent"}
+        total: {type: integer}
+        limit: {type: integer}
+        offset: {type: integer}
+
+    SessionResponse:
+      type: object
+      required: [session, message]
+      properties:
+        session: {$ref: "#/components/schemas/Session"}
+        message: {type: string}
+
+    SessionEventResponse:
+      type: object
+      required: [event, message]
+      properties:
+        event: {$ref: "#/components/schemas/SessionEvent"}
+        message: {type: string}
+
+    SessionEndResponse:
+      type: object
+      required: [session, cascade, message]
+      properties:
+        session: {$ref: "#/components/schemas/Session"}
+        cascade:
+          type: object
+          additionalProperties: true
+          description: Release-and-rotate outcome (session_ref, rotated, checkout_released, secret_version or rotation_error).
+        message: {type: string}
+
+    SessionStartRequest:
+      type: object
+      required: [protocol, target]
+      properties:
+        protocol: {$ref: "#/components/schemas/SessionProtocol"}
+        target: {type: string, maxLength: 255}
+        item_id: {type: integer, minimum: 1, description: Vault credential to check out for the session.}
+        jit_request_id: {type: integer, minimum: 1, description: Active JIT grant to attach to instead.}
+        record: {type: boolean, default: true}
+        keystroke_log: {type: boolean, default: true}
+        watermark: {type: boolean, default: true}
+        clipboard_allowed: {type: boolean, default: true}
+        upload_allowed: {type: boolean, default: true}
+        download_allowed: {type: boolean, default: true}
+        screenshot_allowed: {type: boolean, default: true}
+
+    SessionEventPost:
+      type: object
+      required: [type]
+      properties:
+        type: {$ref: "#/components/schemas/SessionEventType"}
+        content: {type: string, maxLength: 4096}
+
+    SessionControlsUpdate:
+      type: object
+      minProperties: 1
+      properties:
+        record: {type: boolean}
+        keystroke_log: {type: boolean}
+        watermark: {type: boolean}
+        clipboard_allowed: {type: boolean}
+        upload_allowed: {type: boolean}
+        download_allowed: {type: boolean}
+        screenshot_allowed: {type: boolean}
+
+    SessionEndRequest:
+      type: object
+      properties:
+        reason: {type: string, maxLength: 500}
+
+    SessionStats:
+      type: object
+      required: [total, by_status, active, paused, locked, ended, events_total, events_blocked, events_withheld]
+      properties:
+        total: {type: integer}
+        by_status:
+          type: object
+          additionalProperties: {type: integer}
+        active: {type: integer}
+        paused: {type: integer}
+        locked: {type: integer}
+        ended: {type: integer}
+        events_total: {type: integer}
+        events_blocked: {type: integer}
+        events_withheld: {type: integer}
 
     # --- discovery engine (module 3) -------------------------------------
     DiscoveryAssetType:

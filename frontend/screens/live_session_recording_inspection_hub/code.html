@@ -563,44 +563,976 @@
 </div>
 </div>
 <script>
-    (function() {
+    // -------------------------------------------------------------------------
+    // Live privileged-session wiring (module 8): the hub renders real sessions
+    // served by the license server - start one (against a vault credential or
+    // riding a JIT grant), record channel events with custody watermarks, gate
+    // clipboard/transfer/screenshot controls for real (blocked attempts stay
+    // as evidence), pause/lock/resume, replay the recording, and end it: the
+    // release-and-rotate cascade runs exactly once. file:// or API-down show
+    // honest empty states - none of the design's names, tickets, risk scores,
+    // mirroring claims or fake terminal output survive either load mode.
+    // -------------------------------------------------------------------------
+    (function () {
+      const ROOT = location.protocol === 'file:' ? '' : '/';
+      const API = ROOT + 'api/v1';
+      const TOKEN_KEY = 'aegispam_admin_token';
+      const ACTOR = 'session-hub-ui';
+      const DASH = '\u2014';
+      const PROTOCOLS = ['ssh', 'rdp', 'telnet', 'vnc', 'http', 'https', 'sql',
+        'oracle', 'postgresql', 'mssql', 'mysql', 'sap', 'kubernetes'];
+      const CONTROLS = ['record', 'keystroke_log', 'watermark',
+        'clipboard_allowed', 'upload_allowed', 'download_allowed',
+        'screenshot_allowed'];
+      const CLABEL = {
+        record: 'record events', keystroke_log: 'keystroke log',
+        watermark: 'watermark', clipboard_allowed: 'clipboard',
+        upload_allowed: 'upload', download_allowed: 'download',
+        screenshot_allowed: 'screenshot',
+      };
+      const LIVE_STATES = ['active', 'paused', 'locked'];
+      const ENDED_STATES = ['terminated', 'completed'];
+      const PICON = {
+        ssh: 'terminal', rdp: 'desktop_windows', vnc: 'monitor',
+        telnet: 'keyboard_command', http: 'language', https: 'language',
+        sql: 'database', oracle: 'database', postgresql: 'database',
+        mssql: 'database', mysql: 'database', sap: 'apps',
+        kubernetes: 'deployed_code',
+      };
+      const SCLS = {
+        active: 'text-tertiary', paused: 'text-outline', locked: 'text-error',
+        terminated: 'text-outline', completed: 'text-tertiary',
+      };
+
+      const state = {
+        stats: null, sessions: [], items: [], overview: null, tab: 'live',
+        selectedId: null, detail: null, playback: [], grant: null,
+        connected: false,
+      };
+
+      // ---- helpers -----------------------------------------------------------
+      function headers() {
+        const h = { 'Content-Type': 'application/json', 'X-Actor': ACTOR };
+        const token = sessionStorage.getItem(TOKEN_KEY);
+        if (token) h['Authorization'] = 'Bearer ' + token;
+        return h;
+      }
+      function esc(value) {
+        return String(value == null ? DASH : value)
+          .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+          .replace(/"/g, '&quot;');
+      }
+      function findSpan(text, root) {
+        return Array.from((root || document).querySelectorAll('span'))
+          .find((s) => s.textContent.indexOf(text) !== -1) || null;
+      }
+      function findBtn(text) {
+        return Array.from(document.querySelectorAll('button'))
+          .find((b) => b.textContent.indexOf(text) !== -1) || null;
+      }
+      // deepest element whose text contains `text` (works on h1/h3/p too)
+      function findLeaf(text, selectors, root) {
+        const nodes = Array.from((root || document).querySelectorAll(
+          selectors || 'span, h1, h2, h3, h4, p, code, strong, button'));
+        return nodes.find((n) => n.textContent.indexOf(text) !== -1
+          && !Array.from(n.children)
+            .some((c) => c.textContent.indexOf(text) !== -1)) || null;
+      }
+      // replace a cached element's text, keeping sibling icon spans intact
+      function put(node, value) {
+        if (!node) return;
+        const t = Array.from(node.childNodes)
+          .find((n) => n.nodeType === 3 && n.data.trim().length);
+        if (t) { t.data = value; return; }
+        const label = Array.from(node.children || []).find((c) => c.tagName === 'SPAN'
+          && !c.classList.contains('material-symbols-outlined')
+          && c.textContent.trim().length);
+        if (label) { put(label, value); return; }
+        node.textContent = value;
+      }
+      function ago(iso) {
+        if (!iso) return DASH;
+        const s = Math.max(0, (Date.now() - Date.parse(iso)) / 1000);
+        if (s < 60) return Math.floor(s) + 's ago';
+        if (s < 3600) return Math.floor(s / 60) + 'm ago';
+        if (s < 86400) return Math.floor(s / 3600) + 'h ago';
+        return Math.floor(s / 86400) + 'd ago';
+      }
+      function dur(total) {
+        const sec = Math.max(0, Math.floor(Number(total) || 0));
+        if (sec < 60) return sec + 's';
+        const m = Math.floor(sec / 60), s = sec % 60;
+        if (m < 60) return m + 'm ' + (s < 10 ? '0' : '') + s + 's';
+        const h = Math.floor(m / 60);
+        return h + 'h ' + (m % 60) + 'm';
+      }
+      function hhmm(iso) {
+        if (!iso) return DASH;
+        const d = new Date(iso);
+        return isNaN(d) ? DASH : d.toTimeString().slice(0, 8);
+      }
+
+      // ---- cached frozen anchors (valid only before the first mutation) ------
+      const ribbonChip = findSpan('AIR-GAPPED AUDIT ACTIVE');
+      const riskBadge = findSpan('HIGH RISK SESSION');
+      const subtitle = findLeaf('Real-time terminal', 'p');
+      const concurrentLabel = findSpan('CONCURRENT SESSIONS');
+      const stripBox = concurrentLabel
+        ? concurrentLabel.closest('div.bg-surface-container-lowest') : null;
+      const stripGrps = stripBox
+        ? Array.from(stripBox.querySelectorAll('div.px-3.py-1')) : [];
+      const quotaVal = stripGrps[0]
+        ? stripGrps[0].querySelector('span.font-headline-sm') : null;
+      // suffix spans live INSIDE the value span; a group-scoped query would
+      // match the group's own label (also font-code-sm) and clobber it
+      const quotaSuffix = quotaVal
+        ? quotaVal.querySelector('span.font-code-sm') : null;
+      const anomalyVal = stripGrps[1]
+        ? stripGrps[1].querySelector('span.font-headline-sm') : null;
+      const vaultVal = stripGrps[2]
+        ? stripGrps[2].querySelector('span.font-headline-sm') : null;
+      const vaultSuffix = vaultVal
+        ? vaultVal.querySelector('span.font-code-sm') : null;
+      const tabLive = findBtn('Live Streams');
+      const tabArchived = findBtn('Archived Sessions');
+      const exporterBtn = findBtn('Audit Log Exporter');
+      const policyBtn = findBtn('Session Policy Config');
+      const cardsGrid = document.querySelector('div.grid.md\\:grid-cols-3');
+      const leftCol = document.querySelector('div.lg\\:col-span-8');
+      const rightCol = document.querySelector('div.lg\\:col-span-4');
+      const termChip = findSpan('LIVE REPLAY', leftCol);
+      const termUser = findSpan('root@prod-payment-gateway-01', leftCol);
+      const termMeta = findSpan('pts/2', leftCol);
+      const latBox = (function () {
+        const s = findSpan('Latency', leftCol);
+        return s ? s.closest('div.hidden') : null;
+      })();
+      const recBadge = findSpan('RECORDER RUNNING', leftCol);
+      const fpsBadge = findSpan('FPS: 30', leftCol);
+      const digestBadge = findSpan('Keystroke Mirror Digest', leftCol);
+      const termLines = leftCol
+        ? leftCol.querySelector('div.gap-2\\.5.overflow-y-auto') : null;
+      const replayTime = findSpan('00:14:28', leftCol);
+      const replayBarWrap = leftCol
+        ? leftCol.querySelector('div.w-32') : null;
+      const rewindBtn = findBtn('-10s');
+      const expandBtn = findBtn('Expand Mirror');
+      const shaBadge = findSpan('SHA-256 Frame Digest', leftCol);
+      const aiHeading = findLeaf('AI Threat & Anomaly Panel', 'h3', rightCol);
+      const aiCard = aiHeading
+        ? aiHeading.closest('div.bg-surface-container-lowest') : null;
+      const riskChip = findSpan('RISK 84', aiCard);
+      const alertTitle = findLeaf('Critical Anomaly Flag', 'div, span', aiCard);
+      const alertBox = alertTitle ? alertTitle.parentElement : null;
+      const alertBody = alertTitle ? alertTitle.parentElement.querySelector('p') : null;
+      const recActionLabel = findSpan('Recommended SecOps Action', aiCard);
+      const recActionValue = findSpan(
+        'Terminate & Revoke Credentials immediately', aiCard);
+      const breakBox = (function () {
+        const s = findSpan('Keystroke Biometric Confidence', aiCard);
+        return s ? s.closest('div.flex.flex-col') : null;
+      })();
+      const govHeading = findLeaf('Session Governance Details', 'h3', rightCol);
+      const govCard = govHeading
+        ? govHeading.closest('div.bg-surface-container-lowest') : null;
+      const ttlChip = findSpan('TTL: 46m remaining', govCard);
+      const ticketLabel = findSpan('JUSTIFICATION TICKET', govCard);
+      const ticketValue = findSpan('INC-9938', govCard);
+      const quorumValue = findSpan('2 / 2 Verified', govCard);
+      const startedValue = findSpan('14 minutes ago', govCard);
+      const expiryValue = findSpan('15:18:00', govCard);
+      const observersLabel = findSpan('Dual-Control Observers', govCard);
+      const observersList = observersLabel
+        ? observersLabel.nextElementSibling : null;
+      const timelineHeading = findLeaf(
+        'Keystroke & Command Log', 'h3', rightCol);
+      const timelineCard = timelineHeading
+        ? timelineHeading.closest('div.bg-surface-container-lowest') : null;
+      const timelineCount = findSpan('events captured', timelineCard);
+      const timelineList = timelineCard
+        ? timelineCard.querySelector('div.gap-2.relative') : null;
+      const drawerHeading = findSpan('Dual-Control Supervision Lock Enforced');
+      const drawerBody = drawerHeading
+        ? drawerHeading.parentElement.querySelector('p') : null;
+      const exportBtn = findBtn('Export Full Forensic');
+      const revokeBtn = findBtn('Revoke User Bastion');
+      const pauseBtn = document.getElementById('pauseBtn');
+      const joinBtn = findBtn('Join Dual-Control');
+      const bannerBtn = findBtn('Inject Warning Banner');
       const killBtn = document.getElementById('killSwitchBtn');
       const modal = document.getElementById('killConfirmModal');
-      const cancelBtn = document.getElementById('cancelKillBtn');
-      const confirmBtn = document.getElementById('confirmKillBtn');
-      const pauseBtn = document.getElementById('pauseBtn');
+      const modalTitle = modal ? modal.querySelector('h3') : null;
+      const modalDesc = modal ? modal.querySelector('p') : null;
+      const modalInfo = modal
+        ? modal.querySelector('div.bg-surface-container-low') : null;
+      const cancelKill = document.getElementById('cancelKillBtn');
+      const confirmKill = document.getElementById('confirmKillBtn');
 
-      if (killBtn && modal && cancelBtn && confirmBtn) {
-        killBtn.addEventListener('click', () => {
-          modal.classList.remove('hidden');
+      // ---- one-time honest relabels of frozen chrome ------------------------
+      put(ribbonChip, 'PRIVILEGED SESSIONS');
+      if (subtitle) {
+        subtitle.innerHTML =
+          '<strong>Privileged session supervision:</strong> start a session ' +
+          'against a vault credential or a JIT grant, watch its recording with ' +
+          'custody watermarks, gate clipboard/transfer/screenshot controls ' +
+          '(blocked attempts stay as evidence) and pause, lock or terminate ' +
+          'it \u2014 ending a session releases its checkout and rotates the ' +
+          'credential exactly once.';
+      }
+      if (exportBtn) {
+        exportBtn.disabled = true;
+        exportBtn.title = 'Recording export is not implemented in this build; ' +
+          'playback is served by GET /api/v1/sessions/{id}/events.';
+        exportBtn.classList.add('opacity-50', 'cursor-not-allowed');
+      }
+      if (policyBtn) {
+        policyBtn.disabled = true;
+        policyBtn.title = 'Global policy configuration is not implemented in ' +
+          'this build; controls are set per session (see Session Control Flags).';
+        policyBtn.classList.add('opacity-50', 'cursor-not-allowed');
+      }
+      if (bannerBtn) {
+        bannerBtn.disabled = true;
+        bannerBtn.title = 'Banner injection is not implemented in this build.';
+        bannerBtn.classList.add('opacity-50', 'cursor-not-allowed');
+      }
+      if (rewindBtn) {
+        rewindBtn.disabled = true;
+        rewindBtn.title = 'Scrubbing is not implemented; playback serves the ' +
+          'full recording in sequence order.';
+        rewindBtn.classList.add('opacity-50', 'cursor-not-allowed');
+      }
+      if (expandBtn) {
+        expandBtn.disabled = true;
+        expandBtn.title = 'Mirror expansion is not implemented in this build.';
+        expandBtn.classList.add('opacity-50', 'cursor-not-allowed');
+      }
+      put(joinBtn, 'Lock Session');
+      put(pauseBtn, 'Pause Session');
+      put(revokeBtn, 'Resume Session');
+      if (replayBarWrap) replayBarWrap.style.display = 'none'; // no fake progress
+      if (drawerHeading) put(drawerHeading, 'Session controls act on real state');
+      if (drawerBody) {
+        drawerBody.innerHTML =
+          'Pause and lock refuse channel events until resumed; the control ' +
+          'flags gate clipboard, uploads, downloads and screenshots ' +
+          'server-side; ending a session releases its checkout and rotates ' +
+          'the credential exactly once.';
+      }
+      if (modalTitle) modalTitle.textContent = 'Terminate session';
+      if (modalDesc) {
+        modalDesc.innerHTML =
+          'Ending the session stops the recording, releases its vault ' +
+          'checkout and rotates the credential exactly once. Ongoing channel ' +
+          'events will be refused.';
+      }
+      if (modalInfo) {
+        modalInfo.innerHTML = '<div>Session: ' + DASH + '</div>' +
+          '<div>Target: ' + DASH + '</div><div>Actor: ' + DASH + '</div>';
+      }
+
+      // ---- toast -------------------------------------------------------------
+      let toastEl = null, toastTimer = null;
+      function toast(message) {
+        if (!toastEl) {
+          toastEl = document.createElement('div');
+          toastEl.className = 'fixed bottom-14 right-6 z-[60] max-w-md px-4 py-3 rounded-lg shadow-lg border border-outline-variant bg-surface-container-lowest text-on-surface font-body-sm text-body-sm';
+          document.body.appendChild(toastEl);
+        }
+        toastEl.textContent = message;
+        toastEl.classList.remove('hidden');
+        clearTimeout(toastTimer);
+        toastTimer = setTimeout(() => toastEl.classList.add('hidden'), 6000);
+      }
+
+      // ---- footer (looked up lazily: the <footer> parses after this script) --
+      function fillFooter(data) {
+        const footerNow = document.querySelector('footer');
+        if (!footerNow) return;
+        const spans = Array.from(footerNow.querySelectorAll('span'));
+        // matches the frozen text and our own rewrites, so repeats stay idempotent
+        const pick = (...keys) => {
+          for (const k of keys) {
+            const hit = spans.find((s) => s.textContent.indexOf(k) !== -1);
+            if (hit) return hit;
+          }
+          return null;
+        };
+        const server = pick('Zero-Trust Gateway', 'License server');
+        const nodes = pick('Nodes connected', 'licensed nodes');
+        const standing = pick('standing admin', 'live sessions');
+        const auth = pick('Session TLS', 'Auth:');
+        const worm = pick('mTLS Enforced', 'WORM:');
+        const audit = pick('Audit Digest', 'Audit:');
+        if (!server || !nodes || !standing || !auth || !worm || !audit) return;
+        if (!data) {
+          server.textContent = 'License server: not connected';
+          nodes.textContent = '(' + DASH + ' licensed nodes)';
+          standing.textContent = DASH + ' live sessions';
+          auth.textContent = 'Auth: ' + DASH;
+          worm.textContent = 'WORM: ' + DASH;
+          audit.textContent = 'Audit: ' + DASH;
+          return;
+        }
+        server.textContent = 'License server: '
+          + (data.health && data.health.status === 'ok'
+            ? 'Healthy' : (data.health || {}).status);
+        nodes.textContent = '('
+          + (data.licenses && data.licenses.usage
+            ? data.licenses.usage.nodes.toLocaleString() : DASH)
+          + ' licensed nodes)';
+        standing.textContent = (state.stats ? state.stats.active : 0)
+          + ' live sessions';
+        auth.textContent = 'Auth: ' + (data.health ? data.health.auth : DASH);
+        worm.textContent = 'WORM: '
+          + (data.settings && data.settings.worm_immutable
+            ? 'immutable' : 'mutable');
+        audit.textContent = 'Audit: '
+          + (data.counters
+            ? data.counters.total_events.toLocaleString() : DASH)
+          + ' events';
+      }
+
+      // ---- data loading ------------------------------------------------------
+      async function post(path, body) {
+        const res = await fetch(API + path, {
+          method: 'POST', headers: headers(), body: JSON.stringify(body || {}),
         });
+        const json = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(json.error || ('HTTP ' + res.status));
+        return json;
+      }
+      function filtered() {
+        return state.sessions.filter((s) => state.tab === 'live'
+          ? LIVE_STATES.indexOf(s.status) !== -1
+          : ENDED_STATES.indexOf(s.status) !== -1);
+      }
+      function selSession() {
+        return state.sessions.find((s) => s.id === state.selectedId) || null;
+      }
+      function ensureSelection() {
+        if (!state.connected) { state.selectedId = null; return; }
+        if (state.selectedId != null
+            && state.sessions.some((s) => s.id === state.selectedId)) return;
+        const list = filtered();
+        state.selectedId = list.length ? list[0].id
+          : (state.sessions.length ? state.sessions[0].id : null);
+      }
+      async function load() {
+        if (ROOT === '') {
+          state.connected = false;
+          state.stats = null; state.sessions = []; state.items = [];
+          state.detail = null; state.playback = []; state.grant = null;
+          fillFooter(null);
+          renderAll();
+          return;
+        }
+        const j = async (path) => {
+          const res = await fetch(API + path, { headers: headers() });
+          if (!res.ok) throw new Error(path + ' -> ' + res.status);
+          return res.json();
+        };
+        try {
+          const [stats, list, items] = await Promise.all([
+            j('/sessions/stats'), j('/sessions?limit=200'),
+            j('/vault/items?limit=200'),
+          ]);
+          state.stats = stats;
+          state.sessions = list.items || [];
+          state.items = items.items || [];
+          state.connected = true;
+        } catch (err) {
+          state.connected = false;
+          state.stats = null; state.sessions = []; state.items = [];
+        }
+        ensureSelection();
+        state.detail = null; state.playback = []; state.grant = null;
+        if (state.connected && state.selectedId != null) {
+          try {
+            const [d, pb] = await Promise.all([
+              j('/sessions/' + state.selectedId),
+              j('/sessions/' + state.selectedId + '/events?limit=500'),
+            ]);
+            state.detail = d;
+            state.playback = pb.events || [];
+            if (d.session.jit_request_id != null) {
+              try {
+                state.grant = await j('/jit/requests/' + d.session.jit_request_id);
+              } catch (err) { state.grant = null; }
+            }
+          } catch (err) {
+            state.detail = null; state.playback = []; state.grant = null;
+          }
+        }
+        try {
+          const res = await fetch(ROOT + 'api/v1/overview');
+          state.overview = res.ok ? await res.json() : null;
+          fillFooter(state.overview);
+        } catch (err) { state.overview = null; fillFooter(null); }
+        renderAll();
+      }
 
-        cancelBtn.addEventListener('click', () => {
-          modal.classList.add('hidden');
+      // ---- rendering: stats strip + ribbon -----------------------------------
+      function renderStats() {
+        const s = state.stats;
+        if (quotaVal) put(quotaVal, s ? String(s.active) + ' ' : DASH + ' ');
+        if (quotaSuffix) put(quotaSuffix, s ? 'live now' : DASH);
+        // no anomaly engine exists in this build - the value stays a dash
+        if (anomalyVal) put(anomalyVal, DASH);
+        if (vaultVal) {
+          put(vaultVal, state.overview
+            ? (state.overview.settings && state.overview.settings.worm_immutable
+              ? 'immutable' : 'mutable') + ' '
+            : DASH + ' ');
+        }
+        if (vaultSuffix) put(vaultSuffix, 'worm setting');
+        if (riskBadge) {
+          put(riskBadge, s ? s.events_blocked + ' BLOCKED EVENTS' : DASH);
+        }
+        renderTabs();
+      }
+      const TAB_ACTIVE = ['bg-surface-container-lowest', 'shadow-sm',
+        'font-semibold'];
+      function applyTab(btn, active) {
+        if (!btn) return;
+        TAB_ACTIVE.forEach((c) => btn.classList.toggle(c, active));
+        btn.classList.toggle('text-on-surface', active);
+        btn.classList.toggle('text-on-surface-variant', !active);
+      }
+      function renderTabs() {
+        const s = state.stats;
+        put(tabLive, 'Live Streams (' + (s
+          ? s.active + s.paused + s.locked : DASH) + ')');
+        applyTab(tabLive, state.tab === 'live');
+        applyTab(tabArchived, state.tab === 'archived');
+      }
+
+      // ---- rendering: session cards -----------------------------------------
+      function emptyState(text) {
+        return '<div class="col-span-full bg-surface-container-lowest rounded-xl p-6 text-center font-body-md text-body-md text-on-surface-variant shadow-sm" data-role="empty">'
+          + esc(text) + '</div>';
+      }
+      function cardHTML(s) {
+        const selected = s.id === state.selectedId;
+        const live = LIVE_STATES.indexOf(s.status) !== -1;
+        return '<div class="relative bg-surface-container-lowest rounded-xl p-4 shadow-sm cursor-pointer transition-all flex flex-col justify-between gap-3'
+          + (selected ? ' ring-1 ring-primary/40 bg-primary/5' : '')
+          + '" data-role="card" data-id="' + s.id + '">'
+          + '<div class="flex items-start justify-between gap-2">'
+          + '<div class="flex items-center gap-2">'
+          + '<div class="w-8 h-8 rounded-lg bg-surface-container flex items-center justify-center text-primary">'
+          + '<span class="material-symbols-outlined text-[18px]">'
+          + (PICON[s.protocol] || 'cable') + '</span></div>'
+          + '<div><div class="flex items-center gap-1.5">'
+          + '<span class="font-code-md text-code-md font-semibold text-on-surface">'
+          + esc(s.session_ref) + '</span>'
+          + '<span class="font-code-sm text-code-sm text-outline">'
+          + esc(String(s.protocol).toUpperCase()) + '</span></div>'
+          + '<span class="font-body-sm text-body-sm text-on-surface-variant">'
+          + esc(s.target) + '</span></div></div>'
+          + '<div class="text-right"><div class="font-code-sm text-code-sm font-semibold '
+          + (SCLS[s.status] || 'text-outline') + '">'
+          + esc(s.status) + '</div>'
+          + '<span class="font-code-sm text-[10px] text-outline uppercase font-semibold">'
+          + esc(dur(s.duration_seconds)) + '</span></div></div>'
+          + '<div class="flex items-center justify-between font-body-sm text-body-sm bg-surface-container-low px-2.5 py-1.5 rounded-lg">'
+          + '<div class="flex items-center gap-1.5 truncate">'
+          + '<span class="material-symbols-outlined text-[15px] text-outline">account_circle</span>'
+          + '<span class="text-on-surface truncate">' + esc(s.actor) + '</span>'
+          + (s.jit_request_id != null
+            ? '<span class="px-1.5 py-0.2 rounded bg-surface-container text-on-surface-variant font-code-sm text-[10px]">JIT #'
+              + s.jit_request_id + '</span>' : '')
+          + '</div><span class="font-code-sm text-code-sm text-outline font-normal shrink-0">'
+          + (s.item_id != null ? 'vault credential' : 'bare session')
+          + '</span></div>'
+          + '<div class="flex items-center justify-between text-outline font-code-sm text-code-sm pt-1">'
+          + '<span class="flex items-center gap-1 ' + (live ? 'text-tertiary' : '') + '">'
+          + '<span class="w-2 h-2 rounded-full ' + (live ? 'bg-tertiary animate-pulse' : 'bg-outline') + '"></span>'
+          + (live ? 'live' : 'ended') + '</span>'
+          + '<span class="text-primary font-semibold">Inspect</span></div></div>';
+      }
+      function renderCards() {
+        if (!cardsGrid) return;
+        if (!state.connected) {
+          cardsGrid.innerHTML = emptyState(
+            'Sessions were not loaded (file:// or the API is unreachable).');
+          return;
+        }
+        const list = filtered();
+        if (!list.length) {
+          cardsGrid.innerHTML = emptyState(state.tab === 'live'
+            ? 'No live sessions. Use Start Session to open one.'
+            : 'No completed or terminated sessions yet.');
+          return;
+        }
+        cardsGrid.innerHTML = list.map(cardHTML).join('');
+      }
+
+      // ---- rendering: terminal mirror + sub-bar ------------------------------
+      function msgHTML(text) {
+        return '<div class="text-outline text-code-sm">' + esc(text) + '</div>';
+      }
+      function renderSubbar(sel) {
+        put(termChip, !sel ? 'NO SESSION'
+          : (LIVE_STATES.indexOf(sel.status) !== -1 ? 'LIVE MONITOR' : 'PLAYBACK'));
+        put(termUser, sel ? sel.actor + '@' + sel.target.split(':')[0] : DASH);
+        put(termMeta, sel
+          ? sel.protocol + ' \u00b7 ' + sel.target : DASH);
+        if (latBox) {
+          latBox.innerHTML = sel
+            ? '<span>' + esc(sel.session_ref) + '</span><span>\u2022</span><span>'
+              + esc(sel.status) + '</span>'
+            : '<span>' + DASH + '</span>';
+        }
+        put(recBadge, sel
+          ? (sel.controls.record ? 'RECORDING EVENTS' : 'RECORDING OFF') : DASH);
+        put(fpsBadge, state.detail
+          ? state.detail.event_count + ' EVENTS' : DASH);
+        const lastSeq = state.playback.length
+          ? state.playback[state.playback.length - 1].seq : null;
+        put(digestBadge, sel ? 'last seq: ' + (lastSeq == null ? DASH : lastSeq)
+          : DASH);
+        put(replayTime, sel
+          ? dur(sel.duration_seconds) + ' \u00b7 ' + state.playback.length
+            + ' events'
+          : DASH);
+        put(shaBadge, sel ? 'append-only recording rows' : DASH);
+      }
+      function renderTerminal(sel) {
+        if (!termLines) return;
+        if (!state.connected) {
+          termLines.innerHTML = msgHTML(
+            'The recording was not loaded (file:// or the API is unreachable).');
+          return;
+        }
+        if (!sel) {
+          termLines.innerHTML = msgHTML(
+            'No session selected. Use Start Session, or pick a card above to '
+            + 'replay its recording.');
+          return;
+        }
+        if (!state.playback.length) {
+          termLines.innerHTML = msgHTML(
+            'No events recorded yet for ' + sel.session_ref
+            + '. Commands and channel events appear here as they arrive.');
+          return;
+        }
+        const host = sel.target.split(':')[0];
+        termLines.innerHTML = state.playback.map((ev) => {
+          const t = hhmm(ev.created_at);
+          if (ev.type === 'command') {
+            return '<div><span class="text-tertiary-fixed-dim font-bold">'
+              + esc(sel.actor) + '@' + esc(host) + ':~$</span>'
+              + '<span class="text-surface-bright ml-2">'
+              + esc(ev.content || '') + '</span></div>';
+          }
+          if (ev.type === 'keystroke') {
+            return ev.withheld
+              ? '<div class="text-outline text-code-sm pl-4">[' + t
+                + '] input content withheld by policy</div>'
+              : '<div class="text-secondary-fixed text-code-sm pl-4">[' + t
+                + '] input: ' + esc(ev.content || '') + '</div>';
+          }
+          if (ev.type === 'file_upload' || ev.type === 'file_download'
+              || ev.type === 'clipboard' || ev.type === 'screenshot') {
+            if (!ev.allowed) {
+              return '<div class="bg-error/20 p-2.5 rounded text-error-container font-code-sm flex items-start gap-2.5 my-1">'
+                + '<span class="material-symbols-outlined text-[18px] text-error shrink-0">block</span>'
+                + '<div><span class="font-bold uppercase tracking-wider text-error">[blocked by control]:</span> '
+                + '<span class="text-surface-bright">' + esc(ev.type)
+                + ' refused (' + esc(ev.blocked_reason || 'control')
+                + ') \u2014 kept as evidence.</span></div></div>';
+            }
+            return '<div class="text-secondary-fixed text-code-sm pl-4">[' + t
+              + '] ' + esc(ev.type) + ': ' + esc(ev.content || '') + '</div>';
+          }
+          if (ev.type === 'note') {
+            return '<div class="text-secondary-fixed text-code-sm pl-4">[' + t
+              + '] note: ' + esc(ev.content || '') + '</div>';
+          }
+          return '<div class="text-outline text-code-sm pl-4">[' + t + '] '
+            + esc(ev.content || ev.type) + '</div>';
+        }).join('');
+      }
+
+      // ---- rendering: right column ------------------------------------------
+      function renderAiPanel(sel) {
+        put(aiHeading, 'Control Violations');
+        put(riskChip, sel
+          ? (state.detail ? state.detail.blocked_count + ' BLOCKED' : DASH)
+          : DASH);
+        if (alertTitle) put(alertTitle, 'Evidence Retained');
+        if (alertBody) {
+          alertBody.innerHTML = !sel
+            ? 'No session selected.'
+            : (state.detail && state.detail.blocked_count > 0
+              ? state.detail.blocked_count
+                + ' gated action(s) (transfer, clipboard, screenshot) were '
+                + 'blocked by the session controls and kept as evidence rows '
+                + 'in the recording.'
+              : 'No control violations in this session\u2019s recording.');
+        }
+        if (recActionLabel) put(recActionLabel, 'ON SESSION END');
+        if (recActionValue) {
+          put(recActionValue,
+            'Release the checkout and rotate the credential exactly once');
+        }
+        if (breakBox) {
+          const pb = state.playback;
+          const blocked = pb.filter((e) => !e.allowed).length;
+          const withheld = pb.filter((e) => e.withheld).length;
+          const rows = [
+            ['events in this recording', pb.length],
+            ['blocked by controls', blocked],
+            ['withheld by policy', withheld],
+          ];
+          breakBox.innerHTML = rows.map((r) =>
+            '<div class="flex justify-between font-code-sm text-code-sm text-on-surface-variant">'
+            + '<span>' + esc(r[0]) + '</span>'
+            + '<span class="font-semibold text-on-surface">' + r[1]
+            + '</span></div>').join('');
+        }
+      }
+      function renderGovernance(sel) {
+        put(ttlChip, sel
+          ? (ENDED_STATES.indexOf(sel.status) !== -1 ? 'ended ' : 'elapsed ')
+            + dur(sel.duration_seconds)
+          : DASH);
+        put(ticketLabel, 'ACCESS SOURCE');
+        put(ticketValue, sel
+          ? (sel.jit_request_id != null
+            ? 'JIT request #' + sel.jit_request_id : 'direct (no grant)')
+          : DASH);
+        let quorum = DASH;
+        if (state.grant && state.grant.request) {
+          const r = state.grant.request;
+          const have = (r.approvals.manager ? 1 : 0)
+            + (r.approvals.security ? 1 : 0);
+          if (r.risk.level === 'low') quorum = 'auto (low risk)';
+          else if (r.risk.level === 'medium') quorum = have + ' / 1 manager';
+          else quorum = have + ' / 2 sign-offs';
+        }
+        put(quorumValue, quorum);
+        put(startedValue, sel ? ago(sel.started_at) : DASH);
+        put(expiryValue, state.grant && state.grant.request
+          && state.grant.request.expires_at
+          ? hhmm(state.grant.request.expires_at) : DASH);
+        put(observersLabel, 'SESSION CONTROL FLAGS');
+        if (observersList) {
+          observersList.innerHTML = sel
+            ? CONTROLS.map((c) =>
+              '<div class="flex items-center justify-between p-2 rounded-lg bg-surface-container-low">'
+              + '<span class="font-body-sm text-body-sm text-on-surface">'
+              + esc(CLABEL[c]) + '</span>'
+              + '<span class="font-code-sm text-[10px] px-1.5 py-0.5 rounded '
+              + (sel.controls[c]
+                ? 'bg-tertiary/15 text-tertiary'
+                : 'bg-error-container text-on-error-container')
+              + ' font-semibold">' + (sel.controls[c] ? 'ON' : 'OFF')
+              + '</span></div>').join('')
+            : '<div class="p-2 rounded-lg bg-surface-container-low font-body-sm text-body-sm text-on-surface-variant">'
+              + DASH + '</div>';
+        }
+      }
+      function timelineHTML(ev) {
+        const t = hhmm(ev.created_at);
+        const blocked = !ev.allowed;
+        const code = ev.withheld
+          ? '[content withheld by policy]'
+          : esc(ev.content || (ev.type === 'command' ? '' : '(' + ev.type + ')'));
+        const badge = blocked
+          ? '<span class="px-1.5 py-0.2 rounded bg-error text-on-error font-code-sm text-[10px] font-bold">BLOCKED</span>'
+          : '<span class="px-1.5 py-0.2 rounded bg-surface-container text-on-surface-variant font-code-sm text-[10px]">'
+            + esc(String(ev.type).toUpperCase()) + '</span>';
+        const sub = blocked
+          ? 'blocked by control: ' + esc(ev.blocked_reason || 'control')
+            + ' (kept as evidence)'
+          : (ev.withheld
+            ? 'content withheld: keystroke logging off'
+            : 'by ' + esc(ev.actor));
+        return '<div class="flex items-start gap-2.5 p-2 rounded-lg '
+          + (blocked ? 'bg-error-container/30' : 'bg-surface-container-low') + '">'
+          + '<span class="font-code-sm text-code-sm '
+          + (blocked ? 'text-error font-semibold' : 'text-outline')
+          + ' shrink-0 mt-0.5">' + t + '</span>'
+          + '<div class="flex flex-col min-w-0 flex-1">'
+          + '<div class="flex items-center justify-between gap-1">'
+          + '<code class="font-code-sm text-code-sm '
+          + (blocked ? 'text-error font-bold' : 'text-on-surface font-bold')
+          + ' truncate">' + code + '</code>' + badge + '</div>'
+          + '<span class="font-body-sm text-body-sm '
+          + (blocked ? 'text-error' : 'text-outline') + '">' + sub + '</span>'
+          + '</div></div>';
+      }
+      function renderTimeline() {
+        put(timelineCount, state.connected
+          ? (state.detail
+            ? state.detail.event_count + ' events captured'
+            : DASH + ' events captured')
+          : 'not loaded');
+        if (!timelineList) return;
+        if (!state.connected) {
+          timelineList.innerHTML = '<div class="p-2 rounded-lg bg-surface-container-low font-body-sm text-body-sm text-on-surface-variant">The recording was not loaded (file:// or the API is unreachable).</div>';
+          return;
+        }
+        if (!state.detail) {
+          timelineList.innerHTML = '<div class="p-2 rounded-lg bg-surface-container-low font-body-sm text-body-sm text-on-surface-variant">No session selected.</div>';
+          return;
+        }
+        if (!state.playback.length) {
+          timelineList.innerHTML = '<div class="p-2 rounded-lg bg-surface-container-low font-body-sm text-body-sm text-on-surface-variant">No events recorded yet.</div>';
+          return;
+        }
+        timelineList.innerHTML = state.playback.slice().reverse()
+          .map(timelineHTML).join('');
+      }
+      function setAction(btn, enabled, title) {
+        if (!btn) return;
+        btn.disabled = !enabled;
+        btn.classList.toggle('opacity-50', !enabled);
+        btn.classList.toggle('cursor-not-allowed', !enabled);
+        if (title) btn.title = title; else btn.removeAttribute('title');
+      }
+      function renderToolbar(sel) {
+        const has = !!sel;
+        const isActive = has && sel.status === 'active';
+        const suspended = has
+          && (sel.status === 'paused' || sel.status === 'locked');
+        const ended = has && ENDED_STATES.indexOf(sel.status) !== -1;
+        put(pauseBtn, suspended ? 'Resume Session' : 'Pause Session');
+        setAction(pauseBtn, isActive || suspended,
+          !has ? 'Start or select a session first.'
+            : (ended ? 'This session has ended.' : ''));
+        setAction(joinBtn, isActive || (has && sel.status === 'paused'),
+          !has ? 'Start or select a session first.'
+            : (ended ? 'This session has ended.'
+              : (sel.status === 'locked' ? 'Already locked.' : '')));
+        setAction(revokeBtn, suspended,
+          !suspended ? 'Nothing to resume in the current state.' : '');
+        setAction(killBtn, has && !ended,
+          !has ? 'Start or select a session first.'
+            : (ended ? 'This session has ended.' : ''));
+      }
+
+      function renderAll() {
+        renderStats();
+        renderCards();
+        const sel = state.detail ? state.detail.session : null;
+        renderSubbar(sel);
+        renderTerminal(sel);
+        renderAiPanel(sel);
+        renderGovernance(sel);
+        renderTimeline();
+        renderToolbar(sel);
+      }
+
+      // ---- actions -----------------------------------------------------------
+      async function act(path, body, message) {
+        try {
+          const out = await post(path, body);
+          toast(message || out.message || 'Done');
+          await load();
+          return out;
+        } catch (err) {
+          toast(err.message);
+          return null;
+        }
+      }
+      if (pauseBtn) {
+        pauseBtn.addEventListener('click', () => {
+          const s = selSession();
+          if (!s) { toast('Start or select a session first.'); return; }
+          const path = (s.status === 'paused' || s.status === 'locked')
+            ? 'resume' : 'pause';
+          act('/sessions/' + s.id + '/' + path);
         });
-
-        confirmBtn.addEventListener('click', () => {
-          confirmBtn.innerHTML = '<span class="material-symbols-outlined text-[16px] animate-spin">sync</span> Severing Connection...';
-          confirmBtn.disabled = true;
-          setTimeout(() => {
-            modal.classList.add('hidden');
-            killBtn.classList.remove('bg-error');
-            killBtn.classList.add('bg-secondary', 'cursor-not-allowed');
-            killBtn.innerHTML = '<span class="material-symbols-outlined text-[18px]">check_circle</span> TERMINATED & QUARANTINED';
-          }, 900);
+      }
+      if (joinBtn) {
+        joinBtn.addEventListener('click', () => {
+          const s = selSession();
+          if (!s) { toast('Start or select a session first.'); return; }
+          act('/sessions/' + s.id + '/lock');
+        });
+      }
+      if (revokeBtn) {
+        revokeBtn.addEventListener('click', () => {
+          const s = selSession();
+          if (!s) { toast('Start or select a session first.'); return; }
+          act('/sessions/' + s.id + '/resume');
         });
       }
 
-      if (pauseBtn) {
-        let isPaused = false;
-        pauseBtn.addEventListener('click', () => {
-          isPaused = !isPaused;
-          if (isPaused) {
-            pauseBtn.innerHTML = '<span class="material-symbols-outlined text-[16px] text-primary">play_arrow</span><span>Resume Stream</span>';
-          } else {
-            pauseBtn.innerHTML = '<span class="material-symbols-outlined text-[16px] text-outline">pause_circle</span><span>Freeze Stream</span>';
+      // ---- kill modal ---------------------------------------------------------
+      if (killBtn && modal) {
+        killBtn.addEventListener('click', () => {
+          const s = selSession();
+          if (!s) { toast('Start or select a session first.'); return; }
+          if (modalTitle) {
+            modalTitle.textContent = 'Terminate ' + s.session_ref + '?';
           }
+          if (modalDesc) {
+            modalDesc.innerHTML =
+              'Ending stops the recording and runs the release-and-rotate '
+              + 'cascade: the vault checkout is released and the credential '
+              + 'rotated'
+              + (s.jit_request_id != null
+                ? '; its linked JIT grant closes with it' : '')
+              + '. Ongoing channel events will be refused.';
+          }
+          if (modalInfo) {
+            modalInfo.innerHTML = '<div>Session: ' + esc(s.session_ref)
+              + ' (' + esc(s.protocol) + ')</div>'
+              + '<div>Target: ' + esc(s.target) + '</div>'
+              + '<div>Actor: ' + esc(s.actor) + ' \u00b7 started '
+              + esc(ago(s.started_at)) + '</div>';
+          }
+          confirmKill.disabled = false;
+          confirmKill.innerHTML = '<span class="material-symbols-outlined text-[16px]">delete_forever</span> Confirm Terminate';
+          modal.classList.remove('hidden');
         });
+      }
+      if (cancelKill && modal) {
+        cancelKill.addEventListener('click', () => modal.classList.add('hidden'));
+      }
+      if (confirmKill && modal) {
+        confirmKill.addEventListener('click', async () => {
+          const s = selSession();
+          if (!s) return;
+          confirmKill.disabled = true;
+          const out = await act('/sessions/' + s.id + '/terminate',
+            { reason: 'terminated from the session hub' });
+          confirmKill.disabled = false;
+          if (!out) return;
+          modal.classList.add('hidden');
+          confirmKill.innerHTML = '<span class="material-symbols-outlined text-[16px]">check_circle</span> '
+            + (out.cascade && out.cascade.rotated
+              ? 'TERMINATED \u00b7 CREDENTIAL ROTATED'
+              : 'TERMINATED');
+          toast('Session ' + out.session.session_ref + ' ended \u2014 '
+            + (out.cascade && out.cascade.rotated
+              ? 'checkout released, credential rotated to version '
+                + (out.cascade.secret_version || '?')
+              : 'no credential was held, nothing rotated'));
+        });
+      }
+
+      // ---- card selection + tabs ---------------------------------------------
+      if (cardsGrid) {
+        cardsGrid.addEventListener('click', (ev) => {
+          const card = ev.target.closest('[data-role="card"]');
+          if (!card) return;
+          state.selectedId = Number(card.getAttribute('data-id'));
+          load();
+        });
+      }
+      if (tabLive) {
+        tabLive.addEventListener('click', () => {
+          state.tab = 'live'; load();
+        });
+      }
+      if (tabArchived) {
+        tabArchived.addEventListener('click', () => {
+          state.tab = 'archived'; load();
+        });
+      }
+
+      // ---- start-session button + modal (JS-built, no frozen ids) ------------
+      const ribbonActions = exporterBtn ? exporterBtn.parentElement : null;
+      if (ribbonActions) {
+        const startBtn = document.createElement('button');
+        startBtn.setAttribute('data-role', 'start-session');
+        startBtn.className = exporterBtn.className;
+        startBtn.innerHTML = '<span class="material-symbols-outlined text-[16px] text-primary">add_circle</span><span>Start Session</span>';
+        ribbonActions.insertBefore(startBtn, exporterBtn);
+        startBtn.addEventListener('click', openStartModal);
+      }
+      function openStartModal() {
+        if (document.querySelector('[data-role="start-overlay"]')) return;
+        const overlay = document.createElement('div');
+        overlay.setAttribute('data-role', 'start-overlay');
+        overlay.className = 'fixed inset-0 z-50 flex items-center justify-center bg-inverse-surface/60 backdrop-blur-sm p-4';
+        overlay.innerHTML =
+          '<div class="bg-surface-container-lowest rounded-xl max-w-md w-full p-6 shadow-2xl flex flex-col gap-4">'
+          + '<div class="flex items-center justify-between">'
+          + '<h3 class="font-headline-md text-headline-md text-on-surface font-bold">Start a privileged session</h3>'
+          + '<button class="p-1 rounded hover:bg-surface-container text-on-surface-variant" data-role="close">'
+          + '<span class="material-symbols-outlined text-[18px]">close</span></button></div>'
+          + '<div class="flex flex-col gap-1"><span class="font-code-sm text-code-sm text-outline">PROTOCOL</span>'
+          + '<select data-role="protocol" class="bg-surface-container-low p-2 rounded-lg font-body-sm text-body-sm text-on-surface focus:outline-none">'
+          + PROTOCOLS.map((p) => '<option value="' + p + '">' + p.toUpperCase() + '</option>').join('')
+          + '</select></div>'
+          + '<div class="flex flex-col gap-1"><span class="font-code-sm text-code-sm text-outline">TARGET</span>'
+          + '<input data-role="target" placeholder="host.example:22" class="bg-surface-container-low p-2 rounded-lg font-code-sm text-code-sm text-on-surface focus:outline-none"/></div>'
+          + '<div class="flex flex-col gap-1"><span class="font-code-sm text-code-sm text-outline">CREDENTIAL (OPTIONAL)</span>'
+          + '<select data-role="item" class="bg-surface-container-low p-2 rounded-lg font-body-sm text-body-sm text-on-surface focus:outline-none"></select></div>'
+          + '<div class="grid grid-cols-2 gap-x-3 gap-y-1.5 font-body-sm text-body-sm text-on-surface-variant">'
+          + CONTROLS.map((c) => '<label class="flex items-center gap-1.5"><input type="checkbox" data-control="'
+            + c + '" checked/>' + esc(CLABEL[c]) + '</label>').join('')
+          + '</div>'
+          + '<p class="font-body-sm text-body-sm text-error hidden" data-role="error"></p>'
+          + '<div class="flex items-center justify-end gap-3 pt-1">'
+          + '<button class="px-3 py-2 rounded-lg bg-surface-container text-on-surface-variant font-label-md text-label-md" data-role="close">Cancel</button>'
+          + '<button class="px-3 py-2 rounded-lg bg-primary text-on-primary font-label-md text-label-md font-semibold" data-role="submit">Start Session</button>'
+          + '</div></div>';
+        document.body.appendChild(overlay);
+        const itemSel = overlay.querySelector('[data-role="item"]');
+        const avail = state.items.filter((i) => i.status === 'available');
+        itemSel.innerHTML = '<option value="">none \u2014 bare session (no vault credential)</option>'
+          + avail.map((i) => '<option value="' + i.id + '">#' + i.id + ' '
+            + esc(i.name) + ' (' + esc(i.target) + ')</option>').join('');
+        const errorEl = overlay.querySelector('[data-role="error"]');
+        function fail(message) {
+          errorEl.textContent = message;
+          errorEl.classList.remove('hidden');
+        }
+        overlay.addEventListener('click', (ev) => {
+          if (ev.target === overlay
+              || ev.target.closest('[data-role="close"]')) {
+            overlay.remove();
+            return;
+          }
+          if (ev.target.closest('[data-role="submit"]')) submit();
+        });
+        async function submit() {
+          const payload = {
+            protocol: overlay.querySelector('[data-role="protocol"]').value,
+            target: overlay.querySelector('[data-role="target"]').value.trim(),
+          };
+          if (!payload.target) { fail('Target is required (host:port).'); return; }
+          const itemId = overlay.querySelector('[data-role="item"]').value;
+          if (itemId) payload.item_id = Number(itemId);
+          CONTROLS.forEach((c) => {
+            payload[c] = overlay.querySelector('[data-control="' + c + '"]').checked;
+          });
+          errorEl.classList.add('hidden');
+          try {
+            const out = await post('/sessions', payload);
+            overlay.remove();
+            toast('Session ' + out.session.session_ref + ' started');
+            state.tab = 'live';
+            state.selectedId = out.session.id;
+            await load();
+          } catch (err) { fail(err.message); }
+        }
+      }
+
+      // ---- boot --------------------------------------------------------------
+      // The <footer> parses after this script block, so the first paint waits
+      // for DOMContentLoaded: renderAll() purges every frozen design value and
+      // fillFooter() resolves its spans lazily once the footer exists.
+      function boot() {
+        renderAll(); // synchronous first paint: purges every frozen design value
+        fillFooter(null);
+        load();
+        setInterval(() => {
+          if (ROOT === '' || document.visibilityState !== 'visible') return;
+          load();
+        }, 15000);
+      }
+      if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', boot);
+      } else {
+        boot();
       }
     })();
   </script>

@@ -25,13 +25,17 @@ Supported wire formats and algorithms:
 | `app.py` | Flask app factory, error handlers, `/health`, screen routes, `python app.py` entrypoint |
 | `config.py` | Environment-driven configuration (`.env` supported) |
 | `routes.py` | HTTP layer: parsing, auth, status codes |
-| `service.py` | Business logic: import, list, revoke, restore, validate, usage, checks, `meta`, platform settings, credential vault, dashboard overview + unified events |
-| `models.py` | `LicenseRecord` (signed license + spec fields), `LicenseEvent`, `SettingGroup` + `SettingsEvent` (config changelog), `VaultItem` + `VaultEvent` (vault inventory + audit) |
+| `service.py` | Business logic: import, list, revoke, restore, validate, usage, checks, `meta`, platform settings, credential vault, dashboard overview + unified events, infrastructure discovery, JIT access grants, privileged sessions |
+| `models.py` | `LicenseRecord` (signed license + spec fields), `LicenseEvent`, `SettingGroup` + `SettingsEvent` (config changelog), `VaultItem` + `VaultEvent` + `VaultSecretVersion` (vault inventory + audit + immutable versions), `DiscoveredAsset`/`DiscoveredAccount`/`DiscoveryScan`/`DiscoveryEvent`, `JitRequest` + `JitEvent` (grants + trail), `PrivilegedSession` + `SessionEvent` (session recording, append-only) |
 | `keys.py` | Startup key checks (fail fast, public/private must match, both algorithms) |
 | `licensing_bridge.py` | Path bootstrap + cached Phase 1 `LicenseGenerator`/`LicenseValidator` |
 | `tests/test_api.py` | End-to-end license API tests |
 | `tests/test_settings_and_ui.py` | Settings CRUD/auth/validation/audit + frontend navigation tests |
 | `tests/test_vault_dashboard.py` | Vault inventory/rotation/checkout + dashboard overview + unified event feed tests |
+| `tests/test_rotation.py` | AES-256-GCM-at-rest secret versions and the rotation engine tests |
+| `tests/test_discovery.py` | Infrastructure discovery (onboard, scan, adopt, ignore) tests |
+| `tests/test_jit.py` | JIT access: deterministic risk bands, approvals, time-boxed grants, expiry rotation |
+| `tests/test_sessions.py` | Privileged sessions: start/attach, channel events, control gating, lifecycle + cascades |
 | `tests/test_openapi_contract.py` | `apis/openapi.yaml` ↔ live route map (both directions) |
 
 ## Quick start
@@ -84,12 +88,18 @@ it loads the four configuration groups plus their schema, renders editable
 controls, tracks dirty fields, saves through the admin token and shows the live
 configuration changelog.
 
-Three more screens render from the dashboard API: the **Command Center** and
+Five more screens render from their own APIs: the **Command Center** and
 **Compliance** screens (`GET /api/v1/overview` + the unified
 `GET /api/v1/events` feed — health, license posture, vault stats, computed
-control posture, recent activity) and the **Credential Vault**
+control posture, recent activity), the **Credential Vault**
 (`GET/POST /api/v1/vault/*` — onboarding via **Onboard New Credential**, rotation
-SLA, type/status filters, JIT checkouts and an audit trail). Each fetches on load
+SLA, type/status filters, JIT checkouts and an audit trail), the
+**Infrastructure Discovery** screen (`GET/POST /api/v1/discovery/*` — register,
+scan, adopt, ignore), the **JIT access** console (`GET/POST /api/v1/jit/*` —
+requests, risk, approvals, time-boxed grants) and the **live session hub**
+(`GET/POST /api/v1/sessions/*` — start a session against a vault credential or
+an active grant, replay its append-only recording, gate controls, and end it
+through the release-and-rotate cascade). Each fetches on load
 and keeps its honest placeholder content as the fallback, so it still renders
 when opened as `file://` or when the API is unreachable.
 
@@ -107,8 +117,8 @@ is no seed inventory: every credential enters through **Onboard New Credential**
 "not connected" states instead of sample rows.
 
 ```bash
-python -m pytest tests -q     # 164 tests (from backend/phase2_license_server)
-python -m pytest backend -q   # 246 tests from the repo root (+ shared crypto core)
+python -m pytest tests -q     # 205 tests (from backend/phase2_license_server)
+python -m pytest backend -q   # 287 tests from the repo root (+ shared crypto core)
 ```
 
 ## Configuration
@@ -180,6 +190,18 @@ cross-checked against these routes by `tests/test_openapi_contract.py`.
 | POST | `/jit/requests/<id>/deny` | admin | Move pending/blocked → denied (body `{"reason"?}`) |
 | POST | `/jit/requests/<id>/consume` | admin | Grant: approved → active, checks the credential out (`session_ref=jit-<id>`) until `expires_at` |
 | POST | `/jit/requests/<id>/close` | admin | End a grant early: release the checkout and rotate the credential (audited) |
+| GET | `/sessions/stats` | – | Session aggregates: per-status counts, event and blocked totals |
+| GET | `/sessions?status=&protocol=&q=&limit=&offset=` | – | Sessions, newest first (live and archived; `status`/`protocol`/search filters) |
+| POST | `/sessions` | admin | Start a privileged session (201; `protocol` (13), `target`, optional `item_id` — checks the credential out — or `jit_request_id` that must be an active grant, plus the 7 control flags). One live session per grant → 409 |
+| GET | `/sessions/<id>` | – | One session plus stats and its latest events (evaluates linked grant expiry) |
+| GET | `/sessions/<id>/events?order=&type=&limit=&offset=` | – | The append-only recording: `seq`, type, content, `allowed`/`blocked_reason`, `withheld`, `watermark`, actor |
+| POST | `/sessions/<id>/events` | admin | Record a channel event. Not-live → 409; typed content while `record=false` → 403; gated channels store `allowed=false` + reason (blocked evidence); `keystroke_log=false` stores content `null` + `withheld=true` |
+| POST | `/sessions/<id>/controls` | admin | Update control flags mid-session (live only; JSON keys are the flags) |
+| POST | `/sessions/<id>/pause` | admin | Suspend the session: further channel events → 409 until resumed |
+| POST | `/sessions/<id>/lock` | admin | Lock the session (same refusal semantics as pause) |
+| POST | `/sessions/<id>/resume` | admin | Resume a paused/locked session |
+| POST | `/sessions/<id>/terminate` | admin | End with `outcome=terminated` (body `{"reason"?}`); linked grant closes with it, own checkout releases and rotates exactly once — response carries the real `cascade` detail |
+| POST | `/sessions/<id>/complete` | admin | End with `outcome=completed` (body `{"reason"?}`), same cascade rules |
 | GET | `/vault/events?limit=&action=` | – | Vault audit trail (onboarding, checkouts, rotations); `action` filters to one type |
 | GET | `/discovery/stats` | – | Discovery aggregates: totals, per-type/risk/status, recorded accounts, last scan |
 | GET | `/discovery/assets?…` | – | Discovered targets (`q`, `type`, `risk`, `pam_status`, `limit`, `offset`), each with `vault_count` |
@@ -372,6 +394,42 @@ curl -s -X POST http://127.0.0.1:5000/api/v1/jit/requests/1/consume \
 curl -s -X POST http://127.0.0.1:5000/api/v1/jit/requests/1/close \
   -H "Authorization: Bearer $LICENSE_ADMIN_TOKEN" -H "X-Actor: alice" \
   -H "Content-Type: application/json" -d '{}'
+
+# session flow: start against a vault credential (checks it out) or attach an
+# active grant via "jit_request_id"; bare sessions need neither
+curl -s -X POST http://127.0.0.1:5000/api/v1/sessions \
+  -H "Authorization: Bearer $LICENSE_ADMIN_TOKEN" -H "X-Actor: alice" \
+  -H "Content-Type: application/json" \
+  -d '{"protocol": "ssh", "target": "bastion.example:22", "item_id": 5,
+       "clipboard_allowed": false}'
+
+# record channel events (append-only); gated channels keep blocked attempts
+# as evidence instead of dropping them
+curl -s -X POST http://127.0.0.1:5000/api/v1/sessions/1/events \
+  -H "Authorization: Bearer $LICENSE_ADMIN_TOKEN" -H "X-Actor: recorder" \
+  -H "Content-Type: application/json" \
+  -d '{"type": "command", "content": "df -h"}'
+curl -s -X POST http://127.0.0.1:5000/api/v1/sessions/1/events \
+  -H "Authorization: Bearer $LICENSE_ADMIN_TOKEN" -H "X-Actor: recorder" \
+  -H "Content-Type: application/json" \
+  -d '{"type": "clipboard", "content": "copied rows"}'   # allowed=false (gate)
+
+# control the live session: flags mid-session, then pause/lock/resume;
+# ending it releases the checkout and rotates the credential exactly once
+curl -s -X POST http://127.0.0.1:5000/api/v1/sessions/1/controls \
+  -H "Authorization: Bearer $LICENSE_ADMIN_TOKEN" -H "X-Actor: alice" \
+  -H "Content-Type: application/json" -d '{"upload_allowed": false}'
+curl -s -X POST http://127.0.0.1:5000/api/v1/sessions/1/pause \
+  -H "Authorization: Bearer $LICENSE_ADMIN_TOKEN" -H "X-Actor: alice" \
+  -H "Content-Type: application/json" -d '{}'
+curl -s -X POST http://127.0.0.1:5000/api/v1/sessions/1/resume \
+  -H "Authorization: Bearer $LICENSE_ADMIN_TOKEN" -H "X-Actor: alice" \
+  -H "Content-Type: application/json" -d '{}'
+curl -s -X POST http://127.0.0.1:5000/api/v1/sessions/1/terminate \
+  -H "Authorization: Bearer $LICENSE_ADMIN_TOKEN" -H "X-Actor: alice" \
+  -H "Content-Type: application/json" -d '{"reason": "change window closed"}'
+# -> "cascade": {"grant_closed": false, "rotated": true, ...} or, with a JIT
+#    session, grant_closed=true; the vault trail carries one rotated event.
 ```
 
 - The vault starts empty — there is no seed inventory. Onboard credentials via
@@ -412,8 +470,20 @@ curl -s -X POST http://127.0.0.1:5000/api/v1/jit/requests/1/close \
   scheduler tick (`ROTATION_SCHEDULER=1`), releasing the checkout and
   rotating the credential with `trigger=session_end`. Every state change is
   a `jit_events` row (requester, approver, risk policy or system as actor).
+- **Privileged sessions** (module 8) start against a vault credential (a real
+  checkout) or an active JIT grant (one live session per grant → 409), and
+  every channel event lands in append-only `session_events` with `seq`,
+  custody watermark and actor. Controls gate for real: typed content while
+  `record=false` is refused (403), gated channels store the attempt with
+  `allowed=false` + reason (kept as blocked evidence), and
+  `keystroke_log=false` stores content `null` + `withheld=true`. Lifecycle:
+  pause/lock refuse further events (409) until resume; terminate/complete run
+  the cascade — the linked grant closes together, the own checkout is
+  released and the credential rotated exactly once (`cascade` in the
+  response). Ending a session whose grant expired in a detail read does the
+  same through the lazy path (`end_reason=grant_expired`).
 - Reads are public; the write routes (settings, vault, discovery, rotation,
-  jit)
+  jit, sessions)
   require the admin token in token mode (open mode stays open) and record who
   acted via `X-Actor`. The secret reveal (`GET /vault/items/<id>/secret`) is
   gated like a write route — it is never one of the public reads.

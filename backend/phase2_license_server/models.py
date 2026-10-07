@@ -920,3 +920,124 @@ class JitEvent(db.Model):
             "detail": self.detail,
             "created_at": self.created_at.isoformat(),
         }
+
+
+# ---------------------------------------------------------------------------
+# privileged session management (module 8)
+# ---------------------------------------------------------------------------
+SESSION_PROTOCOLS = (
+    "ssh", "rdp", "telnet", "vnc", "http", "https", "sql", "oracle",
+    "postgresql", "mssql", "mysql", "sap", "kubernetes",
+)
+SESSION_STATUSES = (
+    "active",     # running: events are accepted and recorded
+    "paused",     # supervisor paused it: events refused
+    "locked",     # locked pending review: events refused
+    "terminated", # stopped early (kill switch / control action)
+    "completed",  # ran to its natural end
+)
+SESSION_TERMINAL_STATUSES = ("terminated", "completed")
+SESSION_EVENT_TYPES = (
+    "keystroke",   # typed input (content withheld when keystroke_log is off)
+    "command",     # executed command (always kept: the safety channel)
+    "file_upload", # gated by upload_allowed
+    "file_download",  # gated by download_allowed
+    "clipboard",   # gated by clipboard_allowed
+    "screenshot",  # gated by screenshot_allowed
+    "note",        # operator annotation (recorded like other content)
+    "status",      # server-written lifecycle marker (pause/lock/terminate...)
+)
+
+
+class PrivilegedSession(db.Model):
+    """One privileged session (architecture module 8): protocol + target, the
+    control flags that govern recording / transfer / clipboard / watermark,
+    the real start-stop clock, and the vault checkout or JIT grant it runs
+    under. Ending a session drives the release-and-rotate cascade."""
+
+    __tablename__ = "privileged_sessions"
+
+    id = db.Column(db.Integer, primary_key=True)
+    session_ref = db.Column(db.String(64), nullable=False, unique=True, index=True)
+    protocol = db.Column(db.String(16), nullable=False)
+    target = db.Column(db.String(255), nullable=False)
+    actor = db.Column(db.String(64), nullable=False, default="system")
+    # linkage: a session runs against a vault credential, optionally the one
+    # an active JIT grant already checked out (both nullable).
+    item_id = db.Column(db.Integer, nullable=True, index=True)
+    jit_request_id = db.Column(db.Integer, nullable=True, index=True)
+    status = db.Column(db.String(16), nullable=False, default="active", index=True)
+    # session controls (module 8 control list); all default on.
+    record = db.Column(db.Boolean, nullable=False, default=True)
+    keystroke_log = db.Column(db.Boolean, nullable=False, default=True)
+    watermark = db.Column(db.Boolean, nullable=False, default=True)
+    clipboard_allowed = db.Column(db.Boolean, nullable=False, default=True)
+    upload_allowed = db.Column(db.Boolean, nullable=False, default=True)
+    download_allowed = db.Column(db.Boolean, nullable=False, default=True)
+    screenshot_allowed = db.Column(db.Boolean, nullable=False, default=True)
+    started_at = db.Column(db.DateTime, nullable=False, default=datetime.now)
+    ended_at = db.Column(db.DateTime, nullable=True)
+    end_reason = db.Column(db.String(32), nullable=True)
+    created_at = db.Column(db.DateTime, nullable=False, default=datetime.now)
+
+    def to_dict(self) -> Dict[str, Any]:
+        end = self.ended_at or datetime.now()
+        duration = max(0, int((end - self.started_at).total_seconds()))
+        return {
+            "id": self.id,
+            "session_ref": self.session_ref,
+            "protocol": self.protocol,
+            "target": self.target,
+            "actor": self.actor,
+            "item_id": self.item_id,
+            "jit_request_id": self.jit_request_id,
+            "status": self.status,
+            "controls": {
+                "record": self.record,
+                "keystroke_log": self.keystroke_log,
+                "watermark": self.watermark,
+                "clipboard_allowed": self.clipboard_allowed,
+                "upload_allowed": self.upload_allowed,
+                "download_allowed": self.download_allowed,
+                "screenshot_allowed": self.screenshot_allowed,
+            },
+            "started_at": self.started_at.isoformat(),
+            "ended_at": self.ended_at.isoformat() if self.ended_at else None,
+            "end_reason": self.end_reason,
+            "duration_seconds": duration,
+            "created_at": self.created_at.isoformat(),
+        }
+
+
+class SessionEvent(db.Model):
+    """Append-only session recording rows: what flowed through the channel,
+    whether the controls allowed it, and the watermark that proves custody."""
+
+    __tablename__ = "session_events"
+
+    id = db.Column(db.Integer, primary_key=True)
+    session_id = db.Column(db.Integer, nullable=False, index=True)
+    seq = db.Column(db.Integer, nullable=False)
+    type = db.Column(db.String(16), nullable=False)
+    content = db.Column(db.Text, nullable=True)
+    allowed = db.Column(db.Boolean, nullable=False, default=True)
+    blocked_reason = db.Column(db.String(64), nullable=True)
+    withheld = db.Column(db.Boolean, nullable=False, default=False)
+    watermark = db.Column(db.String(160), nullable=True)
+    actor = db.Column(db.String(64), nullable=False, default="system")
+    created_at = db.Column(db.DateTime, nullable=False, default=datetime.now)
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "id": self.id,
+            "session_id": self.session_id,
+            "seq": self.seq,
+            "type": self.type,
+            "content": self.content,
+            "allowed": self.allowed,
+            "blocked_reason": self.blocked_reason,
+            "withheld": self.withheld,
+            "watermark": self.watermark,
+            "actor": self.actor,
+            "created_at": self.created_at.isoformat(),
+        }

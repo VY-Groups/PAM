@@ -24,7 +24,7 @@ PAM/
 │   ├── screens/<name>/          #   one folder per screen: code.html + screen.png
 │   └── README.md                #   layout + how to add a screen (the contract)
 ├── apis/                            # HTTP contract for every backend service
-│   ├── openapi.yaml             #   OpenAPI 3.1: all 39 paths (synced by a test)
+│   ├── openapi.yaml             #   OpenAPI 3.1: all 49 paths (synced by a test)
 │   └── README.md                #   conventions + how to view
 ├── backend/
 │   ├── ipam_licensing/              # Phase 1: library + CLIs
@@ -37,8 +37,13 @@ PAM/
 │   │   └── test_license_spec.py #   spec/crypto suite (35 tests)
 │   └── phase2_license_server/   # Phase 2: Flask API (see its README.md)
 │       ├── app.py / routes.py / service.py / models.py
-│       ├── tests/test_api.py            # license API suite (49 tests)
+│       ├── tests/test_api.py            # license API suite (59 tests)
 │       ├── tests/test_settings_and_ui.py # settings API + frontend nav (32 tests)
+│       ├── tests/test_vault_dashboard.py # vault inventory + dashboard feed (19 tests)
+│       ├── tests/test_rotation.py        # at-rest encryption + rotation (30 tests)
+│       ├── tests/test_discovery.py       # discovery endpoints (19 tests)
+│       ├── tests/test_jit.py             # JIT access grants (18 tests)
+│       ├── tests/test_sessions.py        # privileged sessions (23 tests)
 │       ├── tests/test_openapi_contract.py # apis/openapi.yaml ↔ routes (5 tests)
 │       └── README.md                # full API reference
 ├── pam_master/                        # VY-PAM MASTER: vendor tool (never shipped)
@@ -79,7 +84,7 @@ python -m pam_master.keygen                      # RSA + Ed25519 + registry PII 
 python -m pam_master                             # http://127.0.0.1:5400
 
 # Tests (shared core + shipped API contract + vendor tool)
-python -m pytest backend -q                      # 264 tests
+python -m pytest backend -q                      # 287 tests
 python -m pytest pam_master -q                   # 46 tests (vendor tool)
 ```
 
@@ -114,15 +119,19 @@ python -m pytest pam_master -q                   # 46 tests (vendor tool)
   scan guarantees no private key is ever part of the shipped repository.
 - The console lives in `frontend/` — a copy of the frozen design reference in
   `stitch_pam_suite_dashboard_ui/`. Every screen carries the same sidebar with
-  real links, `frontend/index.html` is the launcher. Served by Phase 2, seven
+  real links, `frontend/index.html` is the launcher. Served by Phase 2, eight
   screens are **live**: licensing (`/`), platform settings (`/settings`,
   backed by `GET/PUT /api/v1/settings` with an audit changelog), the Command
   Center and Compliance screens (backed by `GET /api/v1/overview` and the
   unified `GET /api/v1/events` feed), the Credential Vault (backed by
   `GET/POST /api/v1/vault/*` — inventory, rotation SLA and checkouts),
-  Infrastructure Discovery (`GET/POST /api/v1/discovery/*`), and the JIT
+  Infrastructure Discovery (`GET/POST /api/v1/discovery/*`), the JIT
   access console (`GET/POST /api/v1/jit/*` — requests, risk evaluation,
-  approvals, time-boxed grants that rotate their credential on expiry).
+  approvals, time-boxed grants that rotate their credential on expiry), and
+  the live session hub (`GET/POST /api/v1/sessions/*` — start privileged
+  sessions against a vault credential or an active grant, append-only
+  channel events with custody watermarks, real pause/lock/terminate that
+  release the checkout and rotate the credential exactly once).
   The rest are static pages under `/screens/`.
 
 ## What a license carries

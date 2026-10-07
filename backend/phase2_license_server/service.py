@@ -10,6 +10,7 @@ from __future__ import annotations
 import base64
 import ipaddress
 import re
+import secrets
 import socket
 import threading
 import time
@@ -56,6 +57,10 @@ from models import (
     EVENT_USAGE_REPORTED,
     JIT_ROLES,
     JIT_STATUSES,
+    SESSION_EVENT_TYPES,
+    SESSION_PROTOCOLS,
+    SESSION_STATUSES,
+    SESSION_TERMINAL_STATUSES,
     SETTINGS_ACTION_UPDATED,
     STATUS_ACTIVE,
     STATUS_REVOKED,
@@ -79,6 +84,8 @@ from models import (
     JitRequest,
     LicenseEvent,
     LicenseRecord,
+    PrivilegedSession,
+    SessionEvent,
     SettingGroup,
     SettingsEvent,
     VaultEvent,
@@ -2118,6 +2125,8 @@ def _end_jit_grant(request: JitRequest, *, actor: str, action: str) -> JitReques
     request.status = "expired" if action == "expired" else "closed"
     request.closed_at = datetime.now()
     _log_jit_event(request, action, actor, detail)
+    # a live session riding this grant ends with it (one cascade, one commit)
+    _end_sessions_for_grant(request, actor=actor, action=action)
     db.session.commit()
     return request
 
@@ -2199,6 +2208,583 @@ def jit_stats() -> Dict[str, Any]:
         "active": by_status["active"],
         "pending": by_status["pending"],
     }
+
+
+# ---------------------------------------------------------------------------
+# privileged session management (module 8: record -> monitor -> control)
+# ---------------------------------------------------------------------------
+SESSION_CONTROL_FIELDS = (
+    "record",
+    "keystroke_log",
+    "watermark",
+    "clipboard_allowed",
+    "upload_allowed",
+    "download_allowed",
+    "screenshot_allowed",
+)
+# content events are capped so one recording can never blow up the store
+_MAX_EVENT_CONTENT = 4096
+
+
+def get_privileged_session(session_id: int) -> PrivilegedSession:
+    """Fetch one session row or raise 404."""
+    session = PrivilegedSession.query.filter_by(id=session_id).first()
+    if session is None:
+        raise NotFound(f"No session with id {session_id}")
+    return session
+
+
+def _next_session_seq(session_id: int) -> int:
+    # append-only table (rows are never deleted) -> count + 1 is stable
+    return SessionEvent.query.filter_by(session_id=session_id).count() + 1
+
+
+def _session_watermark(session: PrivilegedSession, actor: str) -> str:
+    return f"{session.session_ref} | {actor} | {datetime.now().isoformat(timespec='seconds')}"
+
+
+def _append_session_status(
+    session: PrivilegedSession, *, actor: str, content: str
+) -> SessionEvent:
+    """Server-written lifecycle marker so playback shows every control action."""
+    event = SessionEvent(
+        session_id=session.id,
+        seq=_next_session_seq(session.id),
+        type="status",
+        content=content,
+        actor=actor,
+        watermark=_session_watermark(session, actor) if session.watermark else None,
+    )
+    db.session.add(event)
+    return event
+
+
+def create_session(payload: Any, *, actor: str) -> PrivilegedSession:
+    """Start a privileged session: protocol + target, optionally against a
+    vault credential (checked out for the session) or riding an active JIT
+    grant (attached, no second checkout)."""
+    if not isinstance(payload, dict):
+        raise ValidationFailed("Request body must be a JSON object")
+
+    protocol = payload.get("protocol")
+    if not isinstance(protocol, str) or protocol.strip().lower() not in SESSION_PROTOCOLS:
+        raise ValidationFailed(
+            "Unknown protocol",
+            {"field": "protocol", "allowed": list(SESSION_PROTOCOLS)},
+        )
+    protocol = protocol.strip().lower()
+
+    target = payload.get("target")
+    if not isinstance(target, str) or not target.strip():
+        raise ValidationFailed("'target' is required", {"field": "target"})
+    target = target.strip()
+    if len(target) > 255:
+        raise ValidationFailed(
+            "'target' must be at most 255 characters", {"field": "target"}
+        )
+
+    def _opt_int(field: str) -> Optional[int]:
+        if field not in payload or payload[field] is None:
+            return None
+        raw = payload[field]
+        if isinstance(raw, bool) or not isinstance(raw, int):
+            raise ValidationFailed(f"'{field}' must be an integer id", {"field": field})
+        return raw
+
+    item_id = _opt_int("item_id")
+    jit_request_id = _opt_int("jit_request_id")
+
+    controls: Dict[str, Any] = {}
+    for key in SESSION_CONTROL_FIELDS:
+        if key in payload:
+            value = payload[key]
+            if not isinstance(value, bool):
+                raise ValidationFailed(
+                    f"'{key}' must be true or false", {"field": key}
+                )
+            controls[key] = value
+
+    grant: Optional[JitRequest] = None
+    if jit_request_id is not None:
+        grant = get_jit_request(jit_request_id)  # 404 for unknown ids
+        if grant.status != "active":
+            raise ValidationFailed(
+                f"Request is {grant.status}; a session needs an active grant",
+                {"field": "jit_request_id", "status": grant.status},
+            )
+        if item_id is not None and item_id != grant.item_id:
+            raise ValidationFailed(
+                "item_id does not match the credential this grant checks out",
+                {"field": "item_id", "expected": grant.item_id},
+            )
+        item_id = grant.item_id
+        live = (
+            PrivilegedSession.query.filter_by(jit_request_id=grant.id)
+            .filter(~PrivilegedSession.status.in_(SESSION_TERMINAL_STATUSES))
+            .first()
+        )
+        if live is not None:
+            raise Conflict(
+                "This grant already has a live session",
+                {"field": "jit_request_id", "session_id": live.id},
+            )
+
+    own_checkout = False
+    if item_id is not None:
+        item = get_vault_item(item_id)  # 404 for unknown ids
+        if grant is None:
+            if item.status == VAULT_STATUS_CHECKED_OUT:
+                raise Conflict(
+                    "Credential is already checked out",
+                    {"field": "status", "status": item.status},
+                )
+            if item.status == VAULT_STATUS_ROTATING:
+                raise Conflict(
+                    "Rotation is in progress",
+                    {"field": "status", "status": item.status},
+                )
+            own_checkout = True
+
+    session = PrivilegedSession(
+        session_ref=f"sess-{secrets.token_hex(4)}",
+        protocol=protocol,
+        target=target,
+        actor=actor,
+        item_id=item_id,
+        jit_request_id=grant.id if grant is not None else None,
+        **controls,
+    )
+    db.session.add(session)
+    try:
+        db.session.flush()  # assign the id before the status event references it
+        _append_session_status(session, actor=actor, content="session started")
+        if own_checkout:
+            # commits session + status event together with the checkout
+            checkout_vault_item(
+                item_id, actor=actor, reason=f"session {session.session_ref}"
+            )
+        else:
+            db.session.commit()
+    except APIError:
+        db.session.rollback()
+        raise
+    return session
+
+
+def list_sessions(
+    *,
+    status: Optional[str] = None,
+    protocol: Optional[str] = None,
+    q: Optional[str] = None,
+    limit: int = 50,
+    offset: int = 0,
+) -> Tuple[List[PrivilegedSession], int]:
+    """Live monitoring list (filters + pagination), newest first."""
+    refresh_jit_requests()  # a linked grant may have expired -> session ended
+    if status is not None and status not in SESSION_STATUSES:
+        raise ValidationFailed(
+            f"Unknown status '{status}'",
+            {"field": "status", "allowed": list(SESSION_STATUSES)},
+        )
+    if protocol is not None and protocol not in SESSION_PROTOCOLS:
+        raise ValidationFailed(
+            f"Unknown protocol '{protocol}'",
+            {"field": "protocol", "allowed": list(SESSION_PROTOCOLS)},
+        )
+    query = PrivilegedSession.query
+    if status is not None:
+        query = query.filter_by(status=status)
+    if protocol is not None:
+        query = query.filter_by(protocol=protocol)
+    if q:
+        pattern = f"%{q.strip()}%"
+        query = query.filter(
+            db.or_(
+                PrivilegedSession.target.ilike(pattern),
+                PrivilegedSession.actor.ilike(pattern),
+                PrivilegedSession.session_ref.ilike(pattern),
+            )
+        )
+    total = query.count()
+    items = (
+        query.order_by(PrivilegedSession.id.desc()).limit(limit).offset(offset).all()
+    )
+    return items, total
+
+
+def session_detail(session_id: int) -> Dict[str, Any]:
+    """One session with its latest recorded events and real counters."""
+    refresh_jit_requests()
+    session = get_privileged_session(session_id)
+    events = (
+        SessionEvent.query.filter_by(session_id=session.id)
+        .order_by(SessionEvent.id.desc())
+        .limit(20)
+        .all()
+    )
+    total = SessionEvent.query.filter_by(session_id=session.id).count()
+    blocked = SessionEvent.query.filter_by(
+        session_id=session.id, allowed=False
+    ).count()
+    return {
+        "session": session.to_dict(),
+        "events": [event.to_dict() for event in events],
+        "event_count": total,
+        "blocked_count": blocked,
+    }
+
+
+def session_stats() -> Dict[str, Any]:
+    """Real monitoring aggregates over the session and recording tables."""
+    refresh_jit_requests()
+    by_status = {
+        value: PrivilegedSession.query.filter_by(status=value).count()
+        for value in SESSION_STATUSES
+    }
+    return {
+        "total": sum(by_status.values()),
+        "by_status": by_status,
+        "active": by_status["active"],
+        "paused": by_status["paused"],
+        "locked": by_status["locked"],
+        "ended": by_status["terminated"] + by_status["completed"],
+        "events_total": SessionEvent.query.count(),
+        "events_blocked": SessionEvent.query.filter_by(allowed=False).count(),
+        "events_withheld": SessionEvent.query.filter_by(withheld=True).count(),
+    }
+
+
+def list_session_events(
+    session_id: int,
+    *,
+    limit: int = 500,
+    offset: int = 0,
+    event_type: Optional[str] = None,
+    order: str = "asc",
+) -> Tuple[List[SessionEvent], int]:
+    """Playback: the recording in sequence order (desc for live tails)."""
+    session = get_privileged_session(session_id)
+    if event_type is not None and event_type not in SESSION_EVENT_TYPES:
+        raise ValidationFailed(
+            f"Unknown event type '{event_type}'",
+            {"field": "type", "allowed": list(SESSION_EVENT_TYPES)},
+        )
+    if order not in ("asc", "desc"):
+        raise ValidationFailed(
+            f"Unknown order '{order}'", {"field": "order", "allowed": ["asc", "desc"]}
+        )
+    query = SessionEvent.query.filter_by(session_id=session.id)
+    if event_type is not None:
+        query = query.filter_by(type=event_type)
+    total = query.count()
+    if order == "desc":
+        rows = (
+            query.order_by(SessionEvent.seq.desc())
+            .limit(limit)
+            .offset(offset)
+            .all()
+        )
+    else:
+        rows = (
+            query.order_by(SessionEvent.seq.asc())
+            .limit(limit)
+            .offset(offset)
+            .all()
+        )
+    return rows, total
+
+
+def post_session_event(
+    session_id: int, payload: Any, *, actor: str
+) -> SessionEvent:
+    """Record one channel event. Controls are enforced for real: a gated-off
+    transfer/clipboard/screenshot is stored with allowed=false as evidence,
+    keystrokes are content-withheld when logging is off, and a paused/locked/
+    ended session refuses events outright."""
+    session = get_privileged_session(session_id)
+    if session.status in SESSION_TERMINAL_STATUSES:
+        raise Conflict(
+            f"Session already {session.status}",
+            {"field": "status", "status": session.status},
+        )
+    if session.status in ("paused", "locked"):
+        raise Conflict(
+            f"Session is {session.status}; resume it before posting events",
+            {"field": "status", "status": session.status},
+        )
+    if not isinstance(payload, dict):
+        raise ValidationFailed("Request body must be a JSON object")
+    event_type = payload.get("type")
+    if not isinstance(event_type, str) or event_type not in SESSION_EVENT_TYPES:
+        raise ValidationFailed(
+            "Unknown event type",
+            {"field": "type", "allowed": list(SESSION_EVENT_TYPES)},
+        )
+    content = payload.get("content")
+    if content is None:
+        content = ""
+    if not isinstance(content, str):
+        raise ValidationFailed("'content' must be a string", {"field": "content"})
+    if len(content) > _MAX_EVENT_CONTENT:
+        raise ValidationFailed(
+            f"'content' must be at most {_MAX_EVENT_CONTENT} characters",
+            {"field": "content"},
+        )
+    # the safety channel is never silenced by the recording flag
+    if event_type not in ("command", "status") and not session.record:
+        raise ValidationFailed(
+            "Recording is off for this session; content events are refused",
+            {"field": "type", "record": False},
+        )
+    allowed = True
+    blocked_reason = None
+    withheld = False
+    stored = content
+    gates = {
+        "file_upload": (session.upload_allowed, "upload_not_allowed"),
+        "file_download": (session.download_allowed, "download_not_allowed"),
+        "clipboard": (session.clipboard_allowed, "clipboard_not_allowed"),
+        "screenshot": (session.screenshot_allowed, "screenshot_not_allowed"),
+    }
+    if event_type in gates:
+        gate_ok, why = gates[event_type]
+        if not gate_ok:
+            # keep the attempt as evidence, marked as blocked
+            allowed = False
+            blocked_reason = why
+    if event_type == "keystroke" and not session.keystroke_log:
+        # policy says do not capture: the row records that input happened,
+        # never what was typed
+        withheld = True
+        stored = None
+    event = SessionEvent(
+        session_id=session.id,
+        seq=_next_session_seq(session.id),
+        type=event_type,
+        content=stored,
+        allowed=allowed,
+        blocked_reason=blocked_reason,
+        withheld=withheld,
+        watermark=_session_watermark(session, actor) if session.watermark else None,
+        actor=actor,
+    )
+    db.session.add(event)
+    db.session.commit()
+    return event
+
+
+def update_session_controls(
+    session_id: int, payload: Any, *, actor: str
+) -> PrivilegedSession:
+    """Flip control flags on a live session (audited as a status event)."""
+    session = get_privileged_session(session_id)
+    if session.status in SESSION_TERMINAL_STATUSES:
+        raise ValidationFailed(
+            f"Session already {session.status}",
+            {"field": "status", "status": session.status},
+        )
+    if not isinstance(payload, dict) or not payload:
+        raise ValidationFailed(
+            "Request body must set at least one control", {"field": "controls"}
+        )
+    changed = []
+    for key, value in payload.items():
+        if key not in SESSION_CONTROL_FIELDS:
+            raise ValidationFailed(
+                f"Unknown control '{key}'",
+                {"field": key, "allowed": list(SESSION_CONTROL_FIELDS)},
+            )
+        if not isinstance(value, bool):
+            raise ValidationFailed(f"'{key}' must be true or false", {"field": key})
+        setattr(session, key, value)
+        changed.append(f"{key}={'on' if value else 'off'}")
+    _append_session_status(
+        session, actor=actor, content="controls updated: " + ", ".join(changed)
+    )
+    db.session.commit()
+    return session
+
+
+def _session_transition(
+    session_id: int, *, actor: str, action: str
+) -> PrivilegedSession:
+    """pause / lock / resume — each transition is validated and recorded."""
+    session = get_privileged_session(session_id)
+    if session.status in SESSION_TERMINAL_STATUSES:
+        raise ValidationFailed(
+            f"Session already {session.status}",
+            {"field": "status", "status": session.status},
+        )
+    if action == "pause":
+        if session.status != "active":
+            raise ValidationFailed(
+                "Only an active session can be paused",
+                {"field": "status", "status": session.status},
+            )
+        session.status = "paused"
+        label = "session paused"
+    elif action == "lock":
+        if session.status not in ("active", "paused"):
+            raise ValidationFailed(
+                "Only a running or paused session can be locked",
+                {"field": "status", "status": session.status},
+            )
+        session.status = "locked"
+        label = "session locked"
+    else:  # resume
+        if session.status not in ("paused", "locked"):
+            raise ValidationFailed(
+                "Only a paused or locked session can be resumed",
+                {"field": "status", "status": session.status},
+            )
+        session.status = "active"
+        label = "session resumed"
+    _append_session_status(session, actor=actor, content=label)
+    db.session.commit()
+    return session
+
+
+def pause_session(session_id: int, *, actor: str) -> PrivilegedSession:
+    return _session_transition(session_id, actor=actor, action="pause")
+
+
+def lock_session(session_id: int, *, actor: str) -> PrivilegedSession:
+    return _session_transition(session_id, actor=actor, action="lock")
+
+
+def resume_session(session_id: int, *, actor: str) -> PrivilegedSession:
+    return _session_transition(session_id, actor=actor, action="resume")
+
+
+def end_session(
+    session_id: int,
+    *,
+    actor: str,
+    outcome: str = "terminated",
+    payload: Any = None,
+) -> Tuple[PrivilegedSession, Dict[str, Any]]:
+    """Stop a session (kill switch or natural completion). If it holds a
+    vault checkout or rides a JIT grant, the release-and-rotate cascade runs
+    exactly once."""
+    if outcome not in SESSION_TERMINAL_STATUSES:
+        raise ValidationFailed(
+            f"Unknown outcome '{outcome}'",
+            {"field": "outcome", "allowed": list(SESSION_TERMINAL_STATUSES)},
+        )
+    reason = None
+    if payload is not None:
+        if not isinstance(payload, dict):
+            raise ValidationFailed("Request body must be a JSON object")
+        reason = payload.get("reason")
+        if reason is not None:
+            if not isinstance(reason, str):
+                raise ValidationFailed(
+                    "'reason' must be a string", {"field": "reason"}
+                )
+            if len(reason) > 500:
+                raise ValidationFailed(
+                    "'reason' must be at most 500 characters", {"field": "reason"}
+                )
+    session = get_privileged_session(session_id)
+    if session.status in SESSION_TERMINAL_STATUSES:
+        raise ValidationFailed(
+            f"Session already {session.status}",
+            {"field": "status", "status": session.status},
+        )
+    content = f"session {outcome}"
+    if reason:
+        content += f": {reason}"
+    session.status = outcome
+    session.ended_at = datetime.now()
+    session.end_reason = outcome
+    _append_session_status(session, actor=actor, content=content)
+
+    detail: Dict[str, Any] = {
+        "session_ref": session.session_ref,
+        "outcome": outcome,
+        "rotated": False,
+        "checkout_released": False,
+    }
+
+    grant = None
+    if session.jit_request_id is not None:
+        grant = JitRequest.query.filter_by(id=session.jit_request_id).first()
+    if grant is not None and grant.status == "active":
+        # closing the grant releases + rotates once; its hook then sees this
+        # session is already terminal and leaves it alone
+        close_jit_request(grant.id, actor=actor)
+        last = (
+            JitEvent.query.filter_by(request_id=grant.id)
+            .order_by(JitEvent.id.desc())
+            .first()
+        )
+        detail["grant_closed"] = True
+        detail["rotated"] = bool(last and last.detail.get("rotated"))
+        detail["checkout_released"] = bool(
+            last and last.detail.get("checkout_released")
+        )
+        if last and last.detail.get("secret_version") is not None:
+            detail["secret_version"] = last.detail["secret_version"]
+        _append_session_status(
+            session,
+            actor=actor,
+            content=f"JIT grant #{grant.id} closed with the session",
+        )
+    elif session.item_id is not None:
+        item = VaultItem.query.filter_by(id=session.item_id).first()
+        if (
+            item is not None
+            and item.status == VAULT_STATUS_CHECKED_OUT
+            and item.checked_out_by == session.actor
+        ):
+            try:
+                _, rotation = rotation_session_end(
+                    {"item_id": item.id, "session_id": session.session_ref},
+                    actor=actor,
+                )
+                detail["checkout_released"] = True
+                detail["rotated"] = True
+                detail["secret_version"] = rotation.get("secret_version")
+                _append_session_status(
+                    session,
+                    actor=actor,
+                    content="checkout released; credential rotated",
+                )
+            except APIError as exc:
+                # still end the session; the real reason is recorded, not hidden
+                detail["checkout_released"] = False
+                detail["rotated"] = False
+                detail["rotation_error"] = exc.message
+                _append_session_status(
+                    session, actor=actor, content=f"rotation not run: {exc.message}"
+                )
+        else:
+            # nothing held (bare session or checkout already revoked)
+            detail["rotated"] = False
+            detail["checkout_released"] = False
+    db.session.commit()
+    return session, detail
+
+
+def _end_sessions_for_grant(
+    request: JitRequest, *, actor: str, action: str
+) -> None:
+    """Called from the JIT grant end path: any live session riding that grant
+    ends with it — no second cascade, the grant path already rotated."""
+    live = (
+        PrivilegedSession.query.filter_by(jit_request_id=request.id)
+        .filter(~PrivilegedSession.status.in_(SESSION_TERMINAL_STATUSES))
+        .all()
+    )
+    for session in live:
+        session.status = "terminated"
+        session.ended_at = datetime.now()
+        session.end_reason = "grant_expired" if action == "expired" else "grant_closed"
+        _append_session_status(
+            session,
+            actor=actor,
+            content=f"access grant ended ({action}); session terminated with it",
+        )
 
 
 # ---------------------------------------------------------------------------

@@ -230,13 +230,24 @@ def test_days_until_expiry_fresh_trial_reports_full_term():
     assert license_obj.days_until_expiry() == 30
 
 
-def test_days_until_expiry_less_than_a_day_reports_zero():
+def test_days_until_expiry_less_than_a_day_reports_zero(monkeypatch):
+    # fixed wall clock: now+6h is still the same calendar day, so the result
+    # is 0 whenever the suite runs (a live now+6h fixture would cross
+    # midnight when the suite runs in the evening and report 1)
+    fixed_now = datetime(2026, 5, 4, 10, 0, 0)
+
+    class _Clock:
+        @staticmethod
+        def now():
+            return fixed_now
+
+    monkeypatch.setattr("license.datetime", _Clock)
     license_obj = License(
         license_key="K",
         license_type=LicenseType.TRIAL,
         issued_to="Acme",
-        issued_date=datetime.now(),
-        expires_on=datetime.now() + timedelta(hours=6),
+        issued_date=fixed_now,
+        expires_on=fixed_now + timedelta(hours=6),
     )
     assert license_obj.is_expired() is False
     assert license_obj.days_until_expiry() == 0

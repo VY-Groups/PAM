@@ -16,6 +16,7 @@ const SCREENS = [
   'compliance_soc_2_audit_center',
   'target_infrastructure_connectors',
   'jit_access_ephemeral_approvals',
+  'live_session_recording_inspection_hub',
 ];
 
 const FORBIDDEN = [
@@ -39,6 +40,22 @@ const FORBIDDEN = [
   // JIT (4b) design values, purged at runtime by the live wiring
   '41m remaining', '2 High Urgency', 'Marcus Brody', 'JIRA-5920',
   'Live Synced', 'Strict_RECORDING', 'AssumeRole', '94.1',
+  // live session hub (4c) design values, purged at runtime by the wiring
+  'PAM-9042', 'PAM-9043', 'PAM-9044', 'r.vance', 'a.patel', 'j.doe',
+  'prod-payment-gateway-01', 'ad-domain-controller-01',
+  'k8s-billing-api-pod-3', 'Sarah Chen', 'Automated Sentinel Bot',
+  'INC-9938', 'PAM-Guard-v4.2', '1 HIGH RISK SESSION',
+  'AIR-GAPPED AUDIT ACTIVE', '/ 40 Quota', 'Live Streams (14)',
+  'cat /etc/shadow', 'AEGIS SENTINEL', 'kernel hook', 'RISK 84',
+  '46m remaining', '2 / 2 Verified', '15:18:00', 'EXIT 0',
+  'ACTIVE TYPING', 'Dual-Control Observers', 'Keystroke Biometric',
+  'Mirror Digest', 'root@prod-payment', 'pts/2', 'FPS: 30',
+  'Real-time terminal', 'Join Dual-Control', 'Revoke User Bastion',
+  'Freeze Stream', 'SIGKILL', 'SHA-256 Frame Digest', '00:14:28',
+  'Threat & Anomaly Panel', 'Dual-Control Supervision', '14ms',
+  'Terminate & Revoke Credentials', 'Recommended SecOps', 'Anomaly Flag',
+  'VXLAN segment', 'tunneling beacon', 'sudo -i', 'root@payment',
+  'Mirroring Live', 'Nodes connected',
 ];
 
 const failures = [];
