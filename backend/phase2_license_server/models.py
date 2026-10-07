@@ -42,6 +42,13 @@ SCHEMA_COLUMNS: Dict[str, Dict[str, str]] = {
         "secret_version": "INTEGER",
         "secret_updated_at": "DATETIME",
     },
+    # command control (phase 4d): the policy decision on each recorded command,
+    # the rule that produced it, and the approval row that resolves a hold
+    "session_events": {
+        "decision": "VARCHAR(16)",
+        "rule_id": "INTEGER",
+        "ref_seq": "INTEGER",
+    },
 }
 
 
@@ -946,6 +953,7 @@ SESSION_EVENT_TYPES = (
     "screenshot",  # gated by screenshot_allowed
     "note",        # operator annotation (recorded like other content)
     "status",      # server-written lifecycle marker (pause/lock/terminate...)
+    "approval",    # resolution of a held command (ref_seq -> the command row)
 )
 
 
@@ -1023,6 +1031,13 @@ class SessionEvent(db.Model):
     allowed = db.Column(db.Boolean, nullable=False, default=True)
     blocked_reason = db.Column(db.String(64), nullable=True)
     withheld = db.Column(db.Boolean, nullable=False, default=False)
+    # command control (module 9): the policy decision for `command` rows
+    # (allow / approval / block), the rule id that produced it (null when no
+    # rule matched -> default allow), and ref_seq pointing at the held command
+    # an `approval` row resolves.
+    decision = db.Column(db.String(16), nullable=True)
+    rule_id = db.Column(db.Integer, nullable=True)
+    ref_seq = db.Column(db.Integer, nullable=True)
     watermark = db.Column(db.String(160), nullable=True)
     actor = db.Column(db.String(64), nullable=False, default="system")
     created_at = db.Column(db.DateTime, nullable=False, default=datetime.now)
@@ -1037,7 +1052,96 @@ class SessionEvent(db.Model):
             "allowed": self.allowed,
             "blocked_reason": self.blocked_reason,
             "withheld": self.withheld,
+            "decision": self.decision,
+            "rule_id": self.rule_id,
+            "ref_seq": self.ref_seq,
             "watermark": self.watermark,
             "actor": self.actor,
+            "created_at": self.created_at.isoformat(),
+        }
+
+
+# ---------------------------------------------------------------------------
+# command control (module 9)
+# ---------------------------------------------------------------------------
+COMMAND_ACTIONS = ("allow", "approval", "block")
+
+
+class CommandRule(db.Model):
+    """One shipped policy rule (architecture 9): match a command pattern
+    (optionally scoped to a target glob) and allow, hold for approval or
+    block it - optionally terminating the session as context-aware response."""
+
+    __tablename__ = "command_rules"
+
+    id = db.Column(db.Integer, primary_key=True)
+    name = db.Column(db.String(120), nullable=False)
+    pattern = db.Column(db.String(160), nullable=False, index=True)
+    action = db.Column(db.String(16), nullable=False, default="allow")
+    # fnmatch glob on the session target (case-insensitive); "" = any target
+    target_pattern = db.Column(db.String(120), nullable=False, default="")
+    # context-aware escalation: on a block, end the session and raise an incident
+    terminate_on_match = db.Column(db.Boolean, nullable=False, default=False)
+    description = db.Column(db.String(255), nullable=False, default="")
+    enabled = db.Column(db.Boolean, nullable=False, default=True)
+    created_at = db.Column(db.DateTime, nullable=False, default=datetime.now)
+    updated_at = db.Column(db.DateTime, nullable=False, default=datetime.now)
+    updated_by = db.Column(db.String(64), nullable=False, default="admin")
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "id": self.id,
+            "name": self.name,
+            "pattern": self.pattern,
+            "action": self.action,
+            "target_pattern": self.target_pattern,
+            "terminate_on_match": self.terminate_on_match,
+            "description": self.description,
+            "enabled": self.enabled,
+            "created_at": self.created_at.isoformat(),
+            "updated_at": self.updated_at.isoformat(),
+            "updated_by": self.updated_by,
+        }
+
+
+class CommandIncident(db.Model):
+    """Evidence preserved when an escalated block kills a session: the command,
+    the rule, the session it happened in, and the lifecycle of the incident."""
+
+    __tablename__ = "command_incidents"
+
+    id = db.Column(db.Integer, primary_key=True)
+    incident_ref = db.Column(db.String(32), nullable=False, unique=True, index=True)
+    session_id = db.Column(db.Integer, nullable=False, index=True)
+    event_seq = db.Column(db.Integer, nullable=False)
+    rule_id = db.Column(db.Integer, nullable=True)
+    # snapshot so the evidence survives the rule being edited or deleted
+    rule_name = db.Column(db.String(120), nullable=False, default="")
+    rule_pattern = db.Column(db.String(160), nullable=False, default="")
+    command = db.Column(db.Text, nullable=False)
+    target = db.Column(db.String(255), nullable=False, default="")
+    actor = db.Column(db.String(64), nullable=False, default="system")
+    status = db.Column(db.String(16), nullable=False, default="open", index=True)
+    closed_by = db.Column(db.String(64), nullable=True)
+    closed_at = db.Column(db.DateTime, nullable=True)
+    close_note = db.Column(db.String(255), nullable=False, default="")
+    created_at = db.Column(db.DateTime, nullable=False, default=datetime.now)
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "id": self.id,
+            "incident_ref": self.incident_ref,
+            "session_id": self.session_id,
+            "event_seq": self.event_seq,
+            "rule_id": self.rule_id,
+            "rule_name": self.rule_name,
+            "rule_pattern": self.rule_pattern,
+            "command": self.command,
+            "target": self.target,
+            "actor": self.actor,
+            "status": self.status,
+            "closed_by": self.closed_by,
+            "closed_at": self.closed_at.isoformat() if self.closed_at else None,
+            "close_note": self.close_note,
             "created_at": self.created_at.isoformat(),
         }

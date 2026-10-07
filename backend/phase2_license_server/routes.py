@@ -549,9 +549,16 @@ def get_session_events(session_id: int):
 @api.post("/sessions/<int:session_id>/events")
 @require_admin
 def post_session_event(session_id: int):
-    """Record one channel event; the control flags are enforced for real."""
-    event = service.post_session_event(session_id, _json_body(), actor=_actor())
-    return jsonify({"event": event.to_dict(), "message": "Event recorded"}), 201
+    """Record one channel event; controls are enforced for real and command
+    events carry their policy decision (an escalated block also returns the
+    incident it raised)."""
+    event, escalation = service.post_session_event(
+        session_id, _json_body(), actor=_actor()
+    )
+    body = {"event": event.to_dict(), "message": "Event recorded"}
+    if escalation is not None:
+        body["escalation"] = escalation
+    return jsonify(body), 201
 
 
 @api.post("/sessions/<int:session_id>/controls")
@@ -622,6 +629,150 @@ def complete_session(session_id: int):
             "session": session.to_dict(),
             "cascade": detail,
             "message": "Session completed",
+        }
+    )
+
+
+# ---------------------------------------------------------------------------
+# command control (module 9: policy rules, dry-run, approvals, incidents)
+# ---------------------------------------------------------------------------
+@api.get("/command-control/stats")
+def command_control_stats():
+    """Real aggregates: rule counts, today's intercepts, approval queue,
+    incident posture and a content hash of the current policy."""
+    return jsonify(service.command_control_stats())
+
+
+@api.get("/command-control/rules")
+def list_command_rules():
+    """Every rule in evaluation order with its real match counts."""
+    raw_enabled = request.args.get("enabled")
+    enabled = None
+    if raw_enabled is not None:
+        if raw_enabled not in ("true", "false", "1", "0"):
+            raise ValidationFailed(
+                "Query parameter 'enabled' must be true or false",
+                {"field": "enabled"},
+            )
+        enabled = raw_enabled in ("true", "1")
+    return jsonify(
+        service.list_command_rules(
+            action=request.args.get("action"),
+            q=request.args.get("q"),
+            enabled=enabled,
+        )
+    )
+
+
+@api.post("/command-control/rules")
+@require_admin
+def create_command_rule():
+    """Add a policy rule (name, pattern, action, optional target scope)."""
+    rule = service.create_command_rule(_json_body(), actor=_actor())
+    return jsonify({"rule": rule.to_dict(), "message": "Rule created"}), 201
+
+
+@api.put("/command-control/rules/<int:rule_id>")
+@require_admin
+def update_command_rule(rule_id: int):
+    """Edit a rule in place (partial update: send only what changed)."""
+    rule = service.update_command_rule(rule_id, _json_body(), actor=_actor())
+    return jsonify({"rule": rule.to_dict(), "message": "Rule updated"})
+
+
+@api.delete("/command-control/rules/<int:rule_id>")
+@require_admin
+def delete_command_rule(rule_id: int):
+    """Remove a rule; recorded events keep their rule_id as history."""
+    result = service.delete_command_rule(rule_id)
+    return jsonify({"deleted": result["deleted"], "message": "Rule deleted"})
+
+
+@api.post("/command-control/evaluate")
+def evaluate_command():
+    """Dry-run one command line against the live policy - no state changes."""
+    payload = _json_body()
+    command = payload.get("command")
+    if not isinstance(command, str) or not command.strip():
+        raise ValidationFailed("'command' is required", {"field": "command"})
+    if len(command) > 4096:
+        raise ValidationFailed(
+            "'command' must be at most 4096 characters", {"field": "command"}
+        )
+    target = payload.get("target", "")
+    if target is None:
+        target = ""
+    if not isinstance(target, str) or len(target) > 255:
+        raise ValidationFailed(
+            "'target' must be a string of at most 255 characters",
+            {"field": "target"},
+        )
+    return jsonify({"result": service.evaluate_command(command, target)})
+
+
+@api.get("/command-control/approvals")
+def pending_command_approvals():
+    """Held commands awaiting a decision (active sessions only)."""
+    return jsonify(service.pending_command_approvals())
+
+
+@api.get("/command-control/incidents")
+def list_command_incidents():
+    """Escalation incidents, newest first (status: open/closed/all)."""
+    limit = min(_int_param("limit", 50), MAX_PAGE_SIZE)
+    offset = _int_param("offset", 0)
+    return jsonify(
+        service.list_command_incidents(
+            status=request.args.get("status"), limit=limit, offset=offset
+        )
+    )
+
+
+@api.get("/command-control/incidents/<int:incident_id>")
+def get_command_incident(incident_id: int):
+    """One incident with its preserved evidence."""
+    return jsonify({"incident": service.get_command_incident(incident_id).to_dict()})
+
+
+@api.post("/command-control/incidents/<int:incident_id>/close")
+@require_admin
+def close_command_incident(incident_id: int):
+    """Close an incident after review (note optional, recorded with who/when)."""
+    incident = service.close_command_incident(
+        incident_id, _json_body(required=False), actor=_actor()
+    )
+    return jsonify({"incident": incident.to_dict(), "message": "Incident closed"})
+
+
+@api.post("/sessions/<int:session_id>/events/<int:seq>/approve")
+@require_admin
+def approve_session_command(session_id: int, seq: int):
+    """Release a held command: the recording gets an `approved` row that
+    references it (append-only - the hold itself is never edited)."""
+    original, resolution = service.resolve_command_approval(
+        session_id, seq, approve=True, actor=_actor()
+    )
+    return jsonify(
+        {
+            "event": original.to_dict(),
+            "resolution": resolution.to_dict(),
+            "message": "Command approved",
+        }
+    )
+
+
+@api.post("/sessions/<int:session_id>/events/<int:seq>/deny")
+@require_admin
+def deny_session_command(session_id: int, seq: int):
+    """Deny a held command: an append-only `denied` row records the decision."""
+    original, resolution = service.resolve_command_approval(
+        session_id, seq, approve=False, actor=_actor()
+    )
+    return jsonify(
+        {
+            "event": original.to_dict(),
+            "resolution": resolution.to_dict(),
+            "message": "Command denied",
         }
     )
 

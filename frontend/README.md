@@ -34,6 +34,7 @@ frontend/
 | `GET /screens/target_infrastructure_connectors/code.html` | **live** Target Infrastructure (talks to `/api/v1/discovery/*`) |
 | `GET /screens/jit_access_ephemeral_approvals/code.html` | **live** JIT access (talks to `/api/v1/jit/*`) |
 | `GET /screens/live_session_recording_inspection_hub/code.html` | **live** Live Session hub (talks to `/api/v1/sessions/*`) |
+| `GET /screens/policy_zero_trust_rules_engine/code.html` | **live** Zero-trust policy console (talks to `/api/v1/command-control/*`) |
 | `GET /screens/<name>/code.html` | any other screen |
 | `GET /screens/<name>/screen.png` | preview image |
 
@@ -45,7 +46,7 @@ Live screens fetch on load and fall back to **honest placeholders** — never
 invented values. Opened as `file://` or with the API unreachable, `—` and
 "not connected" markers stay on screen; sections without a backing module say
 so instead of showing numbers; when data does load, every figure comes from the
-API response (the six API-driven screens are scanned for legacy fake strings in
+API response (the seven API-driven screens are scanned for legacy fake strings in
 `../shots_tool/__verify_live.mjs`, HTTP and `file://` modes; the discovery
 screen additionally runs a full UI end-to-end in
 `../shots_tool/__verify_discovery.mjs` — real register, scan, ignore/restore,

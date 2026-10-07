@@ -16,8 +16,8 @@
             POLICY ENGINE CORE
           </span>
 <span class="inline-flex items-center gap-1 font-code-sm text-code-sm text-outline">
-<span>CLUSTER:</span>
-<span class="text-on-surface font-semibold">prod-mesh-01</span>
+<span>POLICY:</span>
+<span class="text-on-surface font-semibold">—</span>
 </span>
 </div>
 <h1 class="font-headline-xl text-headline-xl text-on-surface tracking-tight leading-tight">
@@ -35,7 +35,7 @@
 </button>
 <button class="flex items-center gap-space-xs px-space-md py-2 rounded-lg bg-surface-container-low hover:bg-surface-container text-on-surface font-headline-sm text-headline-sm transition-all shadow-sm">
 <span class="material-symbols-outlined text-[18px] text-outline">code</span>
-<span>Export as Code (JSON / TF)</span>
+<span>Export Policy (JSON)</span>
 </button>
 <button class="flex items-center gap-space-xs px-space-md py-2 rounded-lg bg-primary hover:bg-primary-container text-on-primary font-headline-sm text-headline-sm transition-all shadow-md">
 <span class="material-symbols-outlined text-[18px]">add_moderator</span>
@@ -56,16 +56,16 @@
 </div>
 <div class="my-space-sm">
 <div class="flex items-baseline gap-space-xs">
-<span class="font-headline-xl text-headline-xl text-on-surface font-bold tracking-tight">42</span>
+<span class="font-headline-xl text-headline-xl text-on-surface font-bold tracking-tight">—</span>
 <span class="font-headline-sm text-headline-sm text-on-surface-variant">Rules</span>
 </div>
 <p class="font-body-sm text-body-sm text-tertiary font-medium flex items-center gap-1 mt-1">
 <span class="material-symbols-outlined text-[14px]">shield_with_heart</span>
-            100% Zero-Standing Privilege
+            — of — rules enabled
           </p>
 </div>
 <div class="w-full bg-surface-container rounded-full h-1.5 overflow-hidden">
-<div class="bg-primary h-full rounded-full" style="width: 100%"></div>
+<div class="bg-primary h-full rounded-full" style="width: 0%"></div>
 </div>
 </div>
 <!-- Card 2 -->
@@ -79,7 +79,7 @@
 </div>
 <div class="my-space-sm">
 <div class="flex items-baseline gap-space-xs">
-<span class="font-headline-xl text-headline-xl text-error font-bold tracking-tight">128</span>
+<span class="font-headline-xl text-headline-xl text-error font-bold tracking-tight">—</span>
 <span class="font-headline-sm text-headline-sm text-on-surface-variant">Intercepts</span>
 </div>
 <p class="font-body-sm text-body-sm text-on-surface-variant flex items-center gap-1 mt-1">
@@ -88,30 +88,30 @@
           </p>
 </div>
 <div class="w-full bg-surface-container rounded-full h-1.5 overflow-hidden">
-<div class="bg-error h-full rounded-full" style="width: 68%"></div>
+<div class="bg-error h-full rounded-full" style="width: 0%"></div>
 </div>
 </div>
 <!-- Card 3 -->
 <div class="relative bg-surface-container-lowest p-space-lg rounded-xl shadow-sm overflow-hidden flex flex-col justify-between">
 <div class="absolute top-0 left-0 right-0 h-1 bg-tertiary"></div>
 <div class="flex items-center justify-between">
-<span class="font-label-badge text-label-badge text-outline uppercase tracking-wider">Quorum Sign-Offs</span>
+<span class="font-label-badge text-label-badge text-outline uppercase tracking-wider">Command Approvals</span>
 <span class="p-1 rounded bg-surface-container text-tertiary">
 <span class="material-symbols-outlined text-[18px]">group_work</span>
 </span>
 </div>
 <div class="my-space-sm">
 <div class="flex items-baseline gap-space-xs">
-<span class="font-headline-xl text-headline-xl text-on-surface font-bold tracking-tight">14</span>
-<span class="font-headline-sm text-headline-sm text-on-surface-variant">Dual-Auth</span>
+<span class="font-headline-xl text-headline-xl text-on-surface font-bold tracking-tight">—</span>
+<span class="font-headline-sm text-headline-sm text-on-surface-variant">Approved</span>
 </div>
 <p class="font-body-sm text-body-sm text-tertiary font-medium flex items-center gap-1 mt-1">
 <span class="material-symbols-outlined text-[14px]">check_circle</span>
-            Dual-approver workflow ready
+            — awaiting decision
           </p>
 </div>
 <div class="w-full bg-surface-container rounded-full h-1.5 overflow-hidden">
-<div class="bg-tertiary h-full rounded-full" style="width: 82%"></div>
+<div class="bg-tertiary h-full rounded-full" style="width: 0%"></div>
 </div>
 </div>
 <!-- Card 4 -->
@@ -125,17 +125,17 @@
 </div>
 <div class="my-space-sm">
 <div class="flex items-baseline gap-space-xs">
-<span class="font-code-md text-code-md font-semibold text-on-surface tracking-tight">v4.18.2-prod</span>
+<span class="font-code-md text-code-md font-semibold text-on-surface tracking-tight">—</span>
 </div>
 <p class="font-body-sm text-body-sm text-on-surface-variant flex items-center gap-1 mt-1">
 <span class="material-symbols-outlined text-[14px] text-tertiary">commit</span>
-            Synced 2h ago by <span class="font-code-sm text-code-sm text-primary font-semibold">secops-ci</span>
+            Updated — 
 </p>
 </div>
 <div class="flex items-center gap-1 text-outline font-code-sm text-code-sm">
-<span>SHA: 9b2d87e</span>
+<span>sha256(policy)</span>
 <span>•</span>
-<span class="text-tertiary">Verified Signatures (3/3)</span>
+<span class="text-tertiary">— rules in force</span>
 </div>
 </div>
 </div>
@@ -147,268 +147,31 @@
 <div class="bg-surface-container-low p-1 rounded-xl flex flex-wrap items-center gap-1 shadow-sm">
 <button class="flex items-center gap-space-xs px-space-md py-2 rounded-lg bg-surface-container-lowest text-on-surface font-headline-sm text-headline-sm font-semibold shadow-sm transition-all">
 <span class="material-symbols-outlined text-[18px] text-error">terminal</span>
-<span>Command Intercepts</span>
-<span class="px-1.5 py-0.5 rounded-full bg-error-container text-on-error-container font-code-sm text-code-sm font-bold">16</span>
+<span>Policy Rules</span>
+<span class="px-1.5 py-0.5 rounded-full bg-error-container text-on-error-container font-code-sm text-code-sm font-bold">0</span>
 </button>
 <button class="flex items-center gap-space-xs px-space-md py-2 rounded-lg text-on-surface-variant hover:text-on-surface font-headline-sm text-headline-sm transition-all">
 <span class="material-symbols-outlined text-[18px] text-primary">diversity_3</span>
-<span>Quorum &amp; Dual-Control</span>
-<span class="px-1.5 py-0.5 rounded-full bg-surface-container text-on-surface-variant font-code-sm text-code-sm">8</span>
+<span>Approvals</span>
+<span class="px-1.5 py-0.5 rounded-full bg-surface-container text-on-surface-variant font-code-sm text-code-sm font-bold">0</span>
 </button>
 <button class="flex items-center gap-space-xs px-space-md py-2 rounded-lg text-on-surface-variant hover:text-on-surface font-headline-sm text-headline-sm transition-all">
 <span class="material-symbols-outlined text-[18px] text-tertiary">devices</span>
-<span>Device &amp; Posture</span>
-<span class="px-1.5 py-0.5 rounded-full bg-surface-container text-on-surface-variant font-code-sm text-code-sm">10</span>
-</button>
-<button class="flex items-center gap-space-xs px-space-md py-2 rounded-lg text-on-surface-variant hover:text-on-surface font-headline-sm text-headline-sm transition-all">
-<span class="material-symbols-outlined text-[18px] text-secondary">timelapse</span>
-<span>TTL &amp; Revocation</span>
-<span class="px-1.5 py-0.5 rounded-full bg-surface-container text-on-surface-variant font-code-sm text-code-sm">8</span>
+<span>SOC Incidents</span>
+<span class="px-1.5 py-0.5 rounded-full bg-surface-container text-on-surface-variant font-code-sm text-code-sm font-bold">0</span>
 </button>
 </div>
 <!-- Filter Sub-Toolbar -->
 <div class="flex items-center justify-between px-space-sm">
 <div class="flex items-center gap-space-xs text-on-surface-variant font-code-sm text-code-sm">
 <span>Showing</span>
-<span class="text-on-surface font-semibold">4 of 42 Rules</span>
+<span class="text-on-surface font-semibold">— of — rules</span>
 <span>•</span>
-<span class="text-tertiary font-medium">All active rules verified against OPA Gatekeeper</span>
+<span class="text-tertiary font-medium">match: case-insensitive substring · default allow</span>
 </div>
 <div class="flex items-center gap-space-sm font-label-md text-label-md text-outline">
-<span>SORT:</span>
-<button class="text-primary font-semibold hover:underline">Highest Risk Intercepts</button>
-</div>
-</div>
-<!-- RULE CARD 1: Destructive Command Intercept (Critical Alert Highlight) -->
-<div class="relative bg-surface-container-lowest rounded-xl p-space-lg shadow-sm hover:shadow-md transition-all flex flex-col gap-space-md">
-<div class="absolute left-0 top-0 bottom-0 w-1.5 bg-error rounded-l-xl"></div>
-<div class="flex items-start justify-between gap-space-md pl-2">
-<div class="flex flex-col">
-<div class="flex items-center gap-space-xs">
-<span class="px-2 py-0.5 rounded bg-error-container text-on-error-container font-label-badge text-label-badge uppercase font-bold">
-                  Rule #SEC-094
-                </span>
-<span class="px-2 py-0.5 rounded bg-surface-container text-primary font-code-sm text-code-sm">
-                  Layer 7 Proxy + eBPF Probe
-                </span>
-<span class="inline-flex items-center gap-1 font-label-badge text-label-badge text-tertiary font-bold ml-2">
-<span class="w-1.5 h-1.5 rounded-full bg-tertiary animate-pulse"></span>
-                  ENFORCED
-                </span>
-</div>
-<h2 class="font-headline-md text-headline-md text-on-surface mt-1.5">
-                Block Destructive System Commands on Production Bastions
-              </h2>
-</div>
-<div class="flex items-center gap-space-xs shrink-0">
-<span class="px-2 py-1 rounded bg-surface-container font-code-sm text-code-sm text-on-surface font-medium">
-                14 blocks this week
-              </span>
-<button class="p-1 rounded text-outline hover:text-on-surface hover:bg-surface-container transition-colors">
-<span class="material-symbols-outlined text-[20px]">more_vert</span>
-</button>
-</div>
-</div>
-<!-- Metadata Spec Grid -->
-<div class="grid grid-cols-1 md:grid-cols-2 gap-space-md pl-2 bg-surface-container-low/60 p-space-md rounded-lg">
-<div class="flex flex-col gap-1">
-<span class="font-code-sm text-code-sm text-outline uppercase font-semibold">Scope &amp; Protocol</span>
-<div class="flex items-center gap-space-xs flex-wrap font-code-sm text-code-sm">
-<span class="px-2 py-0.5 rounded bg-surface-container-lowest text-on-surface font-medium">Target: env:prod*</span>
-<span class="px-2 py-0.5 rounded bg-surface-container-lowest text-on-surface font-medium">Protocol: SSH / KubeExec</span>
-</div>
-</div>
-<div class="flex flex-col gap-1">
-<span class="font-code-sm text-code-sm text-outline uppercase font-semibold">Action On Trigger</span>
-<div class="flex items-center gap-space-xs font-body-sm text-body-sm text-error font-semibold">
-<span class="material-symbols-outlined text-[16px]">cancel</span>
-<span>Immediate Command Intercept + Instant SOC Alert + Kill Session</span>
-</div>
-</div>
-</div>
-<!-- Trigger Regex Pattern Visualizer -->
-<div class="pl-2">
-<div class="flex items-center justify-between mb-1">
-<span class="font-code-sm text-code-sm text-outline uppercase font-semibold">Regex Match Payload</span>
-<span class="font-code-sm text-code-sm text-on-surface-variant">Deterministic POSIX ERE</span>
-</div>
-<div class="bg-surface-container-lowest p-space-sm rounded font-code-sm text-code-sm text-error flex items-center justify-between overflow-x-auto shadow-inner">
-<code class="text-error font-medium">/(rm\s+-rf\s+\/|cat\s+\/etc\/shadow|mkfs|dd\s+if=.*|iptables\s+-F)/i</code>
-<button class="text-outline hover:text-on-surface ml-2 shrink-0">
-<span class="material-symbols-outlined text-[16px]">content_copy</span>
-</button>
-</div>
-</div>
-<!-- Footer Telemetry -->
-<div class="flex items-center justify-between pl-2 pt-space-xs text-on-surface-variant font-body-sm text-body-sm">
-<div class="flex items-center gap-space-md">
-<span class="flex items-center gap-1">
-<span class="material-symbols-outlined text-outline text-[16px]">schedule</span>
-                Updated 1d ago by <strong>secops-lead</strong>
-</span>
-<span class="flex items-center gap-1">
-<span class="material-symbols-outlined text-tertiary text-[16px]">speed</span>
-                Latency overhead: <strong>0.8ms</strong>
-</span>
-</div>
-<div class="flex items-center gap-space-sm">
-<button class="text-primary hover:text-primary-container font-headline-sm text-headline-sm font-semibold">Edit Syntax</button>
-<span class="text-outline">•</span>
-<button class="text-error hover:underline font-headline-sm text-headline-sm font-semibold">Simulate Intercept</button>
-</div>
-</div>
-</div>
-<!-- RULE CARD 2: Quorum Rule -->
-<div class="relative bg-surface-container-lowest rounded-xl p-space-lg shadow-sm hover:shadow-md transition-all flex flex-col gap-space-md">
-<div class="absolute left-0 top-0 bottom-0 w-1.5 bg-primary rounded-l-xl"></div>
-<div class="flex items-start justify-between gap-space-md pl-2">
-<div class="flex flex-col">
-<div class="flex items-center gap-space-xs">
-<span class="px-2 py-0.5 rounded bg-primary-fixed text-on-primary-fixed font-label-badge text-label-badge uppercase font-bold">
-                  Rule #QRM-022
-                </span>
-<span class="px-2 py-0.5 rounded bg-surface-container text-on-surface font-code-sm text-code-sm">
-                  Multi-Party Quorum (Dual-Sign)
-                </span>
-<span class="inline-flex items-center gap-1 font-label-badge text-label-badge text-tertiary font-bold ml-2">
-<span class="w-1.5 h-1.5 rounded-full bg-tertiary animate-pulse"></span>
-                  ENFORCED
-                </span>
-</div>
-<h2 class="font-headline-md text-headline-md text-on-surface mt-1.5">
-                Two-Person Quorum for Database Drop &amp; Schema Alteration
-              </h2>
-</div>
-<div class="flex items-center gap-space-xs shrink-0">
-<span class="px-2 py-1 rounded bg-surface-container font-code-sm text-code-sm text-on-surface font-medium">
-                SLA: 15-Min Window
-              </span>
-<button class="p-1 rounded text-outline hover:text-on-surface hover:bg-surface-container transition-colors">
-<span class="material-symbols-outlined text-[20px]">more_vert</span>
-</button>
-</div>
-</div>
-<div class="grid grid-cols-1 md:grid-cols-2 gap-space-md pl-2 bg-surface-container-low/60 p-space-md rounded-lg">
-<div class="flex flex-col gap-1">
-<span class="font-code-sm text-code-sm text-outline uppercase font-semibold">Target Constraints</span>
-<div class="flex items-center gap-space-xs flex-wrap font-code-sm text-code-sm">
-<span class="px-2 py-0.5 rounded bg-surface-container-lowest text-on-surface font-medium">type:database</span>
-<span class="px-2 py-0.5 rounded bg-surface-container-lowest text-on-surface font-medium">Role: DBA_SUPERUSER</span>
-</div>
-</div>
-<div class="flex flex-col gap-1">
-<span class="font-code-sm text-code-sm text-outline uppercase font-semibold">Sign-off Approvers</span>
-<div class="flex items-center gap-1 font-body-sm text-body-sm text-on-surface font-medium">
-<span class="px-2 py-0.5 rounded bg-surface-container-high text-primary font-semibold">2 Approvals Req.</span>
-<span>(Resource Owner + SecOps On-Call)</span>
-</div>
-</div>
-</div>
-<div class="pl-2 flex items-center justify-between text-on-surface-variant font-body-sm text-body-sm">
-<div class="flex items-center gap-space-sm">
-<span class="material-symbols-outlined text-primary text-[18px]">verified_user</span>
-<span>Requires verified ITSM / Jira Incident Ticket tied to active change-window</span>
-</div>
-<button class="text-primary hover:text-primary-container font-headline-sm text-headline-sm font-semibold">Inspect Policy Chain</button>
-</div>
-</div>
-<!-- RULE CARD 3: Device Posture Rule -->
-<div class="relative bg-surface-container-lowest rounded-xl p-space-lg shadow-sm hover:shadow-md transition-all flex flex-col gap-space-md">
-<div class="absolute left-0 top-0 bottom-0 w-1.5 bg-tertiary rounded-l-xl"></div>
-<div class="flex items-start justify-between gap-space-md pl-2">
-<div class="flex flex-col">
-<div class="flex items-center gap-space-xs">
-<span class="px-2 py-0.5 rounded bg-tertiary-fixed text-on-tertiary-fixed font-label-badge text-label-badge uppercase font-bold">
-                  Rule #POS-104
-                </span>
-<span class="px-2 py-0.5 rounded bg-surface-container text-on-surface font-code-sm text-code-sm">
-                  Contextual Device Trust
-                </span>
-<span class="inline-flex items-center gap-1 font-label-badge text-label-badge text-tertiary font-bold ml-2">
-<span class="w-1.5 h-1.5 rounded-full bg-tertiary animate-pulse"></span>
-                  ENFORCED
-                </span>
-</div>
-<h2 class="font-headline-md text-headline-md text-on-surface mt-1.5">
-                Hardware FIDO2 Security Key + Verified MDM Corporate Trust
-              </h2>
-</div>
-<div class="flex items-center gap-space-xs shrink-0">
-<span class="px-2 py-1 rounded bg-surface-container font-code-sm text-code-sm text-tertiary font-medium">
-                Zero Bypass
-              </span>
-<button class="p-1 rounded text-outline hover:text-on-surface hover:bg-surface-container transition-colors">
-<span class="material-symbols-outlined text-[20px]">more_vert</span>
-</button>
-</div>
-</div>
-<div class="grid grid-cols-1 md:grid-cols-2 gap-space-md pl-2 bg-surface-container-low/60 p-space-md rounded-lg">
-<div class="flex flex-col gap-1">
-<span class="font-code-sm text-code-sm text-outline uppercase font-semibold">Protected Tiers</span>
-<div class="flex items-center gap-space-xs flex-wrap font-code-sm text-code-sm">
-<span class="px-2 py-0.5 rounded bg-surface-container-lowest text-on-surface font-medium">Tier-0 Root Accounts</span>
-<span class="px-2 py-0.5 rounded bg-surface-container-lowest text-on-surface font-medium">Emergency Break-Glass</span>
-</div>
-</div>
-<div class="flex flex-col gap-1">
-<span class="font-code-sm text-code-sm text-outline uppercase font-semibold">Attestation Checklist</span>
-<div class="flex items-center gap-1 font-body-sm text-body-sm text-on-surface">
-<span class="material-symbols-outlined text-tertiary text-[16px]">key</span>
-<span>WebAuthn YubiKey 5 + CrowdStrike Falcon EDR Compliant</span>
-</div>
-</div>
-</div>
-<div class="pl-2 flex items-center justify-between text-on-surface-variant font-body-sm text-body-sm">
-<span class="font-code-sm text-code-sm text-outline">Continuous signal evaluation every 300s during active session</span>
-<button class="text-primary hover:text-primary-container font-headline-sm text-headline-sm font-semibold">View Posture Matrix</button>
-</div>
-</div>
-<!-- RULE CARD 4: Time-Bound JIT Rule -->
-<div class="relative bg-surface-container-lowest rounded-xl p-space-lg shadow-sm hover:shadow-md transition-all flex flex-col gap-space-md">
-<div class="absolute left-0 top-0 bottom-0 w-1.5 bg-secondary rounded-l-xl"></div>
-<div class="flex items-start justify-between gap-space-md pl-2">
-<div class="flex flex-col">
-<div class="flex items-center gap-space-xs">
-<span class="px-2 py-0.5 rounded bg-secondary-fixed text-on-secondary-fixed font-label-badge text-label-badge uppercase font-bold">
-                  Rule #JIT-088
-                </span>
-<span class="px-2 py-0.5 rounded bg-surface-container text-on-surface font-code-sm text-code-sm">
-                  Ephemeral Lifecycle
-                </span>
-<span class="inline-flex items-center gap-1 font-label-badge text-label-badge text-tertiary font-bold ml-2">
-<span class="w-1.5 h-1.5 rounded-full bg-tertiary animate-pulse"></span>
-                  ENFORCED
-                </span>
-</div>
-<h2 class="font-headline-md text-headline-md text-on-surface mt-1.5">
-                Max Ephemeral TTL &amp; Automatic Token Revocation
-              </h2>
-</div>
-<div class="flex items-center gap-space-xs shrink-0">
-<span class="px-2 py-1 rounded bg-surface-container font-code-sm text-code-sm text-on-surface font-medium">
-                TTL: 120m Hard Limit
-              </span>
-<button class="p-1 rounded text-outline hover:text-on-surface hover:bg-surface-container transition-colors">
-<span class="material-symbols-outlined text-[20px]">more_vert</span>
-</button>
-</div>
-</div>
-<div class="grid grid-cols-1 md:grid-cols-2 gap-space-md pl-2 bg-surface-container-low/60 p-space-md rounded-lg">
-<div class="flex flex-col gap-1">
-<span class="font-code-sm text-code-sm text-outline uppercase font-semibold">Federation Provider</span>
-<div class="flex items-center gap-space-xs flex-wrap font-code-sm text-code-sm">
-<span class="px-2 py-0.5 rounded bg-surface-container-lowest text-on-surface font-medium">AWS IAM STS AssumeRole</span>
-<span class="px-2 py-0.5 rounded bg-surface-container-lowest text-on-surface font-medium">GCP Workload Identity</span>
-</div>
-</div>
-<div class="flex flex-col gap-1">
-<span class="font-code-sm text-code-sm text-outline uppercase font-semibold">Hard Boundaries</span>
-<span class="font-body-sm text-body-sm text-on-surface">Zero refresh tokens issued; auto-eviction upon timeout</span>
-</div>
-</div>
-<div class="pl-2 flex items-center justify-between text-on-surface-variant font-body-sm text-body-sm">
-<span class="font-code-sm text-code-sm text-outline">Session credentials self-destruct in target bastion memory pool</span>
-<button class="text-primary hover:text-primary-container font-headline-sm text-headline-sm font-semibold">View STS Map</button>
+<span>ORDER:</span>
+<span class="text-primary font-semibold">evaluation priority: block → approval → allow</span>
 </div>
 </div>
 </div>
@@ -424,35 +187,27 @@
 <span class="font-headline-sm text-headline-sm text-on-surface font-semibold">Live Rule Simulator</span>
 </div>
 <span class="px-2 py-0.5 rounded bg-surface-container text-primary font-code-sm text-code-sm font-medium">
-              v4.18 Engine
+              engine —
             </span>
 </div>
 <p class="font-body-sm text-body-sm text-on-surface-variant">
-            Test policy decisions against real synthetic payloads before committing changes to production clusters.
+            Type a command line (and, for scoped rules, a session target) and evaluate it against the live policy - the same engine that judges recorded session commands.
           </p>
 <!-- Input Fields for Simulator -->
 <div class="flex flex-col gap-space-sm">
-<!-- Principal Field -->
-<div class="flex flex-col gap-1">
-<label class="font-code-sm text-code-sm text-outline uppercase font-semibold">Synthetic Principal</label>
-<div class="relative">
-<span class="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-outline text-[16px]">badge</span>
-<input class="w-full pl-9 pr-3 py-1.5 rounded bg-surface-container-low text-on-surface font-code-sm text-code-sm focus:outline-none" readonly="" type="text" value="alex.mercer@aegis.corp (SecOps)"/>
-</div>
-</div>
 <!-- Target Resource Field -->
 <div class="flex flex-col gap-1">
-<label class="font-code-sm text-code-sm text-outline uppercase font-semibold">Target Infrastructure</label>
+<label class="font-code-sm text-code-sm text-outline uppercase font-semibold">Target Resource</label>
 <div class="relative">
 <span class="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-outline text-[16px]">dns</span>
-<input class="w-full pl-9 pr-3 py-1.5 rounded bg-surface-container-low text-on-surface font-code-sm text-code-sm focus:outline-none" readonly="" type="text" value="prod-payment-gateway-01"/>
+<input class="w-full pl-9 pr-3 py-1.5 rounded bg-surface-container-low text-on-surface font-code-sm text-code-sm focus:outline-none" type="text" placeholder="e.g. prod-db-01:5432 (scoped rules)"/>
 </div>
 </div>
 <!-- Command Payload Field (Editable) -->
 <div class="flex flex-col gap-1">
 <div class="flex items-center justify-between">
 <label class="font-code-sm text-code-sm text-outline uppercase font-semibold">Test Command Payload</label>
-<span class="font-code-sm text-code-sm text-error">Destructive Pattern</span>
+<span class="font-code-sm text-code-sm text-outline">dry-run · no state changes</span>
 </div>
 <textarea class="w-full p-2.5 rounded bg-surface-container text-on-surface font-code-sm text-code-sm focus:ring-1 focus:ring-primary focus:outline-none resize-none font-medium" id="command-payload" rows="2">sudo iptables -F &amp;&amp; rm -rf /var/log/audit</textarea>
 </div>
@@ -463,62 +218,47 @@
 </button>
 </div>
 <!-- Evaluation Outcome Box -->
-<div class="bg-error-container/30 rounded-lg p-space-md flex flex-col gap-space-xs transition-all" id="simulation-output">
+<div class="bg-surface-container/60 rounded-lg p-space-md flex flex-col gap-space-xs transition-all" id="simulation-output">
 <div class="flex items-center justify-between">
-<span class="font-label-badge text-label-badge text-error uppercase font-bold flex items-center gap-1">
-<span class="material-symbols-outlined text-[16px]">dangerous</span>
-                DENIED &amp; TERMINATED
+<span class="font-label-badge text-label-badge text-outline uppercase font-bold flex items-center gap-1">
+<span class="material-symbols-outlined text-[16px]">help</span>
+                NOT YET EVALUATED
               </span>
-<span class="font-code-sm text-code-sm text-error font-semibold">Match #SEC-094</span>
+<span class="font-code-sm text-code-sm text-outline font-semibold">rule —</span>
 </div>
-<div class="font-body-sm text-body-sm text-on-surface mt-1">
-              Rule <strong>Block Destructive System Commands</strong> matched regex on payload substring: <code class="text-error font-semibold">rm -rf /var/log/audit</code>.
+<div class="font-body-sm text-body-sm text-on-surface-variant mt-1">
+              Evaluate a payload to see the live policy decision.
             </div>
-<!-- Pipeline Breakdown Mini List -->
-<div class="flex flex-col gap-1 mt-2 pt-2 border-t border-error/20 font-code-sm text-code-sm text-on-surface-variant">
-<div class="flex items-center justify-between">
-<span>eBPF Syscall Filter:</span>
-<span class="text-error font-bold">INTERCEPTED (0.4ms)</span>
-</div>
-<div class="flex items-center justify-between">
-<span>Proxy L7 Session:</span>
-<span class="text-error font-bold">TERMINATED</span>
-</div>
-<div class="flex items-center justify-between">
-<span>SOC Notification Webhook:</span>
-<span class="text-tertiary font-bold">DISPATCHED</span>
-</div>
-</div>
 </div>
 </div>
 <!-- Realtime Engine Posture Health Card -->
 <div class="bg-surface-container-lowest rounded-xl p-space-lg shadow-sm flex flex-col gap-space-sm">
 <div class="flex items-center justify-between">
-<span class="font-label-badge text-label-badge text-outline uppercase tracking-wider font-semibold">Cluster Enforcement Nodes</span>
-<span class="font-code-sm text-code-sm text-tertiary font-bold">18 / 18 ONLINE</span>
+<span class="font-label-badge text-label-badge text-outline uppercase tracking-wider font-semibold">Policy Rules Enabled</span>
+<span class="font-code-sm text-code-sm text-tertiary font-bold">— / —</span>
 </div>
-<!-- Mini Inline Bar Visualization -->
+<!-- Mini Inline Bar Visualization (filled from the real enabled ratio) -->
 <div class="flex items-center gap-1 py-1">
-<div class="h-2 flex-1 rounded bg-tertiary"></div>
-<div class="h-2 flex-1 rounded bg-tertiary"></div>
-<div class="h-2 flex-1 rounded bg-tertiary"></div>
-<div class="h-2 flex-1 rounded bg-tertiary"></div>
-<div class="h-2 flex-1 rounded bg-tertiary"></div>
-<div class="h-2 flex-1 rounded bg-tertiary"></div>
-<div class="h-2 flex-1 rounded bg-tertiary"></div>
-<div class="h-2 flex-1 rounded bg-tertiary"></div>
-<div class="h-2 flex-1 rounded bg-tertiary"></div>
-<div class="h-2 flex-1 rounded bg-tertiary"></div>
-<div class="h-2 flex-1 rounded bg-tertiary"></div>
-<div class="h-2 flex-1 rounded bg-tertiary"></div>
+<div class="h-2 flex-1 rounded bg-surface-container"></div>
+<div class="h-2 flex-1 rounded bg-surface-container"></div>
+<div class="h-2 flex-1 rounded bg-surface-container"></div>
+<div class="h-2 flex-1 rounded bg-surface-container"></div>
+<div class="h-2 flex-1 rounded bg-surface-container"></div>
+<div class="h-2 flex-1 rounded bg-surface-container"></div>
+<div class="h-2 flex-1 rounded bg-surface-container"></div>
+<div class="h-2 flex-1 rounded bg-surface-container"></div>
+<div class="h-2 flex-1 rounded bg-surface-container"></div>
+<div class="h-2 flex-1 rounded bg-surface-container"></div>
+<div class="h-2 flex-1 rounded bg-surface-container"></div>
+<div class="h-2 flex-1 rounded bg-surface-container"></div>
 </div>
 <div class="flex items-center justify-between font-code-sm text-code-sm text-on-surface-variant mt-1">
-<span>Average Policy Latency</span>
-<span class="text-on-surface font-semibold">1.12 ms</span>
+<span>Commands recorded</span>
+<span class="text-on-surface font-semibold">—</span>
 </div>
 <div class="flex items-center justify-between font-code-sm text-code-sm text-on-surface-variant">
-<span>OPA Compiler Health</span>
-<span class="text-tertiary font-semibold">Rego v0.64 Validated</span>
+<span>Match order</span>
+<span class="text-tertiary font-semibold">block → approval → allow</span>
 </div>
 </div>
 <!-- Audit Drawer Teaser -->
@@ -526,8 +266,8 @@
 <div class="flex items-center gap-space-xs">
 <span class="material-symbols-outlined text-outline text-[20px]">history_toggle_off</span>
 <div class="flex flex-col">
-<span class="font-headline-sm text-headline-sm text-on-surface font-semibold leading-tight">Policy Audit Trail</span>
-<span class="font-code-sm text-code-sm text-on-surface-variant">420 events recorded today</span>
+<span class="font-headline-sm text-headline-sm text-on-surface font-semibold leading-tight">Policy Incident Trail</span>
+<span class="font-code-sm text-code-sm text-on-surface-variant">— incidents on record · — commands recorded</span>
 </div>
 </div>
 <button class="p-1.5 rounded-lg bg-surface-container-lowest text-primary hover:bg-surface-container transition-all">
@@ -537,90 +277,862 @@
 </div>
 </div>
 </div>
-<!-- Interactive Micro-Script for Simulation -->
+<!-- Live command-control wiring (module 9: policy, dry-run, approvals, incidents) -->
 <script>
-    (function() {
+    // -------------------------------------------------------------------------
+    // Command Control wiring (architecture section 9): the shipped policy with
+    // CRUD, the real dry-run evaluator (same engine judging recorded session
+    // commands), the approval queue resolved by append-only rows, and the
+    // escalation incidents. Every number on this page comes from the API;
+    // file:// or API-down show honest dashes - none of the design's cluster,
+    // latency, OPA/Rego, signature, quorum or metric claims survive either
+    // load mode.
+    // -------------------------------------------------------------------------
+    (function () {
+      const ROOT = location.protocol === 'file:' ? '' : '/';
+      const API = ROOT + 'api/v1';
+      const TOKEN_KEY = 'aegispam_admin_token';
+      const DASH = '—';
+      const FILE_MODE = ROOT === '';
+
+      const state = {
+        connected: null, // null = still loading
+        tab: 'rules',
+        stats: null,
+        rules: [],
+        approvals: [],
+        incidents: [],
+        overview: null,
+      };
+
+      // ---- helpers ----------------------------------------------------------
+      const esc = (value) => {
+        const div = document.createElement('div');
+        div.textContent = value == null ? '' : String(value);
+        return div.innerHTML;
+      };
+      const put = (el, text) => { if (el) el.textContent = text; };
+      function setSub(p, text) {
+        if (!p) return;
+        const icon = p.querySelector('span.material-symbols-outlined');
+        p.textContent = '';
+        if (icon) p.appendChild(icon);
+        p.appendChild(document.createTextNode(' ' + text));
+      }
+      const relTime = (iso) => {
+        if (!iso) return DASH;
+        const mins = Math.max(0, Math.round((Date.now() - new Date(iso).getTime()) / 60000));
+        if (mins < 1) return 'just now';
+        if (mins < 60) return mins + 'm ago';
+        const hrs = Math.round(mins / 60);
+        if (hrs < 24) return hrs + 'h ago';
+        return Math.round(hrs / 24) + 'd ago';
+      };
+      function headers() {
+        const h = { 'Content-Type': 'application/json' };
+        const token = sessionStorage.getItem(TOKEN_KEY);
+        if (token) h.Authorization = 'Bearer ' + token;
+        return h;
+      }
+      async function call(path, method, body) {
+        const res = await fetch(API + path, {
+          method: method || 'GET',
+          headers: headers(),
+          body: body === undefined ? undefined : JSON.stringify(body),
+        });
+        const json = await res.json().catch(function () { return {}; });
+        if (!res.ok) throw new Error(json.error || ('HTTP ' + res.status));
+        return json;
+      }
+      const get = (p) => call(p, 'GET');
+      const post = (p, b) => call(p, 'POST', b === undefined ? {} : b);
+      const putReq = (p, b) => call(p, 'PUT', b);
+      const delReq = (p) => call(p, 'DELETE');
+
+      // ---- toast ------------------------------------------------------------
+      let toastEl = null;
+      let toastTimer = null;
+      function toast(message) {
+        if (!toastEl) {
+          toastEl = document.createElement('div');
+          toastEl.setAttribute('data-role', 'toast');
+          toastEl.className = 'fixed bottom-14 right-6 z-[60] max-w-md px-4 py-3 rounded-lg shadow-lg border border-outline-variant bg-surface-container-lowest text-on-surface font-body-sm text-body-sm';
+          document.body.appendChild(toastEl);
+        }
+        toastEl.textContent = message;
+        toastEl.classList.remove('hidden');
+        clearTimeout(toastTimer);
+        toastTimer = setTimeout(() => toastEl.classList.add('hidden'), 6000);
+      }
+
+      // ---- structural lookups (no new ids in frozen markup) -----------------
+      const policyLine = (function () {
+        const label = Array.from(document.querySelectorAll('span'))
+          .find((s) => s.textContent.trim() === 'POLICY:');
+        return label ? label.nextElementSibling : null;
+      })();
+      const bento = (function () {
+        const candidates = Array.from(document.querySelectorAll('span.font-headline-xl'));
+        for (const span of candidates) {
+          const grid = span.closest('.grid');
+          if (grid && grid.children.length === 4) return grid;
+        }
+        return null;
+      })();
+      const cards = bento ? Array.from(bento.children) : [];
+      const tabbar = (function () {
+        const btn = Array.from(document.querySelectorAll('button'))
+          .find((b) => b.textContent.indexOf('Policy Rules') !== -1);
+        return btn ? btn.parentElement : null;
+      })();
+      const leftCol = tabbar ? tabbar.parentElement : null;
+      const filterBar = leftCol && leftCol.children.length > 1
+        ? leftCol.children[1] : null;
+      const rightCol = leftCol ? leftCol.nextElementSibling : null;
+      const simCard = rightCol && rightCol.children.length > 2
+        ? rightCol.children[0] : null;
+      const postureCard = rightCol && rightCol.children.length > 2
+        ? rightCol.children[1] : null;
+      const teaser = rightCol && rightCol.children.length > 2
+        ? rightCol.children[2] : null;
+      const payloadInput = document.getElementById('command-payload');
       const runBtn = document.getElementById('run-simulation-btn');
       const dryRunBtn = document.getElementById('btn-dry-run');
-      const payloadInput = document.getElementById('command-payload');
-      const outputCard = document.getElementById('simulation-output');
+      const outputBox = document.getElementById('simulation-output');
+      // after the principal field removal the only <input> in the simulator
+      // wrapper is the target scope
+      const targetInput = payloadInput && payloadInput.parentElement
+        && payloadInput.parentElement.parentElement
+        ? payloadInput.parentElement.parentElement.querySelector('input')
+        : null;
+      const engineBadge = simCard && simCard.children[0]
+        && simCard.children[0].children.length > 1
+        ? simCard.children[0].children[1]
+        : null;
+      const exportBtn = Array.from(document.querySelectorAll('button'))
+        .find((b) => b.textContent.indexOf('Export Policy') !== -1);
+      const createBtn = Array.from(document.querySelectorAll('button'))
+        .find((b) => b.textContent.indexOf('Create New Policy Rule') !== -1);
+      // sidebar ZSP status box (shared chrome, but this screen IS the policy
+      // module, so the frozen "not connected" claim must follow live state)
+      const zspBox = (function () {
+        const label = Array.from(document.querySelectorAll('span'))
+          .find((s) => s.textContent.trim().toLowerCase() === 'zsp policy');
+        if (!label || !label.parentElement) return null;
+        return {
+          chip: label.nextElementSibling,
+          body: label.parentElement.nextElementSibling,
+        };
+      })();
 
-      function executeSimulation() {
-        if (!runBtn || !outputCard) return;
-        runBtn.disabled = true;
-        const originalText = runBtn.innerHTML;
-        runBtn.innerHTML = '<span class="material-symbols-outlined animate-spin text-[18px]">progress_activity</span><span>Compiling Rego...</span>';
-        
-        setTimeout(() => {
-          runBtn.disabled = false;
-          runBtn.innerHTML = originalText;
-          
-          const val = payloadInput.value.toLowerCase();
-          if (val.includes('rm -rf') || val.includes('iptables') || val.includes('mkfs') || val.includes('/etc/shadow')) {
-            outputCard.className = "bg-error-container/30 rounded-lg p-space-md flex flex-col gap-space-xs transition-all";
-            outputCard.innerHTML = `
-              <div class="flex items-center justify-between">
-                <span class="font-label-badge text-label-badge text-error uppercase font-bold flex items-center gap-1">
-                  <span class="material-symbols-outlined text-[16px]">dangerous</span>
-                  DENIED &amp; TERMINATED
-                </span>
-                <span class="font-code-sm text-code-sm text-error font-semibold">Match #SEC-094</span>
-              </div>
-              <div class="font-body-sm text-body-sm text-on-surface mt-1">
-                Rule <strong>Block Destructive System Commands</strong> matched prohibited tokens in runtime payload.
-              </div>
-              <div class="flex flex-col gap-1 mt-2 pt-2 border-t border-error/20 font-code-sm text-code-sm text-on-surface-variant">
-                <div class="flex items-center justify-between">
-                  <span>eBPF Syscall Filter:</span>
-                  <span class="text-error font-bold">INTERCEPTED (0.4ms)</span>
-                </div>
-                <div class="flex items-center justify-between">
-                  <span>Proxy L7 Session:</span>
-                  <span class="text-error font-bold">TERMINATED</span>
-                </div>
-                <div class="flex items-center justify-between">
-                  <span>SOC Alert:</span>
-                  <span class="text-tertiary font-bold">DISPATCHED</span>
-                </div>
-              </div>
-            `;
-          } else {
-            outputCard.className = "bg-tertiary-fixed/30 rounded-lg p-space-md flex flex-col gap-space-xs transition-all";
-            outputCard.innerHTML = `
-              <div class="flex items-center justify-between">
-                <span class="font-label-badge text-label-badge text-tertiary uppercase font-bold flex items-center gap-1">
-                  <span class="material-symbols-outlined text-[16px]">check_circle</span>
-                  POLICY ADMITTED
-                </span>
-                <span class="font-code-sm text-code-sm text-tertiary font-semibold">No Blacklist Match</span>
-              </div>
-              <div class="font-body-sm text-body-sm text-on-surface mt-1">
-                Command conforms to standard non-privileged execution bounds.
-              </div>
-              <div class="flex flex-col gap-1 mt-2 pt-2 border-t border-tertiary/20 font-code-sm text-code-sm text-on-surface-variant">
-                <div class="flex items-center justify-between">
-                  <span>Audit Stream:</span>
-                  <span class="text-tertiary font-bold">LOGGED IN FULL</span>
-                </div>
-                <div class="flex items-center justify-between">
-                  <span>Elevated Token:</span>
-                  <span class="text-on-surface font-bold">NOT REQUIRED</span>
-                </div>
-              </div>
-            `;
+      // ---- footer (parses after this script block) --------------------------
+      function fillFooter(data) {
+        const footerNow = document.querySelector('footer');
+        if (!footerNow) return;
+        const spans = Array.from(footerNow.querySelectorAll('span'));
+        const pick = (...keys) => {
+          for (const k of keys) {
+            const hit = spans.find((s) => s.textContent.indexOf(k) !== -1);
+            if (hit) return hit;
           }
-        }, 350);
+          return null;
+        };
+        const server = pick('Zero-Trust Gateway', 'License server');
+        const nodes = pick('Nodes connected', 'licensed nodes');
+        const standing = pick('standing admin', 'open incidents');
+        const auth = pick('Session TLS', 'Auth:');
+        const worm = pick('mTLS Enforced', 'WORM:');
+        const audit = pick('Audit Digest', 'Audit:');
+        // the frozen header carries its own auth chip (same chrome as the
+        // discovery screen): 'auth: —' -> 'auth: open' only when health says so
+        const headerAuth = (function () {
+          const headerNow = document.querySelector('header');
+          if (!headerNow) return null;
+          return Array.from(headerNow.querySelectorAll('span'))
+            .find((s) => s.textContent.trim().toLowerCase().indexOf('auth:') === 0);
+        })();
+        if (!server || !nodes || !standing || !auth || !worm || !audit) return;
+        if (!data) {
+          server.textContent = 'License server: not connected';
+          nodes.textContent = '(' + DASH + ' licensed nodes)';
+          standing.textContent = DASH + ' open incidents';
+          auth.textContent = 'Auth: ' + DASH;
+          worm.textContent = 'WORM: ' + DASH;
+          audit.textContent = 'Audit: ' + DASH;
+          if (headerAuth) headerAuth.textContent = 'auth: ' + DASH;
+          return;
+        }
+        if (headerAuth) {
+          headerAuth.textContent = 'auth: '
+            + (data.health ? data.health.auth : DASH);
+        }
+        server.textContent = 'License server: '
+          + (data.health && data.health.status === 'ok'
+            ? 'Healthy' : (data.health || {}).status || DASH);
+        nodes.textContent = '('
+          + (data.licenses && data.licenses.usage
+            ? data.licenses.usage.nodes.toLocaleString() : DASH)
+          + ' licensed nodes)';
+        standing.textContent = (state.stats ? state.stats.incidents.open : DASH)
+          + ' open incidents';
+        auth.textContent = 'Auth: ' + (data.health ? data.health.auth : DASH);
+        worm.textContent = 'WORM: '
+          + (data.settings && data.settings.worm_immutable
+            ? 'immutable' : 'mutable');
+        audit.textContent = 'Audit: '
+          + (data.counters
+            ? data.counters.total_events.toLocaleString() : DASH)
+          + ' events';
       }
 
-      if (runBtn) {
-        runBtn.addEventListener('click', executeSimulation);
+      // ---- render: header + stat cards --------------------------------------
+      function renderHeader() {
+        put(policyLine, state.stats
+          ? state.stats.rules_total + ' rules · ' + state.stats.engine_hash
+          : DASH);
+        put(engineBadge, state.stats
+          ? 'engine ' + state.stats.engine_hash
+          : 'engine ' + DASH);
+        // sidebar ZSP chip: only claim connected when the policy API answered
+        if (zspBox && zspBox.chip) {
+          const loaded = state.connected === true && state.stats !== null;
+          const dot = zspBox.chip.querySelector('span');
+          zspBox.chip.textContent = '';
+          if (dot) {
+            dot.className = 'w-1.5 h-1.5 rounded-full '
+              + (loaded ? 'bg-tertiary' : 'bg-outline');
+            zspBox.chip.appendChild(dot);
+          }
+          zspBox.chip.appendChild(
+            document.createTextNode(loaded ? 'connected' : 'not connected'));
+          zspBox.chip.classList.toggle('text-outline', !loaded);
+          zspBox.chip.classList.toggle('text-tertiary', loaded);
+          if (zspBox.body) {
+            put(zspBox.body, loaded
+              ? 'Command policy live — ' + state.stats.rules_total
+                + ' rules loaded, ' + state.stats.rules_enabled + ' enabled.'
+              : 'Policy engine not connected — live rules load from the license server.');
+          }
+        }
       }
 
-      if (dryRunBtn) {
-        dryRunBtn.addEventListener('click', () => {
-          payloadInput.value = 'ls -la /var/log && uname -a';
-          executeSimulation();
+      function renderStats() {
+        const s = state.stats;
+        const valueRow = (i) => (cards[i] && cards[i].children[2]
+          && cards[i].children[2].children[0]
+          ? cards[i].children[2].children[0] : null);
+        const sub = (i) => (cards[i] && cards[i].children[2]
+          && cards[i].children[2].children[1]
+          ? cards[i].children[2].children[1] : null);
+        const bar = (i) => (cards[i] && cards[i].children[3]
+          && cards[i].children[3].children[0]
+          ? cards[i].children[3].children[0] : null);
+
+        // 1: active policies (rule count + enabled ratio)
+        if (valueRow(0)) put(valueRow(0).children[0],
+          s ? String(s.rules_total) : DASH);
+        setSub(sub(0), s
+          ? s.rules_enabled + ' of ' + s.rules_total + ' rules enabled'
+          : DASH + ' of ' + DASH + ' rules enabled');
+        if (bar(0)) bar(0).style.width = (s && s.rules_total
+          ? Math.round((100 * s.rules_enabled) / s.rules_total) : 0) + '%';
+
+        // 2: command blocks today (vs commands recorded today)
+        if (valueRow(1)) put(valueRow(1).children[0],
+          s ? String(s.intercepts_today) : DASH);
+        if (bar(1)) bar(1).style.width = (s && s.commands_today
+          ? Math.round((100 * s.intercepts_today) / s.commands_today) : 0) + '%';
+
+        // 3: command approvals (resolved approvals + pending line)
+        if (valueRow(2)) put(valueRow(2).children[0],
+          s ? String(s.approvals.approved) : DASH);
+        setSub(sub(2), s
+          ? s.approvals.pending + ' awaiting decision'
+          : DASH + ' awaiting decision');
+        const resolved = s ? s.approvals.approved + s.approvals.denied : 0;
+        if (bar(2)) bar(2).style.width = (resolved
+          ? Math.round((100 * s.approvals.approved) / resolved) : 0) + '%';
+
+        // 4: engine hash & sync (real sha256 of the canonical policy)
+        if (valueRow(3)) put(valueRow(3).children[0],
+          s ? s.engine_hash : DASH);
+        setSub(sub(3), s && s.last_sync
+          ? 'Updated ' + relTime(s.last_sync) + ' by '
+            + (s.last_sync_by || DASH)
+          : 'Updated ' + DASH);
+        if (cards[3] && cards[3].children[3]
+            && cards[3].children[3].children[2]) {
+          put(cards[3].children[3].children[2], s
+            ? 'block ' + s.by_action.block + ' · approval '
+              + s.by_action.approval + ' · allow ' + s.by_action.allow
+            : DASH + ' rules in force');
+        }
+      }
+
+      // ---- render: tabs + filter bar ----------------------------------------
+      const TAB_ACTIVE = ['bg-surface-container-lowest', 'shadow-sm',
+        'font-semibold'];
+      function applyTab(btn, active) {
+        if (!btn) return;
+        TAB_ACTIVE.forEach((c) => btn.classList.toggle(c, active));
+        btn.classList.toggle('text-on-surface', active);
+        btn.classList.toggle('text-on-surface-variant', !active);
+      }
+      function renderTabs() {
+        const s = state.stats;
+        const buttons = tabbar ? Array.from(tabbar.children) : [];
+        if (buttons[0] && buttons[0].children[2]) {
+          put(buttons[0].children[2], s ? String(s.rules_total) : DASH);
+        }
+        if (buttons[1] && buttons[1].children[2]) {
+          put(buttons[1].children[2], s ? String(s.approvals.pending) : DASH);
+        }
+        if (buttons[2] && buttons[2].children[2]) {
+          put(buttons[2].children[2], s ? String(s.incidents.open) : DASH);
+        }
+        applyTab(buttons[0], state.tab === 'rules');
+        applyTab(buttons[1], state.tab === 'approvals');
+        applyTab(buttons[2], state.tab === 'incidents');
+      }
+
+      const filterCount = filterBar && filterBar.children[0]
+        && filterBar.children[0].children[1]
+        ? filterBar.children[0].children[1] : null;
+      const filterNote = filterBar && filterBar.children[0]
+        && filterBar.children[0].children[3]
+        ? filterBar.children[0].children[3] : null;
+
+      function renderFilter() {
+        const s = state.stats;
+        if (state.tab === 'rules') {
+          put(filterCount, s
+            ? state.rules.length + ' of ' + s.rules_total + ' rules'
+            : DASH + ' of ' + DASH + ' rules');
+          put(filterNote, 'match: case-insensitive substring · default allow');
+        } else if (state.tab === 'approvals') {
+          put(filterCount, state.approvals.length
+            + ' held commands awaiting a decision');
+          put(filterNote, 'resolve: approve releases · deny records the refusal');
+        } else {
+          put(filterCount, state.incidents.length + ' escalation incidents');
+          put(filterNote, 'evidence preserved with the blocked command');
+        }
+      }
+
+      // ---- render: list (rules / approvals / incidents) ---------------------
+      function emptyState(text) {
+        return '<div class="bg-surface-container-lowest rounded-xl p-6 text-center font-body-md text-body-md text-on-surface-variant shadow-sm" data-role="empty">'
+          + esc(text) + '</div>';
+      }
+      const ACTION_META = {
+        block: {
+          stripe: 'bg-error', text: 'text-error', icon: 'cancel',
+          effect: 'command refused, kept as evidence',
+        },
+        approval: {
+          stripe: 'bg-primary', text: 'text-primary', icon: 'how_to_reg',
+          effect: 'held until an approver decides',
+        },
+        allow: {
+          stripe: 'bg-tertiary', text: 'text-tertiary', icon: 'check_circle',
+          effect: 'command passes',
+        },
+      };
+      function ruleCardHTML(r) {
+        const meta = ACTION_META[r.action] || ACTION_META.allow;
+        const scope = r.target_pattern
+          ? 'target: ' + r.target_pattern : 'any target';
+        return '<div class="relative bg-surface-container-lowest rounded-xl p-space-lg shadow-sm hover:shadow-md transition-all flex flex-col gap-space-md" data-role="rule-card" data-id="' + r.id + '">'
+          + '<div class="absolute left-0 top-0 bottom-0 w-1.5 ' + meta.stripe + ' rounded-l-xl"></div>'
+          + '<div class="flex items-start justify-between gap-space-md pl-2">'
+          + '<div class="flex flex-col"><div class="flex items-center gap-space-xs">'
+          + '<span class="px-2 py-0.5 rounded bg-surface-container text-primary font-label-badge text-label-badge uppercase font-bold">Rule #' + r.id + '</span>'
+          + '<span class="px-2 py-0.5 rounded bg-surface-container text-on-surface font-code-sm text-code-sm">' + esc(r.pattern) + '</span>'
+          + '<span class="inline-flex items-center gap-1 font-label-badge text-label-badge ' + (r.enabled ? 'text-tertiary' : 'text-outline') + ' font-bold ml-2">'
+          + '<span class="w-1.5 h-1.5 rounded-full ' + (r.enabled ? 'bg-tertiary animate-pulse' : 'bg-outline') + '"></span>'
+          + (r.enabled ? 'ENFORCED' : 'DISABLED') + '</span>'
+          + '</div>'
+          + '<h2 class="font-headline-md text-headline-md text-on-surface mt-1.5">' + esc(r.name) + '</h2>'
+          + '</div>'
+          + '<div class="flex items-center gap-space-xs shrink-0">'
+          + '<span class="px-2 py-1 rounded bg-surface-container font-code-sm text-code-sm font-medium ' + meta.text + '">'
+          + r.action.toUpperCase() + ' · ' + r.match_count + ' matches</span>'
+          + '</div></div>'
+          + '<div class="grid grid-cols-1 md:grid-cols-2 gap-space-md pl-2 bg-surface-container-low/60 p-space-md rounded-lg">'
+          + '<div class="flex flex-col gap-1"><span class="font-code-sm text-code-sm text-outline uppercase font-semibold">Scope</span>'
+          + '<div class="flex items-center gap-space-xs flex-wrap font-code-sm text-code-sm">'
+          + '<span class="px-2 py-0.5 rounded bg-surface-container-lowest text-on-surface font-medium">' + esc(scope) + '</span>'
+          + (r.terminate_on_match
+            ? '<span class="px-2 py-0.5 rounded bg-error-container text-on-error-container font-medium">terminates session</span>'
+            : '')
+          + '</div></div>'
+          + '<div class="flex flex-col gap-1"><span class="font-code-sm text-code-sm text-outline uppercase font-semibold">Action On Trigger</span>'
+          + '<div class="flex items-center gap-1 font-body-sm text-body-sm ' + meta.text + '">'
+          + '<span class="material-symbols-outlined text-[16px]">' + meta.icon + '</span>'
+          + '<span>' + esc(meta.effect) + '</span></div></div></div>'
+          + '<div class="pl-2"><div class="flex items-center justify-between mb-1">'
+          + '<span class="font-code-sm text-code-sm text-outline uppercase font-semibold">Match Pattern</span>'
+          + '<span class="font-code-sm text-code-sm text-on-surface-variant">substring, case-insensitive</span></div>'
+          + '<div class="bg-surface-container-lowest p-space-sm rounded font-code-sm text-code-sm flex items-center justify-between overflow-x-auto shadow-inner border border-outline-variant/40">'
+          + '<code class="' + meta.text + ' font-medium">' + esc(r.pattern) + '</code></div></div>'
+          + '<div class="flex items-center justify-between pl-2 pt-space-xs text-on-surface-variant font-body-sm text-body-sm">'
+          + '<span class="font-code-sm text-code-sm text-outline">Updated ' + esc(relTime(r.updated_at))
+          + ' by ' + esc(r.updated_by)
+          + (r.description ? ' · ' + esc(r.description) : '') + '</span>'
+          + '<div class="flex items-center gap-space-sm">'
+          + '<button class="text-primary hover:text-primary-container font-headline-sm text-headline-sm font-semibold" data-action="edit-rule" data-id="' + r.id + '">Edit</button>'
+          + '<span class="text-outline">•</span>'
+          + '<button class="text-error hover:underline font-headline-sm text-headline-sm font-semibold" data-action="delete-rule" data-id="' + r.id + '">Delete</button>'
+          + '</div></div></div>';
+      }
+      function approvalCardHTML(item) {
+        const e = item.event;
+        const s = item.session;
+        return '<div class="relative bg-surface-container-lowest rounded-xl p-space-lg shadow-sm flex flex-col gap-space-md" data-role="approval-card">'
+          + '<div class="absolute left-0 top-0 bottom-0 w-1.5 bg-primary rounded-l-xl"></div>'
+          + '<div class="flex items-start justify-between gap-space-md pl-2">'
+          + '<div class="flex flex-col"><div class="flex items-center gap-space-xs">'
+          + '<span class="px-2 py-0.5 rounded bg-surface-container text-primary font-label-badge text-label-badge uppercase font-bold">Seq #' + e.seq + '</span>'
+          + '<span class="px-2 py-0.5 rounded bg-surface-container text-on-surface font-code-sm text-code-sm">' + esc(s.session_ref) + '</span>'
+          + '<span class="px-2 py-0.5 rounded bg-surface-container text-on-surface font-code-sm text-code-sm">' + esc(s.target) + '</span>'
+          + '</div>'
+          + '<h2 class="font-headline-md text-headline-md text-on-surface mt-1.5">' + esc(e.content || '') + '</h2>'
+          + '</div>'
+          + '<div class="flex items-center gap-space-xs shrink-0">'
+          + '<span class="px-2 py-1 rounded bg-primary-container text-on-primary-container font-code-sm text-code-sm font-medium">HELD FOR APPROVAL</span>'
+          + '</div></div>'
+          + '<div class="flex items-center justify-between pl-2 text-on-surface-variant font-body-sm text-body-sm">'
+          + '<span class="font-code-sm text-code-sm text-outline">held ' + esc(relTime(e.created_at))
+          + ' by ' + esc(e.actor) + ' · ' + esc(s.protocol) + ' · command held with allowed=false</span>'
+          + '<div class="flex items-center gap-space-sm">'
+          + '<button class="text-primary hover:underline font-headline-sm text-headline-sm font-semibold" data-action="approve" data-sid="' + e.session_id + '" data-seq="' + e.seq + '">Approve</button>'
+          + '<span class="text-outline">•</span>'
+          + '<button class="text-error hover:underline font-headline-sm text-headline-sm font-semibold" data-action="deny" data-sid="' + e.session_id + '" data-seq="' + e.seq + '">Deny</button>'
+          + '</div></div></div>';
+      }
+      function incidentCardHTML(inc) {
+        const open = inc.status === 'open';
+        return '<div class="relative bg-surface-container-lowest rounded-xl p-space-lg shadow-sm flex flex-col gap-space-md" data-role="incident-card" data-id="' + inc.id + '">'
+          + '<div class="absolute left-0 top-0 bottom-0 w-1.5 ' + (open ? 'bg-error' : 'bg-outline') + ' rounded-l-xl"></div>'
+          + '<div class="flex items-start justify-between gap-space-md pl-2">'
+          + '<div class="flex flex-col"><div class="flex items-center gap-space-xs">'
+          + '<span class="px-2 py-0.5 rounded ' + (open ? 'bg-error-container text-on-error-container' : 'bg-surface-container text-on-surface-variant') + ' font-label-badge text-label-badge uppercase font-bold">' + esc(inc.incident_ref) + '</span>'
+          + '<span class="px-2 py-0.5 rounded bg-surface-container text-on-surface font-code-sm text-code-sm">' + esc(inc.rule_pattern) + '</span>'
+          + '<span class="inline-flex items-center gap-1 font-label-badge text-label-badge ' + (open ? 'text-error' : 'text-tertiary') + ' font-bold ml-2">'
+          + '<span class="w-1.5 h-1.5 rounded-full ' + (open ? 'bg-error animate-pulse' : 'bg-tertiary') + '"></span>'
+          + (open ? 'OPEN' : 'CLOSED') + '</span>'
+          + '</div>'
+          + '<h2 class="font-headline-md text-headline-md text-on-surface mt-1.5">' + esc(inc.command) + '</h2>'
+          + '</div>'
+          + '<div class="flex items-center gap-space-xs shrink-0">'
+          + '<span class="px-2 py-1 rounded bg-surface-container font-code-sm text-code-sm ' + (open ? 'text-error' : 'text-tertiary') + ' font-medium">'
+          + (open ? 'escalated · session ended' : 'reviewed') + '</span>'
+          + '</div></div>'
+          + '<div class="grid grid-cols-1 md:grid-cols-2 gap-space-md pl-2 bg-surface-container-low/60 p-space-md rounded-lg">'
+          + '<div class="flex flex-col gap-1"><span class="font-code-sm text-code-sm text-outline uppercase font-semibold">Evidence</span>'
+          + '<div class="flex items-center gap-space-xs flex-wrap font-code-sm text-code-sm">'
+          + '<span class="px-2 py-0.5 rounded bg-surface-container-lowest text-on-surface font-medium">session #' + inc.session_id + ' seq ' + inc.event_seq + '</span>'
+          + '<span class="px-2 py-0.5 rounded bg-surface-container-lowest text-on-surface font-medium">' + esc(inc.target) + '</span>'
+          + '</div></div>'
+          + '<div class="flex flex-col gap-1"><span class="font-code-sm text-code-sm text-outline uppercase font-semibold">Rule Snapshot</span>'
+          + '<div class="flex items-center gap-1 font-body-sm text-body-sm text-on-surface">'
+          + '<span class="material-symbols-outlined text-[16px] text-error">gavel</span>'
+          + '<span>' + esc(inc.rule_name) + '</span></div></div></div>'
+          + '<div class="flex items-center justify-between pl-2 pt-space-xs text-on-surface-variant font-body-sm text-body-sm">'
+          + '<span class="font-code-sm text-code-sm text-outline">raised ' + esc(relTime(inc.created_at))
+          + ' by ' + esc(inc.actor)
+          + (open
+            ? ''
+            : ' · closed ' + esc(relTime(inc.closed_at)) + ' by ' + esc(inc.closed_by)
+              + (inc.close_note ? ' · ' + esc(inc.close_note) : ''))
+          + '</span>'
+          + (open
+            ? '<button class="text-primary hover:underline font-headline-sm text-headline-sm font-semibold" data-action="close-incident" data-id="' + inc.id + '">Close incident</button>'
+            : '<span class="text-tertiary font-headline-sm text-headline-sm font-semibold">Reviewed</span>')
+          + '</div></div>';
+      }
+
+      let listBox = null;
+      function ensureList() {
+        if (!leftCol) return null;
+        if (!listBox || !listBox.isConnected) {
+          listBox = document.createElement('div');
+          listBox.setAttribute('data-role', 'list');
+          listBox.className = 'flex flex-col gap-space-md';
+          leftCol.appendChild(listBox);
+        }
+        return listBox;
+      }
+      function renderList() {
+        const box = ensureList();
+        if (!box) return;
+        let html = '';
+        if (FILE_MODE) {
+          html = emptyState('file:// mode: the license server is not reachable - no policy data to show.');
+        } else if (state.connected === null) {
+          html = emptyState('Loading live policy from the license server…');
+        } else if (!state.connected) {
+          html = emptyState('License server unreachable - no policy data to show.');
+        } else if (state.tab === 'rules') {
+          html = state.rules.length
+            ? state.rules.map(ruleCardHTML).join('')
+            : emptyState('No rules match - the policy is empty.');
+        } else if (state.tab === 'approvals') {
+          html = state.approvals.length
+            ? state.approvals.map(approvalCardHTML).join('')
+            : emptyState('No commands are awaiting approval.');
+        } else {
+          html = state.incidents.length
+            ? state.incidents.map(incidentCardHTML).join('')
+            : emptyState('No escalation incidents on record.');
+        }
+        box.innerHTML = html;
+      }
+
+      // ---- simulator (real dry-run against the live policy) -----------------
+      const DEC_META = {
+        block: {
+          cls: 'bg-error-container/30', label: 'BLOCKED',
+          text: 'text-error', icon: 'dangerous',
+        },
+        approval: {
+          cls: 'bg-primary-container/30', label: 'HELD FOR APPROVAL',
+          text: 'text-primary', icon: 'how_to_reg',
+        },
+        allow: {
+          cls: 'bg-tertiary-fixed/30', label: 'ALLOWED',
+          text: 'text-tertiary', icon: 'check_circle',
+        },
+      };
+      function decRow(k, v) {
+        return '<div class="flex items-center justify-between"><span>'
+          + esc(k) + ':</span><span class="text-on-surface font-semibold">'
+          + esc(v) + '</span></div>';
+      }
+      function renderDecision(result, command, target) {
+        if (!outputBox) return;
+        if (!result) {
+          outputBox.className = 'bg-surface-container/60 rounded-lg p-space-md flex flex-col gap-space-xs transition-all';
+          outputBox.innerHTML = '<div class="flex items-center justify-between">'
+            + '<span class="font-label-badge text-label-badge text-outline uppercase font-bold flex items-center gap-1">'
+            + '<span class="material-symbols-outlined text-[16px]">help</span>NOT YET EVALUATED</span>'
+            + '<span class="font-code-sm text-code-sm text-outline font-semibold">rule ' + DASH + '</span></div>'
+            + '<div class="font-body-sm text-body-sm text-on-surface-variant mt-1">'
+            + 'Evaluate a payload to see the live policy decision.</div>';
+          return;
+        }
+        const meta = DEC_META[result.decision] || DEC_META.allow;
+        const rule = result.rule;
+        outputBox.className = meta.cls
+          + ' rounded-lg p-space-md flex flex-col gap-space-xs transition-all';
+        let html = '<div class="flex items-center justify-between">'
+          + '<span class="font-label-badge text-label-badge ' + meta.text
+          + ' uppercase font-bold flex items-center gap-1">'
+          + '<span class="material-symbols-outlined text-[16px]">' + meta.icon + '</span>'
+          + meta.label + (result.terminate ? ' + TERMINATE SESSION' : '')
+          + '</span>'
+          + '<span class="font-code-sm text-code-sm ' + meta.text + ' font-semibold">'
+          + (rule
+            ? 'rule #' + rule.id + ' ' + esc(rule.pattern)
+            : 'no rule matched (default allow)')
+          + '</span></div>'
+          + '<div class="font-body-sm text-body-sm text-on-surface mt-1">'
+          + (rule
+            ? '<strong>' + esc(rule.name) + '</strong> - ' + esc(rule.action)
+              + ' on match '
+              + (rule.target_pattern
+                ? 'within target scope <code class="' + meta.text
+                  + ' font-semibold">' + esc(rule.target_pattern) + '</code>'
+                : 'for any target')
+            : 'No rule matched this command - the engine defaults to allow '
+              + '(it flags known-dangerous commands, it is not a whitelist).')
+          + '</div>'
+          + '<div class="flex flex-col gap-1 mt-2 pt-2 border-t border-outline-variant/40 font-code-sm text-code-sm text-on-surface-variant">'
+          + decRow('Command', command)
+          + decRow('Session target', target || '(any)')
+          + decRow('Decision', result.decision + (result.default ? ' (default)' : ''))
+          + decRow('Escalation', result.terminate
+            ? 'ends the session, raises an incident'
+            : 'none')
+          + '</div>';
+        outputBox.innerHTML = html;
+      }
+      async function runSimulation() {
+        if (!payloadInput) return;
+        const command = payloadInput.value;
+        const target = targetInput ? targetInput.value : '';
+        if (!command.trim()) { toast('Type a command line to evaluate'); return; }
+        if (state.connected !== true) {
+          toast('Not connected to the license server'); return;
+        }
+        try {
+          const out = await post('/command-control/evaluate',
+            { command: command, target: target });
+          renderDecision(out.result, command, target);
+        } catch (err) {
+          toast('Evaluate failed: ' + err.message);
+        }
+      }
+
+      // ---- rule create/edit modal -------------------------------------------
+      function ruleModal(existing) {
+        if (document.querySelector('[data-role="rule-modal"]')) return;
+        const overlay = document.createElement('div');
+        overlay.setAttribute('data-role', 'rule-modal');
+        overlay.className = 'fixed inset-0 z-50 bg-black/40 flex items-center justify-center p-6';
+        overlay.innerHTML = '<div class="bg-surface-container-lowest rounded-xl p-6 w-full max-w-lg flex flex-col gap-2 shadow-xl max-h-[90vh] overflow-y-auto">'
+          + '<div class="flex items-center justify-between">'
+          + '<span class="font-headline-md text-headline-md text-on-surface">'
+          + (existing ? 'Edit Policy Rule' : 'Create Policy Rule') + '</span>'
+          + '<button class="p-1 rounded hover:bg-surface-container text-on-surface-variant" data-role="close">'
+          + '<span class="material-symbols-outlined">close</span></button></div>'
+          + '<label class="font-code-sm text-code-sm text-outline uppercase">Name</label>'
+          + '<input data-role="name" maxlength="120" class="bg-surface-container-low p-2 rounded-lg font-body-sm text-body-sm focus:outline-none" />'
+          + '<label class="font-code-sm text-code-sm text-outline uppercase">Pattern (case-insensitive substring)</label>'
+          + '<input data-role="pattern" maxlength="160" class="bg-surface-container-low p-2 rounded-lg font-code-sm text-code-sm focus:outline-none" />'
+          + '<label class="font-code-sm text-code-sm text-outline uppercase">Action</label>'
+          + '<select data-role="action" class="bg-surface-container-low p-2 rounded-lg font-body-sm text-body-sm focus:outline-none">'
+          + '<option value="allow">allow</option><option value="approval">approval</option>'
+          + '<option value="block">block</option></select>'
+          + '<label class="font-code-sm text-code-sm text-outline uppercase">Target scope (glob, empty = any target)</label>'
+          + '<input data-role="target" placeholder="prod-*" maxlength="120" class="bg-surface-container-low p-2 rounded-lg font-code-sm text-code-sm focus:outline-none" />'
+          + '<label class="font-code-sm text-code-sm text-outline uppercase">Description</label>'
+          + '<input data-role="description" maxlength="255" class="bg-surface-container-low p-2 rounded-lg font-body-sm text-body-sm focus:outline-none" />'
+          + '<div class="flex items-center gap-6 font-body-sm text-body-sm text-on-surface mt-1">'
+          + '<label class="flex items-center gap-2"><input type="checkbox" data-role="terminate" /> terminate session on block</label>'
+          + '<label class="flex items-center gap-2"><input type="checkbox" data-role="enabled" checked /> enabled</label></div>'
+          + '<div class="text-error font-body-sm text-body-sm" data-role="error"></div>'
+          + '<div class="flex justify-end gap-2 mt-1">'
+          + '<button class="px-4 py-2 rounded-lg bg-surface-container text-on-surface" data-role="cancel">Cancel</button>'
+          + '<button class="px-4 py-2 rounded-lg bg-primary text-on-primary font-semibold" data-role="save">'
+          + (existing ? 'Save changes' : 'Create rule') + '</button></div></div>';
+        document.body.appendChild(overlay);
+        const field = (role) => overlay.querySelector('[data-role="' + role + '"]');
+        if (existing) {
+          field('name').value = existing.name;
+          field('pattern').value = existing.pattern;
+          field('action').value = existing.action;
+          field('target').value = existing.target_pattern;
+          field('description').value = existing.description;
+          field('terminate').checked = existing.terminate_on_match;
+          field('enabled').checked = existing.enabled;
+        }
+        const close = () => overlay.remove();
+        field('close').addEventListener('click', close);
+        field('cancel').addEventListener('click', close);
+        overlay.addEventListener('click', (ev) => {
+          if (ev.target === overlay) close();
         });
+        field('save').addEventListener('click', async () => {
+          const errorEl = field('error');
+          errorEl.textContent = '';
+          const payload = {
+            name: field('name').value,
+            pattern: field('pattern').value,
+            action: field('action').value,
+            target_pattern: field('target').value,
+            description: field('description').value,
+            terminate_on_match: field('terminate').checked,
+            enabled: field('enabled').checked,
+          };
+          try {
+            if (existing) {
+              await putReq('/command-control/rules/' + existing.id, payload);
+              toast('Rule #' + existing.id + ' updated');
+            } else {
+              const out = await post('/command-control/rules', payload);
+              toast('Rule #' + out.rule.id + ' created');
+            }
+            close();
+            await load();
+          } catch (err) {
+            errorEl.textContent = err.message;
+          }
+        });
+      }
+
+      // ---- export the live policy as JSON -----------------------------------
+      function exportPolicy() {
+        const payload = {
+          engine_hash: state.stats ? state.stats.engine_hash : null,
+          rules: state.rules,
+        };
+        const blob = new Blob([JSON.stringify(payload, null, 2)],
+          { type: 'application/json' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = 'vy-pam-command-policy.json';
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        setTimeout(() => URL.revokeObjectURL(url), 4000);
+        toast('Policy exported (' + state.rules.length + ' rules)');
+      }
+
+      // ---- interactions ------------------------------------------------------
+      function setTab(tab) {
+        state.tab = tab;
+        renderTabs();
+        renderFilter();
+        renderList();
+      }
+      function bindActions() {
+        if (runBtn) runBtn.addEventListener('click', runSimulation);
+        if (dryRunBtn) dryRunBtn.addEventListener('click', runSimulation);
+        if (exportBtn) exportBtn.addEventListener('click', exportPolicy);
+        if (createBtn) createBtn.addEventListener('click', () => ruleModal(null));
+        if (tabbar) tabbar.addEventListener('click', (ev) => {
+          const btn = ev.target.closest('button');
+          if (!btn) return;
+          const idx = Array.from(tabbar.children).indexOf(btn);
+          setTab(idx === 1 ? 'approvals' : idx === 2 ? 'incidents' : 'rules');
+        });
+        if (teaser && teaser.children[1]) {
+          teaser.children[1].addEventListener('click', () => {
+            setTab('incidents');
+          });
+        }
+        if (payloadInput) {
+          payloadInput.addEventListener('keydown', (ev) => {
+            if (ev.key === 'Enter' && !ev.shiftKey) {
+              ev.preventDefault();
+              runSimulation();
+            }
+          });
+        }
+        // delegated actions on rendered cards (approve/deny/close/edit/delete)
+        document.addEventListener('click', async (ev) => {
+          const btn = ev.target.closest('[data-action]');
+          if (!btn) return;
+          const action = btn.getAttribute('data-action');
+          try {
+            if (action === 'approve' || action === 'deny') {
+              const sid = btn.getAttribute('data-sid');
+              const seq = btn.getAttribute('data-seq');
+              await post('/sessions/' + sid + '/events/' + seq + '/' + action);
+              toast(action === 'approve'
+                ? 'Command approved - resolution recorded (append-only)'
+                : 'Command denied - resolution recorded (append-only)');
+              await load();
+            } else if (action === 'close-incident') {
+              await post('/command-control/incidents/'
+                + btn.getAttribute('data-id') + '/close', {});
+              toast('Incident closed');
+              await load();
+            } else if (action === 'delete-rule') {
+              const id = btn.getAttribute('data-id');
+              await delReq('/command-control/rules/' + id);
+              toast('Rule #' + id + ' deleted - recorded events keep their rule_id');
+              await load();
+            } else if (action === 'edit-rule') {
+              const id = Number(btn.getAttribute('data-id'));
+              const rule = state.rules.find((r) => r.id === id);
+              if (rule) ruleModal(rule);
+            }
+          } catch (err) {
+            toast(err.message);
+          }
+        });
+      }
+
+      // ---- load + render ------------------------------------------------------
+      async function load() {
+        if (FILE_MODE) {
+          state.connected = false;
+          state.stats = null;
+          state.rules = [];
+          state.approvals = [];
+          state.incidents = [];
+          state.overview = null;
+          fillFooter(null);
+          renderAll();
+          return;
+        }
+        try {
+          const [stats, rules, approvals, incidents] = await Promise.all([
+            get('/command-control/stats'),
+            get('/command-control/rules'),
+            get('/command-control/approvals'),
+            get('/command-control/incidents?limit=200'),
+          ]);
+          state.stats = stats;
+          state.rules = rules.items || [];
+          state.approvals = approvals.items || [];
+          state.incidents = incidents.items || [];
+          state.connected = true;
+        } catch (err) {
+          state.connected = false;
+          state.stats = null;
+          state.rules = [];
+          state.approvals = [];
+          state.incidents = [];
+        }
+        try {
+          const res = await fetch(ROOT + 'api/v1/overview');
+          state.overview = res.ok ? await res.json() : null;
+          fillFooter(state.overview);
+        } catch (err) {
+          state.overview = null;
+          fillFooter(null);
+        }
+        renderAll();
+      }
+
+      function renderAll() {
+        renderHeader();
+        renderStats();
+        renderTabs();
+        renderFilter();
+        renderList();
+        // right column: posture card + incident teaser (real values only)
+        const s = state.stats;
+        if (postureCard && postureCard.children[0]
+            && postureCard.children[0].children[1]) {
+          put(postureCard.children[0].children[1], s
+            ? s.rules_enabled + ' / ' + s.rules_total
+            : DASH + ' / ' + DASH);
+        }
+        if (postureCard && postureCard.children[1]) {
+          const bars = Array.from(postureCard.children[1].children);
+          const lit = s && s.rules_total
+            ? Math.round((bars.length * s.rules_enabled) / s.rules_total)
+            : 0;
+          bars.forEach((bar, i) => {
+            bar.className = 'h-2 flex-1 rounded '
+              + (i < lit ? 'bg-tertiary' : 'bg-surface-container');
+          });
+        }
+        if (postureCard && postureCard.children[2]
+            && postureCard.children[2].children[1]) {
+          put(postureCard.children[2].children[1],
+            s ? String(s.commands_recorded) : DASH);
+        }
+        if (teaser && teaser.children[0] && teaser.children[0].children[1]) {
+          put(teaser.children[0].children[1], s
+            ? s.incidents.total + ' incident(s) on record · '
+              + s.commands_recorded + ' commands recorded'
+            : DASH + ' incidents on record · ' + DASH + ' commands recorded');
+        }
+      }
+
+      // ---- boot ---------------------------------------------------------------
+      // The <footer> parses after this script block, so the first paint waits
+      // for DOMContentLoaded: renderAll() purges every frozen design value and
+      // fillFooter() resolves its spans lazily once the footer exists.
+      function boot() {
+        renderAll();
+        fillFooter(null);
+        bindActions();
+        load();
+        setInterval(() => {
+          if (state.connected) load();
+        }, 45000);
+      }
+      if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', boot);
+      } else {
+        boot();
       }
     })();
   </script>

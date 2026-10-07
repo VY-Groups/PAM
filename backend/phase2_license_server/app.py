@@ -23,6 +23,7 @@ from licensing_bridge import sig
 from models import ensure_schema
 from routes import api
 from rotation_scheduler import start as start_rotation_scheduler
+from service import ensure_command_rules
 
 logger = logging.getLogger(__name__)
 
@@ -142,6 +143,11 @@ def create_app(config: Optional[Config] = None) -> Flask:
         added = ensure_schema(db.engine)
         if added:
             logger.info("Schema migrated, added columns: %s", ", ".join(added))
+        # command control (module 9): the shipped section-9 policy, seeded
+        # once into an empty rules table (deletions an admin made stay made)
+        seeded = ensure_command_rules()
+        if seeded:
+            logger.info("Command control: seeded %d default policy rules", seeded)
 
     # Optional real-clock rotation scheduler (ROTATION_SCHEDULER=1); off in
     # tests and dev unless explicitly enabled, never fabricated when quiet.

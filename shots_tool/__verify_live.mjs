@@ -17,6 +17,7 @@ const SCREENS = [
   'target_infrastructure_connectors',
   'jit_access_ephemeral_approvals',
   'live_session_recording_inspection_hub',
+  'policy_zero_trust_rules_engine',
 ];
 
 const FORBIDDEN = [
@@ -56,6 +57,24 @@ const FORBIDDEN = [
   'Terminate & Revoke Credentials', 'Recommended SecOps', 'Anomaly Flag',
   'VXLAN segment', 'tunneling beacon', 'sudo -i', 'root@payment',
   'Mirroring Live', 'Nodes connected',
+  // policy zero-trust rules engine (4d) design values, purged at runtime by
+  // the wiring ('Zero-Standing Privilege' stays allowed: honest label elsewhere)
+  'prod-mesh-01', 'Dual-approver workflow ready', 'Synced 2h ago',
+  'secops-ci', 'v4.18.2-prod', '9b2d87e', 'Verified Signatures',
+  'Rule #SEC-094', 'Match #SEC-094', 'QRM-022', 'POS-104',
+  'Block Destructive System Commands', '14 blocks this week',
+  'Deterministic POSIX ERE', 'env:prod*', 'Edit Syntax', 'Simulate Intercept',
+  'Layer 7 Proxy', 'Two-Person Quorum', 'Hardware FIDO2',
+  'Zero refresh tokens', 'View STS Map', 'View Posture Matrix',
+  'GCP Workload Identity', 'alex.mercer', 'Synthetic Principal',
+  'v4.18 Engine', 'DENIED & TERMINATED', 'eBPF Syscall Filter',
+  'SOC Notification Webhook', 'INTERCEPTED (0.4ms)',
+  'Cluster Enforcement Nodes', '18 / 18 ONLINE', 'Average Policy Latency',
+  '1.12 ms', 'OPA Compiler Health', 'Rego v0.64', 'OPA Gatekeeper',
+  '420 events recorded today', 'All active rules verified',
+  'Highest Risk Intercepts', 'Destructive Pattern', 'TTL & Revocation',
+  'Device & Posture', 'Quorum & Dual-Control', 'Command Intercepts',
+  '4 of 42', 'mTLS Enforced',
 ];
 
 const failures = [];

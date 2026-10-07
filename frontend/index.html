@@ -64,9 +64,10 @@ tailwind.config = {
     <p class="text-[15px] text-on-surface-variant max-w-3xl">
       Every screen shares one sidebar; its items open the corresponding screen directly, whether the suite is
       served by the Phase 2 license server (<span class="mono text-[13px]">python app.py</span>) or browsed as
-      files. Two screens talk to live APIs: <strong class="text-on-surface">Licensing &amp; Entitlements</strong>
-      (imports, validates and revokes licenses) and <strong class="text-on-surface">Platform Settings</strong>
-      (stores configuration with an audit changelog).
+      files. Nine screens talk to their live APIs: <strong class="text-on-surface">Licensing &amp; Entitlements</strong>
+      (imports, validates and revokes licenses), <strong class="text-on-surface">Platform Settings</strong>
+      (stores configuration with an audit changelog), the Command Center, Compliance, Credential Vault,
+      Infrastructure Discovery, JIT access, the live session hub and the zero-trust policy console.
     </p>
   </header>
 
@@ -109,28 +110,28 @@ tailwind.config = {
       </div>
     </a>
 
-    <a class="card group flex flex-col overflow-hidden rounded-xl bg-surface-container-lowest border border-outline-variant/40 shadow-sm" data-kind="static" href="screens/jit_access_ephemeral_approvals/code.html">
+    <a class="card group flex flex-col overflow-hidden rounded-xl bg-surface-container-lowest border border-outline-variant/40 shadow-sm" data-kind="live" href="screens/jit_access_ephemeral_approvals/code.html">
       <div class="aspect-[16/10] overflow-hidden border-b border-outline-variant/30 bg-surface-container">
         <img alt="JIT Access &amp; Approvals preview" class="w-full h-full object-cover object-top group-hover:scale-[1.02] transition-transform duration-200" loading="lazy" src="screens/jit_access_ephemeral_approvals/screen.png"/>
       </div>
       <div class="flex flex-col gap-1.5 p-4">
         <div class="flex items-center justify-between gap-2">
           <h2 class="text-[15px] font-semibold tracking-tight">JIT Access &amp; Approvals</h2>
-          <span class="mono text-[10px] px-2 py-0.5 rounded-full font-semibold bg-surface-container text-on-surface-variant">STATIC</span>
+          <span class="mono text-[10px] px-2 py-0.5 rounded-full font-semibold bg-tertiary-fixed text-on-tertiary-fixed">LIVE API</span>
         </div>
         <p class="text-[13px] leading-snug text-on-surface-variant">Ephemeral elevation requests, quorum approvals and TTL countdowns.</p>
         <span class="mono text-[11px] text-outline mt-1 flex items-center gap-1"><span class="material-symbols-outlined text-[14px]">arrow_forward</span>jit_access_ephemeral_approvals</span>
       </div>
     </a>
 
-    <a class="card group flex flex-col overflow-hidden rounded-xl bg-surface-container-lowest border border-outline-variant/40 shadow-sm" data-kind="static" href="screens/live_session_recording_inspection_hub/code.html">
+    <a class="card group flex flex-col overflow-hidden rounded-xl bg-surface-container-lowest border border-outline-variant/40 shadow-sm" data-kind="live" href="screens/live_session_recording_inspection_hub/code.html">
       <div class="aspect-[16/10] overflow-hidden border-b border-outline-variant/30 bg-surface-container">
         <img alt="Live Session Hub preview" class="w-full h-full object-cover object-top group-hover:scale-[1.02] transition-transform duration-200" loading="lazy" src="screens/live_session_recording_inspection_hub/screen.png"/>
       </div>
       <div class="flex flex-col gap-1.5 p-4">
         <div class="flex items-center justify-between gap-2">
           <h2 class="text-[15px] font-semibold tracking-tight">Live Session Hub</h2>
-          <span class="mono text-[10px] px-2 py-0.5 rounded-full font-semibold bg-surface-container text-on-surface-variant">STATIC</span>
+          <span class="mono text-[10px] px-2 py-0.5 rounded-full font-semibold bg-tertiary-fixed text-on-tertiary-fixed">LIVE API</span>
         </div>
         <p class="text-[13px] leading-snug text-on-surface-variant">Recorded SSH/RDP sessions with playback, inspection and keystroke search.</p>
         <span class="mono text-[11px] text-outline mt-1 flex items-center gap-1"><span class="material-symbols-outlined text-[14px]">arrow_forward</span>live_session_recording_inspection_hub</span>
@@ -151,16 +152,16 @@ tailwind.config = {
       </div>
     </a>
 
-    <a class="card group flex flex-col overflow-hidden rounded-xl bg-surface-container-lowest border border-outline-variant/40 shadow-sm" data-kind="static" href="screens/policy_zero_trust_rules_engine/code.html">
+    <a class="card group flex flex-col overflow-hidden rounded-xl bg-surface-container-lowest border border-outline-variant/40 shadow-sm" data-kind="live" href="screens/policy_zero_trust_rules_engine/code.html">
       <div class="aspect-[16/10] overflow-hidden border-b border-outline-variant/30 bg-surface-container">
         <img alt="Policy &amp; Zero Trust preview" class="w-full h-full object-cover object-top group-hover:scale-[1.02] transition-transform duration-200" loading="lazy" src="screens/policy_zero_trust_rules_engine/screen.png"/>
       </div>
       <div class="flex flex-col gap-1.5 p-4">
         <div class="flex items-center justify-between gap-2">
           <h2 class="text-[15px] font-semibold tracking-tight">Policy &amp; Zero Trust</h2>
-          <span class="mono text-[10px] px-2 py-0.5 rounded-full font-semibold bg-surface-container text-on-surface-variant">STATIC</span>
+          <span class="mono text-[10px] px-2 py-0.5 rounded-full font-semibold bg-tertiary-fixed text-on-tertiary-fixed">LIVE API</span>
         </div>
-        <p class="text-[13px] leading-snug text-on-surface-variant">Zero-trust rule engine: conditions, enforcement levels and simulation.</p>
+        <p class="text-[13px] leading-snug text-on-surface-variant">Zero-trust command policy: shipped rules, approval queue, incident trail and dry-run simulation.</p>
         <span class="mono text-[11px] text-outline mt-1 flex items-center gap-1"><span class="material-symbols-outlined text-[14px]">arrow_forward</span>policy_zero_trust_rules_engine</span>
       </div>
     </a>

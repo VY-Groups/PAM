@@ -38,6 +38,8 @@ tags:
     description: JIT/JEA access - requests, risk evaluation, approvals, time-boxed grants
   - name: sessions
     description: Privileged sessions - recording, live monitoring, controls and playback
+  - name: command-control
+    description: Command Control - policy rules, dry-run decisions, approvals, incidents
   - name: discovery
     description: Discovery Engine - target assets, accounts and real scans
 paths:
@@ -1050,7 +1052,7 @@ paths:
           schema: {type: integer, minimum: 1}
         - name: type
           in: query
-          schema: {type: string, enum: [keystroke, command, file_upload, file_download, clipboard, screenshot, note, status]}
+          schema: {type: string, enum: [keystroke, command, file_upload, file_download, clipboard, screenshot, note, status, approval]}
         - name: order
           in: query
           schema: {type: string, enum: [asc, desc], default: asc}
@@ -1073,6 +1075,11 @@ paths:
         content-withheld when `keystroke_log` is off, a paused/locked/ended
         session refuses events (409), and with `record` off only command and
         status events are kept (the safety channel is never silenced).
+        Command events additionally run through command control: the matched
+        rule decides `allow` / `approval` (held, `allowed=false`) / `block`
+        (`allowed=false`), and a rule with `terminate_on_match` also raises
+        the incident and terminates the session - returned under
+        `escalation`.
       security:
         - bearerAuth: []
         - adminTokenHeader: []
@@ -1280,6 +1287,298 @@ paths:
         "400": {$ref: "#/components/responses/BadRequest"}
         "401": {$ref: "#/components/responses/Unauthorized"}
         "404": {$ref: "#/components/responses/NotFound"}
+
+  /api/v1/sessions/{session_id}/events/{seq}/approve:
+    post:
+      tags: [command-control]
+      summary: Approve a held command
+      description: |
+        Releases a command held by an `approval` rule: the append-only
+        recording gets a new `approved` row referencing it (`ref_seq`); the
+        hold itself is never edited. 409 when the event is not a hold, the
+        hold already has a resolution, or the session has ended.
+      security:
+        - bearerAuth: []
+        - adminTokenHeader: []
+        - {}
+      parameters:
+        - name: session_id
+          in: path
+          required: true
+          schema: {type: integer, minimum: 1}
+        - name: seq
+          in: path
+          required: true
+          schema: {type: integer, minimum: 1, description: Sequence number of the held command.}
+        - name: X-Actor
+          in: header
+          description: Who decides (recorded on the resolution row).
+          schema: {type: string, maxLength: 64}
+      responses:
+        "200":
+          description: Approval recorded
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/CommandApprovalResponse"}
+        "401": {$ref: "#/components/responses/Unauthorized"}
+        "404": {$ref: "#/components/responses/NotFound"}
+        "409": {$ref: "#/components/responses/Conflict"}
+
+  /api/v1/sessions/{session_id}/events/{seq}/deny:
+    post:
+      tags: [command-control]
+      summary: Deny a held command
+      description: Deny instead of release - an append-only `denied` row records the decision against the hold.
+      security:
+        - bearerAuth: []
+        - adminTokenHeader: []
+        - {}
+      parameters:
+        - name: session_id
+          in: path
+          required: true
+          schema: {type: integer, minimum: 1}
+        - name: seq
+          in: path
+          required: true
+          schema: {type: integer, minimum: 1}
+        - name: X-Actor
+          in: header
+          description: Who decides (recorded on the resolution row).
+          schema: {type: string, maxLength: 64}
+      responses:
+        "200":
+          description: Denial recorded
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/CommandApprovalResponse"}
+        "401": {$ref: "#/components/responses/Unauthorized"}
+        "404": {$ref: "#/components/responses/NotFound"}
+        "409": {$ref: "#/components/responses/Conflict"}
+
+  /api/v1/command-control/stats:
+    get:
+      tags: [command-control]
+      summary: Command-control aggregates
+      description: |
+        Rule counts per action, today's real intercepts, the approval queue,
+        incident posture and a content hash of the current policy
+        (`engine_hash` changes whenever a rule changes).
+      responses:
+        "200":
+          description: Command-control statistics
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/CommandStats"}
+
+  /api/v1/command-control/rules:
+    get:
+      tags: [command-control]
+      summary: Policy rules in evaluation order
+      description: |
+        block -> approval -> allow; within an action the target-scoped rule
+        wins, then the longer pattern, then the lowest id. Each rule carries
+        its real `match_count` (recorded events it decided).
+      parameters:
+        - name: action
+          in: query
+          schema: {$ref: "#/components/schemas/CommandAction"}
+        - name: q
+          in: query
+          description: Case-insensitive substring filter on name, pattern, description or target scope.
+          schema: {type: string}
+        - name: enabled
+          in: query
+          schema: {type: boolean}
+      responses:
+        "200":
+          description: Rules
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/CommandRuleList"}
+        "400": {$ref: "#/components/responses/BadRequest"}
+    post:
+      tags: [command-control]
+      summary: Create a policy rule
+      description: |
+        Adds a rule (name, pattern, action; optional target glob,
+        escalation flag, description, enabled). `terminate_on_match` is
+        refused on non-block actions. The shipped section-9 policy seeds an
+        empty table at startup - a rule deleted here stays deleted.
+      security:
+        - bearerAuth: []
+        - adminTokenHeader: []
+        - {}
+      parameters:
+        - name: X-Actor
+          in: header
+          schema: {type: string, maxLength: 64}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: "#/components/schemas/CommandRuleRequest"}
+      responses:
+        "201":
+          description: Rule created
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/CommandRuleResponse"}
+        "400": {$ref: "#/components/responses/BadRequest"}
+        "401": {$ref: "#/components/responses/Unauthorized"}
+
+  /api/v1/command-control/rules/{rule_id}:
+    put:
+      tags: [command-control]
+      summary: Edit a policy rule
+      description: Partial update - send only the fields that changed.
+      security:
+        - bearerAuth: []
+        - adminTokenHeader: []
+        - {}
+      parameters:
+        - name: rule_id
+          in: path
+          required: true
+          schema: {type: integer, minimum: 1}
+        - name: X-Actor
+          in: header
+          schema: {type: string, maxLength: 64}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: "#/components/schemas/CommandRuleRequest"}
+      responses:
+        "200":
+          description: Rule updated
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/CommandRuleResponse"}
+        "400": {$ref: "#/components/responses/BadRequest"}
+        "401": {$ref: "#/components/responses/Unauthorized"}
+        "404": {$ref: "#/components/responses/NotFound"}
+    delete:
+      tags: [command-control]
+      summary: Delete a policy rule
+      description: Recorded events keep their `rule_id` as history (incidents snapshot name and pattern too).
+      security:
+        - bearerAuth: []
+        - adminTokenHeader: []
+        - {}
+      parameters:
+        - name: rule_id
+          in: path
+          required: true
+          schema: {type: integer, minimum: 1}
+      responses:
+        "200":
+          description: Rule deleted
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/CommandRuleDeleteResponse"}
+        "401": {$ref: "#/components/responses/Unauthorized"}
+        "404": {$ref: "#/components/responses/NotFound"}
+
+  /api/v1/command-control/evaluate:
+    post:
+      tags: [command-control]
+      summary: Dry-run a command line against the policy
+      description: |
+        Same engine the sessions use, no state changes: returns the decision,
+        the deciding rule (null when nothing matched -> default allow) and
+        whether posting the command would escalate.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: "#/components/schemas/CommandEvaluateRequest"}
+      responses:
+        "200":
+          description: Decision
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/CommandEvaluateResponse"}
+        "400": {$ref: "#/components/responses/BadRequest"}
+
+  /api/v1/command-control/approvals:
+    get:
+      tags: [command-control]
+      summary: Held commands awaiting a decision
+      description: Holds on active sessions only - a hold whose session ended can never be resolved and stays evidence.
+      responses:
+        "200":
+          description: Pending approvals
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/CommandApprovalList"}
+
+  /api/v1/command-control/incidents:
+    get:
+      tags: [command-control]
+      summary: Escalation incidents, newest first
+      parameters:
+        - name: status
+          in: query
+          schema: {type: string, enum: [open, closed, all]}
+        - {$ref: "#/components/parameters/Limit"}
+        - {$ref: "#/components/parameters/Offset"}
+      responses:
+        "200":
+          description: Incidents
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/CommandIncidentList"}
+        "400": {$ref: "#/components/responses/BadRequest"}
+
+  /api/v1/command-control/incidents/{incident_id}:
+    get:
+      tags: [command-control]
+      summary: One incident with its preserved evidence
+      parameters:
+        - name: incident_id
+          in: path
+          required: true
+          schema: {type: integer, minimum: 1}
+      responses:
+        "200":
+          description: Incident
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/CommandIncidentResponse"}
+        "404": {$ref: "#/components/responses/NotFound"}
+
+  /api/v1/command-control/incidents/{incident_id}/close:
+    post:
+      tags: [command-control]
+      summary: Close an incident after review
+      security:
+        - bearerAuth: []
+        - adminTokenHeader: []
+        - {}
+      parameters:
+        - name: incident_id
+          in: path
+          required: true
+          schema: {type: integer, minimum: 1}
+        - name: X-Actor
+          in: header
+          schema: {type: string, maxLength: 64}
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema: {$ref: "#/components/schemas/CommandIncidentCloseRequest"}
+      responses:
+        "200":
+          description: Incident closed
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/CommandIncidentResponse"}
+        "400": {$ref: "#/components/responses/BadRequest"}
+        "401": {$ref: "#/components/responses/Unauthorized"}
+        "404": {$ref: "#/components/responses/NotFound"}
+        "409": {$ref: "#/components/responses/Conflict"}
 
   /api/v1/discovery/stats:
     get:
@@ -2325,7 +2624,7 @@ components:
 
     SessionEventType:
       type: string
-      enum: [keystroke, command, file_upload, file_download, clipboard, screenshot, note, status]
+      enum: [keystroke, command, file_upload, file_download, clipboard, screenshot, note, status, approval]
 
     SessionControls:
       type: object
@@ -2360,16 +2659,19 @@ components:
 
     SessionEvent:
       type: object
-      required: [id, session_id, seq, type, content, allowed, blocked_reason, withheld, watermark, actor, created_at]
+      required: [id, session_id, seq, type, content, allowed, blocked_reason, withheld, decision, rule_id, ref_seq, watermark, actor, created_at]
       properties:
         id: {type: integer}
         session_id: {type: integer}
         seq: {type: integer, description: Monotonic playback position within the session.}
         type: {$ref: "#/components/schemas/SessionEventType"}
         content: {type: [string, "null"], description: Null when keystroke logging withheld the input.}
-        allowed: {type: boolean, description: False when a control blocked the action (kept as evidence).}
-        blocked_reason: {type: [string, "null"]}
+        allowed: {type: boolean, description: False when a control or the command policy blocked the action (kept as evidence).}
+        blocked_reason: {type: [string, "null"], enum: [upload_not_allowed, download_not_allowed, clipboard_not_allowed, screenshot_not_allowed, approval_required, command_blocked, approval_denied, null]}
         withheld: {type: boolean}
+        decision: {type: [string, "null"], enum: [allow, approval, block, approved, denied, null], description: Command-control decision (command rows) or resolution (approval rows).}
+        rule_id: {type: [integer, "null"], description: Rule that decided; null when no rule matched (default allow).}
+        ref_seq: {type: [integer, "null"], description: "On approval rows: seq of the held command this resolves."}
         watermark: {type: [string, "null"]}
         actor: {type: string}
         created_at: {type: string}
@@ -2421,6 +2723,10 @@ components:
       properties:
         event: {$ref: "#/components/schemas/SessionEvent"}
         message: {type: string}
+        escalation:
+          type: object
+          additionalProperties: true
+          description: Present when an escalated command block terminated the session (the incident and its release-and-rotate cascade).
 
     SessionEndResponse:
       type: object
@@ -2488,6 +2794,195 @@ components:
         events_total: {type: integer}
         events_blocked: {type: integer}
         events_withheld: {type: integer}
+
+    # --- command control (module 9) ----------------------------------------
+    CommandAction:
+      type: string
+      enum: [allow, approval, block]
+
+    CommandRule:
+      type: object
+      required: [id, name, pattern, action, target_pattern, terminate_on_match, description, enabled, created_at, updated_at, updated_by]
+      properties:
+        id: {type: integer}
+        name: {type: string}
+        pattern: {type: string, description: Case-insensitive substring matched against the command line.}
+        action: {$ref: "#/components/schemas/CommandAction"}
+        target_pattern: {type: string, description: "fnmatch glob on the session target, case-insensitive; empty string = any target."}
+        terminate_on_match: {type: boolean, description: "Context-aware escalation: a matching block also ends the session and raises an incident."}
+        description: {type: string}
+        enabled: {type: boolean}
+        created_at: {type: string}
+        updated_at: {type: string}
+        updated_by: {type: string}
+        match_count: {type: integer, description: Recorded events this rule decided (list responses only).}
+
+    CommandRuleRequest:
+      type: object
+      description: Create (name and pattern required) or partial update payload.
+      properties:
+        name: {type: string, maxLength: 120}
+        pattern: {type: string, maxLength: 160}
+        action: {$ref: "#/components/schemas/CommandAction"}
+        target_pattern: {type: string, maxLength: 120}
+        terminate_on_match: {type: boolean, description: Refused unless action is block.}
+        description: {type: string, maxLength: 255}
+        enabled: {type: boolean}
+
+    CommandRuleList:
+      type: object
+      required: [items, total]
+      properties:
+        items:
+          type: array
+          items: {$ref: "#/components/schemas/CommandRule"}
+        total: {type: integer}
+
+    CommandRuleResponse:
+      type: object
+      required: [rule, message]
+      properties:
+        rule: {$ref: "#/components/schemas/CommandRule"}
+        message: {type: string}
+
+    CommandRuleDeleteResponse:
+      type: object
+      required: [deleted, message]
+      properties:
+        deleted: {type: integer}
+        message: {type: string}
+
+    CommandEvaluateRequest:
+      type: object
+      required: [command]
+      properties:
+        command: {type: string, maxLength: 4096}
+        target: {type: string, maxLength: 255, description: Session target the rule scopes apply to.}
+
+    CommandDecision:
+      type: object
+      required: [decision, matched, terminate, rule, default]
+      properties:
+        decision: {$ref: "#/components/schemas/CommandAction"}
+        matched: {type: boolean}
+        terminate: {type: boolean, description: True when the deciding rule escalates (posting this command would end the session).}
+        rule:
+          oneOf:
+            - {$ref: "#/components/schemas/CommandRule"}
+            - type: "null"
+          description: The deciding rule; null when nothing matched.
+        default: {type: boolean, description: True when no rule matched (default allow).}
+
+    CommandEvaluateResponse:
+      type: object
+      required: [result]
+      properties:
+        result: {$ref: "#/components/schemas/CommandDecision"}
+
+    CommandApproval:
+      type: object
+      required: [event, session]
+      properties:
+        event: {$ref: "#/components/schemas/SessionEvent"}
+        session:
+          type: object
+          required: [id, session_ref, protocol, target, actor, status]
+          properties:
+            id: {type: integer}
+            session_ref: {type: string}
+            protocol: {$ref: "#/components/schemas/SessionProtocol"}
+            target: {type: string}
+            actor: {type: string}
+            status: {$ref: "#/components/schemas/SessionStatus"}
+
+    CommandApprovalList:
+      type: object
+      required: [items, total]
+      properties:
+        items:
+          type: array
+          items: {$ref: "#/components/schemas/CommandApproval"}
+        total: {type: integer}
+
+    CommandApprovalResponse:
+      type: object
+      required: [event, resolution, message]
+      properties:
+        event: {$ref: "#/components/schemas/SessionEvent", description: The held command this decision resolves.}
+        resolution: {$ref: "#/components/schemas/SessionEvent", description: The appended approval row (ref_seq -> the hold).}
+        message: {type: string}
+
+    CommandIncident:
+      type: object
+      required: [id, incident_ref, session_id, event_seq, rule_id, rule_name, rule_pattern, command, target, actor, status, closed_by, closed_at, close_note, created_at]
+      properties:
+        id: {type: integer}
+        incident_ref: {type: string, description: "inc-<hex>, the incident's custody ref."}
+        session_id: {type: integer}
+        event_seq: {type: integer, description: Seq of the blocked command this preserves.}
+        rule_id: {type: [integer, "null"]}
+        rule_name: {type: string, description: Snapshot so evidence survives rule edits/deletes.}
+        rule_pattern: {type: string}
+        command: {type: string}
+        target: {type: string}
+        actor: {type: string}
+        status: {type: string, enum: [open, closed]}
+        closed_by: {type: [string, "null"]}
+        closed_at: {type: [string, "null"]}
+        close_note: {type: string}
+        created_at: {type: string}
+
+    CommandIncidentList:
+      type: object
+      required: [items, total, limit, offset]
+      properties:
+        items:
+          type: array
+          items: {$ref: "#/components/schemas/CommandIncident"}
+        total: {type: integer}
+        limit: {type: integer}
+        offset: {type: integer}
+
+    CommandIncidentResponse:
+      type: object
+      required: [incident]
+      properties:
+        incident: {$ref: "#/components/schemas/CommandIncident"}
+        message: {type: string}
+
+    CommandIncidentCloseRequest:
+      type: object
+      properties:
+        note: {type: string, maxLength: 255}
+
+    CommandStats:
+      type: object
+      required: [rules_total, rules_enabled, by_action, intercepts_today, commands_today, commands_recorded, approvals, incidents, engine_hash, last_sync, last_sync_by]
+      properties:
+        rules_total: {type: integer}
+        rules_enabled: {type: integer}
+        by_action:
+          type: object
+          additionalProperties: {type: integer}
+        intercepts_today: {type: integer, description: Command events decided block since local midnight.}
+        commands_today: {type: integer, description: Command events recorded since local midnight.}
+        commands_recorded: {type: integer, description: Command events recorded all-time.}
+        approvals:
+          type: object
+          required: [pending, approved, denied]
+          properties:
+            pending: {type: integer}
+            approved: {type: integer}
+            denied: {type: integer}
+        incidents:
+          type: object
+          required: [open, total]
+          properties:
+            open: {type: integer}
+            total: {type: integer}
+        engine_hash: {type: string, description: First 12 hex chars of sha256 over the canonical policy.}
+        last_sync: {type: [string, "null"], description: Most recent rule update (ISO 8601).}
+        last_sync_by: {type: [string, "null"], description: Actor on the most recently updated rule.}
 
     # --- discovery engine (module 3) -------------------------------------
     DiscoveryAssetType:

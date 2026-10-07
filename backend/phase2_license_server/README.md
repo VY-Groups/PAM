@@ -25,8 +25,8 @@ Supported wire formats and algorithms:
 | `app.py` | Flask app factory, error handlers, `/health`, screen routes, `python app.py` entrypoint |
 | `config.py` | Environment-driven configuration (`.env` supported) |
 | `routes.py` | HTTP layer: parsing, auth, status codes |
-| `service.py` | Business logic: import, list, revoke, restore, validate, usage, checks, `meta`, platform settings, credential vault, dashboard overview + unified events, infrastructure discovery, JIT access grants, privileged sessions |
-| `models.py` | `LicenseRecord` (signed license + spec fields), `LicenseEvent`, `SettingGroup` + `SettingsEvent` (config changelog), `VaultItem` + `VaultEvent` + `VaultSecretVersion` (vault inventory + audit + immutable versions), `DiscoveredAsset`/`DiscoveredAccount`/`DiscoveryScan`/`DiscoveryEvent`, `JitRequest` + `JitEvent` (grants + trail), `PrivilegedSession` + `SessionEvent` (session recording, append-only) |
+| `service.py` | Business logic: import, list, revoke, restore, validate, usage, checks, `meta`, platform settings, credential vault, dashboard overview + unified events, infrastructure discovery, JIT access grants, privileged sessions, zero-trust command-control policy engine |
+| `models.py` | `LicenseRecord` (signed license + spec fields), `LicenseEvent`, `SettingGroup` + `SettingsEvent` (config changelog), `VaultItem` + `VaultEvent` + `VaultSecretVersion` (vault inventory + audit + immutable versions), `DiscoveredAsset`/`DiscoveredAccount`/`DiscoveryScan`/`DiscoveryEvent`, `JitRequest` + `JitEvent` (grants + trail), `PrivilegedSession` + `SessionEvent` (session recording, append-only), `CommandRule` + `CommandIncident` (zero-trust policy + escalations, append-only) |
 | `keys.py` | Startup key checks (fail fast, public/private must match, both algorithms) |
 | `licensing_bridge.py` | Path bootstrap + cached Phase 1 `LicenseGenerator`/`LicenseValidator` |
 | `tests/test_api.py` | End-to-end license API tests |
@@ -36,6 +36,7 @@ Supported wire formats and algorithms:
 | `tests/test_discovery.py` | Infrastructure discovery (onboard, scan, adopt, ignore) tests |
 | `tests/test_jit.py` | JIT access: deterministic risk bands, approvals, time-boxed grants, expiry rotation |
 | `tests/test_sessions.py` | Privileged sessions: start/attach, channel events, control gating, lifecycle + cascades |
+| `tests/test_command_control.py` | Zero-trust command policy: rule CRUD, dry-run decisions, approval queue, incident escalation |
 | `tests/test_openapi_contract.py` | `apis/openapi.yaml` ↔ live route map (both directions) |
 
 ## Quick start
@@ -88,7 +89,7 @@ it loads the four configuration groups plus their schema, renders editable
 controls, tracks dirty fields, saves through the admin token and shows the live
 configuration changelog.
 
-Five more screens render from their own APIs: the **Command Center** and
+More screens render from their own APIs: the **Command Center** and
 **Compliance** screens (`GET /api/v1/overview` + the unified
 `GET /api/v1/events` feed — health, license posture, vault stats, computed
 control posture, recent activity), the **Credential Vault**
@@ -96,10 +97,12 @@ control posture, recent activity), the **Credential Vault**
 SLA, type/status filters, JIT checkouts and an audit trail), the
 **Infrastructure Discovery** screen (`GET/POST /api/v1/discovery/*` — register,
 scan, adopt, ignore), the **JIT access** console (`GET/POST /api/v1/jit/*` —
-requests, risk, approvals, time-boxed grants) and the **live session hub**
+requests, risk, approvals, time-boxed grants), the **live session hub**
 (`GET/POST /api/v1/sessions/*` — start a session against a vault credential or
 an active grant, replay its append-only recording, gate controls, and end it
-through the release-and-rotate cascade). Each fetches on load
+through the release-and-rotate cascade) and the **zero-trust policy console**
+(`GET/POST /api/v1/command-control/*` — the shipped §9 rules as editable cards,
+a dry-run simulator, the approval queue and the incident trail). Each fetches on load
 and keeps its honest placeholder content as the fallback, so it still renders
 when opened as `file://` or when the API is unreachable.
 
@@ -117,8 +120,8 @@ is no seed inventory: every credential enters through **Onboard New Credential**
 "not connected" states instead of sample rows.
 
 ```bash
-python -m pytest tests -q     # 205 tests (from backend/phase2_license_server)
-python -m pytest backend -q   # 287 tests from the repo root (+ shared crypto core)
+python -m pytest tests -q     # 223 tests (from backend/phase2_license_server)
+python -m pytest backend -q   # 305 tests from the repo root (+ shared crypto core)
 ```
 
 ## Configuration
@@ -202,6 +205,18 @@ cross-checked against these routes by `tests/test_openapi_contract.py`.
 | POST | `/sessions/<id>/resume` | admin | Resume a paused/locked session |
 | POST | `/sessions/<id>/terminate` | admin | End with `outcome=terminated` (body `{"reason"?}`); linked grant closes with it, own checkout releases and rotates exactly once — response carries the real `cascade` detail |
 | POST | `/sessions/<id>/complete` | admin | End with `outcome=completed` (body `{"reason"?}`), same cascade rules |
+| GET | `/command-control/stats` | – | Engine aggregates: real rule counts by action, enabled ratio, `engine_hash`, today's intercepts, approvals by state, incidents by state, `last_sync`/`last_sync_by` |
+| GET | `/command-control/rules?action=&q=&enabled=` | – | Every rule in evaluation order (block → approval → allow; scoped first, longest pattern, lowest id) with its real `match_count` |
+| POST | `/command-control/rules` | admin | Create a rule (201): `name` (≤120) and `pattern` (≤160) required, `action` ∈ `allow`/`approval`/`block`, optional `target_pattern` fnmatch glob, `terminate_on_match` only on block rules |
+| PUT | `/command-control/rules/<id>` | admin | Partial edit (send only what changed); `updated_by`/`updated_at` follow the caller (`X-Actor`) |
+| DELETE | `/command-control/rules/<id>` | admin | Remove a rule — events/incidents keep their own snapshot, so past decisions stay explainable; seeding runs only on an empty table, so the deletion sticks |
+| POST | `/command-control/evaluate` | – | Dry-run one command line (`command` ≤4096 chars, optional `target` ≤255) against the live policy — writes nothing; returns `decision`, the matched `rule`, `terminate`, `default` |
+| GET | `/command-control/approvals` | – | Held commands awaiting a decision (event + its active session), newest first |
+| GET | `/command-control/incidents?status=&limit=&offset=` | – | Escalation trail newest first (`status`: `open`/`closed`/all) |
+| GET | `/command-control/incidents/<id>` | – | One incident with its preserved evidence (unknown id → 404) |
+| POST | `/command-control/incidents/<id>/close` | admin | Close after review (`{"note"?}`, recorded with who/when); already closed → 409 |
+| POST | `/sessions/<id>/events/<seq>/approve` | admin | Release a held command: append-only `type=approval` row (`decision=approved`) referencing the hold — the hold itself is never edited; already resolved → 409 |
+| POST | `/sessions/<id>/events/<seq>/deny` | admin | Deny a held command: append-only `denied` row (`blocked_reason=approval_denied`), same 409 guards |
 | GET | `/vault/events?limit=&action=` | – | Vault audit trail (onboarding, checkouts, rotations); `action` filters to one type |
 | GET | `/discovery/stats` | – | Discovery aggregates: totals, per-type/risk/status, recorded accounts, last scan |
 | GET | `/discovery/assets?…` | – | Discovered targets (`q`, `type`, `risk`, `pam_status`, `limit`, `offset`), each with `vault_count` |
@@ -483,10 +498,54 @@ curl -s -X POST http://127.0.0.1:5000/api/v1/sessions/1/terminate \
   response). Ending a session whose grant expired in a detail read does the
   same through the lazy path (`end_reason=grant_expired`).
 - Reads are public; the write routes (settings, vault, discovery, rotation,
-  jit, sessions)
+  jit, sessions, command-control rule/incident/approval writes)
   require the admin token in token mode (open mode stays open) and record who
   acted via `X-Actor`. The secret reveal (`GET /vault/items/<id>/secret`) is
   gated like a write route — it is never one of the public reads.
+
+### Command control
+
+```bash
+# dry-run one command against the live policy (public, writes nothing)
+curl -s -X POST http://127.0.0.1:5000/api/v1/command-control/evaluate \
+  -H "Content-Type: application/json" \
+  -d '{"command": "rm -rf /var/log/audit", "target": ""}'
+# -> {"result": {"decision": "block", "matched": true, "rule": {"id": 7, ...},
+#                "terminate": false, "default": false}}
+
+# partial edit of a live rule (only what changed)
+curl -s -X PUT http://127.0.0.1:5000/api/v1/command-control/rules/9 \
+  -H "Authorization: Bearer $LICENSE_ADMIN_TOKEN" -H "X-Actor: alice" \
+  -H "Content-Type: application/json" -d '{"enabled": false}'
+
+# a command held by an approval rule resolves append-only on its session
+curl -s -X POST http://127.0.0.1:5000/api/v1/sessions/1/events/2/approve \
+  -H "Authorization: Bearer $LICENSE_ADMIN_TOKEN" -H "X-Actor: alice"
+# -> {"event": {..., "decision": "approval"},
+#     "resolution": {..., "decision": "approved", "allowed": true},
+#     "message": "Command approved"}
+
+# review an escalated incident (its evidence is already preserved)
+curl -s -X POST http://127.0.0.1:5000/api/v1/command-control/incidents/1/close \
+  -H "Authorization: Bearer $LICENSE_ADMIN_TOKEN" -H "X-Actor: alice" \
+  -H "Content-Type: application/json" -d '{"note": "block reviewed"}'
+```
+
+- **Command control** (architecture module 9) is a default-allow engine over
+  `command_rules`: a match is a case-insensitive substring of the command plus
+  an optional case-insensitive fnmatch glob on the target, and evaluation runs
+  block → approval → allow with scoped rules first, then the longest pattern,
+  then the lowest id. A rule either allows, holds the command for a human
+  decision (the approval queue resolves through append-only `type=approval`
+  rows that reference the hold — the hold is never edited), or blocks it; a
+  scoped block with `terminate_on_match` ends the session through the normal
+  release-and-rotate cascade and preserves the evidence as a
+  `command_incidents` row (command, target, rule snapshot, session/seq,
+  actor). The shipped §9 table seeds 15 rules once, into an empty table only,
+  so an operator's deletion stays deleted; `engine_hash` is a content hash of
+  the current policy, so any rule change is visible in the stats and on the
+  screen. `session_events` grows `decision`/`rule_id`/`ref_seq` and
+  `evaluate` is a pure dry-run: it never writes an event.
 
 ### Discovery
 

@@ -24,7 +24,7 @@ PAM/
 │   ├── screens/<name>/          #   one folder per screen: code.html + screen.png
 │   └── README.md                #   layout + how to add a screen (the contract)
 ├── apis/                            # HTTP contract for every backend service
-│   ├── openapi.yaml             #   OpenAPI 3.1: all 49 paths (synced by a test)
+│   ├── openapi.yaml             #   OpenAPI 3.1: all 59 paths (synced by a test)
 │   └── README.md                #   conventions + how to view
 ├── backend/
 │   ├── ipam_licensing/              # Phase 1: library + CLIs
@@ -44,6 +44,7 @@ PAM/
 │       ├── tests/test_discovery.py       # discovery endpoints (19 tests)
 │       ├── tests/test_jit.py             # JIT access grants (18 tests)
 │       ├── tests/test_sessions.py        # privileged sessions (23 tests)
+│       ├── tests/test_command_control.py # zero-trust command policy engine (18 tests)
 │       ├── tests/test_openapi_contract.py # apis/openapi.yaml ↔ routes (5 tests)
 │       └── README.md                # full API reference
 ├── pam_master/                        # VY-PAM MASTER: vendor tool (never shipped)
@@ -84,7 +85,7 @@ python -m pam_master.keygen                      # RSA + Ed25519 + registry PII 
 python -m pam_master                             # http://127.0.0.1:5400
 
 # Tests (shared core + shipped API contract + vendor tool)
-python -m pytest backend -q                      # 287 tests
+python -m pytest backend -q                      # 305 tests
 python -m pytest pam_master -q                   # 46 tests (vendor tool)
 ```
 
@@ -119,7 +120,7 @@ python -m pytest pam_master -q                   # 46 tests (vendor tool)
   scan guarantees no private key is ever part of the shipped repository.
 - The console lives in `frontend/` — a copy of the frozen design reference in
   `stitch_pam_suite_dashboard_ui/`. Every screen carries the same sidebar with
-  real links, `frontend/index.html` is the launcher. Served by Phase 2, eight
+  real links, `frontend/index.html` is the launcher. Served by Phase 2, nine
   screens are **live**: licensing (`/`), platform settings (`/settings`,
   backed by `GET/PUT /api/v1/settings` with an audit changelog), the Command
   Center and Compliance screens (backed by `GET /api/v1/overview` and the
@@ -127,11 +128,15 @@ python -m pytest pam_master -q                   # 46 tests (vendor tool)
   `GET/POST /api/v1/vault/*` — inventory, rotation SLA and checkouts),
   Infrastructure Discovery (`GET/POST /api/v1/discovery/*`), the JIT
   access console (`GET/POST /api/v1/jit/*` — requests, risk evaluation,
-  approvals, time-boxed grants that rotate their credential on expiry), and
-  the live session hub (`GET/POST /api/v1/sessions/*` — start privileged
+  approvals, time-boxed grants that rotate their credential on expiry), the
+  live session hub (`GET/POST /api/v1/sessions/*` — start privileged
   sessions against a vault credential or an active grant, append-only
   channel events with custody watermarks, real pause/lock/terminate that
-  release the checkout and rotate the credential exactly once).
+  release the checkout and rotate the credential exactly once), and the
+  zero-trust policy console (`GET/POST /api/v1/command-control/*` — the
+  default-allow command engine over the shipped §9 rules: rule CRUD, dry-run
+  evaluation, the approval queue, and the incident trail that ends a session
+  and keeps its evidence).
   The rest are static pages under `/screens/`.
 
 ## What a license carries

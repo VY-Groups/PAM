@@ -8,7 +8,10 @@ via licensing_bridge.
 from __future__ import annotations
 
 import base64
+import fnmatch
+import hashlib
 import ipaddress
+import json
 import re
 import secrets
 import socket
@@ -38,6 +41,7 @@ from models import (
     ASSET_SECRET_TYPES,
     ASSET_TYPES,
     BASE_RISK,
+    COMMAND_ACTIONS,
     DISCOVERY_ACTION_ASSET_DISCOVERED,
     DISCOVERY_ACTION_ASSET_ONBOARDED,
     DISCOVERY_ACTION_ASSET_UPDATED,
@@ -92,6 +96,8 @@ from models import (
     VaultItem,
     VaultSecretVersion,
     classify_account_kind,
+    CommandIncident,
+    CommandRule,
     log_event,
 )
 from secrets_store import (
@@ -2496,11 +2502,14 @@ def list_session_events(
 
 def post_session_event(
     session_id: int, payload: Any, *, actor: str
-) -> SessionEvent:
+) -> Tuple[SessionEvent, Optional[Dict[str, Any]]]:
     """Record one channel event. Controls are enforced for real: a gated-off
     transfer/clipboard/screenshot is stored with allowed=false as evidence,
     keystrokes are content-withheld when logging is off, and a paused/locked/
-    ended session refuses events outright."""
+    ended session refuses events outright. `command` rows are additionally run
+    through command control (module 9): the matched rule decides allow /
+    approval-hold / block, and an escalated block raises its incident and
+    terminates the session - returned as the second value."""
     session = get_privileged_session(session_id)
     if session.status in SESSION_TERMINAL_STATUSES:
         raise Conflict(
@@ -2557,6 +2566,20 @@ def post_session_event(
         # never what was typed
         withheld = True
         stored = None
+    decision = None
+    rule_id = None
+    verdict = None
+    if event_type == "command":
+        # command control (module 9): the policy decides before the row lands
+        verdict = evaluate_command(content, session.target)
+        decision = verdict["decision"]
+        rule_id = verdict["rule"]["id"] if verdict["rule"] else None
+        if decision == "approval":
+            allowed = False
+            blocked_reason = "approval_required"
+        elif decision == "block":
+            allowed = False
+            blocked_reason = "command_blocked"
     event = SessionEvent(
         session_id=session.id,
         seq=_next_session_seq(session.id),
@@ -2565,12 +2588,20 @@ def post_session_event(
         allowed=allowed,
         blocked_reason=blocked_reason,
         withheld=withheld,
+        decision=decision,
+        rule_id=rule_id,
         watermark=_session_watermark(session, actor) if session.watermark else None,
         actor=actor,
     )
     db.session.add(event)
+    db.session.flush()
+    escalation = None
+    if verdict is not None and verdict["terminate"]:
+        escalation = _escalate_blocked_command(
+            session, event, verdict, actor=actor
+        )
     db.session.commit()
-    return event
+    return event, escalation
 
 
 def update_session_controls(
@@ -2785,6 +2816,526 @@ def _end_sessions_for_grant(
             actor=actor,
             content=f"access grant ended ({action}); session terminated with it",
         )
+
+
+# ---------------------------------------------------------------------------
+# command control (module 9: dangerous-command policy + escalation)
+# ---------------------------------------------------------------------------
+# Shipped default policy = the architecture document's section 9 table:
+# known-benign commands ALLOW, privileged mutations APPROVAL, destructive
+# commands BLOCK - plus the rest of its dangerous-command list as BLOCK and
+# the context-aware production escalation from its worked example. Patterns
+# match case-insensitively anywhere in the command line (a deliberately
+# simple deterministic engine): evaluation order is block -> approval ->
+# allow; within an action the target-scoped rule wins, then the longer
+# pattern, then the lowest id. No rule matched -> default allow.
+# (name, pattern, action, target_pattern, terminate_on_match, description)
+DEFAULT_COMMAND_RULES: Tuple[Tuple[str, str, str, str, bool, str], ...] = (
+    ("Allow file listing", "ls", "allow", "", False,
+     "Architecture 9 policy table: ls is allowed"),
+    ("Allow disk usage report", "df -h", "allow", "", False,
+     "Architecture 9 policy table: df -h is allowed"),
+    ("Allow service status", "systemctl status", "allow", "", False,
+     "Architecture 9 policy table: systemctl status is allowed"),
+    ("Service restart needs approval", "systemctl restart", "approval", "",
+     False, "Architecture 9 policy table: systemctl restart requires approval"),
+    ("User creation needs approval", "useradd", "approval", "", False,
+     "Architecture 9 policy table: useradd requires approval"),
+    ("Password change needs approval", "passwd", "approval", "", False,
+     "Architecture 9 policy table: passwd requires approval"),
+    ("Recursive delete blocked", "rm -rf", "block", "", False,
+     "Architecture 9 dangerous command list: rm -rf"),
+    ("Database drop blocked", "DROP DATABASE", "block", "", False,
+     "Architecture 9 dangerous command list: DROP DATABASE"),
+    ("Firewall flush blocked", "iptables -F", "block", "", False,
+     "Architecture 9 policy table: iptables -F is blocked"),
+    ("Shutdown blocked", "shutdown", "block", "", False,
+     "Architecture 9 dangerous command list: shutdown"),
+    ("Reboot blocked", "reboot", "block", "", False,
+     "Architecture 9 dangerous command list: reboot"),
+    ("World-writable chmod blocked", "chmod 777", "block", "", False,
+     "Architecture 9 dangerous command list: chmod 777"),
+    ("Service stop blocked", "systemctl stop", "block", "", False,
+     "Architecture 9 dangerous command list: systemctl stop"),
+    ("Table truncate blocked", "TRUNCATE", "block", "", False,
+     "Architecture 9 dangerous command list: TRUNCATE"),
+    ("Production database drop kills the session", "DROP DATABASE", "block",
+     "prod-*", True,
+     "Architecture 9 context-aware example: production target -> block, "
+     "terminate the session, raise the incident, preserve the evidence"),
+)
+COMMAND_RULE_ORDER = {"block": 0, "approval": 1, "allow": 2}
+
+
+def ensure_command_rules() -> int:
+    """Seed the shipped section-9 policy once (empty table only).
+
+    Returns the number of rows added (0 when the policy already exists, so a
+    deletion an admin made stays deleted).
+    """
+    if CommandRule.query.count() > 0:
+        return 0
+    now = datetime.now()
+    for name, pattern, action, target, terminate, description in DEFAULT_COMMAND_RULES:
+        db.session.add(
+            CommandRule(
+                name=name,
+                pattern=pattern,
+                action=action,
+                target_pattern=target,
+                terminate_on_match=terminate,
+                description=description,
+                created_at=now,
+                updated_at=now,
+            )
+        )
+    db.session.commit()
+    return len(DEFAULT_COMMAND_RULES)
+
+
+def _rule_order_key(rule: CommandRule) -> Tuple[int, int, int, int]:
+    # security first (block > approval > allow), then target-scoped rules,
+    # then the longer (more specific) pattern, then the stable id
+    return (
+        COMMAND_RULE_ORDER[rule.action],
+        0 if rule.target_pattern else 1,
+        -len(rule.pattern),
+        rule.id,
+    )
+
+
+def _rule_matches(rule: CommandRule, command: str, target: str) -> bool:
+    if rule.pattern.lower() not in command.lower():
+        return False
+    if rule.target_pattern and not fnmatch.fnmatchcase(
+        (target or "").lower(), rule.target_pattern.lower()
+    ):
+        return False
+    return True
+
+
+def evaluate_command(command: str, target: str = "") -> Dict[str, Any]:
+    """Deterministic policy decision for one command line (architecture 9):
+    the first matching rule in evaluation order decides; no match -> default
+    allow (this engine flags known-dangerous commands, it does not whitelist
+    every safe command)."""
+    rules = [r for r in CommandRule.query.filter_by(enabled=True).all()]
+    rules.sort(key=_rule_order_key)
+    for rule in rules:
+        if _rule_matches(rule, command, target):
+            return {
+                "decision": rule.action,
+                "matched": True,
+                "terminate": bool(rule.terminate_on_match and rule.action == "block"),
+                "rule": rule.to_dict(),
+                "default": False,
+            }
+    return {
+        "decision": "allow",
+        "matched": False,
+        "terminate": False,
+        "rule": None,
+        "default": True,
+    }
+
+
+def _rule_match_counts(*, blocked_only: bool = False) -> Dict[int, int]:
+    query = db.session.query(
+        SessionEvent.rule_id, db.func.count(SessionEvent.id)
+    ).filter(SessionEvent.rule_id.isnot(None))
+    if blocked_only:
+        query = query.filter(SessionEvent.decision == "block")
+    return {
+        int(rule_id): int(count)
+        for rule_id, count in query.group_by(SessionEvent.rule_id).all()
+    }
+
+
+def list_command_rules(
+    *, action: Optional[str] = None, q: Optional[str] = None,
+    enabled: Optional[bool] = None,
+) -> Dict[str, Any]:
+    """Every rule in evaluation order, each with its real match count."""
+    if action is not None and action not in COMMAND_ACTIONS:
+        raise ValidationFailed(
+            f"Unknown action '{action}'",
+            {"field": "action", "allowed": list(COMMAND_ACTIONS)},
+        )
+    rules = CommandRule.query.all()
+    if action is not None:
+        rules = [r for r in rules if r.action == action]
+    if enabled is not None:
+        rules = [r for r in rules if r.enabled is bool(enabled)]
+    if q:
+        needle = q.strip().lower()
+        rules = [
+            r for r in rules
+            if needle in " ".join(
+                (r.name, r.pattern, r.description, r.target_pattern)
+            ).lower()
+        ]
+    rules.sort(key=_rule_order_key)
+    counts = _rule_match_counts()
+    return {
+        "items": [
+            dict(rule.to_dict(), match_count=counts.get(rule.id, 0))
+            for rule in rules
+        ],
+        "total": len(rules),
+    }
+
+
+def get_command_rule(rule_id: int) -> CommandRule:
+    rule = CommandRule.query.filter_by(id=rule_id).first()
+    if rule is None:
+        raise NotFound(f"No command rule with id {rule_id}")
+    return rule
+
+
+def _validated_rule_fields(
+    payload: Any, *, partial: bool, rule: Optional[CommandRule] = None
+) -> Dict[str, Any]:
+    """Validate a create/update payload; partial updates start from the row."""
+    if not isinstance(payload, dict):
+        raise ValidationFailed("Request body must be a JSON object")
+    if partial:
+        if rule is None:  # pragma: no cover - callers always pass the row
+            raise ValidationFailed("Request body must be a JSON object")
+        fields = {
+            "name": rule.name,
+            "pattern": rule.pattern,
+            "action": rule.action,
+            "target_pattern": rule.target_pattern,
+            "terminate_on_match": rule.terminate_on_match,
+            "description": rule.description,
+            "enabled": rule.enabled,
+        }
+    else:
+        fields = {
+            "name": None,
+            "pattern": None,
+            "action": "allow",
+            "target_pattern": "",
+            "terminate_on_match": False,
+            "description": "",
+            "enabled": True,
+        }
+    for key in list(fields):
+        if key in payload:
+            fields[key] = payload[key]
+    name = _required_text(fields, "name", 120)
+    pattern = _required_text(fields, "pattern", 160)
+    action = fields["action"]
+    if action not in COMMAND_ACTIONS:
+        raise ValidationFailed(
+            f"Unknown action '{action}'",
+            {"field": "action", "allowed": list(COMMAND_ACTIONS)},
+        )
+    target_pattern = _optional_text(fields, "target_pattern", 120)
+    description = _optional_text(fields, "description", 255)
+    terminate = fields["terminate_on_match"]
+    if not isinstance(terminate, bool):
+        raise ValidationFailed(
+            "'terminate_on_match' must be true or false",
+            {"field": "terminate_on_match"},
+        )
+    enabled = fields["enabled"]
+    if not isinstance(enabled, bool):
+        raise ValidationFailed("'enabled' must be true or false", {"field": "enabled"})
+    if terminate and action != "block":
+        # session termination is the escalation response to a block
+        raise ValidationFailed(
+            "Escalation (terminate_on_match) only applies to block rules",
+            {"field": "terminate_on_match", "action": action},
+        )
+    return {
+        "name": name,
+        "pattern": pattern,
+        "action": action,
+        "target_pattern": target_pattern,
+        "terminate_on_match": terminate,
+        "description": description,
+        "enabled": enabled,
+    }
+
+
+def create_command_rule(payload: Any, *, actor: str) -> CommandRule:
+    fields = _validated_rule_fields(payload, partial=False)
+    rule = CommandRule(**fields, updated_by=actor)
+    db.session.add(rule)
+    db.session.commit()
+    return rule
+
+
+def update_command_rule(
+    rule_id: int, payload: Any, *, actor: str
+) -> CommandRule:
+    rule = get_command_rule(rule_id)
+    fields = _validated_rule_fields(payload, partial=True, rule=rule)
+    for key, value in fields.items():
+        setattr(rule, key, value)
+    rule.updated_at = datetime.now()
+    rule.updated_by = actor
+    db.session.commit()
+    return rule
+
+
+def delete_command_rule(rule_id: int) -> Dict[str, Any]:
+    """Remove a rule. Recorded events keep their rule_id as history (the
+    incidents snapshot name/pattern too), so past decisions stay explainable."""
+    rule = get_command_rule(rule_id)
+    db.session.delete(rule)
+    db.session.commit()
+    return {"deleted": rule_id}
+
+
+def _pending_approval_events() -> List[SessionEvent]:
+    held = SessionEvent.query.filter_by(type="command", decision="approval").all()
+    resolved = {
+        (row.session_id, row.ref_seq)
+        for row in SessionEvent.query.filter_by(type="approval").all()
+        if row.ref_seq is not None
+    }
+    return [row for row in held if (row.session_id, row.seq) not in resolved]
+
+
+def pending_command_approvals() -> Dict[str, Any]:
+    """Held commands an approver can still act on (active sessions only: a
+    hold whose session ended can never be resolved and is only evidence)."""
+    sessions = {s.id: s for s in PrivilegedSession.query.all()}
+    items: List[Dict[str, Any]] = []
+    held = sorted(
+        _pending_approval_events(), key=lambda row: row.created_at, reverse=True
+    )
+    for row in held:
+        session = sessions.get(row.session_id)
+        if session is None or session.status != "active":
+            continue
+        items.append(
+            {
+                "event": row.to_dict(),
+                "session": {
+                    "id": session.id,
+                    "session_ref": session.session_ref,
+                    "protocol": session.protocol,
+                    "target": session.target,
+                    "actor": session.actor,
+                    "status": session.status,
+                },
+            }
+        )
+    return {"items": items, "total": len(items)}
+
+
+def resolve_command_approval(
+    session_id: int, seq: int, *, approve: bool, actor: str
+) -> Tuple[SessionEvent, SessionEvent]:
+    """Approve or deny one held command: the append-only recording gets a new
+    `approval` row referencing it (ref_seq); the hold itself is never edited."""
+    session = get_privileged_session(session_id)
+    original = SessionEvent.query.filter_by(
+        session_id=session_id, seq=seq
+    ).first()
+    if original is None:
+        raise NotFound(f"No event seq {seq} in session {session_id}")
+    if original.type != "command" or original.decision != "approval":
+        raise Conflict(
+            "Event is not awaiting command approval",
+            {"field": "seq", "seq": seq, "decision": original.decision},
+        )
+    if session.status in SESSION_TERMINAL_STATUSES:
+        raise Conflict(
+            f"Session already {session.status}",
+            {"field": "status", "status": session.status},
+        )
+    already = SessionEvent.query.filter_by(
+        session_id=session_id, type="approval", ref_seq=seq
+    ).first()
+    if already is not None:
+        raise Conflict(
+            "Approval already recorded",
+            {"field": "seq", "seq": seq, "decision": already.decision},
+        )
+    resolution = SessionEvent(
+        session_id=session.id,
+        seq=_next_session_seq(session.id),
+        type="approval",
+        content=original.content,
+        allowed=bool(approve),
+        blocked_reason=None if approve else "approval_denied",
+        withheld=False,
+        decision="approved" if approve else "denied",
+        rule_id=original.rule_id,
+        ref_seq=seq,
+        watermark=(
+            _session_watermark(session, actor) if session.watermark else None
+        ),
+        actor=actor,
+    )
+    db.session.add(resolution)
+    db.session.commit()
+    return original, resolution
+
+
+def command_control_stats() -> Dict[str, Any]:
+    """Real aggregates for the command-control screen: rule counts, today's
+    intercepts, the approval queue, incident posture, and a content hash of
+    the current policy (changes when any rule changes)."""
+    rules = CommandRule.query.all()
+    day_start = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
+    commands_today = (
+        SessionEvent.query.filter(
+            SessionEvent.type == "command",
+            SessionEvent.created_at >= day_start,
+        )
+        .count()
+    )
+    blocks_today = (
+        SessionEvent.query.filter(
+            SessionEvent.type == "command",
+            SessionEvent.decision == "block",
+            SessionEvent.created_at >= day_start,
+        )
+        .count()
+    )
+    commands_recorded = SessionEvent.query.filter_by(type="command").count()
+    approved = SessionEvent.query.filter_by(
+        type="approval", decision="approved"
+    ).count()
+    denied = SessionEvent.query.filter_by(
+        type="approval", decision="denied"
+    ).count()
+    canonical = json.dumps(
+        [
+            {
+                "id": rule.id,
+                "pattern": rule.pattern,
+                "action": rule.action,
+                "target_pattern": rule.target_pattern,
+                "terminate_on_match": bool(rule.terminate_on_match),
+                "enabled": bool(rule.enabled),
+            }
+            for rule in sorted(rules, key=lambda r: r.id)
+        ],
+        sort_keys=True,
+        separators=(",", ":"),
+    )
+    last_sync = max((r.updated_at for r in rules), default=None)
+    last_sync_by = None
+    if rules:
+        last_sync_by = max(rules, key=lambda r: r.updated_at).updated_by
+    return {
+        "rules_total": len(rules),
+        "rules_enabled": sum(1 for rule in rules if rule.enabled),
+        "by_action": {
+            action: sum(1 for rule in rules if rule.action == action)
+            for action in COMMAND_ACTIONS
+        },
+        "intercepts_today": blocks_today,
+        "commands_today": commands_today,
+        "commands_recorded": commands_recorded,
+        "approvals": {
+            "pending": len(_pending_approval_events()),
+            "approved": approved,
+            "denied": denied,
+        },
+        "incidents": {
+            "open": CommandIncident.query.filter_by(status="open").count(),
+            "total": CommandIncident.query.count(),
+        },
+        "engine_hash": hashlib.sha256(canonical.encode("utf-8")).hexdigest()[:12],
+        "last_sync": last_sync.isoformat() if last_sync else None,
+        "last_sync_by": last_sync_by,
+    }
+
+
+def list_command_incidents(
+    *, status: Optional[str] = None, limit: int = 50, offset: int = 0
+) -> Dict[str, Any]:
+    if status is None or status == "all":
+        query = CommandIncident.query
+    elif status in ("open", "closed"):
+        query = CommandIncident.query.filter_by(status=status)
+    else:
+        raise ValidationFailed(
+            f"Unknown status '{status}'",
+            {"field": "status", "allowed": ["open", "closed", "all"]},
+        )
+    total = query.count()
+    rows = query.order_by(
+        CommandIncident.created_at.desc(), CommandIncident.id.desc()
+    ).offset(offset).limit(limit).all()
+    return {"items": [row.to_dict() for row in rows], "total": total,
+            "limit": limit, "offset": offset}
+
+
+def get_command_incident(incident_id: int) -> CommandIncident:
+    incident = CommandIncident.query.filter_by(id=incident_id).first()
+    if incident is None:
+        raise NotFound(f"No incident with id {incident_id}")
+    return incident
+
+
+def close_command_incident(
+    incident_id: int, payload: Any, *, actor: str
+) -> CommandIncident:
+    incident = get_command_incident(incident_id)
+    if incident.status == "closed":
+        raise Conflict(
+            "Incident already closed",
+            {"field": "status", "status": "closed"},
+        )
+    if payload is not None and not isinstance(payload, dict):
+        raise ValidationFailed("Request body must be a JSON object")
+    note = _optional_text(payload or {}, "note", 255)
+    incident.status = "closed"
+    incident.closed_by = actor
+    incident.closed_at = datetime.now()
+    incident.close_note = note
+    db.session.commit()
+    return incident
+
+
+def _escalate_blocked_command(
+    session: PrivilegedSession,
+    event: SessionEvent,
+    verdict: Dict[str, Any],
+    *,
+    actor: str,
+) -> Dict[str, Any]:
+    """Context-aware response (architecture 9): preserve the evidence as an
+    incident, then end the session - which runs the normal release-and-rotate
+    cascade. Any failure is reported, never hidden."""
+    rule = verdict["rule"]
+    incident = CommandIncident(
+        incident_ref="inc-" + secrets.token_hex(4),
+        session_id=session.id,
+        event_seq=event.seq,
+        rule_id=rule["id"],
+        rule_name=rule["name"],
+        rule_pattern=rule["pattern"],
+        command=event.content or "",
+        target=session.target,
+        actor=actor,
+    )
+    db.session.add(incident)
+    db.session.flush()
+    escalation: Dict[str, Any] = {
+        "incident": incident.to_dict(),
+        "session_terminated": False,
+    }
+    try:
+        _, cascade = end_session(
+            session.id,
+            actor=actor,
+            outcome="terminated",
+            payload={"reason": f"command-control: {rule['name']}"},
+        )
+        escalation["session_terminated"] = True
+        escalation["cascade"] = cascade
+    except APIError as exc:
+        escalation["error"] = exc.message
+    return escalation
 
 
 # ---------------------------------------------------------------------------
