@@ -12,6 +12,7 @@ import ipaddress
 import re
 import socket
 import threading
+import time
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta
 from typing import Any, Dict, List, Optional, Tuple
@@ -60,6 +61,7 @@ from models import (
     VAULT_ACTION_ONBOARDED,
     VAULT_ACTION_REVOKED,
     VAULT_ACTION_ROTATED,
+    VAULT_ACTION_ROTATION_FAILED,
     VAULT_STATUS_AVAILABLE,
     VAULT_STATUS_CHECKED_OUT,
     VAULT_STATUS_FAILED,
@@ -77,8 +79,16 @@ from models import (
     SettingsEvent,
     VaultEvent,
     VaultItem,
+    VaultSecretVersion,
     classify_account_kind,
     log_event,
+)
+from secrets_store import (
+    approximate_entropy_bits,
+    generate_secret,
+    generated_secret_is_valid,
+    seal,
+    unseal,
 )
 
 _QUOTA_SCALARS = (
@@ -1195,6 +1205,11 @@ def vault_stats() -> Dict[str, Any]:
             "due": due,
             "on_demand": on_demand,
         },
+        "secrets": {
+            "managed": sum(1 for item in items if item.secret_version),
+            "unmanaged": total - sum(1 for item in items if item.secret_version),
+            "versions": VaultSecretVersion.query.count(),
+        },
         "attention": {"failed": failed},
         "checked_out": by_status.get(VAULT_STATUS_CHECKED_OUT, 0),
         "events_today": {"checkouts": checkouts_today, "rotations": rotations_today},
@@ -1255,8 +1270,129 @@ def revoke_vault_checkout(item_id: int, *, actor: str) -> VaultItem:
     return item
 
 
-def rotate_vault_item(item_id: int, *, actor: str) -> VaultItem:
-    """Rotate (or retry a failed rotation): stamps a fresh SLA window."""
+def _vault_config() -> Config:
+    """Runtime config for at-rest crypto (works in request and app context)."""
+    from flask import current_app
+
+    return current_app.config["LICENSE_CONFIG"]
+
+
+def _store_secret(
+    item: VaultItem,
+    blob: Dict[str, Any],
+    *,
+    source: str,
+    trigger: str,
+    actor: str,
+) -> VaultSecretVersion:
+    """Append the next secret version and point the item at it."""
+    version = (item.secret_version or 0) + 1
+    row = VaultSecretVersion(
+        item_id=item.id,
+        version=version,
+        blob=blob,
+        source=source,
+        trigger=trigger,
+        created_by=actor,
+    )
+    db.session.add(row)
+    db.session.flush()
+    item.secret_version = version
+    item.secret_updated_at = row.created_at
+    return row
+
+
+def _validate_stored_secret(
+    item: VaultItem, plaintext: str, row: VaultSecretVersion, *, config: Config
+) -> Dict[str, Any]:
+    """Local round-trip: decrypt the row we just wrote and check the value.
+
+    This validates what this deployment controls (storage integrity). It makes
+    no claim about the credential working on a remote target — nothing here
+    can reach one, and inventing such a claim would be a lie.
+    """
+    decrypted = unseal(row.blob, item.id, config)
+    checks = {"decrypt": True, "plaintext_match": decrypted == plaintext}
+    if row.source == "generated":
+        checks["type_format"] = generated_secret_is_valid(item.secret_type, plaintext)
+    failed = [name for name, ok in checks.items() if not ok]
+    result: Dict[str, Any] = {
+        "method": "local_roundtrip",
+        "passed": not failed,
+        "checks": sorted(checks),
+    }
+    if failed:
+        raise APIError(
+            500,
+            "Rotation validation failed: " + ", ".join(failed),
+            {"checks": result},
+        )
+    return result
+
+
+def _mark_rotation_failed(
+    item: VaultItem, *, trigger: str, actor: str, error: Exception,
+    session_ref: Optional[str] = None,
+) -> None:
+    detail: Dict[str, Any] = {"trigger": trigger, "error": str(error)[:255]}
+    if session_ref:
+        detail["session_ref"] = session_ref
+    try:
+        item.status = VAULT_STATUS_FAILED
+        _log_vault_event(item, VAULT_ACTION_ROTATION_FAILED, actor, detail)
+        db.session.commit()
+    except Exception:  # pragma: no cover - only when the DB itself fails
+        db.session.rollback()
+
+
+def _update_dependents(
+    item: VaultItem, *, actor: str, trigger: str
+) -> Dict[str, Any]:
+    """Event-based step 2 of the architecture flow: after the primary value
+    rotates, bring every other managed credential on the same target forward.
+
+    Siblings that cannot rotate right now (checked out / mid-rotation) are
+    reported with the real reason instead of being silently skipped.
+    """
+    siblings = (
+        VaultItem.query.filter(
+            VaultItem.target == item.target, VaultItem.id != item.id
+        )
+        .order_by(VaultItem.id.asc())
+        .all()
+    )
+    rotated: List[str] = []
+    skipped: List[Dict[str, str]] = []
+    for sibling in siblings:
+        try:
+            rotate_vault_item(
+                sibling.id, actor=actor, trigger=trigger, cascade=False
+            )
+            rotated.append(sibling.name)
+        except APIError as exc:
+            # Guard rejections and real failures are both auditable reasons;
+            # real pipeline failures already wrote the sibling's own event.
+            skipped.append({"name": sibling.name, "reason": exc.message})
+    return {"considered": len(siblings), "rotated": rotated, "skipped": skipped}
+
+
+def rotate_vault_item(
+    item_id: int,
+    *,
+    actor: str,
+    trigger: str = "manual",
+    session_ref: Optional[str] = None,
+    cascade: bool = False,
+    extra_detail: Optional[Dict[str, Any]] = None,
+) -> Tuple[VaultItem, Dict[str, Any]]:
+    """Run one real rotation for one credential.
+
+    Architecture order (module 5): mint+store the new value -> update
+    dependent systems -> validate -> emit the audit event. The value itself is
+    generated with the OS CSPRNG for the credential's type, sealed with
+    AES-256-GCM under the vault key and kept versioned; nothing about the
+    operation is simulated.
+    """
     item = get_vault_item(item_id)
     if item.status == VAULT_STATUS_ROTATING:
         raise ValidationFailed(
@@ -1269,18 +1405,236 @@ def rotate_vault_item(item_id: int, *, actor: str) -> VaultItem:
             {"field": "status", "status": item.status},
         )
     previous = item.status
-    item.status = VAULT_STATUS_AVAILABLE
-    item.last_rotated_at = datetime.now()
-    item.checked_out_by = None
-    item.checked_out_at = None
-    _log_vault_event(
-        item,
-        VAULT_ACTION_ROTATED,
-        actor,
-        {"previous_status": previous, "interval_hours": item.rotation_interval_hours},
+    started = time.monotonic()
+    config = _vault_config()
+
+    # Mint + seal before any state change: a missing vault key must fail the
+    # request without leaving the item stuck in `rotating`.
+    plaintext = generate_secret(item.secret_type)
+    blob = seal(plaintext, item.id, config)
+
+    item.status = VAULT_STATUS_ROTATING
+    db.session.flush()
+    try:
+        row = _store_secret(
+            item, blob, source="generated", trigger=trigger, actor=actor
+        )
+        dependents = (
+            _update_dependents(item, actor=actor, trigger=trigger)
+            if cascade
+            else {"considered": 0, "rotated": [], "skipped": []}
+        )
+        validation = _validate_stored_secret(item, plaintext, row, config=config)
+        detail: Dict[str, Any] = {
+            "trigger": trigger,
+            "previous_status": previous,
+            "interval_hours": item.rotation_interval_hours,
+            "secret_version": row.version,
+            "validation": validation,
+            "dependents": dependents,
+            "duration_ms": int((time.monotonic() - started) * 1000),
+        }
+        if session_ref:
+            detail["session_ref"] = session_ref
+        if extra_detail:
+            detail.update(extra_detail)
+        item.status = VAULT_STATUS_AVAILABLE
+        item.last_rotated_at = datetime.now()
+        item.checked_out_by = None
+        item.checked_out_at = None
+        _log_vault_event(item, VAULT_ACTION_ROTATED, actor, detail)
+        db.session.commit()
+        return item, detail
+    except Exception as exc:
+        _mark_rotation_failed(
+            item, trigger=trigger, actor=actor, error=exc, session_ref=session_ref
+        )
+        if isinstance(exc, APIError):
+            raise
+        raise APIError(500, f"Rotation failed for '{item.name}': {exc}") from exc
+
+
+def reveal_vault_secret(item_id: int) -> Dict[str, Any]:
+    """Decrypt the current secret version for an admin reveal (route-gated)."""
+    item = get_vault_item(item_id)
+    if not item.secret_version:
+        raise NotFound("No stored secret for this credential (metadata-only record)")
+    row = VaultSecretVersion.query.filter_by(
+        item_id=item.id, version=item.secret_version
+    ).first()
+    if row is None:
+        raise NotFound("No stored secret for this credential (metadata-only record)")
+    config = _vault_config()
+    plaintext = unseal(row.blob, item.id, config)
+    return {
+        "item_id": item.id,
+        "item_name": item.name,
+        "version": row.version,
+        "secret": plaintext,
+        "entropy_bits": approximate_entropy_bits(plaintext),
+        "alg": (row.blob or {}).get("alg"),
+        "source": row.source,
+        "rotated_at": row.created_at.isoformat(),
+    }
+
+
+def run_rotations(
+    payload: Any,
+    *,
+    actor: str,
+    trigger: str = "bulk",
+    include_failed: bool = True,
+) -> Dict[str, Any]:
+    """Run the rotation engine over due credentials (or explicit ids).
+
+    `item_ids` absent = every credential whose SLA window has elapsed (plus
+    failed ones when `include_failed`, so the screen's Retry semantics hold).
+    With `cascade` (default) each rotation also updates its same-target
+    dependents, and those are not rotated twice in one run.
+    """
+    if not isinstance(payload, dict):
+        raise ValidationFailed("Request body must be a JSON object")
+    cascade = payload.get("cascade", True)
+    if not isinstance(cascade, bool):
+        raise ValidationFailed("'cascade' must be a boolean", {"field": "cascade"})
+
+    raw_ids = payload.get("item_ids")
+    if raw_ids is None:
+        refresh_vault_statuses()
+        wanted = [VAULT_STATUS_ROTATION_DUE]
+        if include_failed:
+            wanted.append(VAULT_STATUS_FAILED)
+        targets = (
+            VaultItem.query.filter(VaultItem.status.in_(wanted))
+            .order_by(VaultItem.id.asc())
+            .all()
+        )
+    else:
+        if not isinstance(raw_ids, list) or not raw_ids:
+            raise ValidationFailed(
+                "'item_ids' must be a non-empty array of vault item ids",
+                {"field": "item_ids"},
+            )
+        ids: List[int] = []
+        for raw in raw_ids:
+            if isinstance(raw, bool) or not isinstance(raw, int):
+                raise ValidationFailed(
+                    "'item_ids' must contain integers only", {"field": "item_ids"}
+                )
+            ids.append(raw)
+        missing = [
+            item_id
+            for item_id in ids
+            if VaultItem.query.filter_by(id=item_id).first() is None
+        ]
+        if missing:
+            raise ValidationFailed(
+                "No vault item with id " + ", ".join(str(x) for x in missing),
+                {"field": "item_ids", "missing": missing},
+            )
+        targets = [get_vault_item(item_id) for item_id in ids]
+
+    processed: set = set()
+    rotated: List[Dict[str, Any]] = []
+    skipped: List[Dict[str, Any]] = []
+    failed: List[Dict[str, Any]] = []
+    dependents_rotated = 0
+    dependents_skipped: List[Dict[str, str]] = []
+
+    for item in targets:
+        if item.id in processed:
+            continue
+        target = item.target
+        try:
+            _, detail = rotate_vault_item(
+                item.id, actor=actor, trigger=trigger, cascade=cascade
+            )
+            processed.add(item.id)
+            dependents_rotated += len(detail["dependents"]["rotated"])
+            dependents_skipped.extend(detail["dependents"]["skipped"])
+            if cascade:
+                # Dependents on this target were rotated (or legitimately
+                # skipped) as part of this run — don't run them again.
+                for (sibling_id,) in VaultItem.query.with_entities(
+                    VaultItem.id
+                ).filter(VaultItem.target == target):
+                    processed.add(sibling_id)
+            rotated.append(
+                {
+                    "id": item.id,
+                    "name": item.name,
+                    "secret_version": detail["secret_version"],
+                    "dependents": len(detail["dependents"]["rotated"]),
+                }
+            )
+        except ValidationFailed as exc:
+            processed.add(item.id)
+            skipped.append({"id": item.id, "name": item.name, "reason": exc.message})
+        except APIError as exc:
+            processed.add(item.id)
+            failed.append({"id": item.id, "name": item.name, "error": exc.message})
+
+    refresh_vault_statuses()
+    return {
+        "trigger": trigger,
+        "targets": len(targets),
+        "rotated": rotated,
+        "skipped": skipped,
+        "failed": failed,
+        "dependents_rotated": dependents_rotated,
+        "dependents_skipped": dependents_skipped,
+        "due_remaining": VaultItem.query.filter_by(
+            status=VAULT_STATUS_ROTATION_DUE
+        ).count(),
+        "failed_remaining": VaultItem.query.filter_by(
+            status=VAULT_STATUS_FAILED
+        ).count(),
+    }
+
+
+def rotation_session_end(payload: Any, *, actor: str) -> Tuple[VaultItem, Dict[str, Any]]:
+    """Event-based rotation (architecture 5): a checkout's session ended.
+
+    Releases the checkout if one is held, then rotates the credential with
+    `trigger=session_end` and updates its same-target dependents — the
+    "checks out -> session ends -> rotate -> update dependents -> validate ->
+    audit" flow, driven by the event instead of the clock.
+    """
+    if not isinstance(payload, dict):
+        raise ValidationFailed("Request body must be a JSON object")
+    raw = payload.get("item_id")
+    if isinstance(raw, bool) or not isinstance(raw, int):
+        raise ValidationFailed("'item_id' is required", {"field": "item_id"})
+    session_ref = payload.get("session_id")
+    if session_ref is not None:
+        if not isinstance(session_ref, str) or not session_ref.strip():
+            raise ValidationFailed(
+                "'session_id' must be a non-empty string", {"field": "session_id"}
+            )
+        session_ref = session_ref.strip()[:64]
+
+    item = get_vault_item(raw)
+    released: Optional[Dict[str, Any]] = None
+    if item.status == VAULT_STATUS_CHECKED_OUT:
+        released = {
+            "checked_out_by": item.checked_out_by,
+            "reason": "session ended",
+        }
+        if session_ref:
+            released["session_ref"] = session_ref
+        item.status = VAULT_STATUS_AVAILABLE
+        item.checked_out_by = None
+        item.checked_out_at = None
+        _log_vault_event(item, VAULT_ACTION_REVOKED, actor, released)
+
+    return rotate_vault_item(
+        item.id,
+        actor=actor,
+        trigger="session_end",
+        session_ref=session_ref,
+        cascade=True,
+        extra_detail={"checkout_released": released is not None},
     )
-    db.session.commit()
-    return item
 
 
 def onboard_vault_item(payload: Any, *, actor: str) -> VaultItem:
@@ -1354,9 +1708,36 @@ def onboard_vault_item(payload: Any, *, actor: str) -> VaultItem:
         status=VAULT_STATUS_AVAILABLE,
     )
     db.session.add(item)
-    db.session.flush()  # assign the id before logging the event
-    _log_vault_event(item, VAULT_ACTION_ONBOARDED, actor,
-                     {"rotation_interval_hours": interval})
+    db.session.flush()  # assign the id first: the secret AAD binds to it
+
+    # Store the credential value: operator-supplied, or minted for the type.
+    provided = payload.get("secret", None)
+    if provided is not None and not isinstance(provided, str):
+        raise ValidationFailed("'secret' must be a string", {"field": "secret"})
+    if isinstance(provided, str):
+        if not provided.strip():
+            raise ValidationFailed(
+                "'secret' must be a non-empty string", {"field": "secret"}
+            )
+        if len(provided) > 65536:
+            raise ValidationFailed(
+                "'secret' must be at most 65536 characters", {"field": "secret"}
+            )
+        plaintext, source = provided, "operator"
+    else:
+        plaintext, source = generate_secret(secret_type), "generated"
+    blob = seal(plaintext, item.id, _vault_config())
+    row = _store_secret(
+        item, blob, source=source, trigger="onboarded", actor=actor
+    )
+    _validate_stored_secret(item, plaintext, row, config=_vault_config())
+
+    _log_vault_event(
+        item,
+        VAULT_ACTION_ONBOARDED,
+        actor,
+        {"rotation_interval_hours": interval, "secret_source": source},
+    )
     db.session.commit()
     return item
 
@@ -1370,21 +1751,39 @@ def vault_item_events(item_id: int, limit: int = 10) -> List[VaultEvent]:
     )
 
 
-def vault_events(limit: int = 20) -> Dict[str, Any]:
-    """Vault audit trail, newest first."""
-    total = VaultEvent.query.count()
+_VAULT_EVENT_ACTIONS = (
+    VAULT_ACTION_ONBOARDED,
+    VAULT_ACTION_CHECKED_OUT,
+    VAULT_ACTION_REVOKED,
+    VAULT_ACTION_ROTATED,
+    VAULT_ACTION_ROTATION_FAILED,
+)
+
+
+def vault_events(limit: int = 20, *, action: Optional[str] = None) -> Dict[str, Any]:
+    """Vault audit trail, newest first; optionally one action type."""
+    query = VaultEvent.query
+    if action is not None:
+        if action not in _VAULT_EVENT_ACTIONS:
+            raise ValidationFailed(
+                f"Unknown vault action '{action}'",
+                {"field": "action", "allowed": list(_VAULT_EVENT_ACTIONS)},
+            )
+        query = query.filter(VaultEvent.action == action)
+    total = query.count()
     events = (
-        VaultEvent.query.order_by(
-            VaultEvent.created_at.desc(), VaultEvent.id.desc()
-        )
+        query.order_by(VaultEvent.created_at.desc(), VaultEvent.id.desc())
         .limit(limit)
         .all()
     )
-    return {
+    payload: Dict[str, Any] = {
         "events": [event.to_dict() for event in events],
         "total": total,
         "limit": limit,
     }
+    if action is not None:
+        payload["action"] = action
+    return payload
 
 
 # ---------------------------------------------------------------------------
@@ -2119,6 +2518,14 @@ def _vault_item_for_asset(
     )
     db.session.add(item)
     db.session.flush()
+    # A discovered admin account enters the vault as a real managed credential:
+    # mint + seal its value now, rotation brings it forward later.
+    plaintext = generate_secret(item.secret_type)
+    blob = seal(plaintext, item.id, _vault_config())
+    row = _store_secret(
+        item, blob, source="generated", trigger="onboarded", actor=actor
+    )
+    _validate_stored_secret(item, plaintext, row, config=_vault_config())
     _log_vault_event(
         item,
         VAULT_ACTION_ONBOARDED,

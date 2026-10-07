@@ -38,3 +38,10 @@ class Unauthorized(APIError):
 class Conflict(APIError):
     def __init__(self, message: str, details: Optional[Dict[str, Any]] = None):
         super().__init__(409, message, details)
+
+
+class ServiceUnavailable(APIError):
+    """A required local dependency (e.g. the vault encryption key) is missing."""
+
+    def __init__(self, message: str, details: Optional[Dict[str, Any]] = None):
+        super().__init__(503, message, details)

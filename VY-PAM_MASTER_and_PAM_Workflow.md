@@ -284,7 +284,7 @@ signs with it, PAM verifies with it).
   **46** + smoke 17/17 + both shots verifiers `ALL CHECKS PASSED`
 
 ### Phase 4 — Continue `VY-PAM_Enterprise_PAM_Architecture.md` (the last goal)
-- ☐ **4a** Rotation (5) → ☐ **4b** JIT (6) → ☐ **4c** Sessions (8) →
+- ☑ **4a** Rotation (5) → ☐ **4b** JIT (6) → ☐ **4c** Sessions (8) →
   ☐ **4d** Command Center hardening (9) → ☐ **4e** Audit (19) → …
   module order per the architecture doc; each module = model + endpoints +
   openapi + tests + honest screen wiring, then commit/push.
@@ -302,6 +302,7 @@ signs with it, PAM verifies with it).
 | 2026-10-07 | **Phase 2 complete ✅** (PAM-MASTER vendor tool: key custody, PII-encrypted registry, signed issuance/renewal/bundle/audit, own contract — 46 tests; root README split docs; full boundary regression green) | **Phase 3** (decouple shipped PAM surface — **3a**) |
 | 2026-10-07 | **Phase 3a+3b ✅** (self-issue removed → vendor-signed `POST /licenses/import`; form rules → claim-shape checks; no server code signs anymore; openapi/contract/tests/smoke lockstep; backend 216, pam_master 46, smoke 17/17, verifiers green) | **3c** (docs/screens/launcher reflect the split) |
 | 2026-10-07 | **Phase 3 complete ✅** (console ISSUE → vendor-import flow; launcher + phase-2/apis docs honest; screen recaptured; dev server restarted on current code; backend **216**, pam_master **46**, smoke 17/17, verifiers green, live UI check: modal/error path + registry untouched) | **Phase 4 / 4a** (Rotation (5)) |
+| 2026-10-07 | **Phase 4a ✅** (real encrypted secrets: AES-256-GCM at rest, AAD-bound, `vault_secret_versions` history, admin reveal, per-type generation; rotation pipeline in architecture order mint+seal → same-target dependents → decrypt round-trip validation → audit, triggers manual/bulk/session-end/scheduler, failed→retry, 503 key custody; openapi + contract + 30 new tests lockstep; vault screen reveal/copy/bulk/onboard wired honestly, screen recaptured; backend **246**, pam_master **46**, smoke 17/17, both verifiers `ALL CHECKS PASSED`, live UI 8/8) | **4b** (JIT (6)) |
 
 ---
 

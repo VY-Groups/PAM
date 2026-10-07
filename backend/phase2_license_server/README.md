@@ -107,8 +107,8 @@ is no seed inventory: every credential enters through **Onboard New Credential**
 "not connected" states instead of sample rows.
 
 ```bash
-python -m pytest tests -q     # 134 tests (from backend/phase2_license_server)
-python -m pytest backend -q   # 216 tests from the repo root (+ shared crypto core)
+python -m pytest tests -q     # 164 tests (from backend/phase2_license_server)
+python -m pytest backend -q   # 246 tests from the repo root (+ shared crypto core)
 ```
 
 ## Configuration
@@ -128,6 +128,15 @@ See `.env.example`. Highlights:
 - `LICENSE_AUTOGENERATE_KEYS=1` — allow creating a missing key pair (dev only;
   it changes which licenses are verifiable).
 - `LICENSE_DATABASE_URI` — defaults to SQLite next to this README.
+- `VAULT_KEY_PATH` — AES-256-GCM master key for credential-vault secrets
+  (default `vault_master.key` next to the database; `*.key` is gitignored).
+  `VAULT_AUTOGENERATE_KEY=1` (default) creates a missing key once on first
+  use — write-once, never overwritten; with it disabled a missing/unusable
+  key fails requests with **503** rather than ever storing plaintext.
+- `ROTATION_SCHEDULER=1` — start the background rotation scheduler
+  (`ROTATION_SCHEDULER_INTERVAL_SECONDS`, default 300). It rotates only
+  credentials whose SLA window elapsed, through the same audited pipeline as
+  the console; a quiet clock produces no events.
 
 ## API
 
@@ -153,14 +162,17 @@ cross-checked against these routes by `tests/test_openapi_contract.py`.
 | PUT | `/settings/<group>` | admin | Merge-update one group, returns the per-field change diff |
 | GET | `/overview` | – | Dashboard aggregate: health, license posture, vault stats, settings, counters, computed control posture, recent activity |
 | GET | `/events?limit=&source=` | – | Unified audit feed across the license / settings / vault / discovery trails, newest first |
-| GET | `/vault/stats` | – | Inventory aggregates: totals by type/status, rotation compliance, checkouts, today's events |
+| GET | `/vault/stats` | – | Inventory aggregates: totals by type/status, rotation compliance, `secrets` coverage (`managed`/`unmanaged`/`versions`), checkouts, today's events |
 | GET | `/vault/items?…` | – | List inventory (`q`, `type`, `status`, `limit`, `offset`) |
-| POST | `/vault/items` | admin | Onboard a credential (201, strictly validated) |
-| GET | `/vault/items/<id>` | – | One credential plus its recent audit events |
+| POST | `/vault/items` | admin | Onboard a credential (201, strictly validated; optional `secret`, else a real type-appropriate value is generated — sealed with AES-256-GCM either way) |
+| GET | `/vault/items/<id>` | – | One credential plus its recent audit events (never includes the secret) |
+| GET | `/vault/items/<id>/secret` | admin | Reveal the current secret version (decrypts for the response only; 404 for metadata-only records, 503 if the vault key is unavailable) |
 | POST | `/vault/items/<id>/checkout` | admin | JIT checkout (body `{"reason"}`), records who and when |
 | POST | `/vault/items/<id>/revoke` | admin | End an active checkout |
-| POST | `/vault/items/<id>/rotate` | admin | Rotate now — also retries a failed rotation |
-| GET | `/vault/events?limit=` | – | Vault audit trail (onboarding, checkouts, rotations) |
+| POST | `/vault/items/<id>/rotate` | admin | Full rotation pipeline for one credential (mint + seal new version, validate by decrypt round-trip, audit); also retries a failed rotation; no cascade |
+| POST | `/rotation/run` | admin | Run the engine over due (+failed) credentials or explicit `item_ids`; `cascade` (default true) also rotates same-target dependents, reporting real skip reasons |
+| POST | `/rotation/session-end` | admin | Event trigger: release the checkout (audited), then rotate with `trigger=session_end` + cascade (body `{"item_id", "session_id"?}`) |
+| GET | `/vault/events?limit=&action=` | – | Vault audit trail (onboarding, checkouts, rotations); `action` filters to one type |
 | GET | `/discovery/stats` | – | Discovery aggregates: totals, per-type/risk/status, recorded accounts, last scan |
 | GET | `/discovery/assets?…` | – | Discovered targets (`q`, `type`, `risk`, `pam_status`, `limit`, `offset`), each with `vault_count` |
 | POST | `/discovery/assets` | admin | Register + classify a target, ingest its admin account (201) |
@@ -312,23 +324,59 @@ curl -s -X POST http://127.0.0.1:5000/api/v1/vault/items/3/checkout \
 curl -s -X POST http://127.0.0.1:5000/api/v1/vault/items/3/revoke \
   -H "Authorization: Bearer $LICENSE_ADMIN_TOKEN" -H "X-Actor: alice"
 
-# rotate now - also the retry path for a failed rotation
+# rotate now - the full pipeline for one credential (also the retry path for a
+# failed rotation): mint + seal a new version, decrypt round-trip validation, audit
 curl -s -X POST http://127.0.0.1:5000/api/v1/vault/items/5/rotate \
   -H "Authorization: Bearer $LICENSE_ADMIN_TOKEN" -H "X-Actor: alice"
+
+# reveal the current secret version (admin only; decrypts for this response,
+# 404 when the record is metadata-only, 503 if the vault key is unavailable)
+curl -s http://127.0.0.1:5000/api/v1/vault/items/5/secret \
+  -H "Authorization: Bearer $LICENSE_ADMIN_TOKEN"
+
+# run the rotation engine over everything due (failed included so Retry works);
+# cascade (default true) also rotates other managed credentials on each target
+curl -s -X POST http://127.0.0.1:5000/api/v1/rotation/run \
+  -H "Authorization: Bearer $LICENSE_ADMIN_TOKEN" -H "X-Actor: alice" \
+  -H "Content-Type: application/json" -d '{}'
+
+# event-based trigger: a checkout's session ended -> release, rotate, cascade
+curl -s -X POST http://127.0.0.1:5000/api/v1/rotation/session-end \
+  -H "Authorization: Bearer $LICENSE_ADMIN_TOKEN" -H "X-Actor: alice" \
+  -H "Content-Type: application/json" \
+  -d '{"item_id": 5, "session_id": "sess-77"}'
 ```
 
 - The vault starts empty — there is no seed inventory. Onboard credentials via
   the screen's **Onboard New Credential** button or `POST /api/v1/vault/items`;
   tests build their own fixtures.
+- **At-rest encryption**: every credential value is sealed with AES-256-GCM
+  under `VAULT_KEY_PATH`, with the item id as additional authenticated data
+  (a ciphertext moved between rows fails its integrity check). Plaintext is
+  produced only by an explicit admin reveal or an in-process rotation — never
+  by list/detail responses, logs or the database file. Each rotation appends an
+  immutable `vault_secret_versions` row; the item points at the current
+  version. Per-type generation is real: mixed-class passwords (24 chars),
+  `token_urlsafe` API tokens, cloud id/secret pairs, ED25519 private keys.
+- **Rotation pipeline** (architecture module 5, in order): mint + seal the new
+  value → update same-target dependents → validate by local decrypt round-trip
+  → emit the `rotated` audit event with measured duration/version/dependents.
+  Manual single rotate has no cascade; `/rotation/run` and the session-end
+  trigger do, and skipped dependents are reported with their real reason
+  (e.g. `checked_out`). Failures mark the item `failed` and write a
+  `rotation_failed` event; a later run/retry re-runs the real pipeline.
+  Optional scheduler: `ROTATION_SCHEDULER=1` (due items only; failed items
+  stay for manual Retry).
 - Rotation compliance = `in-policy / total` where in-policy excludes
   rotation-due and failed items. The dashboard posture score computes from
   eight real controls (`worm_retention`, `audit_evidence`, `quantum_safe`,
   `rotation_sla`, `sso_mfa`, `tier0_quorum`, `admin_auth`, `hsm_backed`) —
   `audit_evidence` only passes once the audit trail has entries, so a fresh
   database honestly reports a lower score.
-- Reads are public; the write routes (settings, vault, discovery) require the
-  admin token in token mode (open mode stays open) and record who acted via
-  `X-Actor`.
+- Reads are public; the write routes (settings, vault, discovery, rotation)
+  require the admin token in token mode (open mode stays open) and record who
+  acted via `X-Actor`. The secret reveal (`GET /vault/items/<id>/secret`) is
+  gated like a write route — it is never one of the public reads.
 
 ### Discovery
 

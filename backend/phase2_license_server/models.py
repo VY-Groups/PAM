@@ -37,6 +37,11 @@ SCHEMA_COLUMNS: Dict[str, Dict[str, str]] = {
         "reported_usage": "JSON NOT NULL DEFAULT '{}'",
         "last_reported_at": "DATETIME",
     },
+    # credential vault: encrypted secret storage (phase 4a rotation engine)
+    "vault_items": {
+        "secret_version": "INTEGER",
+        "secret_updated_at": "DATETIME",
+    },
 }
 
 
@@ -444,6 +449,12 @@ class VaultItem(db.Model):
     rotation_interval_hours = db.Column(db.Integer, nullable=False, default=24)
     last_rotated_at = db.Column(db.DateTime, nullable=True)
 
+    # Encrypted secret storage (AES-256-GCM); NULL version = metadata-only
+    # record with no stored value. The value itself lives in
+    # vault_secret_versions (versioned history), never in this row.
+    secret_version = db.Column(db.Integer, nullable=True)
+    secret_updated_at = db.Column(db.DateTime, nullable=True)
+
     status = db.Column(
         db.String(16), nullable=False, default=VAULT_STATUS_AVAILABLE, index=True
     )
@@ -487,6 +498,10 @@ class VaultItem(db.Model):
             "last_rotated_at": (
                 self.last_rotated_at.isoformat() if self.last_rotated_at else None
             ),
+            "secret_version": self.secret_version,
+            "secret_updated_at": (
+                self.secret_updated_at.isoformat() if self.secret_updated_at else None
+            ),
             "status": self.status,
             "checked_out_by": self.checked_out_by,
             "checked_out_at": (
@@ -517,6 +532,42 @@ class VaultEvent(db.Model):
             "action": self.action,
             "actor": self.actor,
             "detail": self.detail,
+            "created_at": self.created_at.isoformat(),
+        }
+
+
+class VaultSecretVersion(db.Model):
+    """One immutable stored secret value for a vault item.
+
+    The plaintext never touches this table: `blob` is the AES-256-GCM wire
+    form `{"v", "alg", "nonce", "ct"}` with the AAD bound to the owning item
+    id, so a ciphertext copied between rows fails its integrity check. The
+    highest `version` for an item is the current secret (secret versioning);
+    older rows are retained history and are never rewritten.
+    """
+
+    __tablename__ = "vault_secret_versions"
+
+    id = db.Column(db.Integer, primary_key=True)
+    item_id = db.Column(db.Integer, nullable=False, index=True)
+    version = db.Column(db.Integer, nullable=False)
+    blob = db.Column(db.JSON, nullable=False)
+    # "generated" = minted by the rotation engine, "operator" = supplied at
+    # onboarding by the admin.
+    source = db.Column(db.String(16), nullable=False, default="generated")
+    trigger = db.Column(db.String(32), nullable=False, default="onboarded")
+    created_by = db.Column(db.String(64), nullable=False, default="system")
+    created_at = db.Column(db.DateTime, nullable=False, default=datetime.now)
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "id": self.id,
+            "item_id": self.item_id,
+            "version": self.version,
+            "alg": (self.blob or {}).get("alg"),
+            "source": self.source,
+            "trigger": self.trigger,
+            "created_by": self.created_by,
             "created_at": self.created_at.isoformat(),
         }
 

@@ -79,7 +79,7 @@ python -m pam_master.keygen                      # RSA + Ed25519 + registry PII 
 python -m pam_master                             # http://127.0.0.1:5400
 
 # Tests (shared core + shipped API contract + vendor tool)
-python -m pytest backend -q                      # 216 tests
+python -m pytest backend -q                      # 246 tests
 python -m pytest pam_master -q                   # 46 tests (vendor tool)
 ```
 

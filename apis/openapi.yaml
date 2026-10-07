@@ -32,6 +32,8 @@ tags:
     description: Platform Settings screen (SSO / HSM / ZSP / WORM)
   - name: vault
     description: Credential vault inventory, rotation and checkouts
+  - name: rotation
+    description: Rotation engine - run due credentials, session-end trigger
   - name: discovery
     description: Discovery Engine - target assets, accounts and real scans
 paths:
@@ -569,7 +571,12 @@ paths:
     post:
       tags: [vault]
       summary: Rotate now (also retries a failed rotation)
-      description: Stamps a fresh rotation window, clears any checkout and records a `rotated` event.
+      description: |
+        Runs the full rotation pipeline for one credential: mints a new
+        type-appropriate secret, seals it with AES-256-GCM (version history
+        kept), validates it by decrypt round-trip and records a `rotated`
+        event with the result. No cascade (same-target dependents are updated
+        by `POST /api/v1/rotation/run` or the session-end trigger).
       security:
         - bearerAuth: []
         - adminTokenHeader: []
@@ -588,10 +595,16 @@ paths:
           description: Rotation recorded, status available
           content:
             application/json:
-              schema: {$ref: "#/components/schemas/VaultActionResponse"}
+              schema: {$ref: "#/components/schemas/RotationActionResponse"}
         "400": {$ref: "#/components/responses/BadRequest"}
         "401": {$ref: "#/components/responses/Unauthorized"}
         "404": {$ref: "#/components/responses/NotFound"}
+        "500":
+          description: Rotation failed mid-pipeline (the item moves to `failed` and the error is audited).
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/Error"}
+        "503": {$ref: "#/components/responses/ServiceUnavailable"}
 
   /api/v1/vault/events:
     get:
@@ -602,12 +615,125 @@ paths:
         - name: limit
           in: query
           schema: {type: integer, minimum: 0, maximum: 200, default: 20}
+        - name: action
+          in: query
+          description: Return only one action type (unknown values are rejected with 400).
+          schema:
+            type: string
+            enum: [onboarded, checked_out, revoked, rotated, rotation_failed]
       responses:
         "200":
           description: Vault events
           content:
             application/json:
               schema: {$ref: "#/components/schemas/VaultEventFeed"}
+        "400": {$ref: "#/components/responses/BadRequest"}
+
+  /api/v1/vault/items/{item_id}/secret:
+    get:
+      tags: [vault]
+      summary: Reveal a stored secret (admin-only)
+      description: |
+        Decrypts and returns the current secret version for one credential
+        (AES-256-GCM, AAD bound to the item). Never included in list or
+        detail responses - the value is only produced by this explicit
+        reveal. Returns 404 for metadata-only records with no stored secret.
+      security:
+        - bearerAuth: []
+        - adminTokenHeader: []
+        - {}
+      parameters:
+        - name: item_id
+          in: path
+          required: true
+          schema: {type: integer, minimum: 1}
+      responses:
+        "200":
+          description: Decrypted secret value
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/SecretReveal"}
+        "401": {$ref: "#/components/responses/Unauthorized"}
+        "404": {$ref: "#/components/responses/NotFound"}
+        "503": {$ref: "#/components/responses/ServiceUnavailable"}
+
+  /api/v1/rotation/run:
+    post:
+      tags: [rotation]
+      summary: Run the rotation engine
+      description: |
+        Rotates every credential whose SLA window has elapsed (plus `failed`
+        ones, so Retry works), or exactly the ids in `item_ids`. With
+        `cascade` (default) each rotation also updates the other managed
+        credentials on the same target, reporting per-item skip reasons
+        (checked out, mid-rotation). Summary counts are measured after the
+        run - `due_remaining` / `failed_remaining` are real database counts.
+      security:
+        - bearerAuth: []
+        - adminTokenHeader: []
+        - {}
+      parameters:
+        - name: X-Actor
+          in: header
+          description: Who triggers the run (recorded in each audit event).
+          schema: {type: string, maxLength: 64}
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema: {$ref: "#/components/schemas/RotationRunRequest"}
+      responses:
+        "200":
+          description: Run summary
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/RotationRunResponse"}
+        "400": {$ref: "#/components/responses/BadRequest"}
+        "401": {$ref: "#/components/responses/Unauthorized"}
+        "503": {$ref: "#/components/responses/ServiceUnavailable"}
+
+  /api/v1/rotation/session-end:
+    post:
+      tags: [rotation]
+      summary: Event-based trigger - a checkout's session ended
+      description: |
+        Releases the checkout if one is held (audited as `revoked`), then
+        rotates the credential with `trigger=session_end` and updates its
+        same-target dependents: the architecture's
+        checkout -> session end -> rotate -> update dependents -> validate ->
+        audit flow, driven by the event instead of the clock.
+      security:
+        - bearerAuth: []
+        - adminTokenHeader: []
+        - {}
+      parameters:
+        - name: X-Actor
+          in: header
+          description: Who triggers the rotation (recorded in the audit trail).
+          schema: {type: string, maxLength: 64}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [item_id]
+              properties:
+                item_id: {type: integer, minimum: 1}
+                session_id:
+                  type: string
+                  maxLength: 64
+                  description: Optional session reference recorded on the event.
+      responses:
+        "200":
+          description: Rotation recorded, status available
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/RotationActionResponse"}
+        "400": {$ref: "#/components/responses/BadRequest"}
+        "401": {$ref: "#/components/responses/Unauthorized"}
+        "404": {$ref: "#/components/responses/NotFound"}
+        "503": {$ref: "#/components/responses/ServiceUnavailable"}
 
   /api/v1/discovery/stats:
     get:
@@ -858,6 +984,13 @@ components:
           schema: {$ref: "#/components/schemas/Error"}
     Conflict:
       description: The license is already installed on this deployment.
+      content:
+        application/json:
+          schema: {$ref: "#/components/schemas/Error"}
+    ServiceUnavailable:
+      description: |
+        Vault encryption key unavailable (`VAULT_KEY_PATH` missing with
+        `VAULT_AUTOGENERATE_KEY` disabled) or the key file is unusable.
       content:
         application/json:
           schema: {$ref: "#/components/schemas/Error"}
@@ -1241,7 +1374,7 @@ components:
 
     VaultStats:
       type: object
-      required: [total, by_type, by_status, rotation, attention, checked_out, events_today]
+      required: [total, by_type, by_status, rotation, secrets, attention, checked_out, events_today]
       properties:
         total: {type: integer}
         by_type: {type: object, additionalProperties: {type: integer}}
@@ -1252,6 +1385,13 @@ components:
             compliance_pct: {type: number}
             due: {type: integer}
             on_demand: {type: integer}
+        secrets:
+          type: object
+          description: Real at-rest encryption coverage over the inventory.
+          properties:
+            managed: {type: integer, description: Items with a stored (encrypted) secret version.}
+            unmanaged: {type: integer, description: Metadata-only records with no stored secret.}
+            versions: {type: integer, description: Total secret version rows across all items.}
         attention:
           type: object
           properties:
@@ -1286,6 +1426,10 @@ components:
         status: {type: string, enum: [available, checked_out, rotating, rotation_due, failed]}
         checked_out_by: {type: [string, "null"]}
         checked_out_at: {type: [string, "null"]}
+        secret_version:
+          type: [integer, "null"]
+          description: Current stored secret version (null = metadata-only record).
+        secret_updated_at: {type: [string, "null"]}
         created_at: {type: string}
 
     VaultItemList:
@@ -1335,6 +1479,10 @@ components:
           items: {$ref: "#/components/schemas/VaultEvent"}
         total: {type: integer}
         limit: {type: integer}
+        action:
+          type: string
+          description: Echoed back when the `action` filter was applied.
+          enum: [onboarded, checked_out, revoked, rotated, rotation_failed]
 
     VaultOnboardRequest:
       type: object
@@ -1351,6 +1499,15 @@ components:
         access_tier: {type: string, enum: [Tier-0, Tier-1, Tier-2], default: Tier-2}
         auth_method: {type: string, maxLength: 32, default: Password}
         rotation_interval_hours: {type: integer, minimum: 0, maximum: 8760, default: 24}
+        secret:
+          type: string
+          maxLength: 65536
+          description: |
+            Optional operator-supplied credential value; when omitted the
+            server generates a real type-appropriate secret (mixed-class
+            password, urlsafe token, cloud pair or ED25519 key). Either way
+            the value is sealed with AES-256-GCM before storage and never
+            returned by list/detail endpoints.
 
     VaultActionResponse:
       type: object
@@ -1358,6 +1515,118 @@ components:
       properties:
         item: {$ref: "#/components/schemas/VaultItem"}
         message: {type: string}
+
+    SecretReveal:
+      type: object
+      required: [item_id, item_name, version, secret, entropy_bits, alg, source, rotated_at]
+      properties:
+        item_id: {type: integer}
+        item_name: {type: string}
+        version: {type: integer}
+        secret: {type: string, description: Decrypted plaintext (admin reveal only).}
+        entropy_bits:
+          type: integer
+          description: Rough length x log2(charset) estimate of the revealed value (labelled `~` in the UI).
+        alg: {type: string, enum: [AES-256-GCM]}
+        source: {type: string, enum: [generated, operator]}
+        rotated_at: {type: string, description: When this version was stored.}
+
+    RotationDetail:
+      type: object
+      description: What one rotation actually did, measured during the run.
+      required: [trigger, previous_status, interval_hours, secret_version, validation, dependents, duration_ms]
+      properties:
+        trigger: {type: string, enum: [manual, bulk, scheduled, session_end]}
+        previous_status: {type: string, enum: [available, checked_out, rotating, rotation_due, failed]}
+        interval_hours: {type: integer}
+        secret_version: {type: integer}
+        validation:
+          type: object
+          properties:
+            method: {type: string, enum: [local_roundtrip]}
+            passed: {type: boolean}
+            checks:
+              type: array
+              items: {type: string, enum: [decrypt, plaintext_match, type_format]}
+        dependents:
+          type: object
+          properties:
+            considered: {type: integer}
+            rotated: {type: array, items: {type: string}}
+            skipped:
+              type: array
+              items:
+                type: object
+                properties:
+                  name: {type: string}
+                  reason: {type: string}
+        duration_ms: {type: integer, description: Real wall-clock duration of the pipeline.}
+        session_ref: {type: string, description: Present for the session-end trigger.}
+        checkout_released: {type: boolean, description: "Session-end only: whether a checkout was released first."}
+
+    RotationActionResponse:
+      type: object
+      required: [item, rotation, message]
+      properties:
+        item: {$ref: "#/components/schemas/VaultItem"}
+        rotation: {$ref: "#/components/schemas/RotationDetail"}
+        message: {type: string}
+
+    RotationRunRequest:
+      type: object
+      properties:
+        item_ids:
+          type: array
+          minItems: 1
+          items: {type: integer, minimum: 1}
+          description: Rotate exactly these ids; omit to run every due (and failed) credential.
+        cascade:
+          type: boolean
+          default: true
+          description: Also rotate the other managed credentials on each rotated item's target.
+
+    RotationRunResponse:
+      type: object
+      required: [trigger, targets, rotated, skipped, failed, dependents_rotated, dependents_skipped, due_remaining, failed_remaining]
+      properties:
+        trigger: {type: string, enum: [bulk, scheduled]}
+        targets: {type: integer, description: Items selected for this run.}
+        rotated:
+          type: array
+          items:
+            type: object
+            properties:
+              id: {type: integer}
+              name: {type: string}
+              secret_version: {type: integer}
+              dependents: {type: integer}
+        skipped:
+          type: array
+          items:
+            type: object
+            properties:
+              id: {type: integer}
+              name: {type: string}
+              reason: {type: string}
+        failed:
+          type: array
+          items:
+            type: object
+            properties:
+              id: {type: integer}
+              name: {type: string}
+              error: {type: string}
+        dependents_rotated: {type: integer}
+        dependents_skipped:
+          type: array
+          description: Same-target dependents that could not rotate, with the real reason.
+          items:
+            type: object
+            properties:
+              name: {type: string}
+              reason: {type: string}
+        due_remaining: {type: integer}
+        failed_remaining: {type: integer}
 
     # --- discovery engine (module 3) -------------------------------------
     DiscoveryAssetType:

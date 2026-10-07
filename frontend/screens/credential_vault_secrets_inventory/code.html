@@ -48,7 +48,7 @@
 <span class="font-headline-lg text-headline-lg text-on-surface font-bold">&mdash;</span>
 <span class="font-code-sm text-code-sm text-tertiary font-semibold">&mdash;</span>
 </div>
-<span class="font-body-sm text-body-sm text-on-surface-variant mt-1">Metadata only &mdash; no secret values stored</span>
+<span class="font-body-sm text-body-sm text-on-surface-variant mt-1">Secrets encrypted at rest (AES-256-GCM)</span>
 </div>
 <div class="flex flex-col p-space-md rounded-xl bg-surface-container-lowest shadow-sm relative overflow-hidden">
 <div class="absolute top-0 left-0 right-0 h-1 bg-tertiary"></div>
@@ -235,30 +235,30 @@
 <!-- Masked Secret Box with Security Controls -->
 <div class="p-space-sm rounded-lg bg-inverse-surface text-inverse-on-surface flex flex-col gap-space-xs mt-1">
 <div class="flex items-center justify-between text-code-sm font-code-sm text-inverse-on-surface/70">
-<span>CREDENTIAL VALUE (NOT STORED)</span>
+<span>CREDENTIAL VALUE (ENCRYPTED AT REST)</span>
 <span class="text-tertiary font-semibold flex items-center gap-1">
-<span class="w-1.5 h-1.5 rounded-full bg-outline"></span>NOT STORED
+<span class="w-1.5 h-1.5 rounded-full bg-outline"></span>NOT LOADED
             </span>
 </div>
 <div class="flex items-center justify-between gap-2 bg-inverse-surface/80 p-2 rounded">
 <span class="font-code-md text-code-md tracking-widest text-primary-fixed select-none" id="masked-secret-text">
-              no stored value &mdash; metadata only
+              no value loaded &mdash; select a credential
             </span>
 <div class="flex items-center gap-1 shrink-0">
-<button class="p-1 rounded hover:bg-surface-container-highest/20 text-inverse-on-surface transition-colors" id="reveal-btn" onclick="toggleSecretVisibility()" title="Reveal (no stored value)">
+<button class="p-1 rounded hover:bg-surface-container-highest/20 text-inverse-on-surface transition-colors" id="reveal-btn" onclick="toggleSecretVisibility()" title="Reveal secret (admin)">
 <span class="material-symbols-outlined text-[18px]" id="reveal-icon">visibility</span>
 </button>
-<button class="p-1 rounded hover:bg-surface-container-highest/20 text-inverse-on-surface transition-colors" onclick="copySecretWithTimer()" title="Copy (no stored value)">
+<button class="p-1 rounded hover:bg-surface-container-highest/20 text-inverse-on-surface transition-colors" onclick="copySecretWithTimer()" title="Copy secret value">
 <span class="material-symbols-outlined text-[18px]" id="copy-icon">content_copy</span>
 </button>
 </div>
 </div>
 <div class="hidden text-tertiary font-code-sm text-code-sm text-center py-0.5 bg-tertiary/20 rounded" id="copy-toast">
-            Nothing to copy &mdash; no value is stored.
+            No value loaded &mdash; select a credential first.
           </div>
 <div class="flex items-center justify-between pt-1 border-t border-inverse-on-surface/10 font-code-sm text-code-sm text-inverse-on-surface/60">
-<span>Value: not stored</span>
-<span>Vault stores metadata only</span>
+<span>Value: not loaded</span>
+<span>AES-256-GCM at rest</span>
 </div>
 </div>
 <!-- Next Rotation Countdown & Entropy Metrics -->
@@ -271,7 +271,7 @@
 <div class="p-space-sm rounded-lg bg-surface-container-low flex flex-col">
 <span class="font-code-sm text-code-sm text-outline">ENTROPY</span>
 <span class="font-headline-sm text-headline-sm text-on-surface font-bold mt-0.5">&mdash;</span>
-<span class="font-code-sm text-code-sm text-outline mt-1">No stored value</span>
+<span class="font-code-sm text-code-sm text-outline mt-1">Reveal a secret to estimate</span>
 </div>
 </div>
 <!-- Quick Emergency Operation Buttons -->
@@ -320,8 +320,9 @@
 </div>
 </div>
 <script>
-  // The vault stores credential metadata only - there is no stored secret value
-  // to reveal or copy, so both controls report that honestly.
+  // Secret reveal/copy: when the live vault is wired these fetch the real
+  // stored value on demand (admin token required); file:// or API-down keep
+  // honest "nothing loaded" notices - no placeholder values, ever.
   function showVaultToast(message) {
     const toast = document.getElementById('copy-toast');
     if (!toast) return;
@@ -332,11 +333,13 @@
   }
 
   function toggleSecretVisibility() {
-    showVaultToast('No stored value \u2014 this vault records credential metadata only.');
+    if (window.vaultLive && window.vaultLive.reveal) { window.vaultLive.reveal(); return; }
+    showVaultToast('License server not connected - nothing to reveal.');
   }
 
   function copySecretWithTimer() {
-    showVaultToast('Nothing to copy \u2014 credential values are never stored.');
+    if (window.vaultLive && window.vaultLive.copy) { window.vaultLive.copy(); return; }
+    showVaultToast('License server not connected - nothing to copy.');
   }
 
   function selectSecret(secretName) {
@@ -437,6 +440,24 @@
     const inspectorUuid = inspectorCard
       ? Array.from(inspectorCard.querySelectorAll('span'))
           .find((s) => s.textContent.trim().startsWith('UUID:')) : null;
+    // Secret box internals (structural - the frozen markup needs no new ids):
+    const badge = box && box.firstElementChild ? box.firstElementChild.lastElementChild : null;
+    const secretFooter = box && box.lastElementChild ? box.lastElementChild : null;
+    const footerValue = secretFooter ? secretFooter.children[0] : null;
+    const footerMeta = secretFooter ? secretFooter.children[1] : null;
+    const revealBtn = document.getElementById('reveal-btn');
+    const revealIcon = document.getElementById('reveal-icon');
+    const entropyCard = (() => {
+      const label = spans.find((s) => s.textContent.trim() === 'ENTROPY');
+      return label && label.parentElement ? label.parentElement : null;
+    })();
+
+    // The revealed plaintext lives only in this closure for the current
+    // selection; it is fetched on demand, never cached across rows, and
+    // re-masked automatically.
+    let revealed = null;
+    let revealHideTimer = null;
+    const MASK = '\u2022'.repeat(16);
 
     function setPillLabel(btn, text) {
       const nodes = Array.from(btn.childNodes)
@@ -568,14 +589,19 @@
       if (!auditList) return;
       if (!state.audit.length) {
         auditList.innerHTML = '<p class="font-body-sm text-body-sm text-outline">'
-          + 'No vault audit events yet &mdash; check a credential out to start the trail.</p>';
+          + 'No vault audit events yet &mdash; onboard a credential to start the trail.</p>';
       } else {
         const labels = {
           checked_out: 'Checkout started', revoked: 'Checkout ended',
-          rotated: 'Rotation recorded', onboarded: 'Credential onboarded',
+          rotated: 'Rotation recorded', rotation_failed: 'Rotation failed',
+          onboarded: 'Credential onboarded',
         };
         auditList.innerHTML = state.audit.map((e) => {
-          const reason = e.detail && e.detail.reason ? ' &mdash; ' + esc(e.detail.reason) : '';
+          const detail = e.detail || {};
+          const bits = [];
+          if (detail.reason) bits.push(esc(detail.reason));
+          if (detail.trigger) bits.push('trigger: ' + esc(detail.trigger));
+          const reason = bits.length ? ' &mdash; ' + bits.join(' &middot; ') : '';
           return '<div class="p-2 rounded bg-surface-container-low flex flex-col gap-1">'
             + '<div class="flex items-center justify-between">'
             + '<span class="font-code-sm text-code-sm font-semibold text-on-surface">' + esc(e.actor) + '</span>'
@@ -599,6 +625,12 @@
       const recent = state.items.filter((i) =>
         Date.now() - new Date(i.created_at).getTime() < WEEK).length;
       setText(tiles[0].nextElementSibling, '+' + recent + ' this week');
+      if (s.secrets && tiles[0].parentElement) {
+        setText(tiles[0].parentElement.nextElementSibling,
+          s.secrets.managed + ' with encrypted secrets \u00b7 '
+          + s.secrets.versions + ' version' + (s.secrets.versions === 1 ? '' : 's')
+          + ' stored');
+      }
       setText(tiles[1], s.rotation.compliance_pct.toFixed(2) + '%');
       const valueRow = tiles[1].closest('div.flex.items-baseline');
       const barWrap = valueRow ? valueRow.nextElementSibling : null;
@@ -694,6 +726,127 @@
         }
         if (policyEl) setText(policyEl, 'Policy: ' + item.rotation_interval_label);
       }
+
+      // Secret box: re-mask on every selection; managed rows show their
+      // encrypted state, metadata-only rows stay honest.
+      resetSecretBox(item);
+    }
+
+    function resetSecretBox(item) {
+      revealed = null;
+      clearTimeout(revealHideTimer);
+      if (revealIcon) revealIcon.textContent = 'visibility';
+      if (revealBtn) revealBtn.title = 'Reveal secret (admin)';
+      const managed = !!item && item.secret_version != null;
+      if (badge) {
+        badge.innerHTML = '<span class="w-1.5 h-1.5 rounded-full '
+          + (managed ? 'bg-tertiary' : 'bg-outline') + '"></span> '
+          + (managed ? 'ENCRYPTED v' + item.secret_version : 'NOT MANAGED');
+      }
+      setText(masked, item
+        ? (managed ? MASK : 'no stored value \u2014 metadata only')
+        : 'no value loaded \u2014 select a credential');
+      if (footerValue) {
+        setText(footerValue, managed
+          ? 'Value: AES-256-GCM v' + item.secret_version : 'Value: not stored');
+      }
+      if (footerMeta) {
+        setText(footerMeta, !item ? 'AES-256-GCM at rest'
+          : managed ? 'Stored ' + relTime(item.secret_updated_at) : 'Metadata-only record');
+      }
+      if (entropyCard) {
+        setText(entropyCard.children[1], '\u2014');
+        setText(entropyCard.children[2], managed ? 'Reveal to estimate' : 'No stored value');
+      }
+    }
+
+    async function fetchReveal(item) {
+      const headers = {};
+      const token = sessionStorage.getItem(TOKEN_KEY) || '';
+      if (token) headers['X-Admin-Token'] = token;
+      const res = await fetch(API + '/items/' + item.id + '/secret', { headers: headers });
+      if (res.status === 404) return { none: true };
+      if (res.status === 401) return { unauthorized: true };
+      if (!res.ok) return { failed: res.status };
+      return res.json();
+    }
+
+    async function reveal() {
+      if (ROOT === '') {
+        showVaultToast('License server not connected - nothing to reveal.');
+        return;
+      }
+      const item = selectedItem();
+      if (!item) { showVaultToast('Select a credential first.'); return; }
+      if (revealed) { resetSecretBox(item); return; } // toggle back to the mask
+      const result = await fetchReveal(item);
+      if (result.unauthorized) {
+        showVaultToast('Admin token required to reveal - set it in Settings.');
+        return;
+      }
+      if (result.none) {
+        showVaultToast('No stored secret for this credential (metadata-only record).');
+        return;
+      }
+      if (result.failed) {
+        showVaultToast('Reveal failed (' + result.failed + ').');
+        return;
+      }
+      revealed = result;
+      const value = result.secret;
+      setText(masked, value.length > 40
+        ? value.slice(0, 20) + '\u2026' + value.slice(-6) + ' (' + value.length + ' chars)'
+        : value);
+      if (revealIcon) revealIcon.textContent = 'visibility_off';
+      if (revealBtn) revealBtn.title = 'Hide secret';
+      if (badge) {
+        badge.innerHTML = '<span class="w-1.5 h-1.5 rounded-full bg-tertiary"></span> '
+          + 'REVEALED v' + result.version;
+      }
+      if (footerValue) {
+        setText(footerValue, 'Value: AES-256-GCM v' + result.version + ' \u00b7 ' + result.alg);
+      }
+      if (entropyCard) {
+        setText(entropyCard.children[1], '\u2248 ' + result.entropy_bits + ' bits');
+        setText(entropyCard.children[2], 'estimate over ' + value.length + ' chars');
+      }
+      showVaultToast('Revealed v' + result.version + ' (' + value.length
+        + ' chars) - re-masked in 30s.');
+      clearTimeout(revealHideTimer);
+      revealHideTimer = setTimeout(() => { if (revealed) resetSecretBox(item); }, 30000);
+    }
+
+    async function copy() {
+      if (ROOT === '') {
+        showVaultToast('License server not connected - nothing to copy.');
+        return;
+      }
+      const item = selectedItem();
+      if (!item) { showVaultToast('Select a credential first.'); return; }
+      let value = revealed ? revealed.secret : null;
+      if (!value) {
+        const result = await fetchReveal(item);
+        if (result.unauthorized) {
+          showVaultToast('Admin token required to copy - set it in Settings.');
+          return;
+        }
+        if (result.none) {
+          showVaultToast('No stored secret to copy (metadata-only record).');
+          return;
+        }
+        if (result.failed) {
+          showVaultToast('Copy failed (' + result.failed + ').');
+          return;
+        }
+        value = result.secret;
+      }
+      try {
+        await navigator.clipboard.writeText(value);
+        showVaultToast('Copied ' + value.length + ' characters to the clipboard.');
+      } catch (err) {
+        console.warn('Clipboard unavailable:', err);
+        showVaultToast('Clipboard unavailable in this browser context.');
+      }
     }
 
     async function act(action, id) {
@@ -709,8 +862,15 @@
             : undefined,
         });
         if (!res.ok) {
-          console.warn('Vault action failed:', action, res.status, await res.text());
-          showVaultToast('Action rejected (' + res.status + ') - check the admin token in Settings.');
+          const body = await res.json().catch(() => ({}));
+          console.warn('Vault action failed:', action, res.status, body);
+          if (res.status === 401) {
+            showVaultToast('Admin token required - check it in Settings.');
+          } else {
+            showVaultToast((body && body.error)
+              ? body.error
+              : 'Action rejected (' + res.status + ').');
+          }
           return;
         }
         await load();
@@ -760,6 +920,9 @@
         state.audit = audit.events;
         state.auditTotal = audit.total;
         render();
+        // refresh the inspector against fresh rows (rotation bumps versions
+        // and must re-mask any revealed value)
+        if (state.selected) select(state.selected);
         fillFooter(overview);
       } catch (err) {
         console.info('Vault API unreachable - honest placeholders stay on screen.', err);
@@ -838,7 +1001,7 @@
       showVaultToast('Policy editor not connected yet.');
     });
 
-    window.vaultLive = { select: select, load: load };
+    window.vaultLive = { select: select, load: load, reveal: reveal, copy: copy };
     load();
   })();
 </script></main><footer class="fixed bottom-0 left-64 right-0 h-10 bg-surface-container-lowest/95 backdrop-blur-sm border-t border-outline-variant/30 z-30 flex items-center justify-between px-space-xl text-on-surface-variant font-code-sm text-code-sm shadow-[0_-1px_4px_rgba(0,0,0,0.02)]"><div class="flex items-center gap-space-md"><div class="flex items-center gap-1.5"><span class="w-2 h-2 rounded-full bg-tertiary"></span><span class="text-on-surface font-medium">License server: &mdash;</span><span class="text-outline">(&mdash; nodes)</span></div><span class="text-outline-variant">•</span><span class="text-tertiary font-semibold">&mdash; credentials checked out</span></div><div class="flex items-center gap-space-lg text-outline"><span>Auth: &mdash;</span><span>WORM: &mdash;</span><span>Audit: &mdash; events</span></div></footer></div><script>
@@ -902,30 +1065,44 @@
       showVaultToast('Import connectors not connected yet - onboard credentials manually.');
     });
 
-    // --- Bulk rotation: rotates every due/failed credential for real ---------
+    // --- Bulk rotation: one POST /rotation/run over due+failed credentials ---
     const bulkBtn = findBtn('Trigger Bulk Rotation');
     if (bulkBtn) bulkBtn.addEventListener('click', async () => {
       try {
-        const res = await fetch(API + '/items?limit=200');
-        if (!res.ok) throw new Error('items -> ' + res.status);
-        const page = await res.json();
-        const due = page.items.filter((i) =>
-          i.status === 'rotation_due' || i.status === 'failed');
-        if (!due.length) {
+        const statsRes = await fetch('/api/v1/vault/stats');
+        if (!statsRes.ok) throw new Error('stats -> ' + statsRes.status);
+        const stats = await statsRes.json();
+        const due = stats.rotation.due;
+        const failedCount = stats.attention.failed;
+        if (!due && !failedCount) {
           showVaultToast('No credentials are due for rotation.');
           return;
         }
-        if (!confirm('Rotate ' + due.length
-          + ' credential(s) now (rotation due or failed)?')) return;
-        let done = 0;
-        for (const item of due) {
-          const r = await fetch(API + '/items/' + item.id + '/rotate', {
-            method: 'POST', headers: adminHeaders(),
-          });
-          if (r.ok) done += 1;
+        if (!confirm('Rotate ' + due + ' due and ' + failedCount
+          + ' failed credential(s) now? Same-target dependents are included.')) return;
+        const res = await fetch('/api/v1/rotation/run', {
+          method: 'POST', headers: adminHeaders(), body: JSON.stringify({}),
+        });
+        const summary = await res.json().catch(() => ({}));
+        if (res.status === 401) {
+          showVaultToast('Admin token required for rotation - set it in Settings.');
+          return;
+        }
+        if (!res.ok) {
+          showVaultToast((summary && summary.error)
+            ? summary.error
+            : 'Rotation rejected (' + res.status + ').');
+          return;
         }
         if (window.vaultLive) await window.vaultLive.load();
-        showVaultToast('Rotated ' + done + ' of ' + due.length + ' credential(s).');
+        const parts = [summary.rotated.length + ' rotated'];
+        if (summary.dependents_rotated) {
+          parts.push(summary.dependents_rotated + ' dependents');
+        }
+        if (summary.skipped.length) parts.push(summary.skipped.length + ' skipped');
+        if (summary.failed.length) parts.push(summary.failed.length + ' failed');
+        showVaultToast('Rotation run: ' + parts.join(', ') + ' - '
+          + summary.due_remaining + ' still due.');
       } catch (err) {
         console.warn('Bulk rotation unreachable:', err);
         showVaultToast('Bulk rotation failed - license server unreachable.');
@@ -941,12 +1118,12 @@
     const TIERS = ['Tier-0', 'Tier-1', 'Tier-2'];
     const METHODS = ['Password', 'Hardware', 'FIDO2', 'Certificate'];
 
-    function fieldHtml(name, label, required, value) {
+    function fieldHtml(name, label, required, value, type) {
       return '<label class="flex flex-col gap-1 font-code-sm text-code-sm text-outline">'
         + label + (required ? ' *' : '')
         + '<input class="px-2 py-1.5 rounded bg-surface-container-low text-on-surface '
         + 'font-body-md text-body-md focus:outline-none focus:ring-2 focus:ring-primary-container'
-        + ' rounded" name="' + name + '" type="text"'
+        + ' rounded" name="' + name + '" type="' + (type || 'text') + '"'
         + (required ? ' required' : '')
         + (value ? ' value="' + value + '"' : '') + '></label>';
     }
@@ -979,8 +1156,9 @@
         + '<button class="p-1 rounded text-outline hover:text-on-surface" data-role="close">'
         + '<span class="material-symbols-outlined text-[20px]">close</span></button>'
         + '</div>'
-        + '<p class="font-body-sm text-body-sm text-on-surface-variant">Stores credential '
-        + '<strong>metadata only</strong> - secret values are never kept by this vault.</p>'
+        + '<p class="font-body-sm text-body-sm text-on-surface-variant">Seals the credential value with '
+        + '<strong>AES-256-GCM</strong> at rest - leave the secret blank and the server generates a '
+        + 'real type-appropriate one.</p>'
         + '<div class="grid grid-cols-2 gap-space-sm font-body-sm text-body-sm">'
         + fieldHtml('name', 'Credential name', true)
         + selectHtml('secret_type', 'Type', TYPES)
@@ -990,6 +1168,7 @@
         + selectHtml('access_tier', 'Access tier', TIERS.map((t) => [t, t]))
         + selectHtml('auth_method', 'Auth method', METHODS.map((m) => [m, m]))
         + fieldHtml('rotation_interval_hours', 'Rotation interval (hours)', false, '24')
+        + fieldHtml('secret', 'Secret value (blank = generate)', false, '', 'password')
         + '</div>'
         + fieldHtml('description', 'Description', false)
         + '<p class="text-error font-body-sm text-body-sm hidden" data-role="error"></p>'
@@ -1021,6 +1200,7 @@
           description: form.description || form.name,
           rotation_interval_hours: parseInt(form.rotation_interval_hours, 10) || 24,
         };
+        if (form.secret) payload.secret = form.secret; // operator-supplied value
         try {
           const res = await fetch(API + '/items', {
             method: 'POST', headers: adminHeaders(), body: JSON.stringify(payload),

@@ -352,18 +352,51 @@ def revoke_vault_checkout(item_id: int):
     return jsonify({"item": item.to_dict(), "message": "Checkout revoked"})
 
 
+@api.get("/vault/items/<int:item_id>/secret")
+@require_admin
+def reveal_vault_secret(item_id: int):
+    """Decrypt and return the current secret version (admin-only reveal)."""
+    return jsonify(service.reveal_vault_secret(item_id))
+
+
 @api.post("/vault/items/<int:item_id>/rotate")
 @require_admin
 def rotate_vault_item(item_id: int):
-    item = service.rotate_vault_item(item_id, actor=_actor())
-    return jsonify({"item": item.to_dict(), "message": "Rotation recorded"})
+    item, detail = service.rotate_vault_item(item_id, actor=_actor())
+    return jsonify(
+        {"item": item.to_dict(), "rotation": detail, "message": "Rotation recorded"}
+    )
 
 
 @api.get("/vault/events")
 def get_vault_events():
     """Vault audit trail (onboarding, checkouts, rotations), newest first."""
     limit = min(_int_param("limit", 20), MAX_PAGE_SIZE)
-    return jsonify(service.vault_events(limit))
+    return jsonify(service.vault_events(limit, action=request.args.get("action")))
+
+
+# ---------------------------------------------------------------------------
+# rotation engine (module 5: scheduled + event-based password rotation)
+# ---------------------------------------------------------------------------
+@api.post("/rotation/run")
+@require_admin
+def run_rotations():
+    """Run the engine over due credentials (or explicit `item_ids`)."""
+    return jsonify(service.run_rotations(_json_body(required=False), actor=_actor()))
+
+
+@api.post("/rotation/session-end")
+@require_admin
+def rotation_session_end():
+    """Event-based trigger: a checkout's session ended -> rotate now."""
+    item, detail = service.rotation_session_end(_json_body(), actor=_actor())
+    return jsonify(
+        {
+            "item": item.to_dict(),
+            "rotation": detail,
+            "message": "Session-end rotation recorded",
+        }
+    )
 
 
 # ---------------------------------------------------------------------------

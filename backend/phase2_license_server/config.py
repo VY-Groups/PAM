@@ -52,6 +52,14 @@ class Config:
     admin_token: Optional[str] = None
     autogenerate_keys: bool = False
     default_trial_days: int = 30
+    # Credential vault at rest: AES-256-GCM key for stored secrets. The dev
+    # default generates a machine-local key on first use (VAULT_AUTOGENERATE_KEY
+    # can be disabled to force an explicitly provisioned key).
+    vault_key_path: Path = SERVER_DIR / "vault_master.key"
+    vault_autogenerate_key: bool = True
+    # Optional background scheduler for due rotations (off unless enabled).
+    rotation_scheduler: bool = False
+    rotation_scheduler_interval: int = 300
 
     @classmethod
     def from_env(cls) -> "Config":
@@ -84,4 +92,13 @@ class Config:
             admin_token=os.getenv("LICENSE_ADMIN_TOKEN") or None,
             autogenerate_keys=_env_bool("LICENSE_AUTOGENERATE_KEYS", False),
             default_trial_days=int(os.getenv("LICENSE_DEFAULT_TRIAL_DAYS", "30")),
+            vault_key_path=_resolve_path(
+                os.getenv("VAULT_KEY_PATH"),
+                SERVER_DIR / "vault_master.key",
+            ),
+            vault_autogenerate_key=_env_bool("VAULT_AUTOGENERATE_KEY", True),
+            rotation_scheduler=_env_bool("ROTATION_SCHEDULER", False),
+            rotation_scheduler_interval=int(
+                os.getenv("ROTATION_SCHEDULER_INTERVAL_SECONDS", "300")
+            ),
         )
