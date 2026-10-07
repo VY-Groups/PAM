@@ -1,0 +1,4 @@
+# VY-PAM MASTER runtime dependencies (signing happens through the shared
+# crypto engine in backend/ipam_licensing, which vendors its own deps).
+flask>=3.0
+cryptography>=42

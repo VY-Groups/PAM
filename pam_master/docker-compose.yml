@@ -1,0 +1,38 @@
+# DEV ONLY — VY-PAM MASTER development environment.
+#
+# The shipped products (VY-PAM MASTER here at VY-Groups, VY-PAM at customer
+# sites) install directly on their target systems; Docker exists purely as a
+# convenience for local development and is never a deployment requirement.
+#
+# First run creates dev keys explicitly (the app itself never creates keys):
+#   docker compose run --rm pam-master python -m pam_master.keygen
+# then:
+#   docker compose up
+# Health: http://127.0.0.1:5400/health
+services:
+  pam-master:
+    build:
+      context: ..
+      dockerfile: pam_master/Dockerfile
+    ports:
+      - "5400:5400"
+    environment:
+      MASTER_BIND: "0.0.0.0"
+      MASTER_DATABASE_URI: "sqlite:////data/master.db"
+      MASTER_RSA_PRIVATE_KEY_PATH: "/keys/license_private_key.pem"
+      MASTER_ED25519_PRIVATE_KEY_PATH: "/keys/license_ed25519_private.pem"
+    volumes:
+      - master-data:/data
+      - ./.keys:/keys
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - "import urllib.request; urllib.request.urlopen('http://127.0.0.1:5400/health', timeout=3)"
+      interval: 15s
+      timeout: 5s
+      retries: 3
+
+volumes:
+  master-data:

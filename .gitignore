@@ -12,3 +12,10 @@ license_ed25519_private.pem
 # Dev-only UI tooling (shots_tool): dependencies + throwaway databases.
 node_modules/
 shots_tool/.tmp/
+
+# VY-PAM MASTER: dev-docker key directory + sqlite sidecars from interrupted
+# runs (the real database files are already covered by *.db above).
+.keys/
+*.db-journal
+*.db-wal
+*.db-shm
