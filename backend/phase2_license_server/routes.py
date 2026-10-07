@@ -6,7 +6,7 @@ import json
 from functools import wraps
 from typing import Any, Dict
 
-from flask import Blueprint, current_app, jsonify, request
+from flask import Blueprint, Response, current_app, jsonify, request
 
 import service
 from config import Config
@@ -283,9 +283,45 @@ def get_overview():
 
 @api.get("/events")
 def get_events():
-    """Recent activity across the license, settings, vault and discovery trails."""
+    """Recent entries from the immutable audit ledger (architecture 19),
+    across every trail, newest first."""
     limit = min(_int_param("limit", 20), MAX_PAGE_SIZE)
     return jsonify(service.unified_events(source=request.args.get("source"), limit=limit))
+
+
+# ---------------------------------------------------------------------------
+# immutable audit ledger (architecture 19, Compliance screen)
+# ---------------------------------------------------------------------------
+@api.get("/audit/stats")
+def audit_stats():
+    """Ledger aggregates: totals by source, chain head, trigger protection."""
+    return jsonify(service.audit_stats())
+
+
+@api.get("/audit/verify")
+def audit_verify():
+    """Walk the whole hash chain and report the first break, if any."""
+    return jsonify(service.audit_verify())
+
+
+@api.get("/audit/export")
+def audit_export():
+    """The full ledger in chain order as newline-delimited JSON (NDJSON) -
+    the same records a SIEM would ingest."""
+    # evaluated inside the request context; the generator only serialises it
+    records = service.audit_export_rows()
+
+    def generate():
+        for row in records:
+            yield json.dumps(row, sort_keys=True, separators=(",", ":")) + "\n"
+
+    return Response(
+        generate(),
+        mimetype="application/x-ndjson",
+        headers={
+            "Content-Disposition": 'attachment; filename="vy-pam-audit.ndjson"'
+        },
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -355,8 +391,9 @@ def revoke_vault_checkout(item_id: int):
 @api.get("/vault/items/<int:item_id>/secret")
 @require_admin
 def reveal_vault_secret(item_id: int):
-    """Decrypt and return the current secret version (admin-only reveal)."""
-    return jsonify(service.reveal_vault_secret(item_id))
+    """Decrypt and return the current secret version (admin-only reveal);
+    the reveal itself is an audited ledger event."""
+    return jsonify(service.reveal_vault_secret(item_id, actor=_actor()))
 
 
 @api.post("/vault/items/<int:item_id>/rotate")

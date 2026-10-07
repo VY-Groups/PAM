@@ -546,22 +546,50 @@
         });
       }
 
+      // Section 19: this button walks the real hash chain (every ledger
+      // record, recomputed) - it is not a Merkle proof, so the label on
+      // screen is corrected to what actually runs.
       if (verifyMerkleBtn) {
-        verifyMerkleBtn.addEventListener('click', () => {
-          showToast('Merkle ledger module not connected - no proof chain is running.');
+        verifyMerkleBtn.addEventListener('click', async () => {
+          try {
+            const res = await fetch('/api/v1/audit/verify');
+            if (!res.ok) throw new Error('audit/verify -> ' + res.status);
+            const v = await res.json();
+            if (v.intact) {
+              showToast('Hash chain intact: ' + v.checked + '/' + v.total
+                + ' records verified, head ' + v.head_hash.slice(0, 12) + '\u2026');
+            } else {
+              showToast('CHAIN BROKEN at seq ' + v.broken_at + ': ' + v.reason);
+            }
+            const verifyState = Array.from(document.querySelectorAll('span'))
+              .find((s) => s.textContent.includes('Last Verify:')
+                || s.textContent.includes('Witnesses:'));
+            if (verifyState) {
+              verifyState.textContent = 'Last Verify: ' + v.checked + '/' + v.total
+                + (v.intact ? ' ok' : ' FAILED') + ' just now';
+            }
+          } catch (err) {
+            console.warn('Verify unreachable:', err);
+            showToast('Verify failed - license server unreachable.');
+          }
         });
       }
 
       if (downloadAuditTrailBtn) {
         downloadAuditTrailBtn.addEventListener('click', async () => {
           try {
-            const res = await fetch('/api/v1/events?limit=500');
-            if (!res.ok) throw new Error('events -> ' + res.status);
-            const data = await res.json();
-            const rows = [['created_at', 'source', 'action', 'actor', 'subject', 'detail']];
-            data.events.forEach((e) => rows.push([
-              e.created_at, e.source, e.action, e.actor, e.subject,
-              JSON.stringify(e.detail || {}),
+            // the whole ledger, straight from the immutable store: no page
+            // limit, and every row carries its chain position and hashes
+            const res = await fetch('/api/v1/audit/export');
+            if (!res.ok) throw new Error('audit/export -> ' + res.status);
+            const records = (await res.text()).split('\n')
+              .filter((line) => line.trim()).map((line) => JSON.parse(line));
+            const rows = [['seq', 'created_at', 'source', 'action', 'actor',
+              'subject', 'detail', 'event_ref', 'prev_hash', 'event_hash']];
+            records.forEach((e) => rows.push([
+              e.seq, e.created_at, e.source, e.action, e.actor, e.subject,
+              JSON.stringify(e.detail || {}), e.event_ref, e.prev_hash,
+              e.event_hash,
             ]));
             const csv = rows.map((r) => r.map((v) => {
               const s = v == null ? '' : String(v);
@@ -575,12 +603,40 @@
             a.click();
             a.remove();
             setTimeout(() => URL.revokeObjectURL(url), 4000);
-            showToast('Downloaded ' + data.total + ' audit events (CSV).');
+            showToast('Downloaded ' + records.length + ' audit events (CSV).');
           } catch (err) {
             console.warn('Download unreachable:', err);
             showToast('Download failed - license server unreachable.');
           }
         });
+      }
+
+      // SIEM path: the raw NDJSON ledger, no client-side conversion
+      const csvButtonWrap = downloadAuditTrailBtn
+        ? downloadAuditTrailBtn.parentElement : null;
+      if (csvButtonWrap) {
+        const ndjsonBtn = document.createElement('button');
+        ndjsonBtn.setAttribute('data-role', 'download-audit-ndjson');
+        ndjsonBtn.className = downloadAuditTrailBtn.className
+          .replace('py-2', 'py-1.5')
+          .replace('bg-surface-container hover:bg-surface-container-high text-primary',
+            'bg-surface-container-low hover:bg-surface-container text-on-surface-variant');
+        ndjsonBtn.innerHTML = '<span class="material-symbols-outlined text-[18px]">data_object</span>'
+          + '<span>Export Full Ledger (NDJSON, SIEM)</span>';
+        ndjsonBtn.addEventListener('click', () => {
+          if (location.protocol === 'file:') {
+            showToast('Ledger export needs the license server - start it and retry.');
+            return;
+          }
+          const a = document.createElement('a');
+          a.href = '/api/v1/audit/export';
+          a.download = 'vy-pam-audit.ndjson';
+          document.body.appendChild(a);
+          a.click();
+          a.remove();
+          showToast('Downloading the full audit ledger (NDJSON, one record per line).');
+        });
+        csvButtonWrap.appendChild(ndjsonBtn);
       }
 
       // Buttons with no module behind them report that honestly on click.
@@ -597,11 +653,11 @@
   </script>
   <script>
     // ---------------------------------------------------------------------------
-    // Live wiring: pulls the real posture aggregate and the unified audit feed
-    // from the license server. file:// and API-down keep the honest placeholders
-    // above - sections without a live module (JIT, quorum, command control,
-    // proof chain, auditor portal) stay "not connected" and are never filled
-    // with invented values.
+    // Live wiring: pulls the real posture aggregate, the unified audit feed
+    // and the immutable ledger state (section 19) from the license server.
+    // file:// and API-down keep the honest placeholders above - sections
+    // without a live module (JIT, quorum, command control, auditor portal)
+    // stay "not connected" and are never filled with invented values.
     // ---------------------------------------------------------------------------
     (function () {
       const ROOT = location.protocol === 'file:' ? '' : '/';
@@ -640,8 +696,14 @@
         return Math.round(hrs / 24) + 'd ago';
       }
 
+      // first 12 hex of the record's chain hash (the full one is exportable)
+      function shortHash(hash) {
+        return typeof hash === 'string' && hash.length === 64
+          ? hash.slice(0, 12) + '&hellip;' : '&mdash;';
+      }
+
       const ACTION_LABELS = {
-        'license:issued': 'License issued',
+        'license:imported': 'License imported',
         'license:revoked': 'License revoked',
         'license:restored': 'License restored',
         'license:usage_reported': 'License usage reported',
@@ -651,13 +713,37 @@
         'vault:revoked': 'Checkout revoked',
         'vault:onboarded': 'Credential onboarded',
         'vault:rotation_failed': 'Rotation failed',
+        'vault:revealed': 'Credential revealed',
+        'discovery:scan_started': 'Discovery scan started',
+        'discovery:scan_completed': 'Discovery scan completed',
+        'discovery:scan_failed': 'Discovery scan failed',
+        'discovery:asset_discovered': 'Asset discovered',
+        'discovery:asset_onboarded': 'Asset onboarded',
+        'discovery:asset_updated': 'Asset record updated',
+        'jit:requested': 'JIT access requested',
+        'jit:approved': 'JIT request approved',
+        'jit:granted': 'JIT access granted',
+        'jit:denied': 'JIT request denied',
+        'jit:blocked': 'JIT request blocked',
+        'jit:expired': 'JIT grant expired',
+        'jit:closed': 'JIT grant closed',
+        'session:status': 'Session lifecycle',
+        'session:note': 'Operator note',
+        'command:command': 'Command evaluated',
+        'command:approval': 'Command decision',
+        'command:escalated': 'Incident escalated',
+        'command:closed': 'Incident closed',
       };
       const SOURCE_ICONS = {
         license: 'workspace_premium', settings: 'tune', vault: 'key',
+        discovery: 'travel_explore', jit: 'bolt', session: 'present_to_all',
+        command: 'gpp_maybe',
       };
       const SOURCE_LABELS = {
         license: 'License audit trail', settings: 'Settings audit trail',
-        vault: 'Vault audit trail',
+        vault: 'Vault audit trail', discovery: 'Discovery audit trail',
+        jit: 'JIT audit trail', session: 'Session audit trail',
+        command: 'Command audit trail',
       };
 
       // headline-xl spans: [overall posture, SOC-2 pass, evidence, next cycle]
@@ -669,6 +755,107 @@
       const probeList = probeCard ? probeCard.children[1] : null;
       const wormBadge = Array.from(document.querySelectorAll('span'))
         .find((s) => s.textContent.includes('WORM:'));
+
+      // ---- immutable digest card (section 19): real chain facts ----------
+      const digestHeading = Array.from(document.querySelectorAll('h3'))
+        .find((h) => h.textContent.includes('Immutable WORM Digest'));
+      const digestCard = digestHeading
+        ? digestHeading.closest('div[class*="rounded-xl"]') : null;
+      const digestBadge = digestHeading && digestHeading.parentElement
+        ? digestHeading.parentElement.nextElementSibling : null;
+
+      function digestSpan(predicate) {
+        if (!digestCard) return null;
+        return Array.from(digestCard.querySelectorAll('span')).find(predicate);
+      }
+
+      async function loadDigest() {
+        // the header control runs a hash-chain walk on click (not Merkle)
+        const verifyBtn = document.getElementById('verifyMerkleBtn');
+        setText(verifyBtn ? verifyBtn.querySelector('span:last-child') : null,
+          'Verify Hash Chain');
+        if (!digestCard) return;
+        try {
+          const res = await fetch(ROOT + 'api/v1/audit/stats');
+          if (!res.ok) throw new Error('audit/stats -> ' + res.status);
+          const s = await res.json();
+          // honest labels: this store is a hash chain, not a Merkle tree
+          const headLabel = digestSpan((x) => x.textContent.trim() === 'Active Merkle Root');
+          if (headLabel) {
+            headLabel.textContent = 'Chain Head (SHA-256)';
+            if (headLabel.nextElementSibling) {
+              headLabel.nextElementSibling.textContent = s.total ? 'seq ' + s.last_seq : '\u2014';
+            }
+            const hashLine = headLabel.parentElement
+              ? headLabel.parentElement.nextElementSibling : null;
+            if (hashLine) hashLine.textContent = s.head_hash || '\u2014';
+          }
+          const depth = digestSpan((x) => x.textContent.includes('Depth:'));
+          if (depth) depth.textContent = 'Depth: ' + s.last_seq;
+          const verifyState = digestSpan((x) => x.textContent.includes('Witnesses:'));
+          if (verifyState) verifyState.textContent = 'Last Verify: \u2014';
+          const rowValue = (labelText) => {
+            const label = digestSpan((x) => x.textContent.trim() === labelText);
+            return label ? label.nextElementSibling : null;
+          };
+          const tsValue = rowValue('Timestamping Standard:');
+          if (tsValue) tsValue.textContent = 'ISO 8601 local clock, hash-bound';
+          const archValue = rowValue('Storage Architecture:');
+          if (archValue) {
+            archValue.textContent = 'append-only SQLite + triggers '
+              + (s.trigger_protection ? 'installed' : 'MISSING');
+          }
+          if (digestBadge) {
+            digestBadge.textContent = s.trigger_protection ? 'append-only' : 'mutable';
+            digestBadge.classList.remove('text-on-surface-variant');
+            digestBadge.classList.toggle('text-tertiary', s.trigger_protection);
+            digestBadge.classList.toggle('text-error', !s.trigger_protection);
+          }
+        } catch (err) {
+          console.info('Audit ledger unreachable - digest keeps its honest placeholders.', err);
+        }
+      }
+
+      // ---- 7-source filter: click-to-fetch per trail (reveal on click) ---
+      const SOURCES = ['all', 'license', 'settings', 'vault', 'discovery',
+        'jit', 'session', 'command'];
+      let activeSource = 'all';
+      const filterWrap = document.createElement('div');
+      filterWrap.className = 'flex flex-wrap gap-1.5 pb-1';
+      filterWrap.setAttribute('data-role', 'audit-source-filter');
+      SOURCES.forEach((name) => {
+        const chip = document.createElement('button');
+        chip.type = 'button';
+        chip.textContent = name;
+        chip.setAttribute('data-source', name);
+        chip.addEventListener('click', () => selectSource(name));
+        filterWrap.appendChild(chip);
+      });
+      function paintChips() {
+        Array.from(filterWrap.children).forEach((chip) => {
+          const on = chip.getAttribute('data-source') === activeSource;
+          chip.className = 'px-2 py-0.5 rounded font-code-sm text-[10px] uppercase transition-colors '
+            + (on ? 'bg-primary text-white font-semibold'
+                  : 'bg-surface-container text-on-surface-variant hover:bg-surface-container-high');
+        });
+      }
+      async function selectSource(name) {
+        activeSource = name;
+        paintChips();
+        try {
+          const res = await fetch(ROOT + 'api/v1/events?limit=20'
+            + (name === 'all' ? '' : '&source=' + name));
+          if (!res.ok) throw new Error('events -> ' + res.status);
+          const page = await res.json();
+          renderProbes(page.events);
+        } catch (err) {
+          console.info('Source filter unreachable - list unchanged.', err);
+        }
+      }
+      if (probeCard && probeList) {
+        paintChips();
+        probeCard.insertBefore(filterWrap, probeList);
+      }
 
       function rowByCode(code) {
         return matrixRows.find((row) => {
@@ -687,7 +874,7 @@
         if (!probeList) return;
         if (!events.length) {
           probeList.innerHTML = '<p class="font-body-sm text-body-sm text-outline">'
-            + 'No probe activity yet &mdash; license, settings and vault events stream here.</p>';
+            + 'No entries yet &mdash; the selected audit trail is empty.</p>';
           return;
         }
         probeList.innerHTML = events.map((e) => {
@@ -706,6 +893,8 @@
             + '<span class="font-code-sm text-[10px] text-outline">' + sub + '</span>'
             + '<span class="font-code-sm text-[10px] text-on-surface-variant mt-0.5">'
             + relTime(e.created_at) + ' &bull; ' + (SOURCE_LABELS[e.source] || e.source)
+            + ' &bull; #' + (e.seq != null ? e.seq : '&mdash;')
+            + ' &middot; ' + shortHash(e.event_hash)
             + '</span></div></div>';
         }).join('');
       }
@@ -828,6 +1017,7 @@
         }
       }
 
+      loadDigest();
       load();
     })();
   </script>

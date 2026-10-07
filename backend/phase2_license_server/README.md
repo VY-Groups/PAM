@@ -25,8 +25,9 @@ Supported wire formats and algorithms:
 | `app.py` | Flask app factory, error handlers, `/health`, screen routes, `python app.py` entrypoint |
 | `config.py` | Environment-driven configuration (`.env` supported) |
 | `routes.py` | HTTP layer: parsing, auth, status codes |
-| `service.py` | Business logic: import, list, revoke, restore, validate, usage, checks, `meta`, platform settings, credential vault, dashboard overview + unified events, infrastructure discovery, JIT access grants, privileged sessions, zero-trust command-control policy engine |
-| `models.py` | `LicenseRecord` (signed license + spec fields), `LicenseEvent`, `SettingGroup` + `SettingsEvent` (config changelog), `VaultItem` + `VaultEvent` + `VaultSecretVersion` (vault inventory + audit + immutable versions), `DiscoveredAsset`/`DiscoveredAccount`/`DiscoveryScan`/`DiscoveryEvent`, `JitRequest` + `JitEvent` (grants + trail), `PrivilegedSession` + `SessionEvent` (session recording, append-only), `CommandRule` + `CommandIncident` (zero-trust policy + escalations, append-only) |
+| `service.py` | Business logic: import, list, revoke, restore, validate, usage, checks, `meta`, platform settings, credential vault, dashboard overview + unified events, infrastructure discovery, JIT access grants, privileged sessions, zero-trust command-control policy engine, immutable §19 audit ledger |
+| `models.py` | `LicenseRecord` (signed license + spec fields), `LicenseEvent`, `SettingGroup` + `SettingsEvent` (config changelog), `VaultItem` + `VaultEvent` + `VaultSecretVersion` (vault inventory + audit + immutable versions), `DiscoveredAsset`/`DiscoveredAccount`/`DiscoveryScan`/`DiscoveryEvent`, `JitRequest` + `JitEvent` (grants + trail), `PrivilegedSession` + `SessionEvent` (session recording, append-only), `CommandRule` + `CommandIncident` (zero-trust policy + escalations, append-only), `AuditEvent` (immutable §19 hash chain) |
+| `audit.py` | The §19 ledger: flush listener fans every module trail into `audit_events`, sha256 chain (`prev_hash`/`event_hash`), boot backfill, append-only triggers, verify/stats/export |
 | `keys.py` | Startup key checks (fail fast, public/private must match, both algorithms) |
 | `licensing_bridge.py` | Path bootstrap + cached Phase 1 `LicenseGenerator`/`LicenseValidator` |
 | `tests/test_api.py` | End-to-end license API tests |
@@ -37,6 +38,7 @@ Supported wire formats and algorithms:
 | `tests/test_jit.py` | JIT access: deterministic risk bands, approvals, time-boxed grants, expiry rotation |
 | `tests/test_sessions.py` | Privileged sessions: start/attach, channel events, control gating, lifecycle + cascades |
 | `tests/test_command_control.py` | Zero-trust command policy: rule CRUD, dry-run decisions, approval queue, incident escalation |
+| `tests/test_audit.py` | Immutable §19 ledger: seven-source fan-in, hash chain, append-only triggers, backfill, verify/export, drift guard |
 | `tests/test_openapi_contract.py` | `apis/openapi.yaml` ↔ live route map (both directions) |
 
 ## Quick start
@@ -92,7 +94,9 @@ configuration changelog.
 More screens render from their own APIs: the **Command Center** and
 **Compliance** screens (`GET /api/v1/overview` + the unified
 `GET /api/v1/events` feed — health, license posture, vault stats, computed
-control posture, recent activity), the **Credential Vault**
+control posture, recent activity; the Compliance screen also reads
+`GET /api/v1/audit/stats` for the immutable digest, runs `GET /api/v1/audit/verify`
+on its **Verify Hash Chain** button and exports `GET /api/v1/audit/export`), the **Credential Vault**
 (`GET/POST /api/v1/vault/*` — onboarding via **Onboard New Credential**, rotation
 SLA, type/status filters, JIT checkouts and an audit trail), the
 **Infrastructure Discovery** screen (`GET/POST /api/v1/discovery/*` — register,
@@ -120,8 +124,8 @@ is no seed inventory: every credential enters through **Onboard New Credential**
 "not connected" states instead of sample rows.
 
 ```bash
-python -m pytest tests -q     # 223 tests (from backend/phase2_license_server)
-python -m pytest backend -q   # 305 tests from the repo root (+ shared crypto core)
+python -m pytest tests -q     # 242 tests (from backend/phase2_license_server)
+python -m pytest backend -q   # 324 tests from the repo root (+ shared crypto core)
 ```
 
 ## Configuration
@@ -226,6 +230,9 @@ cross-checked against these routes by `tests/test_openapi_contract.py`.
 | GET | `/discovery/accounts?…` | – | Recorded privileged accounts (`q`, `kind`, `limit`, `offset`) |
 | GET | `/discovery/scans?limit=` | – | Scan history, newest first |
 | POST | `/discovery/scans` | admin | Run a real TCP-connect scan (201; IPv4/CIDR/hostname, ≤256 hosts, ≤24 ports) |
+| GET | `/audit/stats` | – | Immutable ledger aggregates (§19): `total`, per-source counts for all seven trails, `last_seq`, `head_hash`, oldest/newest, `trigger_protection` |
+| GET | `/audit/verify` | – | Walk the whole chain: recomputes every record's hash and reports `intact`, `checked`, `head_hash` plus the first `broken_at`/`reason` (sequence gap, content change, re-link) |
+| GET | `/audit/export` | – | The full ledger in chain order as NDJSON (`application/x-ndjson`, `vy-pam-audit.ndjson`) — one record per line for SIEM ingest |
 
 Admin auth: `Authorization: Bearer <token>` or `X-Admin-Token: <token>`.
 
@@ -351,7 +358,8 @@ curl -s "http://127.0.0.1:5000/api/v1/settings/audit?limit=20"
 # dashboard aggregate powering the Command Center / Compliance screens
 curl -s http://127.0.0.1:5000/api/v1/overview
 
-# unified audit feed (license + settings + vault + discovery trails, newest first)
+# unified audit feed (all seven trails: license, settings, vault, discovery,
+# jit, session, command - newest first, each row chain-linked with seq + hash)
 curl -s "http://127.0.0.1:5000/api/v1/events?limit=10"
 
 # inventory aggregates: rotation compliance, checkouts, attention list
@@ -575,6 +583,25 @@ curl -s -X POST http://127.0.0.1:5000/api/v1/discovery/assets \
   managed rows keep the operator's classification. New hosts land as
   `unmanaged` until adopted via `POST /discovery/assets/<id>/onboard`.
 
+### Immutable audit ledger (§19)
+
+# aggregates: every module trail fanned into one append-only hash chain
+curl -s http://127.0.0.1:5000/api/v1/audit/stats
+# -> {"total": 23, "by_source": {"command": 6, "discovery": 2, "jit": 1,
+#     "license": 1, "session": 4, "settings": 2, "vault": 7}, "last_seq": 23,
+#     "head_hash": "2f91...", "trigger_protection": true, ...}
+
+# walk every record and recompute every hash (what the console's
+# "Verify Hash Chain" button runs on click)
+curl -s http://127.0.0.1:5000/api/v1/audit/verify
+# -> {"intact": true, "checked": 23, "total": 23, "last_seq": 23,
+#     "head_hash": "2f91...", "broken_at": null, "reason": null}
+
+# the whole ledger as NDJSON in chain order, one record per line (SIEM ingest)
+curl -s http://127.0.0.1:5000/api/v1/audit/export
+# -> {"id":"license:1","seq":1,"event_ref":"license:1","source":"license",
+#     "action":"imported", ...,"prev_hash":"000..0","event_hash":"..64 hex.."}
+
 ## Design notes
 
 - **Revocation is server-side.** Phase 1 licenses are stateless; this server keeps
@@ -582,6 +609,16 @@ curl -s -X POST http://127.0.0.1:5000/api/v1/discovery/assets \
   "is this license still good?".
 - **Audit trail.** Every import/revoke/restore/usage report writes a
   `LicenseEvent` row, returned with `GET /licenses/<key>`.
+- **The ledger is immutable (§19).** A `before_flush` listener fans every
+  module trail — license, settings, vault, discovery, JIT, session lifecycle
+  and command control (incidents and their closure included) — into one
+  `audit_events` chain: `seq` + `prev_hash` link each record to a sha256 over
+  its canonical content, SQLite triggers refuse `UPDATE`/`DELETE` outright
+  (`audit_events is append-only (architecture 19)`), first boot backfills any
+  pre-existing history exactly once, and `/audit/verify` reports the first
+  break instead of trusting the row count. Channel content stays in the
+  session recording and secrets never enter the ledger: a reveal records
+  who/what/when, never the plaintext.
 - **Usage is reported, not simulated.** The screen renders
   `POST /licenses/<key>/usage` results only.
 - **Settings are stored, not re-derived.** One `SettingGroup` row per group is

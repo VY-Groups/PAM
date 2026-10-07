@@ -435,6 +435,8 @@ VAULT_ACTION_CHECKED_OUT = "checked_out"
 VAULT_ACTION_REVOKED = "revoked"
 VAULT_ACTION_ROTATED = "rotated"
 VAULT_ACTION_ROTATION_FAILED = "rotation_failed"
+# an admin reveal is exactly the kind of access an audit must show
+VAULT_ACTION_REVEALED = "revealed"
 
 
 class VaultItem(db.Model):
@@ -1144,4 +1146,54 @@ class CommandIncident(db.Model):
             "closed_at": self.closed_at.isoformat() if self.closed_at else None,
             "close_note": self.close_note,
             "created_at": self.created_at.isoformat(),
+        }
+
+
+# ---------------------------------------------------------------------------
+# immutable audit ledger (architecture 19)
+# ---------------------------------------------------------------------------
+# sha256 of the zero hash: the chain every record links back to.
+AUDIT_GENESIS_HASH = "0" * 64
+
+
+class AuditEvent(db.Model):
+    """One record of the append-only, hash-chained audit ledger (§19).
+
+    Every module event row (license, settings, vault, discovery, JIT,
+    session lifecycle and command control) is copied here at flush time:
+    `seq` is the chain position, `event_hash` = sha256(prev_hash + canonical
+    payload), and SQLite BEFORE UPDATE/DELETE triggers make the rows
+    immutable at the storage layer - there is no API path that writes or
+    removes them either.
+    """
+
+    __tablename__ = "audit_events"
+
+    id = db.Column(db.Integer, primary_key=True)
+    # chain position: 1..N with no gaps (verify reports any break)
+    seq = db.Column(db.Integer, nullable=False, unique=True, index=True)
+    # stable key of the source row, e.g. "vault:12" / "incident:3"
+    event_ref = db.Column(db.String(64), nullable=False, unique=True, index=True)
+    source = db.Column(db.String(16), nullable=False, index=True)
+    action = db.Column(db.String(32), nullable=False)
+    actor = db.Column(db.String(64), nullable=False, default="system")
+    subject = db.Column(db.String(160), nullable=False, default="")
+    detail = db.Column(db.JSON, nullable=False, default=dict)
+    created_at = db.Column(db.DateTime, nullable=False, index=True)
+    prev_hash = db.Column(db.String(64), nullable=False)
+    event_hash = db.Column(db.String(64), nullable=False)
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "id": self.event_ref,
+            "seq": self.seq,
+            "event_ref": self.event_ref,
+            "source": self.source,
+            "action": self.action,
+            "actor": self.actor,
+            "subject": self.subject,
+            "detail": self.detail,
+            "created_at": self.created_at.isoformat(),
+            "prev_hash": self.prev_hash,
+            "event_hash": self.event_hash,
         }

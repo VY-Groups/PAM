@@ -71,6 +71,7 @@ from models import (
     VAULT_ACTION_CHECKED_OUT,
     VAULT_ACTION_ONBOARDED,
     VAULT_ACTION_REVOKED,
+    VAULT_ACTION_REVEALED,
     VAULT_ACTION_ROTATED,
     VAULT_ACTION_ROTATION_FAILED,
     VAULT_STATUS_AVAILABLE,
@@ -95,6 +96,7 @@ from models import (
     VaultEvent,
     VaultItem,
     VaultSecretVersion,
+    AuditEvent,
     classify_account_kind,
     CommandIncident,
     CommandRule,
@@ -107,6 +109,8 @@ from secrets_store import (
     seal,
     unseal,
 )
+
+import audit
 
 _QUOTA_SCALARS = (
     "nodes",
@@ -1471,8 +1475,9 @@ def rotate_vault_item(
         raise APIError(500, f"Rotation failed for '{item.name}': {exc}") from exc
 
 
-def reveal_vault_secret(item_id: int) -> Dict[str, Any]:
-    """Decrypt the current secret version for an admin reveal (route-gated)."""
+def reveal_vault_secret(item_id: int, *, actor: str = "system") -> Dict[str, Any]:
+    """Decrypt the current secret version for an admin reveal (route-gated).
+    Every successful reveal is an audited event - without the secret."""
     item = get_vault_item(item_id)
     if not item.secret_version:
         raise NotFound("No stored secret for this credential (metadata-only record)")
@@ -1483,6 +1488,13 @@ def reveal_vault_secret(item_id: int) -> Dict[str, Any]:
         raise NotFound("No stored secret for this credential (metadata-only record)")
     config = _vault_config()
     plaintext = unseal(row.blob, item.id, config)
+    _log_vault_event(
+        item,
+        VAULT_ACTION_REVEALED,
+        actor,
+        {"version": row.version, "source": row.source},
+    )
+    db.session.commit()
     return {
         "item_id": item.id,
         "item_name": item.name,
@@ -3292,6 +3304,21 @@ def close_command_incident(
     incident.closed_by = actor
     incident.closed_at = datetime.now()
     incident.close_note = note
+    # the close writes no new incident row of its own, so it gets its own
+    # ledger record - same transaction, so the two commit together
+    audit.append_explicit(
+        event_ref=f"incident-closed:{incident.id}",
+        source="command",
+        action="closed",
+        actor=actor,
+        subject=incident.incident_ref,
+        detail={
+            "note": note,
+            "session_id": incident.session_id,
+            "rule_id": incident.rule_id,
+            "status": "closed",
+        },
+    )
     db.session.commit()
     return incident
 
@@ -3341,105 +3368,63 @@ def _escalate_blocked_command(
 # ---------------------------------------------------------------------------
 # dashboard (Command Center + Compliance screens)
 # ---------------------------------------------------------------------------
-_EVENT_SOURCES = ("license", "settings", "vault", "discovery")
+_AUDIT_SOURCES = audit.AUDIT_SOURCES  # the seven trails folded into section 19's ledger
 
 
 def unified_events(
     *, source: Optional[str] = None, limit: int = 20
 ) -> Dict[str, Any]:
-    """Recent activity across the license, settings, vault and discovery trails."""
-    if source and source not in _EVENT_SOURCES:
+    """Recent entries from the immutable audit ledger (architecture 19):
+    license, settings, vault, discovery, JIT, session lifecycle and command
+    control, newest first. Each row carries its chain seq and hash."""
+    if source and source not in _AUDIT_SOURCES:
         raise ValidationFailed(
             f"Unknown event source '{source}'",
-            {"field": "source", "allowed": list(_EVENT_SOURCES)},
+            {"field": "source", "allowed": list(_AUDIT_SOURCES)},
         )
 
-    merged: List[Tuple[datetime, Dict[str, Any]]] = []
-    total = 0
-
-    if source in (None, "license"):
-        query = LicenseEvent.query
-        total += query.count()
-        for event in query.order_by(
-            LicenseEvent.created_at.desc(), LicenseEvent.id.desc()
-        ).limit(limit):
-            merged.append((
-                event.created_at,
-                {
-                    "id": f"license:{event.id}",
-                    "source": "license",
-                    "action": event.action,
-                    "subject": event.license_key,
-                    "actor": "system",
-                    "detail": event.detail,
-                    "created_at": event.created_at.isoformat(),
-                },
-            ))
-
-    if source in (None, "settings"):
-        query = SettingsEvent.query
-        total += query.count()
-        for event in query.order_by(
-            SettingsEvent.created_at.desc(), SettingsEvent.id.desc()
-        ).limit(limit):
-            merged.append((
-                event.created_at,
-                {
-                    "id": f"settings:{event.id}",
-                    "source": "settings",
-                    "action": event.action,
-                    "subject": event.group_name,
-                    "actor": event.actor,
-                    "detail": event.changes,
-                    "created_at": event.created_at.isoformat(),
-                },
-            ))
-
-    if source in (None, "vault"):
-        query = VaultEvent.query
-        total += query.count()
-        for event in query.order_by(
-            VaultEvent.created_at.desc(), VaultEvent.id.desc()
-        ).limit(limit):
-            merged.append((
-                event.created_at,
-                {
-                    "id": f"vault:{event.id}",
-                    "source": "vault",
-                    "action": event.action,
-                    "subject": event.item_name,
-                    "actor": event.actor,
-                    "detail": event.detail,
-                    "created_at": event.created_at.isoformat(),
-                },
-            ))
-
-    if source in (None, "discovery"):
-        query = DiscoveryEvent.query
-        total += query.count()
-        for event in query.order_by(
-            DiscoveryEvent.created_at.desc(), DiscoveryEvent.id.desc()
-        ).limit(limit):
-            merged.append((
-                event.created_at,
-                {
-                    "id": f"discovery:{event.id}",
-                    "source": "discovery",
-                    "action": event.action,
-                    "subject": event.subject,
-                    "actor": event.actor,
-                    "detail": event.detail,
-                    "created_at": event.created_at.isoformat(),
-                },
-            ))
-
-    merged.sort(key=lambda pair: pair[0], reverse=True)
+    query = AuditEvent.query
+    if source:
+        query = query.filter_by(source=source)
+    total = query.count()
+    rows = query.order_by(
+        AuditEvent.created_at.desc(), AuditEvent.seq.desc()
+    ).limit(limit).all()
+    events = [
+        {
+            "id": row.event_ref,
+            "seq": row.seq,
+            "source": row.source,
+            "action": row.action,
+            "subject": row.subject,
+            "actor": row.actor,
+            "detail": row.detail,
+            "created_at": row.created_at.isoformat(),
+            "event_hash": row.event_hash,
+        }
+        for row in rows
+    ]
     return {
-        "events": [payload for _, payload in merged[:limit]],
+        "events": events,
         "total": total,
         "limit": limit,
         "source": source or "all",
     }
+
+
+def audit_stats() -> Dict[str, Any]:
+    """Ledger aggregates: totals by source, chain head, trigger protection."""
+    return audit.chain_stats()
+
+
+def audit_verify() -> Dict[str, Any]:
+    """Walk the whole hash chain and report the first break, if any."""
+    return audit.verify_chain()
+
+
+def audit_export_rows() -> List[Dict[str, Any]]:
+    """The full ledger in chain order (one dict per NDJSON export line)."""
+    return [row.to_dict() for row in AuditEvent.query.order_by(AuditEvent.seq)]
 
 
 def overview() -> Dict[str, Any]:
@@ -3494,9 +3479,10 @@ def overview() -> Dict[str, Any]:
     settings_events = SettingsEvent.query.count()
     vault_events_total = VaultEvent.query.count()
     discovery_events_total = DiscoveryEvent.query.count()
-    total_events = (
-        license_events + settings_events + vault_events_total + discovery_events_total
-    )
+    # the immutable ledger counts every trail (section 19), so that is the
+    # number the footers show for "audit events"; the per-source counters
+    # above stay the module tables' own rows
+    total_events = AuditEvent.query.count()
 
     auth_mode = "token" if _overview_auth_mode() else "open"
     algorithms = list(sig.SUPPORTED_ALGORITHMS)

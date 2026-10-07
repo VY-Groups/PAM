@@ -24,7 +24,7 @@ PAM/
 │   ├── screens/<name>/          #   one folder per screen: code.html + screen.png
 │   └── README.md                #   layout + how to add a screen (the contract)
 ├── apis/                            # HTTP contract for every backend service
-│   ├── openapi.yaml             #   OpenAPI 3.1: all 59 paths (synced by a test)
+│   ├── openapi.yaml             #   OpenAPI 3.1: all 62 paths (synced by a test)
 │   └── README.md                #   conventions + how to view
 ├── backend/
 │   ├── ipam_licensing/              # Phase 1: library + CLIs
@@ -45,6 +45,7 @@ PAM/
 │       ├── tests/test_jit.py             # JIT access grants (18 tests)
 │       ├── tests/test_sessions.py        # privileged sessions (23 tests)
 │       ├── tests/test_command_control.py # zero-trust command policy engine (18 tests)
+│       ├── tests/test_audit.py       # immutable §19 audit ledger (19 tests)
 │       ├── tests/test_openapi_contract.py # apis/openapi.yaml ↔ routes (5 tests)
 │       └── README.md                # full API reference
 ├── pam_master/                        # VY-PAM MASTER: vendor tool (never shipped)
@@ -85,7 +86,7 @@ python -m pam_master.keygen                      # RSA + Ed25519 + registry PII 
 python -m pam_master                             # http://127.0.0.1:5400
 
 # Tests (shared core + shipped API contract + vendor tool)
-python -m pytest backend -q                      # 305 tests
+python -m pytest backend -q                      # 324 tests
 python -m pytest pam_master -q                   # 46 tests (vendor tool)
 ```
 

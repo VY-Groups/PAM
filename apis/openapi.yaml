@@ -416,11 +416,11 @@ paths:
     get:
       tags: [ops]
       summary: Unified recent activity feed
-      description: Recent entries across the license, settings, vault and discovery audit trails, newest first.
+      description: Recent entries from the immutable audit ledger (architecture 19) across every trail - license, settings, vault, discovery, JIT, session lifecycle and command control - newest first. Each entry carries its chain position (seq) and content hash (event_hash).
       parameters:
         - name: source
           in: query
-          schema: {type: string, enum: [license, settings, vault, discovery]}
+          schema: {type: string, enum: [license, settings, vault, discovery, jit, session, command]}
         - name: limit
           in: query
           schema: {type: integer, minimum: 0, maximum: 200, default: 20}
@@ -431,6 +431,44 @@ paths:
             application/json:
               schema: {$ref: "#/components/schemas/EventFeed"}
         "400": {$ref: "#/components/responses/BadRequest"}
+
+  /api/v1/audit/stats:
+    get:
+      tags: [ops]
+      summary: Immutable audit ledger aggregates
+      description: Real totals by source, the chain position and head hash of the ledger, and whether the append-only triggers are installed.
+      responses:
+        "200":
+          description: Ledger statistics
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/AuditStats"}
+
+  /api/v1/audit/verify:
+    get:
+      tags: [ops]
+      summary: Verify the audit hash chain
+      description: Walks every ledger record in chain order, recomputing each hash and link; reports the first gap, re-link or content change (intact=false).
+      responses:
+        "200":
+          description: Chain verification result
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/AuditVerify"}
+
+  /api/v1/audit/export:
+    get:
+      tags: [ops]
+      summary: Export the ledger as NDJSON
+      description: The full ledger in chain order, one JSON record per line (application/x-ndjson) - the same records a SIEM would ingest.
+      responses:
+        "200":
+          description: Newline-delimited JSON audit records
+          content:
+            application/x-ndjson:
+              schema:
+                type: string
+                description: One JSON audit record per line (seq, event_ref, source, action, actor, subject, detail, created_at, prev_hash, event_hash).
 
   /api/v1/vault/stats:
     get:
@@ -2201,15 +2239,17 @@ components:
 
     UnifiedEvent:
       type: object
-      required: [id, source, action, subject, actor, created_at]
+      required: [id, source, action, subject, actor, created_at, seq, event_hash]
       properties:
         id: {type: string, description: 'Source-prefixed id, e.g. "vault:12".'}
-        source: {type: string, enum: [license, settings, vault]}
+        seq: {type: integer, description: Position in the immutable hash chain.}
+        source: {type: string, enum: [license, settings, vault, discovery, jit, session, command]}
         action: {type: string}
-        subject: {type: string, description: License key, settings group or vault item name}
+        subject: {type: string, description: License key, settings group, vault item, JIT request, session ref or incident ref}
         actor: {type: string}
         detail: {type: object, additionalProperties: true}
         created_at: {type: string}
+        event_hash: {type: string, description: sha256 over this record and the previous hash.}
 
     EventFeed:
       type: object
@@ -2220,7 +2260,35 @@ components:
           items: {$ref: "#/components/schemas/UnifiedEvent"}
         total: {type: integer}
         limit: {type: integer}
-        source: {type: string, enum: [license, settings, vault, all]}
+        source: {type: string, enum: [license, settings, vault, discovery, jit, session, command, all]}
+
+    AuditStats:
+      type: object
+      required: [total, by_source, last_seq, head_hash, oldest_at, newest_at, trigger_protection]
+      properties:
+        total: {type: integer, description: Records in the ledger.}
+        by_source:
+          type: object
+          description: Record count per source (all seven keys, zero-filled).
+          additionalProperties: {type: integer}
+        last_seq: {type: integer, description: Chain position of the newest record (0 when empty).}
+        head_hash: {type: string, description: event_hash of the newest record ("" when empty).}
+        oldest_at: {type: [string, "null"], description: Timestamp of the oldest record.}
+        newest_at: {type: [string, "null"]}
+        trigger_protection: {type: boolean, description: The append-only SQLite triggers are installed.}
+
+    AuditVerify:
+      type: object
+      required: [intact, checked, total, last_seq, head_hash, broken_at, reason]
+      properties:
+        intact: {type: boolean, description: Every record re-hashed and linked correctly.}
+        checked: {type: integer, description: Records verified before any break (all of them when intact).}
+        total: {type: integer, description: Records walked.}
+        last_seq: {type: integer}
+        head_hash: {type: string}
+        broken_at: {type: [integer, "null"], description: Chain position of the first break.}
+        reason: {type: [string, "null"], description: Why the chain broke.}
+
 
     VaultStats:
       type: object

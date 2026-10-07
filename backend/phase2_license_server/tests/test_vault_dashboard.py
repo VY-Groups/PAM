@@ -525,6 +525,9 @@ def test_events_source_filter_and_validation(client):
         "settings",
         "vault",
         "discovery",
+        "jit",
+        "session",
+        "command",
     ]
 
     limited = client.get("/api/v1/events", query_string={"limit": 1}).get_json()

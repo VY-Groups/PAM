@@ -24,6 +24,7 @@ from models import ensure_schema
 from routes import api
 from rotation_scheduler import start as start_rotation_scheduler
 from service import ensure_command_rules
+from audit import ensure_audit_chain
 
 logger = logging.getLogger(__name__)
 
@@ -148,6 +149,11 @@ def create_app(config: Optional[Config] = None) -> Flask:
         seeded = ensure_command_rules()
         if seeded:
             logger.info("Command control: seeded %d default policy rules", seeded)
+        # immutable audit ledger (section 19): append-only triggers plus a
+        # backfill that chains any pre-existing history before serving
+        backfilled = ensure_audit_chain()
+        if backfilled:
+            logger.info("Audit ledger: backfilled %d historical events", backfilled)
 
     # Optional real-clock rotation scheduler (ROTATION_SCHEDULER=1); off in
     # tests and dev unless explicitly enabled, never fabricated when quiet.
