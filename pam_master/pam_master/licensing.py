@@ -35,11 +35,35 @@ if str(IPAM_LICENSING_DIR) not in sys.path:
 
 from license_tool import LicenseGenerator  # noqa: E402
 import signature as sig  # noqa: E402
+# Entitlement catalog + commercial defaults come from the engine so the
+# issuance API can never drift from what signing/verification actually use.
+from license import (  # noqa: E402
+    DEFAULT_CLASSIFICATIONS,
+    DEFAULT_MODULE_IDS,
+    DEFAULT_PLANS,
+    DEFAULT_TIERS,
+    ENFORCEMENT_LEVELS,
+    MODULE_CATALOG,
+    MODULE_IDS,
+    LicenseType,
+)
 
 from pam_master.config import Config  # noqa: E402
 from pam_master.keys import require_keys  # noqa: E402
 
-__all__ = ["LicenseGenerator", "sig", "get_generator"]
+__all__ = [
+    "LicenseGenerator",
+    "LicenseType",
+    "MODULE_CATALOG",
+    "MODULE_IDS",
+    "DEFAULT_MODULE_IDS",
+    "DEFAULT_TIERS",
+    "DEFAULT_PLANS",
+    "DEFAULT_CLASSIFICATIONS",
+    "ENFORCEMENT_LEVELS",
+    "sig",
+    "get_generator",
+]
 
 _lock = threading.Lock()
 _generators: Dict[Tuple[str, str], LicenseGenerator] = {}

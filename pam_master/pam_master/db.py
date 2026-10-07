@@ -25,6 +25,34 @@ CREATE TABLE IF NOT EXISTS issuance_history (
 );
 CREATE INDEX IF NOT EXISTS idx_issuance_customer
     ON issuance_history (customer_public_id);
+CREATE TABLE IF NOT EXISTS licenses (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    license_id TEXT NOT NULL UNIQUE,
+    license_key TEXT NOT NULL,
+    customer_public_id TEXT NOT NULL
+        REFERENCES customers (public_id),
+    license_type TEXT NOT NULL,
+    tier TEXT NOT NULL,
+    plan TEXT,
+    algorithm TEXT NOT NULL,
+    status TEXT NOT NULL,
+    issued_date TEXT NOT NULL,
+    expires_on TEXT,
+    fingerprint TEXT NOT NULL,
+    superseded_by TEXT,
+    archive_ct TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_licenses_customer
+    ON licenses (customer_public_id);
+CREATE TABLE IF NOT EXISTS master_audit (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    action TEXT NOT NULL,
+    subject TEXT NOT NULL,
+    detail TEXT,
+    created_at TEXT NOT NULL
+);
 """
 
 

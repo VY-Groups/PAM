@@ -9,7 +9,7 @@
 
 ## What is implemented
 
-Phase 2b (skeleton + customer registry):
+Phase 2c (skeleton + customer registry + license issuance):
 
 | Piece | State |
 | --- | --- |
@@ -21,7 +21,7 @@ Phase 2b (skeleton + customer registry):
 | Test suite (temp keys/db only — never real custody keys) | ✅ `tests/` |
 | Dev-only Docker | ✅ `Dockerfile` + `docker-compose.yml` |
 | Customer registry: list/create/get/edit + issuance history, **PII AES-256-GCM at rest** | ✅ `registry.py` + `crypto.py` + `db.py` |
-| License issuance API + delivery bundle | ☐ (2c) |
+| License issuance: sign via shared engine, encrypted archive, renewal, audit, offline-verifiable delivery bundle | ✅ `issuance.py` + `errors.py` |
 | Own `openapi.yaml` + contract/anti-mixing tests | ☐ (2d) |
 
 ## Run (development)
@@ -65,6 +65,29 @@ Settings (all optional, defaults shown):
 * Honest failures: validation → `400`, unknown customer → `404`,
   missing/invalid registry key → `503 registry_unavailable`, corrupt row →
   `500 registry_data_corrupt`. Nothing is guessed.
+
+## License issuance API
+
+| Method | Path | Notes |
+| --- | --- | --- |
+| `GET` | `/api/v1/license-options` | tiers/modules/algorithms/defaults — asserted against the shared engine's catalog in tests |
+| `POST` | `/api/v1/customers/<id>/licenses` | issue — `license_type` required; `validity_days`, `modules`, `quotas`, `algorithm`, `environment` optional → `201` |
+| `GET` | `/api/v1/licenses` | list — `customer`, `status` (`active`/`superseded`), `limit`, `offset` |
+| `GET` | `/api/v1/licenses/<id>` | metadata (no decryption needed — the customer name lives only in the encrypted archive) |
+| `POST` | `/api/v1/licenses/<id>/renew` | new signed license for the same customer; previous row marked `superseded` in the same transaction |
+| `GET` | `/api/v1/licenses/<id>/bundle` | delivery zip: `<id>.lic` + `license_public_key.pem` + `README.txt` + `SHA256SUMS.txt` |
+| `GET` | `/api/v1/audit` | master-side audit trail: `license_issued`, `license_renewed`, `license_bundle_exported` |
+
+* Claims, tier/plan/module/quota defaults and signing come from
+  `backend/ipam_licensing` (one engine on both sides); the issuance tests
+  assert the API's advertised defaults against the engine's actual behavior.
+* The signed envelope carries the licensee's name — as any real license
+  file does — so the **archive is encrypted** with the registry key
+  (AAD = license id). A test reads the raw database file and proves the
+  name is not in plaintext.
+* The bundle verifies offline: `sha256sum -c SHA256SUMS.txt`, then verify
+  the `.lic` envelope with the included `license_public_key.pem`.
+* No auth layer yet (same as the registry): binds `127.0.0.1` by default.
 
 ## Key custody rules
 

@@ -29,6 +29,9 @@ def test_index_is_descriptive_only(client):
     assert payload["endpoints"] == {
         "health": "/health",
         "customers": "/api/v1/customers",
+        "licenses": "/api/v1/licenses",
+        "license-options": "/api/v1/license-options",
+        "audit": "/api/v1/audit",
     }
 
 

@@ -218,9 +218,15 @@ signs with it, PAM verifies with it).
   (customers + issuance_history), registry key custody (file/b64 env, honest
   503 without it), history write helper for 2c; README API table
   — **verify:** `python -m pytest pam_master -q` → 28 passed
-- ☐ **2c** License generation: tier/modules/quotas/validity form → sign via
+- ☑ **2c** License generation: tier/modules/quotas/validity form → sign via
   `backend/ipam_licensing` → archive + audit trail + delivery bundle export
-  (license file + public key + checksums); renewal/replace flow
+  (license file + public key + checksums); renewal/replace flow — **done:**
+  `issuance.py` (options/issue/renew/list/get/bundle/audit), claims +
+  signature via shared engine, encrypted archive (AAD = license_id),
+  atomic license+history+audit write, renewal supersedes in-transaction,
+  bundle verifies offline (SHA256SUMS + public key inside), shared
+  `errors.py` failure types (400/404/409/500/503)
+  — **verify:** `python -m pytest pam_master -q` → 40 passed
 - ☐ **2d** Own `openapi.yaml` + contract tests; anti-mixing tests (no PAM
   runtime imports; private key absent from shipped surface)
 - ☐ **2e** Docs + screenshots + commit/push — **verify:** pam_master test suite green
@@ -248,6 +254,7 @@ signs with it, PAM verifies with it).
 | 2026-10-06 | **Phase 1 complete ✅** (`9f83bd3` pushed: Discovery module + honest screen + chrome purge + shots_tool) | **Phase 2 / 2a** (`pam_master/` skeleton) |
 | 2026-10-07 | **Phase 2a ✅** (`pam_master/` skeleton: 13 tests, live smoke honest; regression 206 + 17/17) | **2b** (customer registry, PII encrypted at rest) |
 | 2026-10-07 | **Phase 2b ✅** (registry CRUD + PII AES-256-GCM at rest; 28 tests; live smoke: 201/list/PATCH/history + no plaintext in DB file) | **2c** (license generation + delivery bundle) |
+| 2026-10-07 | **Phase 2c ✅** (issuance: signed claims, encrypted archive, renewal supersedes, offline-verifiable bundle, audit; 40 tests; live smoke: exact 90d/365d spans, sha256 match, tables 0→4) | **2d** (own `openapi.yaml` + contract/anti-mixing tests) |
 
 ---
 

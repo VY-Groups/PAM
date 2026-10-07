@@ -385,4 +385,5 @@ def test_health_tables_reflect_real_schema(config, client):
     _create(client)
 
     after = client.get("/health").get_json()
-    assert after["database"]["tables"] == 2
+    # customers + issuance_history + licenses + master_audit
+    assert after["database"]["tables"] == 4

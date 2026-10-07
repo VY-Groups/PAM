@@ -23,39 +23,18 @@ from typing import Any, Dict, List, Optional, Tuple
 
 from pam_master import crypto, db
 from pam_master.config import Config
+from pam_master.errors import (
+    CustomerNotFound,
+    DataIntegrityError,
+    RegistryApiError,
+    RegistryUnavailable,
+    ValidationError,
+)
 from pam_master.keys import KeyCustodyError, load_registry_key
 
 # ------------------------------------------------------------ exceptions --
-class RegistryApiError(Exception):
-    """Base for registry failures the HTTP layer maps to a status code."""
-
-    status = 500
-    error_type = "internal_error"
-
-    def __init__(self, message: str) -> None:
-        super().__init__(message)
-        self.message = message
-
-
-class ValidationError(RegistryApiError):
-    status = 400
-    error_type = "validation_error"
-
-
-class CustomerNotFound(RegistryApiError):
-    status = 404
-    error_type = "customer_not_found"
-
-
-class RegistryUnavailable(RegistryApiError):
-    status = 503
-    error_type = "registry_unavailable"
-
-
-class DataIntegrityError(RegistryApiError):
-    status = 500
-    error_type = "registry_data_corrupt"
-
+# Defined in pam_master.errors and re-exported here so registry callers
+# (and this module's own code) keep a single import home.
 
 # ------------------------------------------------------------- constants --
 FIELDS = (
@@ -83,6 +62,11 @@ ISSUANCE_ACTIONS = (
     "upgraded",
     "revoked",
     "restored",
+)
+_ISSUANCE_INSERT = (
+    "INSERT INTO issuance_history "
+    "(customer_public_id, license_id, action, detail, created_at) "
+    "VALUES (?, ?, ?, ?, ?)"
 )
 DEFAULT_LIMIT = 50
 MAX_LIMIT = 200
@@ -146,7 +130,7 @@ def _validate_public_id(public_id: str) -> str:
     return public_id
 
 
-def _page(limit: Any, offset: Any) -> Tuple[int, int]:
+def page_args(limit: Any, offset: Any) -> Tuple[int, int]:
     try:
         limit_int = int(limit)
         offset_int = int(offset)
@@ -160,7 +144,11 @@ def _page(limit: Any, offset: Any) -> Tuple[int, int]:
 
 
 # -------------------------------------------------------------- helpers --
-def _key(config: Config) -> bytes:
+def require_registry_key(config: Config) -> bytes:
+    """Load the registry PII key mapped to an honest 503 when unavailable.
+
+    Shared with issuance (archive encryption + bundle export): every
+    encryption-at-rest path goes through this single custody gate."""
     try:
         return load_registry_key(config)
     except KeyCustodyError as exc:
@@ -210,10 +198,21 @@ def _fetch_row(
     return row
 
 
+def customer_exists(config: Config, public_id: str) -> bool:
+    """Existence check that decrypts nothing (no registry key required)."""
+    _validate_public_id(public_id)
+    with closing(db.connect(config)) as connection:
+        db.init_schema(connection)
+        row = connection.execute(
+            "SELECT 1 FROM customers WHERE public_id = ?", (public_id,)
+        ).fetchone()
+    return row is not None
+
+
 # ------------------------------------------------------------ public API --
 def create_customer(config: Config, body: Any) -> Dict[str, Any]:
     payload = _validate_body(body, require_required=True)
-    key = _key(config)
+    key = require_registry_key(config)
     public_id = uuid.uuid4().hex
     now = _now()
     blob = _encrypt(key, public_id, payload)
@@ -235,8 +234,8 @@ def create_customer(config: Config, body: Any) -> Dict[str, Any]:
 def list_customers(
     config: Config, limit: Any = DEFAULT_LIMIT, offset: Any = 0
 ) -> Dict[str, Any]:
-    limit_int, offset_int = _page(limit, offset)
-    key = _key(config)
+    limit_int, offset_int = page_args(limit, offset)
+    key = require_registry_key(config)
     with closing(db.connect(config)) as connection:
         db.init_schema(connection)
         total = connection.execute(
@@ -257,7 +256,7 @@ def list_customers(
 
 def get_customer(config: Config, public_id: str) -> Dict[str, Any]:
     _validate_public_id(public_id)
-    key = _key(config)
+    key = require_registry_key(config)
     with closing(db.connect(config)) as connection:
         db.init_schema(connection)
         row = _fetch_row(connection, public_id)
@@ -273,7 +272,7 @@ def update_customer(
         raise ValidationError(
             "at least one of: " + ", ".join(FIELDS)
         )
-    key = _key(config)
+    key = require_registry_key(config)
     with closing(db.connect(config)) as connection:
         db.init_schema(connection)
         row = _fetch_row(connection, public_id)
@@ -299,9 +298,15 @@ def record_issuance(
     license_id: str,
     action: str,
     detail: Optional[Dict[str, Any]] = None,
+    *,
+    connection: Optional[sqlite3.Connection] = None,
 ) -> Dict[str, Any]:
     """Append an issuance-history entry (internal: called by the issuance
-    flow, no public write endpoint). Entitlement facts only — no PII."""
+    flow, no public write endpoint). Entitlement facts only — no PII.
+
+    Pass ``connection`` to join the caller's transaction (no commit here);
+    issuance uses that to make license + history + audit one atomic write.
+    """
     _validate_public_id(customer_public_id)
     if action not in ISSUANCE_ACTIONS:
         raise ValidationError(
@@ -315,13 +320,18 @@ def record_issuance(
             raise ValidationError("detail must be a JSON object")
         detail_json = json.dumps(detail, sort_keys=True, separators=(",", ":"))
     now = _now()
-    with closing(db.connect(config)) as connection:
+    entry = {
+        "customer_public_id": customer_public_id,
+        "license_id": str(license_id).strip(),
+        "action": action,
+        "detail": detail,
+        "created_at": now,
+    }
+    if connection is not None:
         db.init_schema(connection)
         _fetch_row(connection, customer_public_id)
         connection.execute(
-            "INSERT INTO issuance_history "
-            "(customer_public_id, license_id, action, detail, created_at) "
-            "VALUES (?, ?, ?, ?, ?)",
+            _ISSUANCE_INSERT,
             (
                 customer_public_id,
                 str(license_id).strip(),
@@ -330,14 +340,22 @@ def record_issuance(
                 now,
             ),
         )
-        connection.commit()
-    return {
-        "customer_public_id": customer_public_id,
-        "license_id": str(license_id).strip(),
-        "action": action,
-        "detail": detail,
-        "created_at": now,
-    }
+        return entry
+    with closing(db.connect(config)) as own_connection:
+        db.init_schema(own_connection)
+        _fetch_row(own_connection, customer_public_id)
+        own_connection.execute(
+            _ISSUANCE_INSERT,
+            (
+                customer_public_id,
+                str(license_id).strip(),
+                action,
+                detail_json,
+                now,
+            ),
+        )
+        own_connection.commit()
+    return entry
 
 
 def issuance_history(

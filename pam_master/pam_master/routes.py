@@ -1,8 +1,9 @@
-"""Vendor-tool endpoints: honest index/health + the customer registry API.
+"""Vendor-tool endpoints: honest index/health + registry + issuance APIs.
 
-The registry surface is deliberately small (list/create/get/edit + issuance
-history view) and fails honestly: validation problems -> 400, unknown
-customer -> 404, missing registry key -> 503 with the real reason.
+Failure discipline stays uniform (see ``errors.py``): validation -> 400,
+unknown record -> 404, wrong-state conflict -> 409, missing registry key or
+signing custody -> 503 with the real reason, corrupt ciphertext -> 500.
+Nothing is guessed and nothing is silently created.
 """
 from __future__ import annotations
 
@@ -11,7 +12,7 @@ from contextlib import closing
 
 from flask import Blueprint, current_app, jsonify, request
 
-from pam_master import db, registry
+from pam_master import db, errors, issuance, registry
 from pam_master.config import Config
 from pam_master.keys import key_presence, registry_key_status
 
@@ -24,8 +25,8 @@ def _config() -> Config:
     return current_app.config["MASTER_CONFIG"]
 
 
-@master_bp.errorhandler(registry.RegistryApiError)
-def _handle_registry_error(error: registry.RegistryApiError):
+@master_bp.errorhandler(errors.RegistryApiError)
+def _handle_api_error(error: errors.RegistryApiError):
     return (
         jsonify(
             {"error": {"type": error.error_type, "message": error.message}}
@@ -62,6 +63,9 @@ def index():
             "endpoints": {
                 "health": "/health",
                 "customers": "/api/v1/customers",
+                "licenses": "/api/v1/licenses",
+                "license-options": "/api/v1/license-options",
+                "audit": "/api/v1/audit",
             },
         }
     )
@@ -135,3 +139,69 @@ def customers_edit(public_id: str):
 @master_bp.get("/api/v1/customers/<public_id>/issuance-history")
 def customers_history(public_id: str):
     return jsonify(registry.issuance_history(_config(), public_id))
+
+
+# ------------------------------------------------------- license issuance --
+@master_bp.get("/api/v1/license-options")
+def license_options():
+    return jsonify(issuance.license_options())
+
+
+@master_bp.get("/api/v1/licenses")
+def licenses_list():
+    page = issuance.list_licenses(
+        _config(),
+        customer=request.args.get("customer"),
+        status=request.args.get("status"),
+        limit=request.args.get("limit", registry.DEFAULT_LIMIT),
+        offset=request.args.get("offset", 0),
+    )
+    return jsonify(page)
+
+
+@master_bp.post("/api/v1/customers/<public_id>/licenses")
+def licenses_issue(public_id: str):
+    record = issuance.issue_license(
+        _config(), public_id, request.get_json(silent=True)
+    )
+    response = jsonify(record)
+    response.status_code = 201
+    response.headers["Location"] = f"/api/v1/licenses/{record['license_id']}"
+    return response
+
+
+@master_bp.get("/api/v1/licenses/<license_id>")
+def licenses_get(license_id: str):
+    return jsonify(issuance.get_license(_config(), license_id))
+
+
+@master_bp.post("/api/v1/licenses/<license_id>/renew")
+def licenses_renew(license_id: str):
+    record = issuance.renew_license(
+        _config(), license_id, request.get_json(silent=True)
+    )
+    response = jsonify(record)
+    response.status_code = 201
+    response.headers["Location"] = f"/api/v1/licenses/{record['license_id']}"
+    return response
+
+
+@master_bp.get("/api/v1/licenses/<license_id>/bundle")
+def licenses_bundle(license_id: str):
+    data, filename = issuance.export_bundle(_config(), license_id)
+    response = current_app.response_class(data, mimetype="application/zip")
+    response.headers["Content-Disposition"] = (
+        f'attachment; filename="{filename}"'
+    )
+    return response
+
+
+# ------------------------------------------------------------- audit trail --
+@master_bp.get("/api/v1/audit")
+def audit_list():
+    events = issuance.list_audit(
+        _config(),
+        request.args.get("limit", registry.DEFAULT_LIMIT),
+        request.args.get("offset", 0),
+    )
+    return jsonify(events)
