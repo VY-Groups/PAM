@@ -5,7 +5,7 @@ Enterprise privileged identity security platform (full requirements:
 
 - **VY-PAM** — the shipped product: web console + HTTP APIs + PAM runtime,
   laid out as `frontend/` + `apis/` + `backend/` (cryptographic licensing
-  core, its issuing/revocation API, the console).
+  core, its license import/validation/revocation API, the console).
 - **VY-PAM MASTER** (`pam_master/`) — VY-Groups' internal license-authority
   vendor tool, **never shipped**: customer registry (PII encrypted at rest),
   signed issuance + renewal, delivery bundles, audit trail, its own API
@@ -79,7 +79,7 @@ python -m pam_master.keygen                      # RSA + Ed25519 + registry PII 
 python -m pam_master                             # http://127.0.0.1:5400
 
 # Tests (shared core + shipped API contract + vendor tool)
-python -m pytest backend -q                      # 206 tests
+python -m pytest backend -q                      # 216 tests
 python -m pytest pam_master -q                   # 46 tests (vendor tool)
 ```
 
@@ -96,9 +96,12 @@ python -m pytest pam_master -q                   # 46 tests (vendor tool)
 - One signature is kept per license; the authority may re-serve the same claims
   as an envelope or as a token, so the verifier accepts either signing input.
 - Phase 1 verifies a license **offline**: signature → structure → expiry.
-- Phase 2 adds the things that cannot be known offline - **revocation**, an
-  issuing **audit trail**, and a central place to look up who holds what. A
-  license issued by the server validates with the Phase 1 CLI and vice versa.
+- Phase 2 adds the things that cannot be known offline - **revocation** (the
+  server-side revocation list that offline validation consults), an import
+  **audit trail**, and this deployment's installed-license registry. The
+  shipped server never signs: vendor-signed files install through
+  `POST /api/v1/licenses/import` and validate with the Phase 1 CLI and vice
+  versa.
 - The HTTP surface is contracted in `apis/openapi.yaml` (OpenAPI 3.1);
   `test_openapi_contract.py` cross-checks it against the live routes in both
   directions, so docs cannot drift from the server.

@@ -71,46 +71,25 @@ def require_admin(view):
 
 
 # ---------------------------------------------------------------------------
-# issuing
+# installing vendor-signed licenses
 # ---------------------------------------------------------------------------
-@api.post("/licenses")
+@api.post("/licenses/import")
 @require_admin
-def create_license():
+def import_license():
+    """Install the vendor-signed .lic from the delivery bundle.
+
+    The shipped server verifies the signature and records the claims — it
+    never signs (issuing belongs to PAM-MASTER).
+    """
     body = _json_body()
-
-    license_type = body.get("license_type")
-    if not isinstance(license_type, str) or not license_type:
-        raise ValidationFailed("'license_type' is required", {"field": "license_type"})
-
-    record, license_file = service.issue_license(
-        _config(),
-        license_type=license_type,
-        issued_to=body.get("issued_to", ""),
-        trial_days=body.get("trial_days"),
-        features=body.get("features"),
-        usage_limits=body.get("usage_limits"),
-        metadata=body.get("metadata"),
-        tier=body.get("tier"),
-        plan=body.get("plan"),
-        license_id=body.get("license_id"),
-        subject_entity=body.get("subject_entity"),
-        classification=body.get("classification"),
-        issuer=body.get("issuer"),
-        enclave_binding=body.get("enclave_binding"),
-        quotas=body.get("quotas"),
-        modules=body.get("modules"),
-        account=body.get("account"),
-        environment=body.get("environment"),
-        signature_algorithm=body.get("algorithm", sig.DEFAULT_ALGORITHM),
-        file_format=body.get("format", sig.FORMAT_JSON),
-    )
+    record, license_file = service.import_license(_config(), body)
     return (
         jsonify(
             {
                 "license": record.to_dict(),
                 "license_file": license_file,
                 "token": license_file.get("token"),
-                "message": "License issued",
+                "message": "License imported",
             }
         ),
         201,

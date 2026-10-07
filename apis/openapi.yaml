@@ -25,7 +25,7 @@ tags:
   - name: ops
     description: Liveness and capability probes
   - name: licenses
-    description: Issue, read, lifecycle and runtime usage of licenses
+    description: Import, read, lifecycle and runtime usage of licenses
   - name: validation
     description: Offline-parity validation and entitlement checks
   - name: settings
@@ -94,9 +94,15 @@ paths:
             application/json:
               schema: {$ref: "#/components/schemas/LicenseList"}
         "400": {$ref: "#/components/responses/BadRequest"}
+  /api/v1/licenses/import:
     post:
       tags: [licenses]
-      summary: Issue a license
+      summary: Import a vendor-signed license
+      description: >
+        Installs the signed .lic from the delivery bundle. The server verifies
+        the signature against its trusted public key and stores the claims
+        exactly as signed — it never signs (issuing belongs to PAM-MASTER).
+        Expired, structurally invalid or already-installed files are refused.
       security:
         - bearerAuth: []
         - adminTokenHeader: []
@@ -105,15 +111,16 @@ paths:
         required: true
         content:
           application/json:
-            schema: {$ref: "#/components/schemas/IssueLicenseRequest"}
+            schema: {$ref: "#/components/schemas/LicenseEnvelope"}
       responses:
         "201":
-          description: License signed and stored
+          description: License verified and stored
           content:
             application/json:
-              schema: {$ref: "#/components/schemas/IssueLicenseResponse"}
+              schema: {$ref: "#/components/schemas/ImportLicenseResponse"}
         "400": {$ref: "#/components/responses/BadRequest"}
         "401": {$ref: "#/components/responses/Unauthorized"}
+        "409": {$ref: "#/components/responses/Conflict"}
 
   /api/v1/licenses/{license_key}:
     get:
@@ -146,7 +153,7 @@ paths:
         - {$ref: "#/components/parameters/LicenseKey"}
         - name: format
           in: query
-          description: Defaults to the format the license was issued with.
+          description: Defaults to the format the license was signed with.
           schema: {type: string, enum: [json, jwt]}
       responses:
         "200":
@@ -849,6 +856,11 @@ components:
       content:
         application/json:
           schema: {$ref: "#/components/schemas/Error"}
+    Conflict:
+      description: The license is already installed on this deployment.
+      content:
+        application/json:
+          schema: {$ref: "#/components/schemas/Error"}
   schemas:
     Error:
       type: object
@@ -870,7 +882,7 @@ components:
         private_key: {type: string, description: Configured RSA key path}
         algorithms:
           type: array
-          items: {type: string, enum: [rsa-pss-sha256, ed25519]}
+          items: {type: string, enum: [RSA-PSS-SHA256, Ed25519]}
         formats:
           type: array
           items: {type: string, enum: [json, jwt]}
@@ -913,7 +925,7 @@ components:
       properties:
         license_data: {type: object, additionalProperties: true}
         signature: {type: string}
-        algorithm: {type: string, enum: [rsa-pss-sha256, ed25519]}
+        algorithm: {type: string, enum: [RSA-PSS-SHA256, Ed25519]}
         version: {type: integer}
         format: {type: string}
       additionalProperties: true
@@ -958,7 +970,7 @@ components:
         account: {type: object, additionalProperties: true}
         status: {type: string, enum: [active, revoked]}
         effective_status: {type: string, enum: [active, revoked, expired]}
-        algorithm: {type: string, enum: [rsa-pss-sha256, ed25519]}
+        algorithm: {type: string, enum: [RSA-PSS-SHA256, Ed25519]}
         signature_format: {type: string, enum: [json, jwt]}
         fingerprint: {type: string}
         days_until_expiry: {type: integer, nullable: true}
@@ -993,41 +1005,13 @@ components:
         limit: {type: integer}
         offset: {type: integer}
 
-    IssueLicenseRequest:
-      type: object
-      required: [license_type]
-      properties:
-        license_type: {type: string, description: 'e.g. "subscription", "trial", "enterprise"'}
-        issued_to: {type: string}
-        trial_days: {type: integer, minimum: 1}
-        features: {type: array, items: {type: string}}
-        usage_limits: {type: object, additionalProperties: true}
-        metadata: {type: object, additionalProperties: true}
-        tier: {type: string}
-        plan: {type: string}
-        license_id: {type: string}
-        subject_entity: {type: string}
-        classification: {type: string}
-        issuer: {type: string}
-        enclave_binding: {type: object, additionalProperties: true}
-        quotas: {type: object, additionalProperties: true}
-        modules:
-          type: array
-          description: 'Entries are objects, e.g. `[{"id": "hsm_integration"}]`.'
-          items: {type: object, additionalProperties: true}
-        account: {type: object, additionalProperties: true}
-        environment: {type: string}
-        algorithm: {type: string, enum: [rsa-pss-sha256, ed25519], default: rsa-pss-sha256}
-        format: {type: string, enum: [json, jwt], default: json}
-      additionalProperties: false
-
-    IssueLicenseResponse:
+    ImportLicenseResponse:
       type: object
       required: [license, license_file, message]
       properties:
         license: {$ref: "#/components/schemas/LicenseRecord"}
         license_file: {$ref: "#/components/schemas/LicenseEnvelope"}
-        token: {type: string, description: Compact token when issued as jwt}
+        token: {type: string, description: Compact token when the imported file was a jwt}
         message: {type: string}
 
     LicenseMutationResponse:

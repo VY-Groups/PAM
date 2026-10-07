@@ -18,10 +18,12 @@ if str(SERVER_DIR) not in sys.path:
 from app import create_app  # noqa: E402
 from config import Config  # noqa: E402
 from licensing_bridge import (  # noqa: E402
+    MODULE_CATALOG,
     License,
     LicenseType,
     get_generator,
     get_validator,
+    sig,
 )
 
 ADMIN = {"Authorization": "Bearer test-admin-token"}
@@ -51,10 +53,98 @@ def client(config: Config):
     return app.test_client()
 
 
-def issue(client, **overrides):
-    payload = {"license_type": "subscription", "issued_to": "Acme Ltd"}
-    payload.update(overrides)
-    return client.post("/api/v1/licenses", json=payload, headers=ADMIN)
+def sample_claims(**overrides):
+    """Base claims for a vendor-signed subscription license.
+
+    Tests play the vendor: they sign their own files because the shipped
+    server only ever verifies (Phase 3a — issuing lives in PAM-MASTER).
+    """
+    claims = {
+        "license_key": str(uuid.uuid4()).upper(),
+        "license_type": "subscription",
+        "issued_to": "Acme Ltd",
+        "issued_date": datetime.now().isoformat(),
+        "expires_on": (datetime.now() + timedelta(days=365)).isoformat(),
+    }
+    claims.update(overrides)
+    return claims
+
+
+def vendor_sign(client, claims, **envelope_overrides):
+    """Sign claims with the trusted vendor key (test stand-in for PAM-MASTER)."""
+    config = client.application.config["LICENSE_CONFIG"]
+    envelope = {
+        "license_data": claims,
+        "signature": get_generator(config).sign_license(claims),
+        "algorithm": sig.DEFAULT_ALGORITHM,
+        "format": sig.FORMAT_JSON,
+    }
+    envelope.update(envelope_overrides)
+    return envelope
+
+
+def import_signed(client, claims, **envelope_overrides):
+    """POST pre-signed claims to the import endpoint with the admin token."""
+    return client.post(
+        "/api/v1/licenses/import",
+        json=vendor_sign(client, claims, **envelope_overrides),
+        headers=ADMIN,
+    )
+
+
+def install(client, **overrides):
+    """Vendor-side install: sign with the shared engine, then import.
+
+    The helper plays PAM-MASTER — it applies the catalog/quota normalisation
+    the old issuing form did (module names from the catalog, a `nodes` ceiling
+    derived from pools), signs, and installs through the import endpoint.
+    """
+    config = client.application.config["LICENSE_CONFIG"]
+    fields = {"license_type": "subscription", "issued_to": "Acme Ltd"}
+    fields.update(overrides)
+    if isinstance(fields.get("license_type"), str):
+        fields["license_type"] = LicenseType(fields["license_type"])
+    algorithm = fields.pop("algorithm", sig.DEFAULT_ALGORITHM)
+    file_format = fields.pop("format", sig.FORMAT_JSON)
+    fields.setdefault("trial_days", config.default_trial_days)
+
+    modules = fields.get("modules")
+    if isinstance(modules, list):
+        by_id = {entry["id"]: entry for entry in MODULE_CATALOG}
+        normalized = []
+        for entry in modules:
+            catalog = by_id.get(entry.get("id")) if isinstance(entry, dict) else None
+            if catalog is None:
+                normalized.append(entry)
+                continue
+            normalized.append(
+                {
+                    "id": entry["id"],
+                    "name": entry.get("name") or catalog["name"],
+                    "status": entry.get("status", "entitled"),
+                    "detail": entry.get("detail") or catalog["detail"],
+                }
+            )
+        fields["modules"] = normalized
+
+    quotas = fields.get("quotas")
+    if isinstance(quotas, dict) and "nodes" not in quotas:
+        pools = quotas.get("pools")
+        if isinstance(pools, list):
+            total = sum(
+                pool["quota_nodes"]
+                for pool in pools
+                if isinstance(pool, dict)
+                and isinstance(pool.get("quota_nodes"), int)
+                and not isinstance(pool.get("quota_nodes"), bool)
+            )
+            if total:
+                fields["quotas"] = dict(quotas, nodes=total)
+
+    generator = get_generator(config)
+    license_obj = generator.generate_license(**fields)
+    envelope = generator.build_license_file(license_obj, algorithm, file_format)
+    return client.post("/api/v1/licenses/import", json=envelope, headers=ADMIN)
 
 
 # ---------------------------------------------------------------------------
@@ -85,20 +175,20 @@ def test_license_screen_served_at_root_and_license(client):
 
 
 def test_admin_endpoints_require_token(client):
-    payload = {"license_type": "trial", "issued_to": "Acme"}
+    envelope = vendor_sign(client, sample_claims())
 
-    assert client.post("/api/v1/licenses", json=payload).status_code == 401
+    assert client.post("/api/v1/licenses/import", json=envelope).status_code == 401
     bad = client.post(
-        "/api/v1/licenses",
-        json=payload,
+        "/api/v1/licenses/import",
+        json=envelope,
         headers={"Authorization": "Bearer wrong-token"},
     )
     assert bad.status_code == 401
     assert "error" in bad.get_json()
 
     ok = client.post(
-        "/api/v1/licenses",
-        json={"license_type": "trial", "issued_to": "Acme"},
+        "/api/v1/licenses/import",
+        json=envelope,
         headers={"X-Admin-Token": "test-admin-token"},
     )
     assert ok.status_code == 201
@@ -121,10 +211,10 @@ def test_validation_endpoint_is_public(client, config):
 
 
 # ---------------------------------------------------------------------------
-# issuing
+# installing vendor-signed licenses
 # ---------------------------------------------------------------------------
-def test_issue_license_round_trip(client):
-    response = issue(client, features=["ip_discovery"], usage_limits={"max_users": 10})
+def test_import_license_round_trip(client):
+    response = install(client, features=["ip_discovery"], usage_limits={"max_users": 10})
     assert response.status_code == 201
     body = response.get_json()
 
@@ -140,7 +230,7 @@ def test_issue_license_round_trip(client):
     assert license_file["algorithm"] == "RSA-PSS-SHA256"
     assert len(license_file["signature"]) > 100
 
-    # the issued file validates immediately
+    # the imported file validates immediately
     validated = client.post("/api/v1/licenses/validate", json=license_file).get_json()
     assert validated["valid"] is True
     assert validated["status"] == "valid"
@@ -149,41 +239,23 @@ def test_issue_license_round_trip(client):
     assert validated["license"]["issued_to"] == "Acme Ltd"
 
 
-def test_issue_applies_defaults_per_type(client):
-    trial = issue(client, license_type="trial", issued_to="Trial Co").get_json()["license"]
+def test_install_applies_defaults_per_type(client):
+    trial = install(client, license_type="trial", issued_to="Trial Co").get_json()["license"]
     assert trial["days_until_expiry"] == 30
     assert trial["usage_limits"] == {"max_users": 5, "max_subnets": 100, "max_devices": 1000}
 
-    perpetual = issue(client, license_type="perpetual", issued_to="Perp Co").get_json()["license"]
+    perpetual = install(client, license_type="perpetual", issued_to="Perp Co").get_json()["license"]
     assert perpetual["expires_on"] is None
     assert perpetual["days_until_expiry"] is None
     assert perpetual["effective_status"] == "valid"
-
-
-@pytest.mark.parametrize(
-    "overrides",
-    [
-        {"license_type": None},
-        {"license_type": "lifetime"},
-        {"issued_to": ""},
-        {"trial_days": 0},
-        {"features": "ip_discovery"},
-        {"usage_limits": {"max_users": "ten"}},
-        {"metadata": []},
-    ],
-)
-def test_issue_rejects_bad_input(client, overrides):
-    response = issue(client, **overrides)
-    assert response.status_code == 400, response.get_json()
-    assert "error" in response.get_json()
 
 
 # ---------------------------------------------------------------------------
 # listing / reading
 # ---------------------------------------------------------------------------
 def test_list_filter_and_paginate(client):
-    issue(client, license_type="trial", issued_to="Trial Co")
-    issue(client, license_type="subscription", issued_to="Sub Co")
+    install(client, license_type="trial", issued_to="Trial Co")
+    install(client, license_type="subscription", issued_to="Sub Co")
 
     everything = client.get("/api/v1/licenses").get_json()
     assert everything["total"] == 2
@@ -205,19 +277,19 @@ def test_list_filter_and_paginate(client):
 
 
 def test_get_license_detail_includes_events(client):
-    created = issue(client).get_json()["license"]
+    created = install(client).get_json()["license"]
     response = client.get(f"/api/v1/licenses/{created['license_key']}")
     assert response.status_code == 200
     detail = response.get_json()["license"]
     assert detail["license_key"] == created["license_key"]
-    assert [event["action"] for event in detail["events"]] == ["issued"]
+    assert [event["action"] for event in detail["events"]] == ["imported"]
 
     missing = client.get("/api/v1/licenses/NOT-A-REAL-KEY")
     assert missing.status_code == 404
 
 
 def test_download_license_file_round_trip(client, config):
-    created = issue(client).get_json()["license"]
+    created = install(client).get_json()["license"]
     key = created["license_key"]
 
     response = client.get(f"/api/v1/licenses/{key}/file", headers=ADMIN)
@@ -239,7 +311,7 @@ def test_download_license_file_round_trip(client, config):
 # revoke / restore
 # ---------------------------------------------------------------------------
 def test_revoke_then_restore(client):
-    created = issue(client).get_json()["license"]
+    created = install(client).get_json()["license"]
     key = created["license_key"]
 
     revoked = client.post(
@@ -269,11 +341,11 @@ def test_revoke_then_restore(client):
     assert client.get("/api/v1/licenses?status=revoked").get_json()["total"] == 0
 
     detail = client.get(f"/api/v1/licenses/{key}").get_json()["license"]
-    assert [event["action"] for event in detail["events"]] == ["issued", "revoked", "restored"]
+    assert [event["action"] for event in detail["events"]] == ["imported", "revoked", "restored"]
 
 
 def test_revoke_requires_token(client):
-    created = issue(client).get_json()["license"]
+    created = install(client).get_json()["license"]
     response = client.post(f"/api/v1/licenses/{created['license_key']}/revoke", json={})
     assert response.status_code == 401
 
@@ -282,7 +354,7 @@ def test_revoke_requires_token(client):
 # validation
 # ---------------------------------------------------------------------------
 def test_validate_tampered_payload_fails(client):
-    license_file = issue(client).get_json()["license_file"]
+    license_file = install(client).get_json()["license_file"]
     license_file["license_data"]["issued_to"] = "Someone Else"
 
     result = client.post("/api/v1/licenses/validate", json=license_file).get_json()
@@ -351,7 +423,7 @@ def test_validate_rejects_non_json_body(client):
 # feature / usage checks
 # ---------------------------------------------------------------------------
 def test_feature_and_usage_checks(client):
-    created = issue(
+    created = install(
         client,
         license_type="subscription",
         issued_to="Acme Ltd",
@@ -392,7 +464,7 @@ def test_feature_and_usage_checks(client):
 
 
 def test_checks_fail_for_revoked_license(client):
-    created = issue(client).get_json()["license"]
+    created = install(client).get_json()["license"]
     key = created["license_key"]
     client.post(f"/api/v1/licenses/{key}/revoke", json={"reason": "fraud"}, headers=ADMIN)
 
@@ -432,8 +504,8 @@ def test_health_reports_algorithms_and_key_state(client):
         ("Ed25519", "jwt"),
     ],
 )
-def test_issue_with_algorithm_and_format_round_trips(client, algorithm, file_format):
-    created = issue(client, algorithm=algorithm, format=file_format).get_json()
+def test_import_with_algorithm_and_format_round_trips(client, algorithm, file_format):
+    created = install(client, algorithm=algorithm, format=file_format).get_json()
     license_file = created["license_file"]
     record = created["license"]
 
@@ -468,17 +540,17 @@ def test_issue_with_algorithm_and_format_round_trips(client, algorithm, file_for
         assert json.loads(raw)["license_data"]["license_key"] == record["license_key"]
 
 
-def test_issue_rejects_unknown_algorithm_or_format(client):
-    bad_algorithm = issue(client, algorithm="DSA-1024")
+def test_import_rejects_unknown_algorithm_or_format(client):
+    bad_algorithm = import_signed(client, sample_claims(), algorithm="DSA-1024")
     assert bad_algorithm.status_code == 400
     assert bad_algorithm.get_json()["details"]["allowed"] == [
         "RSA-PSS-SHA256", "Ed25519"
     ]
-    assert issue(client, format="xml").status_code == 400
+    assert import_signed(client, sample_claims(), format="xml").status_code == 400
 
 
 def test_enterprise_spec_fields_are_signed_and_returned(client):
-    created = issue(
+    created = install(
         client,
         license_type="enterprise",
         issued_to="Aegis Global Financial Technologies Inc.",
@@ -547,33 +619,107 @@ def test_enterprise_spec_fields_are_signed_and_returned(client):
 
 
 def test_lookup_by_license_id(client):
-    created = issue(client, license_id="LIC-1234-AEGIS-SEC-PROD").get_json()["license"]
+    created = install(client, license_id="LIC-1234-AEGIS-SEC-PROD").get_json()["license"]
     detail = client.get("/api/v1/licenses/LIC-1234-AEGIS-SEC-PROD").get_json()["license"]
     assert detail["license_key"] == created["license_key"]
 
 
-def test_quota_and_module_overrides_are_validated(client):
-    assert issue(client, quotas={"nonsense": 1}).status_code == 400
-    assert issue(client, quotas={"nodes": -1}).status_code == 400
-    # pool without name/quota
-    assert issue(client, quotas={"pools": [{"id": "x"}]}).status_code == 400
-    # unknown enforcement level
+@pytest.mark.parametrize(
+    "overrides",
+    [
+        # the issuing form's rules, now enforced where vendor files land:
+        {"license_type": None},
+        {"license_type": "lifetime"},
+        {"issued_to": ""},
+        {"features": "ip_discovery"},
+        {"usage_limits": {"max_users": "ten"}},
+        {"metadata": []},
+        {"quotas": {"nonsense": 1}},
+        {"quotas": {"nodes": -1}},
+        {"quotas": {"pools": [{"id": "x"}]}},
+        {
+            "quotas": {
+                "pools": [
+                    {
+                        "id": "p",
+                        "name": "P",
+                        "quota_nodes": 1,
+                        "enforcement": "explode",
+                    }
+                ]
+            }
+        },
+        {"modules": [{"id": "made_up_module"}]},
+        {"modules": ["hsm_integration"]},
+        {"account": {"customer_id": {"nested": True}}},
+        {"tier": 123},
+    ],
+)
+def test_import_rejects_invalid_claims(client, overrides):
+    response = import_signed(client, sample_claims(**overrides))
+    assert response.status_code == 400, response.get_json()
+    assert "error" in response.get_json()
+
+
+def test_import_rejects_unusable_files(client):
+    # not an envelope at all
     assert (
-        issue(
-            client,
-            quotas={"pools": [{"id": "p", "name": "P", "quota_nodes": 1,
-                               "enforcement": "explode"}]},
-        ).status_code
+        client.post("/api/v1/licenses/import", json={}, headers=ADMIN).status_code
         == 400
     )
-    assert issue(client, modules=[{"id": "made_up_module"}]).status_code == 400
-    assert issue(client, modules=["hsm_integration"]).status_code == 400
-    assert issue(client, account={"customer_id": {"nested": True}}).status_code == 400
-    assert issue(client, tier=123).status_code == 400
+    # an envelope whose signature is not a signature
+    assert (
+        import_signed(client, sample_claims(), signature="not-a-signature").status_code
+        == 400
+    )
+
+
+def test_import_rejects_foreign_signature(client):
+    """A file signed with somebody else's key is not installable."""
+    from cryptography.hazmat.primitives import hashes
+    from cryptography.hazmat.primitives.asymmetric import padding, rsa
+
+    foreign_key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+    claims = sample_claims()
+    signature = foreign_key.sign(
+        json.dumps(claims, sort_keys=True, separators=(",", ":")).encode("utf-8"),
+        padding.PSS(
+            mgf=padding.MGF1(hashes.SHA256()),
+            salt_length=padding.PSS.MAX_LENGTH,
+        ),
+        hashes.SHA256(),
+    )
+    response = client.post(
+        "/api/v1/licenses/import",
+        json={"license_data": claims, "signature": base64.b64encode(signature).decode()},
+        headers=ADMIN,
+    )
+    assert response.status_code == 400
+    assert "trusted vendor key" in response.get_json()["error"]
+
+
+def test_import_rejects_expired_license(client):
+    claims = sample_claims(
+        issued_date=(datetime.now() - timedelta(days=60)).isoformat(),
+        expires_on=(datetime.now() - timedelta(days=10)).isoformat(),
+    )
+    response = import_signed(client, claims)
+    assert response.status_code == 400
+    assert response.get_json()["details"]["field"] == "expires_on"
+
+
+def test_import_conflict_for_already_installed_license(client):
+    envelope = vendor_sign(client, sample_claims())
+    first = client.post("/api/v1/licenses/import", json=envelope, headers=ADMIN)
+    assert first.status_code == 201
+
+    second = client.post("/api/v1/licenses/import", json=envelope, headers=ADMIN)
+    assert second.status_code == 409
+    assert second.get_json()["details"]["status"] == "active"
 
 
 def test_usage_reporting_requires_admin(client):
-    created = issue(client, license_type="enterprise").get_json()["license"]
+    created = install(client, license_type="enterprise").get_json()["license"]
     response = client.post(
         f"/api/v1/licenses/{created['license_key']}/usage",
         json={"sessions_active": 1},
@@ -593,7 +739,7 @@ def test_usage_reporting_requires_admin(client):
     ],
 )
 def test_usage_reporting_validates_input(client, payload):
-    created = issue(client, license_type="enterprise").get_json()["license"]
+    created = install(client, license_type="enterprise").get_json()["license"]
     response = client.post(
         f"/api/v1/licenses/{created['license_key']}/usage",
         json=payload,
@@ -603,7 +749,7 @@ def test_usage_reporting_validates_input(client, payload):
 
 
 def test_usage_reporting_computes_utilisation(client):
-    created = issue(client, license_type="enterprise").get_json()["license"]
+    created = install(client, license_type="enterprise").get_json()["license"]
     key = created["license_key"]
 
     # nothing reported yet: ceilings are known, consumption is zero
@@ -658,19 +804,19 @@ def test_usage_reporting_computes_utilisation(client):
 
     events = client.get(f"/api/v1/licenses/{key}").get_json()["license"]["events"]
     assert [event["action"] for event in events] == [
-        "issued", "usage_reported", "usage_reported"
+        "imported", "usage_reported", "usage_reported"
     ]
 
 
 def test_module_access_checks(client):
-    enterprise = issue(client, license_type="enterprise").get_json()["license"]
+    enterprise = install(client, license_type="enterprise").get_json()["license"]
     allowed = client.post(
         f"/api/v1/licenses/{enterprise['license_key']}/check",
         json={"module_id": "shamir_breakglass"},
     ).get_json()
     assert allowed["module_allowed"] is True
 
-    trial = issue(client, license_type="trial").get_json()["license"]
+    trial = install(client, license_type="trial").get_json()["license"]
     denied = client.post(
         f"/api/v1/licenses/{trial['license_key']}/check",
         json={"module_id": "shamir_breakglass"},
@@ -687,7 +833,7 @@ def test_module_access_checks(client):
 
 
 def test_quota_limits_are_checkable(client):
-    created = issue(client, license_type="enterprise").get_json()["license"]
+    created = install(client, license_type="enterprise").get_json()["license"]
     result = client.post(
         f"/api/v1/licenses/{created['license_key']}/check",
         json={"limit_type": "nodes", "current_usage": 4999},

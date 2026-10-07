@@ -245,13 +245,31 @@ signs with it, PAM verifies with it).
   46 + smoke 17/17 + both shots verifiers `ALL CHECKS PASSED`
 
 ### Phase 3 — Decouple the shipped PAM surface
-- ☐ **3a** PAM keeps only `meta / validate / check / file / entitlement /
-  local usage enforcement / settings / console APIs`; issuing, revoke/restore
-  and customer data move to PAM-MASTER (revoke stays as server-side
-  revocation-list authority for offline validation)
-- ☐ **3b** Re-scope `apis/openapi.yaml` + move/rewrite tests; contract test
-  both directions still green — **verify:** pytest + smoke
-- ☐ **3c** Docs/screens/launcher reflect the split; commit/push
+- ☑ **3a** Self-issue removed from the shipped server: `POST /api/v1/licenses`
+  is gone — the server only **verifies and records**, through the new
+  `POST /api/v1/licenses/import` (admin token; 400 for malformed / foreign-key
+  signed / expired / structurally invalid claims — the old issuing-form rules
+  ported to claim-shape checks, claims stored byte-for-byte as signed, never
+  normalised; 409 `Conflict` for an already-installed file). `service.issue_license`
+  + its `_coerce_*` form helpers deleted, so **no shipped-server code touches a
+  private key anymore**. Per decisions: revoke/restore + list/detail **stay** on
+  PAM (local revocation-list authority for offline validation + the console's
+  entitlement view); issuing/customer lookup live only in PAM-MASTER (2c).
+  New `imported` event type (replaces `issued` in event assertions). Tests play
+  the vendor: helpers sign with the shared engine then import.
+- ☑ **3b** Re-scope `apis/openapi.yaml` + contract + tests — executed in
+  lockstep with 3a (the two-directional contract test forbids an unserved
+  documented route and an undocumented served one, so route removal, spec and
+  test rewrites land together): POST `/licenses` → POST `/licenses/import`,
+  `IssueLicenseRequest/Response` → `LicenseEnvelope` request +
+  `ImportLicenseResponse`, new `Conflict` response, algorithm enums corrected
+  to the real casing (`RSA-PSS-SHA256`/`Ed25519`), `ADMIN_OPERATIONS` updated;
+  old form-validation tests rewritten as import rejection tests (+409, expired,
+  foreign-signature, unusable-file cases), smoke reworked to sign vendor-side
+  and import — **verify (phase boundary):** pytest backend **216** +
+  pytest pam_master 46 + smoke 17/17 + both shots verifiers `ALL CHECKS PASSED`
+- ☐ **3c** Docs/screens/launcher reflect the split (launcher text, licensing
+  screen ISSUE → import of a vendor `.lic`, frontend README); commit/push
 
 ### Phase 4 — Continue `VY-PAM_Enterprise_PAM_Architecture.md` (the last goal)
 - ☐ **4a** Rotation (5) → ☐ **4b** JIT (6) → ☐ **4c** Sessions (8) →
@@ -270,6 +288,7 @@ signs with it, PAM verifies with it).
 | 2026-10-07 | **Phase 2c ✅** (issuance: signed claims, encrypted archive, renewal supersedes, offline-verifiable bundle, audit; 40 tests; live smoke: exact 90d/365d spans, sha256 match, tables 0→4) | **2d** (own `openapi.yaml` + contract/anti-mixing tests) |
 | 2026-10-07 | **Phase 2d ✅** (own `openapi.yaml` + contract both ways + live shapes + enum mirrors + tracked-key scan + extended anti-mixing; 46 tests) | **2e** (docs + phase close + commit/push) |
 | 2026-10-07 | **Phase 2 complete ✅** (PAM-MASTER vendor tool: key custody, PII-encrypted registry, signed issuance/renewal/bundle/audit, own contract — 46 tests; root README split docs; full boundary regression green) | **Phase 3** (decouple shipped PAM surface — **3a**) |
+| 2026-10-07 | **Phase 3a+3b ✅** (self-issue removed → vendor-signed `POST /licenses/import`; form rules → claim-shape checks; no server code signs anymore; openapi/contract/tests/smoke lockstep; backend 216, pam_master 46, smoke 17/17, verifiers green) | **3c** (docs/screens/launcher reflect the split) |
 
 ---
 

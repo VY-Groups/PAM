@@ -23,6 +23,7 @@ if str(SERVER_DIR) not in sys.path:
 
 from app import create_app  # noqa: E402
 from config import Config  # noqa: E402
+from licensing_bridge import LicenseType, get_generator, sig  # noqa: E402
 from models import (  # noqa: E402
     VAULT_STATUS_FAILED,
     VAULT_STATUS_ROTATING,
@@ -62,10 +63,26 @@ def client(app):
     return app.test_client()
 
 
-def issue(client, **overrides):
-    payload = {"license_type": "subscription", "issued_to": "Acme Ltd"}
-    payload.update(overrides)
-    return client.post("/api/v1/licenses", json=payload, headers=ADMIN)
+def install(client, **overrides):
+    """Vendor-side install: sign with the shared engine, then import.
+
+    Phase 3a: the shipped server no longer issues licenses itself — this
+    helper plays the vendor. Callers here only use the defaults (no
+    free-form claim overrides), so no catalog/quota normalisation is needed.
+    """
+    config = client.application.config["LICENSE_CONFIG"]
+    fields = {"license_type": "subscription", "issued_to": "Acme Ltd"}
+    fields.update(overrides)
+    if isinstance(fields.get("license_type"), str):
+        fields["license_type"] = LicenseType(fields["license_type"])
+    algorithm = fields.pop("algorithm", sig.DEFAULT_ALGORITHM)
+    file_format = fields.pop("format", sig.FORMAT_JSON)
+    fields.setdefault("trial_days", config.default_trial_days)
+    generator = get_generator(config)
+    envelope = generator.build_license_file(
+        generator.generate_license(**fields), algorithm, file_format
+    )
+    return client.post("/api/v1/licenses/import", json=envelope, headers=ADMIN)
 
 
 def onboard(client, name, **overrides):
@@ -397,7 +414,7 @@ def test_overview_shape_and_defaults(client):
 
 
 def test_overview_tracks_license_lifecycle_and_activity(client):
-    issued = issue(client)
+    issued = install(client)
     assert issued.status_code == 201
 
     data = client.get("/api/v1/overview").get_json()
@@ -408,7 +425,7 @@ def test_overview_tracks_license_lifecycle_and_activity(client):
         1 for control in data["posture"]["controls"] if not control["passed"]
     )
     assert data["activity"][0]["source"] == "license"
-    assert data["activity"][0]["action"] == "issued"
+    assert data["activity"][0]["action"] == "imported"
 
     key = issued.get_json()["license"]["license_key"]
     client.post(f"/api/v1/licenses/{key}/revoke", headers=ADMIN)
@@ -418,7 +435,7 @@ def test_overview_tracks_license_lifecycle_and_activity(client):
 
 
 def test_overview_sums_reported_usage(client):
-    issued = issue(client).get_json()["license"]
+    issued = install(client).get_json()["license"]
     key = issued["license_key"]
     client.post(
         f"/api/v1/licenses/{key}/usage",
@@ -470,7 +487,7 @@ def test_unified_feed_merges_all_sources_newest_first(client):
     onboard(client, "pg-primary")
     client.put("/api/v1/settings/zsp", json={"tier0_quorum_approvers": 3},
                headers=ACTOR)
-    issue(client)
+    install(client)
 
     data = client.get("/api/v1/events").get_json()
     assert data["total"] == 3
@@ -478,7 +495,7 @@ def test_unified_feed_merges_all_sources_newest_first(client):
         "license", "settings", "vault",
     ]
     newest = data["events"][0]
-    assert newest["action"] == "issued"
+    assert newest["action"] == "imported"
     settings_event = data["events"][1]
     assert settings_event["actor"] == "tester"
     assert "tier0_quorum_approvers" in settings_event["detail"]
@@ -487,7 +504,7 @@ def test_unified_feed_merges_all_sources_newest_first(client):
 
 def test_events_source_filter_and_validation(client):
     onboard(client, "pg-primary")
-    issue(client)
+    install(client)
 
     vault_only = client.get(
         "/api/v1/events", query_string={"source": "vault"}

@@ -12,6 +12,7 @@ STATUS_ACTIVE = "active"
 STATUS_REVOKED = "revoked"
 
 EVENT_ISSUED = "issued"
+EVENT_IMPORTED = "imported"
 EVENT_REVOKED = "revoked"
 EVENT_RESTORED = "restored"
 EVENT_USAGE_REPORTED = "usage_reported"

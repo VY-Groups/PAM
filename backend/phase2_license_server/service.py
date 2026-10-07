@@ -17,7 +17,7 @@ from datetime import datetime, timedelta
 from typing import Any, Dict, List, Optional, Tuple
 
 from config import Config
-from errors import APIError, NotFound, ValidationFailed
+from errors import APIError, Conflict, NotFound, ValidationFailed
 from licensing_bridge import (
     DEFAULT_TIERS,
     ENFORCEMENT_LEVELS,
@@ -25,7 +25,6 @@ from licensing_bridge import (
     MODULE_IDS,
     License,
     LicenseType,
-    get_generator,
     get_validator,
     sig,
 )
@@ -50,7 +49,7 @@ from models import (
     DISCOVERY_SCAN_RUNNING,
     DISCOVERY_SOURCE_MANUAL,
     DISCOVERY_SOURCE_SCAN,
-    EVENT_ISSUED,
+    EVENT_IMPORTED,
     EVENT_RESTORED,
     EVENT_REVOKED,
     EVENT_USAGE_REPORTED,
@@ -82,9 +81,6 @@ from models import (
     log_event,
 )
 
-SIGNING_ALGORITHM = sig.DEFAULT_ALGORITHM
-
-_MODULE_BY_ID = {module["id"]: module for module in MODULE_CATALOG}
 _QUOTA_SCALARS = (
     "nodes",
     "concurrent_sessions",
@@ -96,55 +92,231 @@ _USAGE_FIELDS = ("nodes_consumed", "sessions_active", "bastion_tunnels_used")
 
 
 # ---------------------------------------------------------------------------
-# coercion helpers
+# installing vendor-signed licenses
 # ---------------------------------------------------------------------------
-def _coerce_str(raw: Any, field: str, *, max_length: int = 255) -> Optional[str]:
-    if raw is None:
-        return None
-    if not isinstance(raw, str):
-        raise ValidationFailed(f"'{field}' must be a string", {"field": field})
-    value = raw.strip()
-    if not value:
-        return None
-    if len(value) > max_length:
+def import_license(config: Config, payload: Any) -> Tuple[LicenseRecord, Dict[str, Any]]:
+    """Install a signed license file — the ``.lic`` from the delivery bundle.
+
+    PAM-MASTER signs; this server only verifies and records. Claims are stored
+    exactly as signed (what validates is what you imported): malformed,
+    wrongly-signed, expired, structurally invalid and already-installed files
+    are refused with 400/409.
+    """
+    envelope = sig.parse_envelope(payload)
+    if envelope is None:
         raise ValidationFailed(
-            f"'{field}' must be at most {max_length} characters", {"field": field}
+            "Body must be a signed license envelope (the .lic file from the "
+            'delivery bundle, or {"token": ...} for a compact token)'
         )
-    return value
+
+    algorithm = envelope.get("algorithm") or sig.DEFAULT_ALGORITHM
+    if algorithm not in sig.SUPPORTED_ALGORITHMS:
+        raise ValidationFailed(
+            f"Unknown signature algorithm '{algorithm}'",
+            {"field": "algorithm", "allowed": list(sig.SUPPORTED_ALGORITHMS)},
+        )
+    if envelope.get("format") not in sig.SUPPORTED_FORMATS:
+        raise ValidationFailed(
+            f"Unknown license file format '{envelope.get('format')}'",
+            {"field": "format", "allowed": list(sig.SUPPORTED_FORMATS)},
+        )
+
+    validator = get_validator(config)
+    if not validator.verify_envelope(envelope):
+        raise ValidationFailed(
+            "Signature verification failed — the file was not signed with "
+            "this deployment's trusted vendor key"
+        )
+
+    license_data = envelope["license_data"]
+    _validate_import_claims(license_data)
+
+    try:
+        license_obj = License.from_dict(license_data)
+    except (KeyError, TypeError, ValueError) as exc:
+        raise ValidationFailed(f"License claims could not be parsed: {exc}") from None
+
+    if license_obj.is_expired():
+        raise ValidationFailed(
+            f"License expired on {license_obj.expires_on.date()} — nothing to import",
+            {"field": "expires_on", "expires_on": license_obj.expires_on.isoformat()},
+        )
+
+    existing = LicenseRecord.query.filter_by(
+        license_key=license_obj.license_key
+    ).first()
+    if existing is not None:
+        raise Conflict(
+            f"License {license_obj.license_key} is already installed",
+            {"license_key": existing.license_key, "status": existing.status},
+        )
+
+    # parse_envelope descends into compact-token documents, which strips the
+    # envelope's own `token` and `fingerprint`. Restore the caller's token and
+    # derive the fingerprint from the verified signature, so the stored record
+    # matches the file the vendor shipped.
+    echo = dict(envelope)
+    if isinstance(payload, dict):
+        raw_token = payload.get("token")
+        if isinstance(raw_token, str) and "token" not in echo:
+            echo["token"] = raw_token
+    if not echo.get("fingerprint"):
+        try:
+            echo["fingerprint"] = sig.fingerprint(base64.b64decode(echo["signature"]))
+        except (ValueError, TypeError):  # pragma: no cover - verify already decoded it
+            echo["fingerprint"] = None
+
+    record = LicenseRecord(
+        license_key=license_data["license_key"],
+        license_type=license_data["license_type"],
+        issued_to=license_data["issued_to"],
+        issued_date=license_obj.issued_date,
+        expires_on=license_obj.expires_on,
+        features=license_data.get("features") or [],
+        usage_limits=license_data.get("usage_limits") or {},
+        license_metadata=license_data.get("metadata") or {},
+        license_id=license_data.get("license_id"),
+        tier=license_data.get("tier"),
+        plan=license_data.get("plan"),
+        subject_entity=license_data.get("subject_entity"),
+        classification=license_data.get("classification"),
+        issuer=license_data.get("issuer"),
+        enclave_binding=license_data.get("enclave_binding"),
+        quotas=license_data.get("quotas") or {},
+        modules=license_data.get("modules") or [],
+        account=license_data.get("account") or {},
+        status=STATUS_ACTIVE,
+        signature=envelope["signature"],
+        algorithm=algorithm,
+        signature_format=envelope.get("format") or sig.FORMAT_JSON,
+        fingerprint=echo.get("fingerprint"),
+    )
+    db.session.add(record)
+    log_event(
+        record.license_key,
+        EVENT_IMPORTED,
+        {
+            "issued_to": record.issued_to,
+            "license_type": record.license_type,
+            "algorithm": algorithm,
+            "format": record.signature_format,
+            "license_id": record.license_id,
+        },
+    )
+    db.session.commit()
+    return record, public_envelope(echo)
 
 
-def _coerce_usage_limits(raw: Any, where: str) -> Dict[str, int]:
-    if raw is None:
-        return {}
-    if not isinstance(raw, dict):
-        raise ValidationFailed(f"'{where}' must be an object", {"field": where})
-    limits: Dict[str, int] = {}
-    for key, value in raw.items():
-        if not isinstance(key, str) or not isinstance(value, int) or isinstance(value, bool):
+def _validate_import_claims(claims: Dict[str, Any]) -> None:
+    """Refuse claims this server could not serve — checked, never rewritten.
+
+    These are the form-level rules the old self-issue endpoint enforced, now
+    applied where vendor files are installed. The stored record must match the
+    signature byte for byte, so validation rejects instead of normalising.
+    """
+    license_type = claims.get("license_type")
+    try:
+        LicenseType(license_type)
+    except (TypeError, ValueError):
+        raise ValidationFailed(
+            f"Unknown license_type '{license_type}'",
+            {"field": "license_type", "allowed": [t.value for t in LicenseType]},
+        ) from None
+
+    for field, max_length in (
+        ("license_key", 64),
+        ("issued_to", 255),
+        ("tier", 64),
+        ("plan", 64),
+        ("license_id", 64),
+        ("subject_entity", 255),
+        ("classification", 64),
+        ("issuer", 255),
+        ("environment", 32),
+    ):
+        value = claims.get(field)
+        if value is None:
+            continue
+        if not isinstance(value, str):
+            raise ValidationFailed(f"'{field}' must be a string", {"field": field})
+        if len(value) > max_length:
             raise ValidationFailed(
-                f"'{where}' must map string keys to integer values",
-                {"field": where, "key": key},
+                f"'{field}' must be at most {max_length} characters",
+                {"field": field},
             )
-        limits[key] = value
-    return limits
+
+    for required in ("license_key", "issued_to"):
+        if not (claims.get(required) or "").strip():
+            raise ValidationFailed(f"'{required}' is required", {"field": required})
+    key = claims.get("license_key")
+    if isinstance(key, str) and key != key.upper():
+        raise ValidationFailed(
+            "'license_key' must be uppercase", {"field": "license_key"}
+        )
+
+    metadata = claims.get("metadata")
+    if metadata is not None and not isinstance(metadata, dict):
+        raise ValidationFailed("'metadata' must be an object", {"field": "metadata"})
+
+    features = claims.get("features")
+    if features is not None and (
+        not isinstance(features, list)
+        or not all(isinstance(feature, str) for feature in features)
+    ):
+        raise ValidationFailed(
+            "'features' must be a list of strings", {"field": "features"}
+        )
+
+    limits = claims.get("usage_limits")
+    if limits is not None:
+        if not isinstance(limits, dict):
+            raise ValidationFailed(
+                "'usage_limits' must be an object", {"field": "usage_limits"}
+            )
+        for key, value in limits.items():
+            if (
+                not isinstance(key, str)
+                or not isinstance(value, int)
+                or isinstance(value, bool)
+            ):
+                raise ValidationFailed(
+                    "'usage_limits' must map string keys to integer values",
+                    {"field": "usage_limits", "key": key},
+                )
+
+    quotas = claims.get("quotas")
+    if quotas is not None:
+        _validate_import_quotas(quotas)
+
+    modules = claims.get("modules")
+    if modules is not None:
+        _validate_import_modules(modules)
+
+    account = claims.get("account")
+    if account is not None:
+        if not isinstance(account, dict):
+            raise ValidationFailed("'account' must be an object", {"field": "account"})
+        for key, value in account.items():
+            if not isinstance(key, str):
+                raise ValidationFailed(
+                    "'account' keys must be strings", {"field": "account"}
+                )
+            if isinstance(value, bool) or not isinstance(value, (str, int)):
+                raise ValidationFailed(
+                    f"'account.{key}' must be a string or integer",
+                    {"field": "account"},
+                )
+            if isinstance(value, str) and len(value) > 255:
+                raise ValidationFailed(
+                    f"'account.{key}' must be at most 255 characters",
+                    {"field": "account"},
+                )
 
 
-def _coerce_features(raw: Any) -> List[str]:
-    if raw is None:
-        return []
-    if not isinstance(raw, list) or not all(isinstance(f, str) for f in raw):
-        raise ValidationFailed("'features' must be a list of strings", {"field": "features"})
-    return list(raw)
-
-
-def _coerce_quotas(raw: Any) -> Optional[Dict[str, Any]]:
+def _validate_import_quotas(raw: Any) -> None:
     """Validate the node/session/tunnel quota block and its pool breakdown."""
-    if raw is None:
-        return None
     if not isinstance(raw, dict):
         raise ValidationFailed("'quotas' must be an object", {"field": "quotas"})
-
-    quotas: Dict[str, Any] = {}
     for key, value in raw.items():
         if key == "pools":
             continue
@@ -158,36 +330,41 @@ def _coerce_quotas(raw: Any) -> Optional[Dict[str, Any]]:
                 f"'quotas.{key}' must be a non-negative integer",
                 {"field": f"quotas.{key}"},
             )
-        quotas[key] = value
 
     pools_raw = raw.get("pools", [])
     if pools_raw is None:
         pools_raw = []
     if not isinstance(pools_raw, list):
-        raise ValidationFailed("'quotas.pools' must be a list", {"field": "quotas.pools"})
-
-    pools: List[Dict[str, Any]] = []
+        raise ValidationFailed(
+            "'quotas.pools' must be a list", {"field": "quotas.pools"}
+        )
     seen = set()
     for entry in pools_raw:
         if not isinstance(entry, dict):
             raise ValidationFailed(
                 "'quotas.pools' entries must be objects", {"field": "quotas.pools"}
             )
-        pool_id = _coerce_str(entry.get("id"), "quotas.pools.id", max_length=64)
-        name = _coerce_str(entry.get("name"), "quotas.pools.name", max_length=128)
-        if not pool_id or not name:
+        pool_id = entry.get("id")
+        if not isinstance(pool_id, str) or not pool_id.strip() or len(pool_id) > 64:
             raise ValidationFailed(
-                "Each node pool needs 'id' and 'name'",
-                {"field": "quotas.pools"},
+                "Each node pool needs an 'id'", {"field": "quotas.pools"}
             )
         if pool_id in seen:
             raise ValidationFailed(
                 f"Duplicate node pool '{pool_id}'", {"field": "quotas.pools"}
             )
         seen.add(pool_id)
-
+        name = entry.get("name")
+        if not isinstance(name, str) or not name.strip() or len(name) > 128:
+            raise ValidationFailed(
+                "Each node pool needs 'id' and 'name'", {"field": "quotas.pools"}
+            )
         quota_nodes = entry.get("quota_nodes")
-        if not isinstance(quota_nodes, int) or isinstance(quota_nodes, bool) or quota_nodes < 0:
+        if (
+            not isinstance(quota_nodes, int)
+            or isinstance(quota_nodes, bool)
+            or quota_nodes < 0
+        ):
             raise ValidationFailed(
                 f"'quotas.pools.{pool_id}.quota_nodes' must be a non-negative integer",
                 {"field": "quotas.pools"},
@@ -199,34 +376,19 @@ def _coerce_quotas(raw: Any) -> Optional[Dict[str, Any]]:
                 {"field": "quotas.pools", "allowed": list(ENFORCEMENT_LEVELS)},
             )
         regions = entry.get("regions", [])
-        if not isinstance(regions, list) or not all(isinstance(r, str) for r in regions):
+        if not isinstance(regions, list) or not all(
+            isinstance(region, str) for region in regions
+        ):
             raise ValidationFailed(
                 f"'quotas.pools.{pool_id}.regions' must be a list of strings",
                 {"field": "quotas.pools"},
             )
-        pools.append(
-            {
-                "id": pool_id,
-                "name": name,
-                "regions": list(regions),
-                "quota_nodes": quota_nodes,
-                "enforcement": enforcement,
-            }
-        )
-
-    quotas["pools"] = pools
-    quotas.setdefault("nodes", sum(pool["quota_nodes"] for pool in pools))
-    return quotas
 
 
-def _coerce_modules(raw: Any) -> Optional[List[Dict[str, Any]]]:
+def _validate_import_modules(raw: Any) -> None:
     """Validate granted entitlement modules against the catalog."""
-    if raw is None:
-        return None
     if not isinstance(raw, list):
         raise ValidationFailed("'modules' must be a list", {"field": "modules"})
-
-    modules: List[Dict[str, Any]] = []
     seen = set()
     for entry in raw:
         if not isinstance(entry, dict):
@@ -235,9 +397,7 @@ def _coerce_modules(raw: Any) -> Optional[List[Dict[str, Any]]]:
             )
         module_id = entry.get("id")
         if not isinstance(module_id, str) or not module_id:
-            raise ValidationFailed(
-                "Each module needs an 'id'", {"field": "modules"}
-            )
+            raise ValidationFailed("Each module needs an 'id'", {"field": "modules"})
         if module_id not in MODULE_IDS:
             raise ValidationFailed(
                 f"Unknown module '{module_id}'",
@@ -248,176 +408,12 @@ def _coerce_modules(raw: Any) -> Optional[List[Dict[str, Any]]]:
                 f"Duplicate module '{module_id}'", {"field": "modules"}
             )
         seen.add(module_id)
-
         status = entry.get("status", "entitled")
         if status not in ("entitled", "not_entitled"):
             raise ValidationFailed(
                 f"Unknown module status '{status}'",
                 {"field": "modules", "allowed": ["entitled", "not_entitled"]},
             )
-        catalog_entry = _MODULE_BY_ID[module_id]
-        modules.append(
-            {
-                "id": module_id,
-                "name": entry.get("name") or catalog_entry["name"],
-                "status": status,
-                "detail": entry.get("detail") or catalog_entry["detail"],
-            }
-        )
-    return modules
-
-
-def _coerce_account(raw: Any) -> Optional[Dict[str, Any]]:
-    """Validate the account & SLA block (all values are scalars)."""
-    if raw is None:
-        return None
-    if not isinstance(raw, dict):
-        raise ValidationFailed("'account' must be an object", {"field": "account"})
-    account: Dict[str, Any] = {}
-    for key, value in raw.items():
-        if not isinstance(key, str):
-            raise ValidationFailed("'account' keys must be strings", {"field": "account"})
-        if isinstance(value, bool) or not isinstance(value, (str, int)):
-            raise ValidationFailed(
-                f"'account.{key}' must be a string or integer", {"field": "account"}
-            )
-        if isinstance(value, str) and len(value) > 255:
-            raise ValidationFailed(
-                f"'account.{key}' must be at most 255 characters", {"field": "account"}
-            )
-        account[key] = value
-    return account
-
-
-# ---------------------------------------------------------------------------
-# issuing
-# ---------------------------------------------------------------------------
-def issue_license(
-    config: Config,
-    *,
-    license_type: str,
-    issued_to: str,
-    trial_days: Optional[int] = None,
-    features: Optional[List[str]] = None,
-    usage_limits: Optional[Dict[str, int]] = None,
-    metadata: Optional[Dict[str, Any]] = None,
-    tier: Optional[str] = None,
-    plan: Optional[str] = None,
-    license_id: Optional[str] = None,
-    subject_entity: Optional[str] = None,
-    classification: Optional[str] = None,
-    issuer: Optional[str] = None,
-    enclave_binding: Optional[str] = None,
-    quotas: Optional[Dict[str, Any]] = None,
-    modules: Optional[List[Dict[str, Any]]] = None,
-    account: Optional[Dict[str, Any]] = None,
-    environment: Optional[str] = None,
-    signature_algorithm: str = sig.DEFAULT_ALGORITHM,
-    file_format: str = sig.FORMAT_JSON,
-) -> Tuple[LicenseRecord, Dict[str, Any]]:
-    """Create, sign and persist a new license."""
-    if not issued_to or not isinstance(issued_to, str) or not issued_to.strip():
-        raise ValidationFailed("'issued_to' is required", {"field": "issued_to"})
-
-    try:
-        resolved_type = LicenseType(license_type)
-    except ValueError:
-        allowed = [t.value for t in LicenseType]
-        raise ValidationFailed(
-            f"Unknown license_type '{license_type}'",
-            {"field": "license_type", "allowed": allowed},
-        ) from None
-
-    if signature_algorithm not in sig.SUPPORTED_ALGORITHMS:
-        raise ValidationFailed(
-            f"Unknown signature_algorithm '{signature_algorithm}'",
-            {"field": "signature_algorithm", "allowed": list(sig.SUPPORTED_ALGORITHMS)},
-        )
-    if file_format not in sig.SUPPORTED_FORMATS:
-        raise ValidationFailed(
-            f"Unknown format '{file_format}'",
-            {"field": "format", "allowed": list(sig.SUPPORTED_FORMATS)},
-        )
-
-    if trial_days is not None and (not isinstance(trial_days, int) or trial_days <= 0):
-        raise ValidationFailed("'trial_days' must be a positive integer", {"field": "trial_days"})
-
-    if metadata is not None and not isinstance(metadata, dict):
-        raise ValidationFailed("'metadata' must be an object", {"field": "metadata"})
-
-    resolved_features = _coerce_features(features)
-    resolved_limits = _coerce_usage_limits(usage_limits, "usage_limits")
-    resolved_quotas = _coerce_quotas(quotas)
-    resolved_modules = _coerce_modules(modules)
-    resolved_account = _coerce_account(account)
-    resolved_fields = {
-        "tier": _coerce_str(tier, "tier", max_length=64),
-        "plan": _coerce_str(plan, "plan", max_length=64),
-        "license_id": _coerce_str(license_id, "license_id", max_length=64),
-        "subject_entity": _coerce_str(subject_entity, "subject_entity"),
-        "classification": _coerce_str(classification, "classification", max_length=128),
-        "issuer": _coerce_str(issuer, "issuer", max_length=160),
-        "enclave_binding": _coerce_str(enclave_binding, "enclave_binding", max_length=160),
-        "environment": _coerce_str(environment, "environment", max_length=32),
-    }
-
-    generator = get_generator(config)
-    license_obj = generator.generate_license(
-        license_type=resolved_type,
-        issued_to=issued_to.strip(),
-        trial_days=trial_days or config.default_trial_days,
-        features=resolved_features or None,
-        usage_limits=resolved_limits or None,
-        metadata=metadata,
-        quotas=resolved_quotas,
-        modules=resolved_modules,
-        account=resolved_account,
-        **{key: value for key, value in resolved_fields.items() if value is not None},
-    )
-    envelope = generator.build_license_file(
-        license_obj, signature_algorithm, file_format
-    )
-    signed_data = envelope["license_data"]
-
-    record = LicenseRecord(
-        license_key=signed_data["license_key"],
-        license_type=signed_data["license_type"],
-        issued_to=signed_data["issued_to"],
-        issued_date=license_obj.issued_date,
-        expires_on=license_obj.expires_on,
-        features=signed_data["features"],
-        usage_limits=signed_data["usage_limits"],
-        license_metadata=signed_data["metadata"],
-        license_id=signed_data.get("license_id"),
-        tier=signed_data.get("tier"),
-        plan=signed_data.get("plan"),
-        subject_entity=signed_data.get("subject_entity"),
-        classification=signed_data.get("classification"),
-        issuer=signed_data.get("issuer"),
-        enclave_binding=signed_data.get("enclave_binding"),
-        quotas=signed_data.get("quotas") or {},
-        modules=signed_data.get("modules") or [],
-        account=signed_data.get("account") or {},
-        status=STATUS_ACTIVE,
-        signature=envelope["signature"],
-        algorithm=signature_algorithm,
-        signature_format=file_format,
-        fingerprint=envelope.get("fingerprint"),
-    )
-    db.session.add(record)
-    log_event(
-        record.license_key,
-        EVENT_ISSUED,
-        {
-            "issued_to": record.issued_to,
-            "license_type": record.license_type,
-            "algorithm": signature_algorithm,
-            "format": file_format,
-            "license_id": record.license_id,
-        },
-    )
-    db.session.commit()
-    return record, public_envelope(envelope)
 
 
 def public_envelope(envelope: Dict[str, Any]) -> Dict[str, Any]:

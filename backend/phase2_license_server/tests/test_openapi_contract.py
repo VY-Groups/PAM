@@ -26,7 +26,7 @@ HTTP_METHODS = {"get", "post", "put", "patch", "delete"}
 
 # Operations that require the admin token when LICENSE_ADMIN_TOKEN is set.
 ADMIN_OPERATIONS = [
-    ("post", "/api/v1/licenses"),
+    ("post", "/api/v1/licenses/import"),
     ("get", "/api/v1/licenses/{license_key}/file"),
     ("post", "/api/v1/licenses/{license_key}/revoke"),
     ("post", "/api/v1/licenses/{license_key}/restore"),

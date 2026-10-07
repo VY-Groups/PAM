@@ -33,3 +33,8 @@ class ValidationFailed(APIError):
 class Unauthorized(APIError):
     def __init__(self, message: str = "Admin authentication required"):
         super().__init__(401, message)
+
+
+class Conflict(APIError):
+    def __init__(self, message: str, details: Optional[Dict[str, Any]] = None):
+        super().__init__(409, message, details)
