@@ -37,7 +37,7 @@
 <div class="absolute top-0 left-0 right-0 h-1 bg-primary"></div>
 <div class="flex items-start justify-between">
 <div class="flex flex-col">
-<span class="font-code-sm text-code-sm text-outline uppercase tracking-wider font-medium">Pending My Approval</span>
+<span class="font-code-sm text-code-sm text-outline uppercase tracking-wider font-medium">Pending Approvals</span>
 <span class="font-headline-xl text-headline-xl text-on-surface font-bold mt-1">3</span>
 </div>
 <div class="w-10 h-10 rounded-lg bg-surface-container flex items-center justify-center text-primary">
@@ -135,7 +135,7 @@
 </div>
 <!-- Filter / Search Row -->
 <div class="flex items-center justify-between gap-space-sm px-1">
-<span class="font-code-sm text-code-sm text-outline uppercase font-semibold">Queue Order: Risk & Urgency</span>
+<span class="font-code-sm text-code-sm text-outline uppercase font-semibold">Queue Order: Newest first</span>
 <div class="flex items-center gap-2">
 <button class="p-1 rounded bg-surface-container hover:bg-surface-container-high text-on-surface-variant transition-colors" title="Filter list">
 <span class="material-symbols-outlined text-[18px]">filter_list</span>
@@ -491,44 +491,880 @@
 </div>
 <!-- Inline Script for Card Interaction and Dynamic Feedback -->
 <script>
-    (function initJITConsole() {
+    // -------------------------------------------------------------------------
+    // Live JIT/JEA wiring: renders the real access-request queue served by the
+    // license server (request -> risk -> approvals -> grant -> expiry ->
+    // rotation). file:// or API-down show honest empty states - none of the
+    // design's names, tickets, scores or quorum claims survive either mode.
+    // -------------------------------------------------------------------------
+    (function () {
+      const ROOT = location.protocol === 'file:' ? '' : '/';
+      const API = ROOT + 'api/v1';
+      const TOKEN_KEY = 'aegispam_admin_token';
+      const ACTOR = 'jit-access-ui';
+      const DASH = '\u2014';
+      const TICKET_RE = /^[A-Za-z]{2,10}-\d{2,10}$/; // mirrors the server check
+
+      const state = {
+        stats: null, requests: [], items: [],
+        tab: 'pending', selectedId: null, detail: null, connected: false,
+      };
+
+      function headers() {
+        const h = { 'Content-Type': 'application/json', 'X-Actor': ACTOR };
+        const token = sessionStorage.getItem(TOKEN_KEY);
+        if (token) h['Authorization'] = 'Bearer ' + token;
+        return h;
+      }
+      function esc(value) {
+        return String(value == null ? DASH : value)
+          .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+          .replace(/"/g, '&quot;');
+      }
+      function findSpan(text, root) {
+        return Array.from((root || document).querySelectorAll('span'))
+          .find((s) => s.textContent.indexOf(text) !== -1) || null;
+      }
+      function findBtn(text) {
+        return Array.from(document.querySelectorAll('button'))
+          .find((b) => b.textContent.indexOf(text) !== -1) || null;
+      }
+      // Replace a cached element's text, keeping sibling icon spans intact.
+      function put(node, value) {
+        if (!node) return;
+        const t = Array.from(node.childNodes)
+          .find((n) => n.nodeType === 3 && n.data.trim().length);
+        if (t) t.data = value; else node.textContent = value;
+      }
+      function ago(iso) {
+        if (!iso) return DASH;
+        const s = Math.max(0, (Date.now() - Date.parse(iso)) / 1000);
+        if (s < 60) return Math.floor(s) + 's ago';
+        if (s < 3600) return Math.floor(s / 60) + 'm ago';
+        if (s < 86400) return Math.floor(s / 3600) + 'h ago';
+        return Math.floor(s / 86400) + 'd ago';
+      }
+
+      // ---- cached frozen nodes (anchors are only valid before first paint) ---
+      const cardsBox = (document.getElementById('card-8841') || {}).parentElement;
+      const notes = document.getElementById('approver-notes');
+      const durationSelect = document.getElementById('duration-select');
       const approveBtn = document.getElementById('approve-btn');
       const rejectBtn = document.getElementById('reject-btn');
-      const notes = document.getElementById('approver-notes');
+      const pane = notes ? notes.closest('div.bg-surface-container-lowest') : null;
+      const statNums = Array.from(document.querySelectorAll('span.font-headline-xl'));
 
-      if (approveBtn) {
-        approveBtn.addEventListener('click', () => {
-          approveBtn.disabled = true;
-          approveBtn.innerHTML = `
-            <span class="material-symbols-outlined text-[18px] animate-spin">refresh</span>
-            <span>Minting Ephemeral STS Token...</span>
-          `;
-          
-          setTimeout(() => {
-            approveBtn.classList.remove('bg-tertiary', 'hover:bg-tertiary-container');
-            approveBtn.classList.add('bg-surface-container-high', 'text-tertiary');
-            approveBtn.innerHTML = `
-              <span class="material-symbols-outlined text-[18px]">check_circle</span>
-              <span>Access Granted & Token Issued</span>
-            `;
-            if (notes) {
-              notes.disabled = true;
-              notes.placeholder = "Decision recorded: Ephemeral token active until 16:45 UTC.";
+      const ui = {};
+      if (pane) {
+        ui.avatar = pane.querySelector('img');
+        ui.name = pane.querySelector('span.font-headline-md');
+        ui.badge = findSpan('VERIFIED', pane);
+        ui.sub = findSpan('enterprise.internal', pane);
+        ui.scoreLabel = findSpan('User Threat Score', pane);
+        ui.score = findSpan('04 / 100', pane);
+        ui.level = findSpan('Low Risk', pane);
+        ui.factorsPanel = (findSpan('Authentication Factors', pane) || {}).closest
+          ? findSpan('Authentication Factors', pane).closest('div.bg-surface') : null;
+        ui.factorsRows = ui.factorsPanel
+          ? ui.factorsPanel.querySelector('div.flex.flex-col.gap-1\\.5') : null;
+        ui.ticketPanel = (findSpan('Ticket Validation', pane) || {}).closest
+          ? findSpan('Ticket Validation', pane).closest('div.bg-surface') : null;
+        ui.ticketHeader = findSpan('Ticket Validation', pane);
+        ui.ticketSync = ui.ticketPanel ? findSpan('Live Synced', ui.ticketPanel) : null;
+        ui.ticketRows = ui.ticketPanel
+          ? ui.ticketPanel.querySelector('div.flex.flex-col.gap-1\\.5') : null;
+        ui.targetLine = findSpan('Target: arn', pane);
+        ui.chipsBox = pane.querySelector('div.flex.flex-wrap.gap-2');
+        ui.noteP = pane.querySelector('p');
+        ui.stepper = (findSpan('Multi-Party Quorum Pipeline', pane) || {}).nextElementSibling;
+        ui.sessionPolicy = findSpan('Session policy', pane);
+        ui.preHeader = findSpan('Audit Pre-Flight Simulation');
+        ui.preChip = findSpan('Dry-run passes');
+        ui.preLines = ui.preHeader && ui.preHeader.closest('div.bg-surface-container-lowest')
+          ? ui.preHeader.closest('div.bg-surface-container-lowest')
+              .querySelector('div.bg-surface-container.rounded-lg.p-space-md.font-code-sm')
+          : null;
+      }
+      const chips = {
+        high: findSpan('High Urgency'),
+        // this chip's text lives in a div, not a span
+        ttl: Array.from(document.querySelectorAll('div.font-code-sm'))
+          .find((d) => d.textContent.indexOf('remaining') !== -1) || null,
+        stat2sub: findSpan('Token auto-rotates'),
+        share: findSpan('94.1%'),
+        stat3sub: findSpan('Dev sandbox'),
+        sla: findSpan('vs avg'),
+        stat4sub: findSpan('Optimal posture'),
+      };
+      const tabs = {
+        pending: findBtn('Pending Approvals'),
+        active: findBtn('Active Grants'),
+        history: findBtn('Historical'),
+        mine: findBtn('My Requests'),
+      };
+      const tabCounts = {
+        pending: tabs.pending ? tabs.pending.querySelector('span.rounded-full') : null,
+        active: tabs.active ? tabs.active.querySelector('span.font-code-sm') : null,
+      };
+      const requestBtn = findBtn('Request Temporary Access');
+
+      // ---- one-time honest relabels of frozen chrome -------------------------
+      put(ui.scoreLabel, 'Request Risk Score');
+      put(ui.ticketHeader, 'Ticket & Window');
+      put((findSpan('Authentication Factors', pane) || null), 'Risk Evaluation');
+      put(ui.preHeader, 'Live State Check');
+      put(ui.preChip, 'waiting for selection');
+      put(ui.sessionPolicy, 'Status: ' + DASH);
+      if (ui.noteP) {
+        ui.noteP.innerHTML =
+          '<strong>Zero-Standing Rule Enforced:</strong> No standing admin rights: ' +
+          'the credential is checked out only while a granted request is active, ' +
+          'expires with its window, and is rotated (new secret version) when access ' +
+          'ends. Every decision is recorded with its actor and timestamp.';
+      }
+      if (notes) {
+        notes.disabled = true;
+        notes.placeholder = 'Notes are not stored by this API - decisions are audited with actor and timestamp.';
+      }
+      if (durationSelect) {
+        durationSelect.disabled = true;
+        durationSelect.title = 'The window is set when the request is filed (1-480 minutes).';
+        durationSelect.innerHTML = '<option>Set when the request is filed (1-480 min)</option>';
+      }
+
+      // ---- toast -------------------------------------------------------------
+      let toastEl = null, toastTimer = null;
+      function toast(message) {
+        if (!toastEl) {
+          toastEl = document.createElement('div');
+          toastEl.className = 'fixed bottom-14 right-6 z-50 max-w-md px-4 py-3 rounded-lg shadow-lg border border-outline-variant bg-surface-container-lowest text-on-surface font-body-sm text-body-sm';
+          document.body.appendChild(toastEl);
+        }
+        toastEl.textContent = message;
+        toastEl.classList.remove('hidden');
+        clearTimeout(toastTimer);
+        toastTimer = setTimeout(() => toastEl.classList.add('hidden'), 6000);
+      }
+
+      // ---- data loading ------------------------------------------------------
+      async function load() {
+        if (ROOT === '') { state.connected = false; renderAll(); return; }
+        const j = async (path) => {
+          const res = await fetch(API + path, { headers: headers() });
+          if (!res.ok) throw new Error(path + ' -> ' + res.status);
+          return res.json();
+        };
+        try {
+          const [stats, list, items] = await Promise.all([
+            j('/jit/stats'), j('/jit/requests?limit=200'), j('/vault/items?limit=200'),
+          ]);
+          state.stats = stats;
+          state.requests = list.items || [];
+          state.items = items.items || [];
+          state.connected = true;
+        } catch (err) {
+          state.connected = false;
+          state.stats = null;
+          state.requests = [];
+          state.items = [];
+        }
+        try {
+          const res = await fetch(ROOT + 'api/v1/overview');
+          fillFooter(res.ok ? await res.json() : null);
+        } catch (err) { fillFooter(null); }
+        if (state.selectedId != null) await refreshSelected();
+        renderAll();
+      }
+
+      function fillFooter(data) {
+        const footer = document.querySelector('footer');
+        if (!footer) return;
+        const fspans = Array.from(footer.querySelectorAll('span'));
+        const setF = (match, value) => {
+          const el = fspans.find((s) => s.textContent.indexOf(match) !== -1);
+          if (el) el.textContent = value;
+        };
+        if (!data) {
+          setF('License server', 'License server: not connected');
+          return;
+        }
+        setF('License server',
+          'License server: ' + (data.health.status === 'ok' ? 'Healthy' : data.health.status));
+        setF('nodes', '(' + data.licenses.usage.nodes.toLocaleString() + ' licensed nodes)');
+        setF('checked out', data.vault.checked_out + ' credentials checked out');
+        setF('Auth:', 'Auth: ' + data.health.auth);
+        setF('WORM:', 'WORM: ' + (data.settings.worm_immutable ? 'immutable' : 'mutable'));
+        setF('Audit:', 'Audit: ' + data.counters.total_events.toLocaleString() + ' events');
+      }
+
+      async function post(path, body) {
+        const res = await fetch(API + path, {
+          method: 'POST', headers: headers(), body: JSON.stringify(body || {}),
+        });
+        const json = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(json.error || ('HTTP ' + res.status));
+        return json;
+      }
+
+      // ---- rendering: metric cards ------------------------------------------
+      function renderStats() {
+        const s = state.stats;
+        if (!s || statNums.length < 4) {
+          statNums.forEach((n) => { n.textContent = DASH; });
+          put(chips.high, DASH); put(chips.ttl, DASH); put(chips.stat2sub, DASH);
+          put(chips.share, DASH); put(chips.stat3sub, DASH);
+          put(chips.sla, DASH); put(chips.stat4sub, DASH);
+          return;
+        }
+        statNums[0].textContent = String(s.by_status.pending);
+        statNums[1].textContent = String(s.active);
+        put(chips.stat2sub, 'rotates on access end');
+
+        const pendingList = state.requests.filter((r) => r.status === 'pending');
+        const pendingExact = s.by_status.pending === pendingList.length;
+        const highPending = pendingList.filter(
+          (r) => r.risk.level === 'high' || r.risk.level === 'critical').length;
+        put(chips.high, pendingExact
+          ? highPending + ' high-risk'
+          : DASH + ' (200+ not itemised)');
+
+        if (s.active === 0) {
+          put(chips.ttl, 'no active grants');
+        } else {
+          const actives = state.requests.filter((r) => r.status === 'active'
+            && typeof r.minutes_left === 'number');
+          const exact = actives.length === s.active;
+          put(chips.ttl, exact
+            ? 'next expiry ' + Math.min.apply(null, actives.map((r) => r.minutes_left)) + 'm'
+            : DASH);
+        }
+
+        // derived metrics are only exact when the page covered every request
+        const complete = state.requests.length >= s.total;
+        if (!complete) {
+          statNums[2].textContent = DASH; statNums[3].textContent = DASH;
+          put(chips.share, DASH); put(chips.stat3sub, '200+ requests: see API');
+          put(chips.sla, DASH); put(chips.stat4sub, '200+ requests: see API');
+          return;
+        }
+        const day = Date.now() - 24 * 3600 * 1000;
+        const recentApproved = state.requests.filter(
+          (r) => r.status === 'approved' && Date.parse(r.created_at) >= day);
+        const auto = recentApproved.filter(
+          (r) => !r.approvals.manager && !r.approvals.security).length;
+        const human = recentApproved.length - auto;
+        statNums[2].textContent = String(auto);
+        put(chips.share, (auto + human)
+          ? ((100 * auto / (auto + human)).toFixed(1) + '%')
+          : DASH);
+        put(chips.stat3sub, 'auto band: low risk, no sign-off');
+
+        const deltas = [];
+        state.requests.forEach((r) => {
+          ['manager', 'security'].forEach((k) => {
+            const snap = r.approvals[k];
+            if (snap && snap.at) {
+              deltas.push((Date.parse(snap.at) - Date.parse(r.created_at)) / 60000);
             }
-          }, 1200);
+          });
+        });
+        statNums[3].textContent = deltas.length
+          ? (deltas.reduce((a, b) => a + b, 0) / deltas.length).toFixed(1)
+          : DASH;
+        put(chips.sla, deltas.length ? 'measured' : DASH);
+        put(chips.stat4sub, deltas.length
+          ? deltas.length + ' human decision(s) measured'
+          : 'no human decisions yet');
+      }
+
+      // ---- rendering: tabs + queue ------------------------------------------
+      const TAB_FILTERS = {
+        pending: (r) => r.status === 'pending' || r.status === 'approved'
+          || r.status === 'blocked',
+        active: (r) => r.status === 'active',
+        history: (r) => r.status === 'closed' || r.status === 'expired'
+          || r.status === 'denied',
+      };
+      const ACTIVE_CLS = ['bg-primary-container', 'text-on-primary-container',
+        'font-semibold', 'shadow-sm'];
+
+      function renderTabs() {
+        Object.keys(tabs).forEach((key) => {
+          const btn = tabs[key];
+          if (!btn) return;
+          if (key === 'mine') {
+            btn.disabled = true;
+            btn.title = 'Requires a per-user identity; this console has none in this build.';
+            btn.classList.add('opacity-50', 'cursor-not-allowed');
+            return;
+          }
+          ACTIVE_CLS.forEach((cls) => btn.classList.toggle(cls, state.tab === key));
+        });
+        if (tabCounts.pending && state.stats) {
+          tabCounts.pending.textContent = String(state.stats.by_status.pending);
+        }
+        if (tabCounts.active && state.stats) {
+          tabCounts.active.textContent = String(state.stats.active);
+        }
+      }
+
+      function visible() {
+        const filter = TAB_FILTERS[state.tab];
+        const list = state.requests.filter(filter);
+        return list.sort((a, b) => b.id - a.id);
+      }
+
+      const STATUS_META = {
+        pending: { icon: 'hourglass_empty', text: 'Awaiting approval', cls: 'text-on-surface-variant' },
+        approved: { icon: 'key', text: 'Approved - ready to issue', cls: 'text-primary' },
+        active: { icon: 'timer', text: 'Active grant', cls: 'text-tertiary' },
+        closed: { icon: 'check_circle', text: 'Closed', cls: 'text-on-surface-variant' },
+        expired: { icon: 'timer_off', text: 'Expired - credential rotated', cls: 'text-on-surface-variant' },
+        denied: { icon: 'block', text: 'Denied', cls: 'text-error' },
+        blocked: { icon: 'gpp_maybe', text: 'Blocked by risk policy', cls: 'text-error' },
+      };
+      function riskBadgeCls(level) {
+        return (level === 'high' || level === 'critical')
+          ? 'bg-error-container text-on-error-container'
+          : level === 'medium'
+            ? 'bg-surface-container text-on-surface-variant'
+            : 'bg-surface-container text-on-surface-variant';
+      }
+      function levelTextCls(level) {
+        return (level === 'high' || level === 'critical')
+          ? 'bg-error-container text-error' : 'bg-surface-container text-on-surface-variant';
+      }
+
+      function buildCard(r) {
+        const meta = STATUS_META[r.status] || STATUS_META.pending;
+        const active = r.status === 'active';
+        const statusText = active && typeof r.minutes_left === 'number'
+          ? 'Active - ' + r.minutes_left + 'm left' : meta.text;
+        const initials = esc((r.requester || '?').slice(0, 2).toUpperCase());
+        const card = document.createElement('div');
+        card.setAttribute('data-req', String(r.id));
+        card.className = 'relative bg-surface-container-lowest rounded-xl p-space-lg '
+          + 'shadow-sm hover:shadow-md cursor-pointer transition-all hover:bg-surface-bright';
+        card.innerHTML =
+          '<div class="flex items-start justify-between mb-2">'
+          + '<div class="flex items-center gap-2">'
+          + '<span class="font-code-md text-code-md text-primary font-bold">#JIT-' + r.id + '</span>'
+          + '<span class="px-2 py-0.5 rounded ' + riskBadgeCls(r.risk.level)
+          + ' font-label-badge text-label-badge font-semibold uppercase">' + esc(r.risk.level) + '</span>'
+          + '</div>'
+          + '<span class="font-code-sm text-code-sm text-outline">Requested ' + ago(r.created_at) + '</span>'
+          + '</div>'
+          + '<div class="flex items-center gap-space-sm mb-space-md">'
+          + '<div class="w-9 h-9 rounded-full bg-surface-container-high flex items-center justify-center text-primary font-label-md text-label-md font-bold">'
+          + initials + '</div>'
+          + '<div class="flex flex-col">'
+          + '<span class="font-headline-sm text-headline-sm text-on-surface font-semibold leading-tight">'
+          + esc(r.requester) + '</span>'
+          + '<span class="font-body-sm text-body-sm text-on-surface-variant">'
+          + esc(r.ticket) + ' \u2022 ' + r.risk.score + ' risk</span>'
+          + '</div></div>'
+          + '<div class="bg-surface-container rounded-lg p-space-sm mb-space-md flex flex-col gap-1.5">'
+          + '<div class="flex items-center justify-between text-body-sm">'
+          + '<span class="text-on-surface-variant font-medium flex items-center gap-1.5">'
+          + '<span class="material-symbols-outlined text-[16px] text-primary">cloud_circle</span>Target:</span>'
+          + '<span class="font-code-sm text-code-sm text-on-surface font-semibold">'
+          + esc(targetOf(r)) + '</span></div>'
+          + '<div class="flex items-center justify-between text-body-sm">'
+          + '<span class="text-on-surface-variant font-medium flex items-center gap-1.5">'
+          + '<span class="material-symbols-outlined text-[16px] text-outline">confirmation_number</span>Ticket Ref:</span>'
+          + '<span class="font-code-sm text-code-sm text-primary font-semibold">' + esc(r.ticket) + '</span>'
+          + '</div></div>'
+          + '<p class="font-body-sm text-body-sm text-on-surface-variant line-clamp-2 mb-space-md">'
+          + esc(r.reason) + '</p>'
+          + '<div class="flex items-center justify-between pt-space-xs">'
+          + '<div class="flex items-center gap-1.5">'
+          + '<span class="material-symbols-outlined text-[16px] ' + meta.cls + '">' + meta.icon + '</span>'
+          + '<span class="font-label-badge text-label-badge text-on-surface font-semibold">' + esc(statusText) + '</span>'
+          + '</div>'
+          + '<span class="font-code-sm text-code-sm text-outline">Window: ' + r.minutes + 'm</span>'
+          + '</div>';
+        return card;
+      }
+
+      function itemOf(r) {
+        return state.items.find((i) => i.id === r.item_id) || null;
+      }
+      function targetOf(r) {
+        const item = itemOf(r);
+        return item ? item.name : 'credential #' + r.item_id;
+      }
+
+      function notice(title, body) {
+        const div = document.createElement('div');
+        div.className = 'bg-surface-container-lowest rounded-xl p-space-lg shadow-sm flex flex-col gap-1 text-center';
+        div.innerHTML = '<p class="font-label-md text-label-md text-on-surface font-semibold">'
+          + esc(title) + '</p><p class="font-body-sm text-body-sm text-on-surface-variant">'
+          + esc(body) + '</p>';
+        return div;
+      }
+
+      function renderQueue() {
+        if (!cardsBox) return;
+        const list = visible();
+        cardsBox.innerHTML = '';
+        if (!state.connected) {
+          cardsBox.appendChild(notice('License server not connected',
+            'The request queue was not loaded (file:// or the API is unreachable).'));
+          state.selectedId = null; state.detail = null;
+          renderDetail(); renderActions();
+          return;
+        }
+        if (!list.length) {
+          cardsBox.appendChild(notice('No ' + state.tab + ' requests',
+            'File one with "Request Temporary Access" against a vault credential.'));
+          state.selectedId = null; state.detail = null;
+          renderDetail(); renderActions();
+          return;
+        }
+        list.slice(0, 50).forEach((r) => cardsBox.appendChild(buildCard(r)));
+        if (list.every((r) => r.id !== state.selectedId)) {
+          select(list[0].id);
+        } else {
+          highlight(); renderDetail(); renderActions();
+        }
+      }
+
+      function highlight() {
+        if (!cardsBox) return;
+        Array.from(cardsBox.querySelectorAll('[data-req]')).forEach((card) => {
+          const on = Number(card.getAttribute('data-req')) === state.selectedId;
+          card.classList.toggle('bg-surface-bright', on);
+          card.classList.toggle('shadow-md', on);
+          const bar = card.querySelector('div.jit-sel');
+          if (on && !bar) {
+            const marker = document.createElement('div');
+            marker.className = 'jit-sel absolute left-0 top-0 bottom-0 w-1.5 bg-primary-container rounded-l-xl';
+            card.prepend(marker);
+          } else if (!on && bar) { bar.remove(); }
         });
       }
 
-      if (rejectBtn) {
-        rejectBtn.addEventListener('click', () => {
-          const reason = prompt("Please provide a reason for rejecting this access request (required for SOC2 audit compliance):", "Policy breach / ticket details insufficient");
-          if (reason) {
-            rejectBtn.disabled = true;
-            rejectBtn.innerText = "Request Rejected";
-            if (approveBtn) approveBtn.style.display = 'none';
+      // ---- rendering: detail pane -------------------------------------------
+      const REQUIRED = { low: [], medium: ['manager'], high: ['manager', 'security'], critical: [] };
+
+      function stepHtml(n, title, kind, sub) {
+        const map = {
+          done: { icon: 'check', circle: 'bg-surface-container-high text-tertiary',
+            badge: 'APPROVED', bcls: 'bg-surface-container text-tertiary' },
+          wait: { icon: 'pending', circle: 'bg-primary-container text-on-primary-container animate-pulse',
+            badge: 'ACTION REQUIRED', bcls: 'bg-surface-container-high text-primary' },
+          skip: { icon: 'remove_circle_outline', circle: 'bg-surface-container text-outline',
+            badge: 'NOT REQUIRED', bcls: 'bg-surface-container text-outline' },
+          block: { icon: 'gpp_maybe', circle: 'bg-error-container text-error',
+            badge: 'BLOCKED', bcls: 'bg-error-container text-error' },
+        };
+        const m = map[kind];
+        return '<div class="flex items-center gap-space-md w-full md:w-auto">'
+          + '<div class="w-10 h-10 rounded-full ' + m.circle
+          + ' flex items-center justify-center shrink-0">'
+          + '<span class="material-symbols-outlined text-[20px]">' + m.icon + '</span></div>'
+          + '<div class="flex flex-col"><div class="flex items-center gap-1.5">'
+          + '<span class="font-headline-sm text-[14px] text-on-surface font-bold">' + n + '. ' + title + '</span>'
+          + '<span class="px-1.5 py-0.2 rounded ' + m.bcls + ' font-code-sm text-[10px] font-bold">' + m.badge + '</span>'
+          + '</div><span class="font-body-sm text-body-sm text-on-surface-variant">' + sub + '</span>'
+          + '</div></div>';
+      }
+
+      function renderStepper(r) {
+        if (!ui.stepper) return;
+        if (!r) {
+          ui.stepper.innerHTML = stepHtml(1, 'Manager Sign-off', 'skip', 'no request selected')
+            + stepHtml(2, 'Security Sign-off', 'skip', 'no request selected');
+          return;
+        }
+        const required = REQUIRED[r.risk.level] || [];
+        const blocked = r.risk.level === 'critical';
+        const one = (role, index, title) => {
+          if (blocked) return stepHtml(index, title, 'block',
+            'critical risk - policy blocks approval, deny instead');
+          const snap = role === 'manager' ? r.approvals.manager : r.approvals.security;
+          if (snap) return stepHtml(index, title, 'done',
+            esc(snap.actor) + ' \u2022 ' + ago(snap.at));
+          if (required.indexOf(role) === -1) return stepHtml(index, title, 'skip',
+            'not required for ' + r.risk.level + ' risk');
+          return stepHtml(index, title, 'wait', 'awaiting sign-off');
+        };
+        ui.stepper.innerHTML = one('manager', 1, 'Manager Sign-off')
+          + '<div class="hidden md:flex items-center text-primary-container px-2">'
+          + '<span class="material-symbols-outlined text-[24px]">trending_flat</span></div>'
+          + one('security', 2, 'Security Sign-off');
+      }
+
+      function renderDetail() {
+        if (!pane) return;
+        const r = state.detail && state.detail.request;
+        const item = r ? itemOf(r) : null;
+        if (!r) {
+          put(ui.name, 'No request selected');
+          put(ui.badge, DASH);
+          put(ui.sub, state.connected
+            ? 'Select a request from the queue.'
+            : 'Nothing loaded - the license server is not connected.');
+          put(ui.score, DASH);
+          put(ui.level, DASH);
+          if (ui.avatar) ui.avatar.style.display = 'none';
+          if (ui.initials) ui.initials.style.display = 'none';
+          if (ui.factorsRows) {
+            ui.factorsRows.innerHTML = '<p class="font-body-sm text-body-sm text-on-surface-variant">' + DASH + '</p>';
+          }
+          if (ui.ticketRows) {
+            ui.ticketRows.innerHTML = '<p class="font-body-sm text-body-sm text-on-surface-variant">' + DASH + '</p>';
+          }
+          put(ui.ticketSync, DASH);
+          put(ui.targetLine, 'Target: ' + DASH);
+          if (ui.chipsBox) {
+            ui.chipsBox.innerHTML = '<span class="inline-flex items-center gap-1 px-2.5 py-1 rounded bg-surface-container-high text-on-surface-variant font-code-sm text-code-sm">' + DASH + '</span>';
+          }
+          put(ui.sessionPolicy, 'Status: ' + DASH);
+          renderStepper(null);
+          put(ui.preChip, 'waiting for selection');
+          if (ui.preLines) {
+            ui.preLines.innerHTML = '<p><span class="text-outline font-bold">[IDLE]</span> No request selected - nothing to evaluate.</p>';
+          }
+          return;
+        }
+        put(ui.name, r.requester);
+        put(ui.badge, r.status.toUpperCase());
+        put(ui.sub, 'Ticket ' + r.ticket + ' \u2022 requested ' + ago(r.created_at)
+          + ' \u2022 ' + r.status);
+        put(ui.score, r.risk.score + ' / 100');
+        put(ui.level, r.risk.level + ' risk');
+        ui.level.className = 'inline-flex items-center gap-1 px-2 py-0.5 rounded font-label-badge text-label-badge font-medium '
+          + levelTextCls(r.risk.level);
+        if (ui.avatar) ui.avatar.style.display = 'none';
+        if (!ui.initials && ui.avatar) {
+          ui.initials = document.createElement('div');
+          ui.initials.className = 'w-12 h-12 rounded-full bg-surface-container-high flex items-center justify-center text-primary font-headline-sm text-headline-sm font-bold';
+          ui.avatar.parentElement.insertBefore(ui.initials, ui.avatar);
+        }
+        if (ui.initials) {
+          ui.initials.style.display = '';
+          ui.initials.textContent = (r.requester || '?').slice(0, 2).toUpperCase();
+        }
+        put(ui.targetLine, 'Target: '
+          + (item ? item.name + ' (' + item.target + ')' : 'credential #' + r.item_id));
+
+        if (r.risk.factors.length && ui.factorsRows) {
+          ui.factorsRows.innerHTML = r.risk.factors.map((f) =>
+            '<div class="flex items-center justify-between text-body-sm">'
+            + '<span class="text-on-surface-variant">' + esc(f.factor.replace(/_/g, ' '))
+            + ' \u2014 ' + esc(f.detail) + '</span>'
+            + '<span class="font-code-sm text-code-sm text-error font-semibold">+' + f.points + '</span>'
+            + '</div>').join('');
+        } else if (ui.factorsRows) {
+          ui.factorsRows.innerHTML = '<p class="font-body-sm text-body-sm text-on-surface-variant">'
+            + 'No risk factors - score 0 (low band, auto-approval).</p>';
+        }
+
+        const ticketOk = TICKET_RE.test(r.ticket);
+        const rowHtml = (label, value) =>
+          '<div class="flex items-center justify-between text-body-sm">'
+          + '<span class="text-on-surface-variant">' + label + '</span>' + value + '</div>';
+        const badgeHtml = (cls, text) =>
+          '<span class="px-1.5 py-0.5 rounded font-code-sm text-code-sm ' + cls + '">' + text + '</span>';
+        if (ui.ticketRows) {
+          ui.ticketRows.innerHTML =
+            rowHtml('Issue Key:', '<span class="font-code-sm text-code-sm text-primary font-bold">' + esc(r.ticket) + '</span>')
+            + rowHtml('Format check:', ticketOk
+              ? badgeHtml('bg-surface-container text-tertiary font-semibold', 'ITSM-style')
+              : badgeHtml('bg-error-container text-error font-semibold', 'Unfamiliar (+10 risk)'))
+            + rowHtml('Window:', badgeHtml('bg-surface-container text-on-surface font-medium', r.minutes + ' minutes'))
+            + rowHtml('Risk band:', badgeHtml(levelTextCls(r.risk.level), esc(r.risk.level)));
+        }
+        put(ui.ticketSync, ticketOk ? 'Format OK' : 'Non-standard');
+
+        const chip = (icon, text, color) =>
+          '<span class="inline-flex items-center gap-1 px-2.5 py-1 rounded bg-surface-container-high text-on-surface font-code-sm text-code-sm font-medium">'
+          + '<span class="material-symbols-outlined text-[14px] ' + color + '">' + icon + '</span>'
+          + esc(text) + '</span>';
+        const chipList = [];
+        if (item) {
+          chipList.push(chip('terminal', item.target, 'text-primary'));
+          chipList.push(chip('key', item.secret_type + ' / ' + item.auth_method, 'text-outline'));
+          chipList.push(chip('shield', item.access_tier, 'text-primary'));
+          chipList.push(chip('schedule', 'window ' + r.minutes + 'm', 'text-outline'));
+          if (item.rotation_interval_hours) {
+            chipList.push(chip('sync', 'rotation every ' + item.rotation_interval_hours
+              + 'h - runs on access end', 'text-outline'));
+          }
+          chipList.push(chip(r.status === 'active' ? 'lock_clock' : 'lock',
+            'credential ' + item.status, r.status === 'active' ? 'text-error' : 'text-outline'));
+        }
+        chipList.push(chip('schedule', 'expires ' + (r.expires_at || DASH), 'text-outline'));
+        if (ui.chipsBox) ui.chipsBox.innerHTML = chipList.join('');
+
+        put(ui.sessionPolicy, 'Status: ' + r.status
+          + (r.granted_at ? ' \u2022 granted ' + ago(r.granted_at) : '')
+          + (r.closed_at ? ' \u2022 ended ' + ago(r.closed_at) : ''));
+        renderStepper(r);
+
+        const factors = r.risk.factors.length
+          ? r.risk.factors.map((f) => f.factor + ' +' + f.points).join(', ')
+          : 'none (score 0)';
+        const required = REQUIRED[r.risk.level];
+        const recorded = [];
+        if (r.approvals.manager) recorded.push('manager ' + r.approvals.manager.actor);
+        if (r.approvals.security) recorded.push('security ' + r.approvals.security.actor);
+        const quorum = r.risk.level === 'critical'
+          ? 'blocked - policy denies sign-off'
+          : (recorded.length || required.length)
+            ? 'recorded: ' + (recorded.length ? recorded.join(', ') : 'none')
+              + ' / required: ' + (required.length ? required.join(' + ') : 'none')
+            : 'recorded: none / required: none (low risk auto-approval)';
+        const events = (state.detail.events || []).slice(0, 3).reverse().map((e) =>
+          new Date(e.created_at).toLocaleTimeString() + ' ' + e.action + ' by ' + e.actor
+        ).join(' \u00b7 ');
+        const line = (cls, tag, text) =>
+          '<p><span class="' + cls + ' font-bold">[' + tag + ']</span> ' + esc(text) + '</p>';
+        ui.preLines && (ui.preLines.innerHTML =
+          line('text-primary', 'RISK', 'score ' + r.risk.score + ' / 100 (' + r.risk.level
+            + ') - factors: ' + factors)
+          + line('text-tertiary', 'QUORUM', quorum)
+          + line('text-outline', 'WINDOW', r.minutes + ' minutes requested - status '
+            + r.status + ' - ticket ' + r.ticket)
+          + line('text-outline', 'AUDIT', events || 'no events yet'));
+        put(ui.preChip, 'read live from /api/v1/jit');
+      }
+
+      // ---- actions ----------------------------------------------------------
+      function current() {
+        return state.detail ? state.detail.request : null;
+      }
+      function missingRole(r) {
+        const required = REQUIRED[r.risk.level] || [];
+        if (required.indexOf('manager') !== -1 && !r.approvals.manager) return 'manager';
+        if (required.indexOf('security') !== -1 && !r.approvals.security) return 'security';
+        return null;
+      }
+      function renderActions() {
+        if (!approveBtn || !rejectBtn) return;
+        const r = current();
+        rejectBtn.style.display = '';
+        rejectBtn.disabled = false;
+        approveBtn.disabled = false;
+        const setLabel = (text, icon) => {
+          approveBtn.innerHTML = '<span class="material-symbols-outlined text-[18px]">'
+            + icon + '</span><span>' + esc(text) + '</span>';
+        };
+        if (!r) {
+          setLabel('Approve & Issue Ephemeral Token', 'key');
+          approveBtn.disabled = true;
+          rejectBtn.style.display = 'none';
+          return;
+        }
+        if (r.status === 'pending') {
+          setLabel(missingRole(r) === 'security'
+            ? 'Approve (security) & Issue' : 'Approve & Issue Ephemeral Token', 'key');
+        } else if (r.status === 'approved') {
+          setLabel('Issue Ephemeral Token', 'key');
+          rejectBtn.style.display = 'none';
+        } else if (r.status === 'active') {
+          setLabel('End Access & Rotate', 'lock');
+          rejectBtn.style.display = 'none';
+        } else if (r.status === 'blocked') {
+          setLabel('Blocked by Risk Policy', 'gpp_maybe');
+          approveBtn.disabled = true;
+        } else {
+          setLabel(r.status === 'denied' ? 'Request Denied'
+            : r.status === 'expired' ? 'Access Expired' : 'Access Closed', 'check_circle');
+          approveBtn.disabled = true;
+          rejectBtn.style.display = 'none';
+        }
+      }
+
+      async function refreshSelected() {
+        if (state.selectedId == null) return;
+        try {
+          const res = await fetch(API + '/jit/requests/' + state.selectedId,
+            { headers: headers() });
+          if (!res.ok) throw new Error(String(res.status));
+          state.detail = await res.json();
+        } catch (err) { state.detail = null; }
+      }
+
+      async function primary() {
+        const r = current();
+        if (!r || approveBtn.disabled) return;
+        approveBtn.disabled = true;
+        rejectBtn.disabled = true;
+        approveBtn.innerHTML = '<span class="material-symbols-outlined text-[18px] animate-spin">refresh</span><span>Working\u2026</span>';
+        try {
+          if (r.status === 'pending') {
+            const role = missingRole(r) || 'manager';
+            await post('/jit/requests/' + r.id + '/approve', { role: role });
+            await refreshSelected();
+            const now = current();
+            if (now && now.status === 'approved') {
+              const grant = await post('/jit/requests/' + r.id + '/consume', {});
+              state.tab = 'active';
+              toast('Approval complete - access granted, credential checked out until '
+                + (grant.request.expires_at || DASH) + '.');
+            } else {
+              toast('Approval recorded (' + role + ') - further sign-off required before issuing.');
+            }
+          } else if (r.status === 'approved') {
+            const grant = await post('/jit/requests/' + r.id + '/consume', {});
+            state.tab = 'active';
+            toast('Ephemeral access issued - expires ' + (grant.request.expires_at || DASH) + '.');
+          } else if (r.status === 'active') {
+            const closed = await post('/jit/requests/' + r.id + '/close', {});
+            state.tab = 'history';
+            toast(closed.message || 'Access closed and credential rotated.');
+          }
+          await load();
+        } catch (err) {
+          toast('Action failed: ' + err.message);
+          renderActions();
+          rejectBtn.disabled = false;
+        }
+      }
+
+      async function secondary() {
+        const r = current();
+        if (!r || (r.status !== 'pending' && r.status !== 'blocked')) return;
+        const reason = window.prompt(
+          'Deny this access request (recorded in the audit trail):',
+          'Policy breach / ticket details insufficient');
+        if (reason === null) return;
+        try {
+          await post('/jit/requests/' + r.id + '/deny', { reason: reason });
+          state.tab = 'history';
+          toast('Request denied - recorded with your actor and timestamp.');
+          await load();
+        } catch (err) {
+          toast('Deny failed: ' + err.message);
+        }
+      }
+
+      // ---- request modal -----------------------------------------------------
+      function openRequestModal() {
+        if (document.querySelector('[data-jit-modal]')) return;
+        const overlay = document.createElement('div');
+        overlay.setAttribute('data-jit-modal', '1');
+        overlay.className = 'fixed inset-0 z-50 bg-black/40 flex items-center justify-center p-4';
+        overlay.innerHTML =
+          '<div class="bg-surface-container-lowest rounded-xl p-space-xl shadow-xl w-full max-w-md flex flex-col gap-3">'
+          + '<div class="flex items-center justify-between">'
+          + '<span class="font-headline-sm text-headline-sm text-on-surface font-bold">Request Temporary Access</span>'
+          + '<button class="p-1 rounded hover:bg-surface-container text-on-surface-variant" data-role="close">'
+          + '<span class="material-symbols-outlined text-[18px]">close</span></button></div>'
+          + '<div class="flex flex-col gap-1.5"><label class="font-label-md text-label-md text-on-surface font-medium">Target credential</label>'
+          + '<select data-role="target" class="bg-surface-container-low p-2 rounded-lg font-body-sm text-body-sm text-on-surface focus:outline-none"></select></div>'
+          + '<div class="flex flex-col gap-1.5"><label class="font-label-md text-label-md text-on-surface font-medium">Reason (min 8 characters)</label>'
+          + '<textarea data-role="reason" rows="2" class="p-2 rounded-lg bg-surface-container-low font-body-sm text-body-sm text-on-surface focus:outline-none" placeholder="Why is this access needed?"></textarea></div>'
+          + '<div class="grid grid-cols-2 gap-3">'
+          + '<div class="flex flex-col gap-1.5"><label class="font-label-md text-label-md text-on-surface font-medium">Ticket</label>'
+          + '<input data-role="ticket" class="p-2 rounded-lg bg-surface-container-low font-code-sm text-code-sm text-on-surface focus:outline-none" placeholder="INC-1234"/></div>'
+          + '<div class="flex flex-col gap-1.5"><label class="font-label-md text-label-md text-on-surface font-medium">Window (minutes)</label>'
+          + '<input data-role="minutes" type="number" min="1" max="480" value="15" class="p-2 rounded-lg bg-surface-container-low font-code-sm text-code-sm text-on-surface focus:outline-none"/></div>'
+          + '</div>'
+          + '<div class="flex flex-col gap-1.5"><label class="font-label-md text-label-md text-on-surface font-medium">Requester (who needs access)</label>'
+          + '<input data-role="requester" value="oncall.engineer" class="p-2 rounded-lg bg-surface-container-low font-code-sm text-code-sm text-on-surface focus:outline-none" placeholder="oncall.engineer"/></div>'
+          + '<p class="font-body-sm text-body-sm text-error hidden" data-role="error"></p>'
+          + '<div class="flex justify-end gap-2 pt-1">'
+          + '<button class="px-3 py-2 rounded-lg bg-surface-container text-on-surface-variant font-label-md text-label-md" data-role="close">Cancel</button>'
+          + '<button class="px-3 py-2 rounded-lg bg-primary text-on-primary font-label-md text-label-md font-semibold" data-role="submit">File Request</button>'
+          + '</div></div>';
+        document.body.appendChild(overlay);
+        const errorEl = overlay.querySelector('[data-role="error"]');
+        const targetSel = overlay.querySelector('[data-role="target"]');
+        const submitBtn = overlay.querySelector('[data-role="submit"]');
+        targetSel.innerHTML = '<option value="">Loading credentials\u2026</option>';
+        fetch(API + '/vault/items?limit=200', { headers: headers() })
+          .then((res) => (res.ok ? res.json() : Promise.reject(new Error(String(res.status)))))
+          .then((json) => {
+            const items = json.items || [];
+            if (!items.length) {
+              targetSel.innerHTML = '<option value="">No vault credentials - onboard one in the Credential Vault first</option>';
+              submitBtn.disabled = true;
+              return;
+            }
+            targetSel.innerHTML = items.map((i) =>
+              '<option value="' + i.id + '">' + esc(i.name) + ' (' + esc(i.target) + ')</option>').join('');
+          })
+          .catch(() => {
+            targetSel.innerHTML = '<option value="">Credentials not reachable</option>';
+            submitBtn.disabled = true;
+          });
+        overlay.addEventListener('click', (ev) => {
+          if (ev.target === overlay || ev.target.closest('[data-role="close"]')) overlay.remove();
+        });
+        submitBtn.addEventListener('click', async () => {
+          errorEl.classList.add('hidden');
+          const payload = {
+            item_id: Number(targetSel.value),
+            reason: overlay.querySelector('[data-role="reason"]').value.trim(),
+            ticket: overlay.querySelector('[data-role="ticket"]').value.trim(),
+            minutes: Number(overlay.querySelector('[data-role="minutes"]').value),
+            requester: overlay.querySelector('[data-role="requester"]').value.trim()
+              || 'oncall.engineer',
+          };
+          if (!payload.item_id) { errorEl.textContent = 'Pick a target credential.'; errorEl.classList.remove('hidden'); return; }
+          if (payload.reason.length < 8) { errorEl.textContent = 'Reason must be at least 8 characters.'; errorEl.classList.remove('hidden'); return; }
+          if (!payload.ticket) { errorEl.textContent = 'A ticket reference is required.'; errorEl.classList.remove('hidden'); return; }
+          submitBtn.disabled = true;
+          try {
+            const res = await fetch(API + '/jit/requests', {
+              method: 'POST', headers: headers(), body: JSON.stringify(payload),
+            });
+            const json = await res.json().catch(() => ({}));
+            if (!res.ok) throw new Error(json.error || ('HTTP ' + res.status));
+            const filed = json.request;
+            overlay.remove();
+            toast('Request #' + filed.id + ' filed - risk ' + filed.risk.level
+              + ' (' + filed.risk.score + '), status ' + filed.status + '.');
+            state.tab = 'pending';
+            await load();
+            select(filed.id);
+          } catch (err) {
+            errorEl.textContent = err.message;
+            errorEl.classList.remove('hidden');
+            submitBtn.disabled = false;
           }
         });
       }
+
+      // ---- wiring -----------------------------------------------------------
+      function select(id) {
+        state.selectedId = id;
+        highlight();
+        refreshSelected().then(() => { renderDetail(); renderActions(); });
+      }
+
+      function renderAll() {
+        renderStats(); renderTabs(); renderQueue();
+      }
+
+      if (cardsBox) {
+        cardsBox.addEventListener('click', (ev) => {
+          const card = ev.target.closest('[data-req]');
+          if (card) select(Number(card.getAttribute('data-req')));
+        });
+      }
+      ['pending', 'active', 'history'].forEach((key) => {
+        if (tabs[key]) tabs[key].addEventListener('click', () => {
+          state.tab = key; renderTabs(); renderQueue();
+        });
+      });
+      if (approveBtn) approveBtn.addEventListener('click', primary);
+      if (rejectBtn) rejectBtn.addEventListener('click', secondary);
+      if (requestBtn) requestBtn.addEventListener('click', openRequestModal);
+
+      // initial honest paint (wipes the design's fake content in both modes)
+      renderAll();
+      load();
+      setInterval(() => { if (state.connected) load(); }, 60000);
+
+      window.jitLive = {
+        load: load, select: select, openRequestModal: openRequestModal,
+        state: state,
+      };
     })();
+
   </script>
-</div></main><footer class="fixed bottom-0 left-64 right-0 h-10 bg-surface-container-lowest/95 backdrop-blur-sm border-t border-outline-variant/30 z-30 flex items-center justify-between px-space-xl text-on-surface-variant font-code-sm text-code-sm shadow-[0_-1px_4px_rgba(0,0,0,0.02)]"><div class="flex items-center gap-space-md"><div class="flex items-center gap-1.5"><span class="w-2 h-2 rounded-full bg-tertiary"></span><span class="text-on-surface font-medium">Zero-Trust Gateway: Healthy</span><span class="text-outline">(18 Nodes connected)</span></div><span class="text-outline-variant">•</span><span class="text-tertiary font-semibold">0 standing admin accounts</span></div><div class="flex items-center gap-space-lg text-outline"><span>Session TLS 1.3 Strict</span><span>mTLS Enforced</span><span>Audit Digest Verified</span></div></footer></div></body></html>
+</div></main><footer class="fixed bottom-0 left-64 right-0 h-10 bg-surface-container-lowest/95 backdrop-blur-sm border-t border-outline-variant/30 z-30 flex items-center justify-between px-space-xl text-on-surface-variant font-code-sm text-code-sm shadow-[0_-1px_4px_rgba(0,0,0,0.02)]"><div class="flex items-center gap-space-md"><div class="flex items-center gap-1.5"><span class="w-2 h-2 rounded-full bg-tertiary"></span><span class="text-on-surface font-medium">License server: &mdash;</span><span class="text-outline">(&mdash; nodes)</span></div><span class="text-outline-variant"></span><span class="text-tertiary font-semibold">&mdash; credentials checked out</span></div><div class="flex items-center gap-space-lg text-outline"><span>Auth: &mdash;</span><span>WORM: &mdash;</span><span>Audit: &mdash; events</span></div></footer></div></body></html>

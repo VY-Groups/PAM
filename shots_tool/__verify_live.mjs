@@ -15,6 +15,7 @@ const SCREENS = [
   'credential_vault_secrets_inventory',
   'compliance_soc_2_audit_center',
   'target_infrastructure_connectors',
+  'jit_access_ephemeral_approvals',
 ];
 
 const FORBIDDEN = [
@@ -35,6 +36,9 @@ const FORBIDDEN = [
   // command center it is an honest descriptor label with a static — value)
   '12ms', '99.98', 'Optimal', 'Degraded (0)', 'Enforced (',
   'Showing 5 of', '7.8ms',
+  // JIT (4b) design values, purged at runtime by the live wiring
+  '41m remaining', '2 High Urgency', 'Marcus Brody', 'JIRA-5920',
+  'Live Synced', 'Strict_RECORDING', 'AssumeRole', '94.1',
 ];
 
 const failures = [];

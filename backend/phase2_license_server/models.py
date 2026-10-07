@@ -820,3 +820,103 @@ class DiscoveryEvent(db.Model):
             "detail": self.detail,
             "created_at": self.created_at.isoformat(),
         }
+
+
+# ---------------------------------------------------------------------------
+# JIT / JEA access (module 6)
+# ---------------------------------------------------------------------------
+JIT_STATUSES = (
+    "pending",    # awaiting the approvals its risk level requires
+    "approved",   # approvals complete (or auto-approved by low risk)
+    "active",     # granted: the vault credential is checked out until expires_at
+    "closed",     # access ended early -> credential rotated
+    "expired",    # the time box elapsed -> credential rotated
+    "denied",     # an approver rejected it
+    "blocked",    # risk >= 76: policy blocks it outright
+)
+JIT_ROLES = ("manager", "security")
+RISK_LEVELS = ("low", "medium", "high", "critical")
+
+
+class JitRequest(db.Model):
+    """One time-boxed privileged access request (architecture module 6):
+    reason + ticket -> risk evaluation -> approvals -> grant -> expiry ->
+    credential rotation. Every state carries who did it and when."""
+
+    __tablename__ = "jit_requests"
+
+    id = db.Column(db.Integer, primary_key=True)
+    item_id = db.Column(db.Integer, nullable=False, index=True)
+    requester = db.Column(db.String(64), nullable=False)
+    reason = db.Column(db.String(255), nullable=False)
+    ticket = db.Column(db.String(64), nullable=False)
+    minutes = db.Column(db.Integer, nullable=False, default=15)
+    # Real evaluation over request context (target tier, duration, off-hours,
+    # repeat behaviour, ticket shape, credential health) - factors carry the
+    # points that produced the score, nothing is assigned arbitrarily.
+    risk_score = db.Column(db.Integer, nullable=False, default=0)
+    risk_level = db.Column(db.String(16), nullable=False, default="low")
+    risk_factors = db.Column(db.JSON, nullable=False, default=list)
+    status = db.Column(db.String(16), nullable=False, default="pending", index=True)
+    # {actor, at, role?} snapshots; auto-approval records the policy itself.
+    manager_approval = db.Column(db.JSON, nullable=True)
+    security_approval = db.Column(db.JSON, nullable=True)
+    granted_at = db.Column(db.DateTime, nullable=True)
+    expires_at = db.Column(db.DateTime, nullable=True)
+    closed_at = db.Column(db.DateTime, nullable=True)
+    session_ref = db.Column(db.String(64), nullable=True)
+    created_at = db.Column(db.DateTime, nullable=False, default=datetime.now)
+
+    def to_dict(self) -> Dict[str, Any]:
+        minutes_left = None
+        if self.status == "active" and self.expires_at is not None:
+            seconds = (self.expires_at - datetime.now()).total_seconds()
+            minutes_left = max(0, int(seconds // 60))
+        return {
+            "id": self.id,
+            "item_id": self.item_id,
+            "requester": self.requester,
+            "reason": self.reason,
+            "ticket": self.ticket,
+            "minutes": self.minutes,
+            "minutes_left": minutes_left,
+            "risk": {
+                "score": self.risk_score,
+                "level": self.risk_level,
+                "factors": self.risk_factors or [],
+            },
+            "status": self.status,
+            "approvals": {
+                "manager": self.manager_approval,
+                "security": self.security_approval,
+            },
+            "granted_at": self.granted_at.isoformat() if self.granted_at else None,
+            "expires_at": self.expires_at.isoformat() if self.expires_at else None,
+            "closed_at": self.closed_at.isoformat() if self.closed_at else None,
+            "session_ref": self.session_ref,
+            "created_at": self.created_at.isoformat(),
+        }
+
+
+class JitEvent(db.Model):
+    """JIT audit trail: requested / approved / denied / granted / expired /
+    closed, each with the real actor and detail (append-only)."""
+
+    __tablename__ = "jit_events"
+
+    id = db.Column(db.Integer, primary_key=True)
+    request_id = db.Column(db.Integer, nullable=False, index=True)
+    action = db.Column(db.String(32), nullable=False)
+    actor = db.Column(db.String(64), nullable=False, default="system")
+    detail = db.Column(db.JSON, nullable=False, default=dict)
+    created_at = db.Column(db.DateTime, nullable=False, default=datetime.now)
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "id": self.id,
+            "request_id": self.request_id,
+            "action": self.action,
+            "actor": self.actor,
+            "detail": self.detail,
+            "created_at": self.created_at.isoformat(),
+        }

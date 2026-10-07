@@ -54,6 +54,8 @@ from models import (
     EVENT_RESTORED,
     EVENT_REVOKED,
     EVENT_USAGE_REPORTED,
+    JIT_ROLES,
+    JIT_STATUSES,
     SETTINGS_ACTION_UPDATED,
     STATUS_ACTIVE,
     STATUS_REVOKED,
@@ -73,6 +75,8 @@ from models import (
     DiscoveredAsset,
     DiscoveryEvent,
     DiscoveryScan,
+    JitEvent,
+    JitRequest,
     LicenseEvent,
     LicenseRecord,
     SettingGroup,
@@ -1784,6 +1788,417 @@ def vault_events(limit: int = 20, *, action: Optional[str] = None) -> Dict[str, 
     if action is not None:
         payload["action"] = action
     return payload
+
+
+# ---------------------------------------------------------------------------
+# JIT / JEA access (module 6: request -> risk -> approvals -> grant -> expiry)
+# ---------------------------------------------------------------------------
+# How many approvals each risk band demands (architecture: LOW allow,
+# MEDIUM a manager sign-off, HIGH manager + security, CRITICAL block).
+_JIT_REQUIRED_APPROVALS: Dict[str, Tuple[str, ...]] = {
+    "low": (),
+    "medium": ("manager",),
+    "high": ("manager", "security"),
+    "critical": (),
+}
+_TIER_POINTS = {"Tier-0": 30, "Tier-1": 15, "Tier-2": 0}
+_JIT_MIN_MINUTES = 1
+_JIT_MAX_MINUTES = 480
+_JIT_TICKET_RE = re.compile(r"^[A-Za-z]{2,10}-\d{2,10}$")
+
+
+def _jit_level(score: int) -> str:
+    if score <= 25:
+        return "low"
+    if score <= 50:
+        return "medium"
+    if score <= 75:
+        return "high"
+    return "critical"
+
+
+def _jit_risk(
+    item: VaultItem, requester: str, minutes: int, ticket: str, now: datetime
+) -> Tuple[int, str, List[Dict[str, Any]]]:
+    """Evaluate this request for real: every point traces to a measured input
+    (target tier, requested duration, local clock, the requester's own
+    24h history, ticket shape, credential health) - factors are returned so
+    the console can show exactly why a decision came out the way it did."""
+    factors: List[Dict[str, Any]] = []
+    score = 0
+
+    def add(name: str, points: int, detail: str) -> None:
+        nonlocal score
+        if points:
+            factors.append({"factor": name, "points": points, "detail": detail})
+            score += points
+
+    add("target_tier", _TIER_POINTS.get(item.access_tier, 0), item.access_tier)
+    duration = (
+        20 if minutes > 120
+        else 15 if minutes > 60
+        else 10 if minutes > 30
+        else 5 if minutes > 15
+        else 0
+    )
+    add("duration", duration, f"{minutes} minutes requested")
+    if now.weekday() >= 5 or now.hour < 8 or now.hour >= 18:
+        add("off_hours", 20, now.strftime("%A %H:%M local"))
+    prior = (
+        JitRequest.query.filter(
+            JitRequest.requester == requester,
+            JitRequest.created_at >= now - timedelta(hours=24),
+        )
+        .count()
+    )
+    if prior:
+        add(
+            "repeat_requests",
+            min(15, 5 * prior),
+            f"{prior} request(s) by this requester in the last 24h",
+        )
+    if not _JIT_TICKET_RE.match(ticket or ""):
+        add("ticket_shape", 10, "ticket is not an ITSM-style reference")
+    if item.status == VAULT_STATUS_FAILED:
+        add("credential_health", 10, "credential is in failed rotation state")
+    return score, _jit_level(score), factors
+
+
+def _log_jit_event(
+    request: JitRequest, action: str, actor: str, detail: Optional[Dict[str, Any]] = None
+) -> None:
+    db.session.add(
+        JitEvent(
+            request_id=request.id,
+            action=action,
+            actor=actor,
+            detail=detail or {},
+        )
+    )
+
+
+def get_jit_request(request_id: int) -> JitRequest:
+    request = JitRequest.query.filter_by(id=request_id).first()
+    if request is None:
+        raise NotFound(f"No JIT request with id {request_id}")
+    return request
+
+
+def create_jit_request(payload: Any, *, actor: str) -> JitRequest:
+    """File one access request: validates context, evaluates risk against the
+    real clock/history and lands in the state that risk implies."""
+    if not isinstance(payload, dict):
+        raise ValidationFailed("Request body must be a JSON object")
+    item_id = payload.get("item_id")
+    if isinstance(item_id, bool) or not isinstance(item_id, int):
+        raise ValidationFailed("'item_id' is required", {"field": "item_id"})
+    item = get_vault_item(item_id)
+
+    reason = payload.get("reason")
+    if not isinstance(reason, str) or not reason.strip():
+        raise ValidationFailed("'reason' is required", {"field": "reason"})
+    reason = reason.strip()[:255]
+    if len(reason) < 8:
+        raise ValidationFailed(
+            "'reason' must be at least 8 characters", {"field": "reason"}
+        )
+    ticket = payload.get("ticket")
+    if not isinstance(ticket, str) or not ticket.strip():
+        raise ValidationFailed(
+            "'ticket' is required (an ITSM reference such as INC-23891)",
+            {"field": "ticket"},
+        )
+    ticket = ticket.strip()[:64]
+    minutes = payload.get("minutes", 15)
+    if (
+        isinstance(minutes, bool)
+        or not isinstance(minutes, int)
+        or not _JIT_MIN_MINUTES <= minutes <= _JIT_MAX_MINUTES
+    ):
+        raise ValidationFailed(
+            f"'minutes' must be an integer between {_JIT_MIN_MINUTES} and {_JIT_MAX_MINUTES}",
+            {"field": "minutes", "min": _JIT_MIN_MINUTES, "max": _JIT_MAX_MINUTES},
+        )
+    requester = payload.get("requester") or actor
+    if not isinstance(requester, str) or not requester.strip():
+        raise ValidationFailed(
+            "'requester' must be a non-empty string", {"field": "requester"}
+        )
+    requester = requester.strip()[:64]
+
+    score, level, factors = _jit_risk(item, requester, minutes, ticket, datetime.now())
+    required = _JIT_REQUIRED_APPROVALS[level]
+    if level == "critical":
+        status = "blocked"
+    elif not required:
+        status = "approved"  # low risk: policy grants without sign-off
+    else:
+        status = "pending"
+
+    request = JitRequest(
+        item_id=item.id,
+        requester=requester,
+        reason=reason,
+        ticket=ticket,
+        minutes=minutes,
+        risk_score=score,
+        risk_level=level,
+        risk_factors=factors,
+        status=status,
+    )
+    db.session.add(request)
+    db.session.flush()
+    _log_jit_event(
+        request,
+        "requested",
+        actor,
+        {
+            "risk_score": score,
+            "risk_level": level,
+            "required_approvals": list(required),
+            "minutes": minutes,
+        },
+    )
+    if status == "approved":
+        _log_jit_event(
+            request,
+            "approved",
+            "risk-policy",
+            {"auto": True, "reason": f"low risk (score {score}) - no sign-off required"},
+        )
+    elif status == "blocked":
+        _log_jit_event(
+            request,
+            "blocked",
+            "risk-policy",
+            {"risk_score": score, "reason": "critical risk - policy blocks this request"},
+        )
+    db.session.commit()
+    return request
+
+
+def approve_jit_request(
+    request_id: int, *, actor: str, payload: Any
+) -> JitRequest:
+    request = get_jit_request(request_id)
+    if not isinstance(payload, dict):
+        raise ValidationFailed("Request body must be a JSON object")
+    role = payload.get("role")
+    if role not in JIT_ROLES:
+        raise ValidationFailed(
+            "'role' must be 'manager' or 'security'",
+            {"field": "role", "allowed": list(JIT_ROLES)},
+        )
+    if request.status == "blocked":
+        raise ValidationFailed(
+            "Risk is critical: policy blocks this request (deny it instead)",
+            {"field": "status", "status": request.status},
+        )
+    if request.status != "pending":
+        raise ValidationFailed(
+            f"Request is {request.status}, not awaiting approvals",
+            {"field": "status", "status": request.status},
+        )
+    if actor == request.requester:
+        raise APIError(403, "Requesters cannot approve their own access")
+    required = _JIT_REQUIRED_APPROVALS[request.risk_level]
+    if role not in required:
+        raise ValidationFailed(
+            f"{request.risk_level} risk does not require {role} approval",
+            {"field": "role", "required": list(required)},
+        )
+    snapshot = {"actor": actor, "at": datetime.now().isoformat(), "role": role}
+    if role == "manager":
+        if request.manager_approval:
+            raise ValidationFailed("Manager approval already recorded", {"field": "role"})
+        request.manager_approval = snapshot
+    else:
+        if request.security_approval:
+            raise ValidationFailed("Security approval already recorded", {"field": "role"})
+        request.security_approval = snapshot
+    _log_jit_event(request, "approved", actor, {"role": role})
+    recorded = {
+        role_name
+        for role_name, snapshot in (
+            ("manager", request.manager_approval),
+            ("security", request.security_approval),
+        )
+        if snapshot
+    }
+    if set(required) <= recorded:
+        request.status = "approved"
+    db.session.commit()
+    return request
+
+
+def deny_jit_request(request_id: int, *, actor: str, payload: Any) -> JitRequest:
+    request = get_jit_request(request_id)
+    if request.status not in ("pending", "blocked"):
+        raise ValidationFailed(
+            f"Request is {request.status} and cannot be denied",
+            {"field": "status", "status": request.status},
+        )
+    detail: Dict[str, Any] = {}
+    if isinstance(payload, dict):
+        note = payload.get("reason")
+        if note is not None:
+            if not isinstance(note, str) or not note.strip():
+                raise ValidationFailed(
+                    "'reason' must be a non-empty string when present",
+                    {"field": "reason"},
+                )
+            detail["reason"] = note.strip()[:255]
+    elif payload is not None:
+        raise ValidationFailed("Request body must be a JSON object")
+    request.status = "denied"
+    _log_jit_event(request, "denied", actor, detail)
+    db.session.commit()
+    return request
+
+
+def consume_jit_request(request_id: int, *, actor: str) -> JitRequest:
+    """Grant the access: check the credential out under the requester for the
+    requested window (session_ref = jit-<id>), so expiry can find it again."""
+    request = get_jit_request(request_id)
+    if request.status != "approved":
+        raise ValidationFailed(
+            f"Request is {request.status}; only an approved request can be granted",
+            {"field": "status", "status": request.status},
+        )
+    checkout_vault_item(
+        request.item_id,
+        actor=request.requester,
+        reason=f"JIT request #{request.id} ({request.ticket})",
+    )
+    now = datetime.now()
+    request.status = "active"
+    request.granted_at = now
+    request.expires_at = now + timedelta(minutes=request.minutes)
+    request.session_ref = f"jit-{request.id}"
+    _log_jit_event(
+        request,
+        "granted",
+        actor,
+        {
+            "session_ref": request.session_ref,
+            "minutes": request.minutes,
+            "expires_at": request.expires_at.isoformat(),
+        },
+    )
+    db.session.commit()
+    return request
+
+
+def _end_jit_grant(request: JitRequest, *, actor: str, action: str) -> JitRequest:
+    """Shared close/expiry path: release our checkout, then rotate the
+    credential (architecture: session ends -> rotate -> audit)."""
+    item = get_vault_item(request.item_id)
+    detail: Dict[str, Any] = {"session_ref": request.session_ref}
+    try:
+        if item.status == VAULT_STATUS_CHECKED_OUT and item.checked_out_by == request.requester:
+            _, rotation = rotation_session_end(
+                {"item_id": item.id, "session_id": request.session_ref}, actor=actor
+            )
+            detail["checkout_released"] = True
+        else:
+            _, rotation = rotate_vault_item(
+                item.id,
+                actor=actor,
+                trigger="session_end",
+                session_ref=request.session_ref,
+            )
+            detail["checkout_released"] = False
+        detail["rotated"] = True
+        detail["secret_version"] = rotation["secret_version"]
+    except APIError as exc:
+        # The credential may be held by someone else or mid-rotation; the
+        # grant still ends, and the reason is recorded instead of hidden.
+        detail["rotated"] = False
+        detail["rotation_error"] = exc.message
+    request.status = "expired" if action == "expired" else "closed"
+    request.closed_at = datetime.now()
+    _log_jit_event(request, action, actor, detail)
+    db.session.commit()
+    return request
+
+
+def refresh_jit_requests() -> int:
+    """Evaluate the real clock over active grants: elapsed windows end the
+    access and rotate the credential. Called from every JIT read and from
+    scheduler ticks, so expiry never depends on someone remembering."""
+    now = datetime.now()
+    expired = 0
+    for request in JitRequest.query.filter_by(status="active").all():
+        if request.expires_at is not None and request.expires_at <= now:
+            _end_jit_grant(request, actor="system", action="expired")
+            expired += 1
+    return expired
+
+
+def close_jit_request(request_id: int, *, actor: str) -> JitRequest:
+    request = get_jit_request(request_id)
+    if request.status != "active":
+        raise ValidationFailed(
+            f"Request is {request.status}; only an active grant can be closed",
+            {"field": "status", "status": request.status},
+        )
+    return _end_jit_grant(request, actor=actor, action="closed")
+
+
+def list_jit_requests(
+    *,
+    status: Optional[str] = None,
+    requester: Optional[str] = None,
+    limit: int = 50,
+    offset: int = 0,
+) -> Tuple[List[JitRequest], int]:
+    if status is not None and status not in JIT_STATUSES:
+        raise ValidationFailed(
+            f"Unknown JIT status '{status}'",
+            {"field": "status", "allowed": list(JIT_STATUSES)},
+        )
+    refresh_jit_requests()
+    query = JitRequest.query
+    if status:
+        query = query.filter(JitRequest.status == status)
+    if requester:
+        query = query.filter(JitRequest.requester.ilike(f"%{requester}%"))
+    total = query.count()
+    items = (
+        query.order_by(JitRequest.id.desc()).limit(limit).offset(offset).all()
+    )
+    return items, total
+
+
+def jit_request_detail(request_id: int) -> Dict[str, Any]:
+    refresh_jit_requests()
+    request = get_jit_request(request_id)
+    events = (
+        JitEvent.query.filter_by(request_id=request.id)
+        .order_by(JitEvent.created_at.desc(), JitEvent.id.desc())
+        .all()
+    )
+    return {"request": request.to_dict(), "events": [event.to_dict() for event in events]}
+
+
+def jit_stats() -> Dict[str, Any]:
+    """Real queue counts; nothing is precomputed or invented."""
+    refresh_jit_requests()
+    by_status = {
+        status: JitRequest.query.filter_by(status=status).count()
+        for status in JIT_STATUSES
+    }
+    by_risk = {
+        level: JitRequest.query.filter_by(risk_level=level).count()
+        for level in ("low", "medium", "high", "critical")
+    }
+    return {
+        "total": sum(by_status.values()),
+        "by_status": by_status,
+        "by_risk": by_risk,
+        "active": by_status["active"],
+        "pending": by_status["pending"],
+    }
 
 
 # ---------------------------------------------------------------------------

@@ -24,7 +24,7 @@ PAM/
 │   ├── screens/<name>/          #   one folder per screen: code.html + screen.png
 │   └── README.md                #   layout + how to add a screen (the contract)
 ├── apis/                            # HTTP contract for every backend service
-│   ├── openapi.yaml             #   OpenAPI 3.1: all 13 routes (synced by a test)
+│   ├── openapi.yaml             #   OpenAPI 3.1: all 39 paths (synced by a test)
 │   └── README.md                #   conventions + how to view
 ├── backend/
 │   ├── ipam_licensing/              # Phase 1: library + CLIs
@@ -79,7 +79,7 @@ python -m pam_master.keygen                      # RSA + Ed25519 + registry PII 
 python -m pam_master                             # http://127.0.0.1:5400
 
 # Tests (shared core + shipped API contract + vendor tool)
-python -m pytest backend -q                      # 246 tests
+python -m pytest backend -q                      # 264 tests
 python -m pytest pam_master -q                   # 46 tests (vendor tool)
 ```
 
@@ -114,12 +114,15 @@ python -m pytest pam_master -q                   # 46 tests (vendor tool)
   scan guarantees no private key is ever part of the shipped repository.
 - The console lives in `frontend/` — a copy of the frozen design reference in
   `stitch_pam_suite_dashboard_ui/`. Every screen carries the same sidebar with
-  real links, `frontend/index.html` is the launcher. Served by Phase 2, five
+  real links, `frontend/index.html` is the launcher. Served by Phase 2, seven
   screens are **live**: licensing (`/`), platform settings (`/settings`,
   backed by `GET/PUT /api/v1/settings` with an audit changelog), the Command
   Center and Compliance screens (backed by `GET /api/v1/overview` and the
-  unified `GET /api/v1/events` feed), and the Credential Vault (backed by
-  `GET/POST /api/v1/vault/*` — inventory, rotation SLA and JIT checkouts).
+  unified `GET /api/v1/events` feed), the Credential Vault (backed by
+  `GET/POST /api/v1/vault/*` — inventory, rotation SLA and checkouts),
+  Infrastructure Discovery (`GET/POST /api/v1/discovery/*`), and the JIT
+  access console (`GET/POST /api/v1/jit/*` — requests, risk evaluation,
+  approvals, time-boxed grants that rotate their credential on expiry).
   The rest are static pages under `/screens/`.
 
 ## What a license carries

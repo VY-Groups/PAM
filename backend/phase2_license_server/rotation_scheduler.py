@@ -23,13 +23,18 @@ _START_LOCK = threading.Lock()
 
 
 def run_due(app: Flask, *, actor: str = "scheduler") -> Dict[str, Any]:
-    """One scheduler tick: rotate what is genuinely due, right now."""
-    from service import run_rotations
+    """One scheduler tick: end elapsed JIT windows first (release + rotate),
+    then rotate what is genuinely due, right now."""
+    from service import refresh_jit_requests, run_rotations
 
     with app.app_context():
+        jit_expired = refresh_jit_requests()
         summary = run_rotations(
             {}, actor=actor, trigger="scheduled", include_failed=False
         )
+        summary["jit_expired"] = jit_expired
+        if jit_expired:
+            logger.info("jit expiry: %d grant(s) ended and rotated", jit_expired)
         if summary["rotated"]:
             logger.info(
                 "scheduled rotation: %d credential(s), %d dependent(s)",

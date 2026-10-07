@@ -284,7 +284,7 @@ signs with it, PAM verifies with it).
   **46** + smoke 17/17 + both shots verifiers `ALL CHECKS PASSED`
 
 ### Phase 4 — Continue `VY-PAM_Enterprise_PAM_Architecture.md` (the last goal)
-- ☑ **4a** Rotation (5) → ☐ **4b** JIT (6) → ☐ **4c** Sessions (8) →
+- ☑ **4a** Rotation (5) → ☑ **4b** JIT (6) → ☐ **4c** Sessions (8) →
   ☐ **4d** Command Center hardening (9) → ☐ **4e** Audit (19) → …
   module order per the architecture doc; each module = model + endpoints +
   openapi + tests + honest screen wiring, then commit/push.
@@ -303,6 +303,7 @@ signs with it, PAM verifies with it).
 | 2026-10-07 | **Phase 3a+3b ✅** (self-issue removed → vendor-signed `POST /licenses/import`; form rules → claim-shape checks; no server code signs anymore; openapi/contract/tests/smoke lockstep; backend 216, pam_master 46, smoke 17/17, verifiers green) | **3c** (docs/screens/launcher reflect the split) |
 | 2026-10-07 | **Phase 3 complete ✅** (console ISSUE → vendor-import flow; launcher + phase-2/apis docs honest; screen recaptured; dev server restarted on current code; backend **216**, pam_master **46**, smoke 17/17, verifiers green, live UI check: modal/error path + registry untouched) | **Phase 4 / 4a** (Rotation (5)) |
 | 2026-10-07 | **Phase 4a ✅** (real encrypted secrets: AES-256-GCM at rest, AAD-bound, `vault_secret_versions` history, admin reveal, per-type generation; rotation pipeline in architecture order mint+seal → same-target dependents → decrypt round-trip validation → audit, triggers manual/bulk/session-end/scheduler, failed→retry, 503 key custody; openapi + contract + 30 new tests lockstep; vault screen reveal/copy/bulk/onboard wired honestly, screen recaptured; backend **246**, pam_master **46**, smoke 17/17, both verifiers `ALL CHECKS PASSED`, live UI 8/8) | **4b** (JIT (6)) |
+| 2026-10-07 | **Phase 4b ✅** (JIT/JEA: `jit_requests`+`jit_events`, deterministic risk over tier/duration/off-hours/24h-repeat/ticket-shape/credential-health with visible factor points, bands low auto → medium manager → high +security → critical blocked, self-approval 403, grant = real checkout `session_ref=jit-<id>` with `expires_at`, expiry lazy on read + scheduler tick releases and rotates `trigger=session_end`; 8 endpoints + openapi/contract/ADMIN_OPERATIONS lockstep + 18 tests; JIT screen fully live — queue tabs, real stat cards, request modal, approve/deny/issue/close via API, detail pane (risk factors, quorum stepper, live state check) rebuilt from responses, fabricated footer/design values purged, verify_live sweeps 5 screens, screen recaptured; backend **264**, pam_master **46**, smoke 17/17, both verifiers `ALL CHECKS PASSED`, JIT live UI **49/49**) | **4c** (Sessions (8)) |
 
 ---
 

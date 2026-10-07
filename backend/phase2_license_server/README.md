@@ -172,6 +172,14 @@ cross-checked against these routes by `tests/test_openapi_contract.py`.
 | POST | `/vault/items/<id>/rotate` | admin | Full rotation pipeline for one credential (mint + seal new version, validate by decrypt round-trip, audit); also retries a failed rotation; no cascade |
 | POST | `/rotation/run` | admin | Run the engine over due (+failed) credentials or explicit `item_ids`; `cascade` (default true) also rotates same-target dependents, reporting real skip reasons |
 | POST | `/rotation/session-end` | admin | Event trigger: release the checkout (audited), then rotate with `trigger=session_end` + cascade (body `{"item_id", "session_id"?}`) |
+| GET | `/jit/stats` | – | JIT aggregates: totals, `by_status`, `by_risk` |
+| GET | `/jit/requests?status=&requester=&limit=&offset=` | – | Access requests, newest first (nested `risk {score, level, factors}`, `approvals {manager, security}`, `minutes_left` while active) |
+| POST | `/jit/requests` | admin | File a request (201; `item_id`, `reason` ≥8 chars, `ticket`, `minutes` 1–480) — deterministic risk is evaluated immediately over tier/duration/clock/24h history/ticket shape/credential health |
+| GET | `/jit/requests/<id>` | – | One request plus its full `jit_events` trail, newest first |
+| POST | `/jit/requests/<id>/approve` | admin | Record one approval (body `{"role": "manager"\|"security"}`); self-approval → 403; critical-risk requests → 400 (blocked, deny only) |
+| POST | `/jit/requests/<id>/deny` | admin | Move pending/blocked → denied (body `{"reason"?}`) |
+| POST | `/jit/requests/<id>/consume` | admin | Grant: approved → active, checks the credential out (`session_ref=jit-<id>`) until `expires_at` |
+| POST | `/jit/requests/<id>/close` | admin | End a grant early: release the checkout and rotate the credential (audited) |
 | GET | `/vault/events?limit=&action=` | – | Vault audit trail (onboarding, checkouts, rotations); `action` filters to one type |
 | GET | `/discovery/stats` | – | Discovery aggregates: totals, per-type/risk/status, recorded accounts, last scan |
 | GET | `/discovery/assets?…` | – | Discovered targets (`q`, `type`, `risk`, `pam_status`, `limit`, `offset`), each with `vault_count` |
@@ -345,6 +353,25 @@ curl -s -X POST http://127.0.0.1:5000/api/v1/rotation/session-end \
   -H "Authorization: Bearer $LICENSE_ADMIN_TOKEN" -H "X-Actor: alice" \
   -H "Content-Type: application/json" \
   -d '{"item_id": 5, "session_id": "sess-77"}'
+
+# JIT flow: file -> risk is computed from real inputs -> approvals by band
+curl -s -X POST http://127.0.0.1:5000/api/v1/jit/requests \
+  -H "Authorization: Bearer $LICENSE_ADMIN_TOKEN" -H "X-Actor: alice" \
+  -H "Content-Type: application/json" \
+  -d '{"item_id": 5, "reason": "Emergency patch window for payments db",
+       "ticket": "INC-1234", "minutes": 30, "requester": "oncall.eng"}'
+# low band auto-approves; medium needs {"role":"manager"}; high needs
+# manager + security; critical is blocked and only deniable:
+curl -s -X POST http://127.0.0.1:5000/api/v1/jit/requests/1/approve \
+  -H "Authorization: Bearer $LICENSE_ADMIN_TOKEN" -H "X-Actor: carol" \
+  -H "Content-Type: application/json" -d '{"role": "manager"}'
+# grant (checkout + expires_at), then close early (release + rotate):
+curl -s -X POST http://127.0.0.1:5000/api/v1/jit/requests/1/consume \
+  -H "Authorization: Bearer $LICENSE_ADMIN_TOKEN" -H "X-Actor: alice" \
+  -H "Content-Type: application/json" -d '{}'
+curl -s -X POST http://127.0.0.1:5000/api/v1/jit/requests/1/close \
+  -H "Authorization: Bearer $LICENSE_ADMIN_TOKEN" -H "X-Actor: alice" \
+  -H "Content-Type: application/json" -d '{}'
 ```
 
 - The vault starts empty — there is no seed inventory. Onboard credentials via
@@ -373,7 +400,20 @@ curl -s -X POST http://127.0.0.1:5000/api/v1/rotation/session-end \
   `rotation_sla`, `sso_mfa`, `tier0_quorum`, `admin_auth`, `hsm_backed`) —
   `audit_evidence` only passes once the audit trail has entries, so a fresh
   database honestly reports a lower score.
-- Reads are public; the write routes (settings, vault, discovery, rotation)
+- **JIT access** (module 6) runs request → risk → approvals → time-boxed
+  grant → expiry → rotation. The risk score is deterministic and built only
+  from measured inputs: target tier (30/15/0), window length (up to +20),
+  off-hours from the real local clock (+20), repeat requests in the last 24h
+  (up to +15), ticket shape (+10 when it does not look like an ITSM
+  reference) and failed credential health (+10); bands are ≤25 low (auto),
+  ≤50 medium (manager), ≤75 high (manager + security), above that critical
+  (blocked — deny only). A grant checks the credential out under
+  `session_ref=jit-<id>`; expiry is lazy on every JIT read and on each
+  scheduler tick (`ROTATION_SCHEDULER=1`), releasing the checkout and
+  rotating the credential with `trigger=session_end`. Every state change is
+  a `jit_events` row (requester, approver, risk policy or system as actor).
+- Reads are public; the write routes (settings, vault, discovery, rotation,
+  jit)
   require the admin token in token mode (open mode stays open) and record who
   acted via `X-Actor`. The secret reveal (`GET /vault/items/<id>/secret`) is
   gated like a write route — it is never one of the public reads.

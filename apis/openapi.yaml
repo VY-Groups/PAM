@@ -34,6 +34,8 @@ tags:
     description: Credential vault inventory, rotation and checkouts
   - name: rotation
     description: Rotation engine - run due credentials, session-end trigger
+  - name: jit
+    description: JIT/JEA access - requests, risk evaluation, approvals, time-boxed grants
   - name: discovery
     description: Discovery Engine - target assets, accounts and real scans
 paths:
@@ -735,6 +737,218 @@ paths:
         "404": {$ref: "#/components/responses/NotFound"}
         "503": {$ref: "#/components/responses/ServiceUnavailable"}
 
+  /api/v1/jit/stats:
+    get:
+      tags: [jit]
+      summary: JIT queue counts
+      description: Real totals per status and per risk band (active grants' expiry is evaluated on the way).
+      responses:
+        "200":
+          description: JIT statistics
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/JitStats"}
+
+  /api/v1/jit/requests:
+    get:
+      tags: [jit]
+      summary: JIT queue, newest first
+      parameters:
+        - name: status
+          in: query
+          schema:
+            type: string
+            enum: [pending, approved, active, closed, expired, denied, blocked]
+        - name: requester
+          in: query
+          description: Case-insensitive substring match on the requester.
+          schema: {type: string}
+        - {$ref: "#/components/parameters/Limit"}
+        - {$ref: "#/components/parameters/Offset"}
+      responses:
+        "200":
+          description: Paged JIT requests
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/JitRequestList"}
+        "400": {$ref: "#/components/responses/BadRequest"}
+    post:
+      tags: [jit]
+      summary: File an access request
+      description: |
+        Validates reason/ticket/window, then evaluates risk over real context:
+        target tier, requested duration, off-hours on the local clock, the
+        requester's own 24h history, ticket shape and credential health. LOW
+        auto-approves, MEDIUM needs manager, HIGH needs manager + security,
+        CRITICAL is blocked by policy. Factors come back with their points.
+      security:
+        - bearerAuth: []
+        - adminTokenHeader: []
+        - {}
+      parameters:
+        - name: X-Actor
+          in: header
+          description: Who files the request (defaults the requester field).
+          schema: {type: string, maxLength: 64}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: "#/components/schemas/JitCreateRequest"}
+      responses:
+        "201":
+          description: Request filed
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/JitRequestResponse"}
+        "400": {$ref: "#/components/responses/BadRequest"}
+        "401": {$ref: "#/components/responses/Unauthorized"}
+        "404": {$ref: "#/components/responses/NotFound"}
+
+  /api/v1/jit/requests/{request_id}:
+    get:
+      tags: [jit]
+      summary: One request with its audit trail
+      description: Evaluates grant expiry on the way, so a reading client always sees the real state.
+      parameters:
+        - name: request_id
+          in: path
+          required: true
+          schema: {type: integer, minimum: 1}
+      responses:
+        "200":
+          description: Request + events
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/JitRequestDetail"}
+        "404": {$ref: "#/components/responses/NotFound"}
+
+  /api/v1/jit/requests/{request_id}/approve:
+    post:
+      tags: [jit]
+      summary: Record a manager or security approval
+      description: |
+        Approvers must differ from the requester (403 otherwise); each risk
+        band has its required roles (MEDIUM: manager, HIGH: manager +
+        security). Completing the required set moves the request to
+        `approved`.
+      security:
+        - bearerAuth: []
+        - adminTokenHeader: []
+        - {}
+      parameters:
+        - name: request_id
+          in: path
+          required: true
+          schema: {type: integer, minimum: 1}
+        - name: X-Actor
+          in: header
+          description: Who approves (recorded on the request and in the trail).
+          schema: {type: string, maxLength: 64}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: "#/components/schemas/JitApproveRequest"}
+      responses:
+        "200":
+          description: Approval recorded
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/JitRequestResponse"}
+        "400": {$ref: "#/components/responses/BadRequest"}
+        "401": {$ref: "#/components/responses/Unauthorized"}
+        "403": {$ref: "#/components/responses/Forbidden"}
+        "404": {$ref: "#/components/responses/NotFound"}
+
+  /api/v1/jit/requests/{request_id}/deny:
+    post:
+      tags: [jit]
+      summary: Deny a pending or blocked request
+      security:
+        - bearerAuth: []
+        - adminTokenHeader: []
+        - {}
+      parameters:
+        - name: request_id
+          in: path
+          required: true
+          schema: {type: integer, minimum: 1}
+        - name: X-Actor
+          in: header
+          schema: {type: string, maxLength: 64}
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema: {$ref: "#/components/schemas/JitDenyRequest"}
+      responses:
+        "200":
+          description: Request denied
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/JitRequestResponse"}
+        "400": {$ref: "#/components/responses/BadRequest"}
+        "401": {$ref: "#/components/responses/Unauthorized"}
+        "404": {$ref: "#/components/responses/NotFound"}
+
+  /api/v1/jit/requests/{request_id}/consume:
+    post:
+      tags: [jit]
+      summary: Grant an approved request
+      description: |
+        Checks the credential out under the requester with `session_ref =
+        jit-<id>` until `expires_at`; expiry (evaluated on every read, and on
+        scheduler ticks) releases the checkout and rotates the credential.
+      security:
+        - bearerAuth: []
+        - adminTokenHeader: []
+        - {}
+      parameters:
+        - name: request_id
+          in: path
+          required: true
+          schema: {type: integer, minimum: 1}
+        - name: X-Actor
+          in: header
+          schema: {type: string, maxLength: 64}
+      responses:
+        "200":
+          description: Access granted
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/JitRequestResponse"}
+        "400": {$ref: "#/components/responses/BadRequest"}
+        "401": {$ref: "#/components/responses/Unauthorized"}
+        "404": {$ref: "#/components/responses/NotFound"}
+
+  /api/v1/jit/requests/{request_id}/close:
+    post:
+      tags: [jit]
+      summary: End an active grant early
+      description: Releases the checkout and rotates the credential (the session-end flow).
+      security:
+        - bearerAuth: []
+        - adminTokenHeader: []
+        - {}
+      parameters:
+        - name: request_id
+          in: path
+          required: true
+          schema: {type: integer, minimum: 1}
+        - name: X-Actor
+          in: header
+          schema: {type: string, maxLength: 64}
+      responses:
+        "200":
+          description: Access closed, credential rotated
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/JitRequestResponse"}
+        "400": {$ref: "#/components/responses/BadRequest"}
+        "401": {$ref: "#/components/responses/Unauthorized"}
+        "404": {$ref: "#/components/responses/NotFound"}
+
   /api/v1/discovery/stats:
     get:
       tags: [discovery]
@@ -991,6 +1205,11 @@ components:
       description: |
         Vault encryption key unavailable (`VAULT_KEY_PATH` missing with
         `VAULT_AUTOGENERATE_KEY` disabled) or the key file is unusable.
+      content:
+        application/json:
+          schema: {$ref: "#/components/schemas/Error"}
+    Forbidden:
+      description: Self-approval attempted (requesters cannot approve their own access).
       content:
         application/json:
           schema: {$ref: "#/components/schemas/Error"}
@@ -1627,6 +1846,141 @@ components:
               reason: {type: string}
         due_remaining: {type: integer}
         failed_remaining: {type: integer}
+
+    # --- JIT / JEA access (module 6) -------------------------------------
+    JitRiskFactor:
+      type: object
+      required: [factor, points, detail]
+      properties:
+        factor:
+          type: string
+          enum: [target_tier, duration, off_hours, repeat_requests, ticket_shape, credential_health]
+        points: {type: integer, description: Real points this input contributed.}
+        detail: {type: string}
+
+    JitRisk:
+      type: object
+      required: [score, level, factors]
+      properties:
+        score: {type: integer, minimum: 0, maximum: 100}
+        level: {type: string, enum: [low, medium, high, critical]}
+        factors:
+          type: array
+          items: {$ref: "#/components/schemas/JitRiskFactor"}
+
+    JitApproverSnapshot:
+      type: object
+      required: [actor, at]
+      properties:
+        actor: {type: string}
+        at: {type: string}
+        role: {type: string}
+
+    JitRequest:
+      type: object
+      required: [id, item_id, requester, reason, ticket, minutes, risk, status, approvals, created_at]
+      properties:
+        id: {type: integer}
+        item_id: {type: integer}
+        requester: {type: string}
+        reason: {type: string}
+        ticket: {type: string}
+        minutes: {type: integer, minimum: 1, maximum: 480}
+        minutes_left:
+          type: [integer, "null"]
+          description: Remaining window in minutes for an active grant (null otherwise).
+        risk: {$ref: "#/components/schemas/JitRisk"}
+        status:
+          type: string
+          enum: [pending, approved, active, closed, expired, denied, blocked]
+        approvals:
+          type: object
+          properties:
+            manager: {type: [object, "null"], additionalProperties: true}
+            security: {type: [object, "null"], additionalProperties: true}
+        granted_at: {type: [string, "null"]}
+        expires_at: {type: [string, "null"]}
+        closed_at: {type: [string, "null"]}
+        session_ref: {type: [string, "null"], description: "jit-<id> while granted."}
+        created_at: {type: string}
+
+    JitEvent:
+      type: object
+      required: [id, request_id, action, actor, detail, created_at]
+      properties:
+        id: {type: integer}
+        request_id: {type: integer}
+        action:
+          type: string
+          enum: [requested, approved, denied, granted, expired, closed, blocked]
+        actor: {type: string}
+        detail: {type: object, additionalProperties: true}
+        created_at: {type: string}
+
+    JitRequestList:
+      type: object
+      required: [items, total, limit, offset]
+      properties:
+        items:
+          type: array
+          items: {$ref: "#/components/schemas/JitRequest"}
+        total: {type: integer}
+        limit: {type: integer}
+        offset: {type: integer}
+
+    JitRequestDetail:
+      type: object
+      required: [request, events]
+      properties:
+        request: {$ref: "#/components/schemas/JitRequest"}
+        events:
+          type: array
+          items: {$ref: "#/components/schemas/JitEvent"}
+
+    JitRequestResponse:
+      type: object
+      required: [request, message]
+      properties:
+        request: {$ref: "#/components/schemas/JitRequest"}
+        message: {type: string}
+
+    JitCreateRequest:
+      type: object
+      required: [item_id, reason, ticket]
+      properties:
+        item_id: {type: integer, minimum: 1}
+        reason: {type: string, minLength: 8, maxLength: 255}
+        ticket: {type: string, maxLength: 64, description: "ITSM reference such as INC-23891."}
+        minutes: {type: integer, minimum: 1, maximum: 480, default: 15}
+        requester:
+          type: string
+          maxLength: 64
+          description: Defaults to the X-Actor header when omitted.
+
+    JitApproveRequest:
+      type: object
+      required: [role]
+      properties:
+        role: {type: string, enum: [manager, security]}
+
+    JitDenyRequest:
+      type: object
+      properties:
+        reason: {type: string, maxLength: 255}
+
+    JitStats:
+      type: object
+      required: [total, by_status, by_risk, active, pending]
+      properties:
+        total: {type: integer}
+        by_status:
+          type: object
+          additionalProperties: {type: integer}
+        by_risk:
+          type: object
+          additionalProperties: {type: integer}
+        active: {type: integer}
+        pending: {type: integer}
 
     # --- discovery engine (module 3) -------------------------------------
     DiscoveryAssetType:

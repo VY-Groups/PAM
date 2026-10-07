@@ -400,6 +400,86 @@ def rotation_session_end():
 
 
 # ---------------------------------------------------------------------------
+# JIT / JEA access (module 6: request -> risk -> approvals -> grant -> expiry)
+# ---------------------------------------------------------------------------
+@api.get("/jit/stats")
+def jit_stats():
+    """Real queue counts: totals, per-status, per-risk."""
+    return jsonify(service.jit_stats())
+
+
+@api.get("/jit/requests")
+def list_jit_requests():
+    """JIT queue, newest first (status/requester filters, pagination)."""
+    limit = min(_int_param("limit", 50), MAX_PAGE_SIZE)
+    offset = _int_param("offset", 0)
+    items, total = service.list_jit_requests(
+        status=request.args.get("status"),
+        requester=request.args.get("requester"),
+        limit=limit,
+        offset=offset,
+    )
+    return jsonify(
+        {
+            "items": [item.to_dict() for item in items],
+            "total": total,
+            "limit": limit,
+            "offset": offset,
+        }
+    )
+
+
+@api.post("/jit/requests")
+@require_admin
+def create_jit_request():
+    """File one access request: risk is evaluated over real context."""
+    item = service.create_jit_request(_json_body(), actor=_actor())
+    return jsonify({"request": item.to_dict(), "message": "Request filed"}), 201
+
+
+@api.get("/jit/requests/<int:request_id>")
+def get_jit_request(request_id: int):
+    """One request with its audit trail (evaluates expiry on the way)."""
+    return jsonify(service.jit_request_detail(request_id))
+
+
+@api.post("/jit/requests/<int:request_id>/approve")
+@require_admin
+def approve_jit_request(request_id: int):
+    """Record a manager/security approval (403 for self-approval)."""
+    item = service.approve_jit_request(
+        request_id, actor=_actor(), payload=_json_body()
+    )
+    return jsonify({"request": item.to_dict(), "message": "Approval recorded"})
+
+
+@api.post("/jit/requests/<int:request_id>/deny")
+@require_admin
+def deny_jit_request(request_id: int):
+    """Reject a pending or policy-blocked request (audited)."""
+    item = service.deny_jit_request(
+        request_id, actor=_actor(), payload=_json_body(required=False)
+    )
+    return jsonify({"request": item.to_dict(), "message": "Request denied"})
+
+
+@api.post("/jit/requests/<int:request_id>/consume")
+@require_admin
+def consume_jit_request(request_id: int):
+    """Grant an approved request: credential checked out until expires_at."""
+    item = service.consume_jit_request(request_id, actor=_actor())
+    return jsonify({"request": item.to_dict(), "message": "Access granted"})
+
+
+@api.post("/jit/requests/<int:request_id>/close")
+@require_admin
+def close_jit_request(request_id: int):
+    """End an active grant early: release the checkout and rotate."""
+    item = service.close_jit_request(request_id, actor=_actor())
+    return jsonify({"request": item.to_dict(), "message": "Access closed and credential rotated"})
+
+
+# ---------------------------------------------------------------------------
 # discovery engine (Discovery / Target Infrastructure screen)
 # ---------------------------------------------------------------------------
 @api.get("/discovery/stats")
