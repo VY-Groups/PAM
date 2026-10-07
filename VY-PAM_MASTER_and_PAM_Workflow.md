@@ -227,8 +227,14 @@ signs with it, PAM verifies with it).
   bundle verifies offline (SHA256SUMS + public key inside), shared
   `errors.py` failure types (400/404/409/500/503)
   — **verify:** `python -m pytest pam_master -q` → 40 passed
-- ☐ **2d** Own `openapi.yaml` + contract tests; anti-mixing tests (no PAM
-  runtime imports; private key absent from shipped surface)
+- ☑ **2d** Own `openapi.yaml` + contract tests; anti-mixing tests (no PAM
+  runtime imports; private key absent from shipped surface) — **done:**
+  `pam_master/openapi.yaml` (14 operations, strict request bodies, honest
+  error-type enum, all response schemas), `tests/test_openapi_contract.py`
+  (both-direction path coverage, live-shape checks, enums/ranges mirrored
+  against code constants, git-tracked-file private-key scan), anti-mixing
+  scan extended (`phase2_license_server` + `from backend.` / `import backend`)
+  — **verify:** `python -m pytest pam_master -q` → 46 passed
 - ☐ **2e** Docs + screenshots + commit/push — **verify:** pam_master test suite green
 
 ### Phase 3 — Decouple the shipped PAM surface
@@ -255,6 +261,7 @@ signs with it, PAM verifies with it).
 | 2026-10-07 | **Phase 2a ✅** (`pam_master/` skeleton: 13 tests, live smoke honest; regression 206 + 17/17) | **2b** (customer registry, PII encrypted at rest) |
 | 2026-10-07 | **Phase 2b ✅** (registry CRUD + PII AES-256-GCM at rest; 28 tests; live smoke: 201/list/PATCH/history + no plaintext in DB file) | **2c** (license generation + delivery bundle) |
 | 2026-10-07 | **Phase 2c ✅** (issuance: signed claims, encrypted archive, renewal supersedes, offline-verifiable bundle, audit; 40 tests; live smoke: exact 90d/365d spans, sha256 match, tables 0→4) | **2d** (own `openapi.yaml` + contract/anti-mixing tests) |
+| 2026-10-07 | **Phase 2d ✅** (own `openapi.yaml` + contract both ways + live shapes + enum mirrors + tracked-key scan + extended anti-mixing; 46 tests) | **2e** (docs + phase close + commit/push) |
 
 ---
 

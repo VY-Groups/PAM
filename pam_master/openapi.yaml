@@ -1,0 +1,686 @@
+openapi: 3.0.3
+info:
+  title: VY-PAM MASTER API
+  version: 0.1.0
+  description: |
+    VY-PAM MASTER — VY-Groups internal license authority (vendor tool,
+    never shipped). Own contract, separate from the shipped product's
+    `apis/openapi.yaml`.
+
+    Honest operating notes:
+    - Binds 127.0.0.1 by default (`MASTER_BIND`). **No auth layer yet** —
+      expose deliberately.
+    - Failures always return `{"error": {"type", "message"}}`; the `type`
+      values are enumerated in the Error schema.
+    - Customer PII and the signed-license archive are encrypted at rest
+      (AES-256-GCM). Endpoints that must decrypt fail with 503 when the
+      registry key is unavailable — they never return guessed data.
+servers:
+  - url: http://127.0.0.1:5400
+    description: Local development server (default MASTER_BIND/MASTER_SERVER_PORT)
+paths:
+  /:
+    get:
+      operationId: getIndex
+      summary: Service index (descriptive only, no state claims)
+      responses:
+        "200":
+          description: Service index
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Index"
+  /health:
+    get:
+      operationId: getHealth
+      summary: Honest process health (real DB state + key presence, no key material)
+      responses:
+        "200":
+          description: Health state
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Health"
+  /api/v1/customers:
+    get:
+      operationId: listCustomers
+      summary: List customers (decrypted on read; newest first)
+      parameters:
+        - $ref: "#/components/parameters/limit"
+        - $ref: "#/components/parameters/offset"
+      responses:
+        "200":
+          description: Customer page
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CustomerList"
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "503": { $ref: "#/components/responses/RegistryUnavailable" }
+    post:
+      operationId: createCustomer
+      summary: Create a customer (all fields stored encrypted)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CustomerCreateRequest"
+      responses:
+        "201":
+          description: Created customer record
+          headers:
+            Location:
+              description: Canonical URL of the created customer
+              schema: { type: string }
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Customer"
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "503": { $ref: "#/components/responses/RegistryUnavailable" }
+  /api/v1/customers/{public_id}:
+    get:
+      operationId: getCustomer
+      summary: Fetch one customer
+      parameters:
+        - $ref: "#/components/parameters/publicId"
+      responses:
+        "200":
+          description: Customer record
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Customer"
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "404": { $ref: "#/components/responses/CustomerNotFound" }
+        "503": { $ref: "#/components/responses/RegistryUnavailable" }
+    patch:
+      operationId: editCustomer
+      summary: Partial edit (null clears an optional field)
+      parameters:
+        - $ref: "#/components/parameters/publicId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CustomerPatchRequest"
+      responses:
+        "200":
+          description: Updated customer record
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Customer"
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "404": { $ref: "#/components/responses/CustomerNotFound" }
+        "503": { $ref: "#/components/responses/RegistryUnavailable" }
+  /api/v1/customers/{public_id}/issuance-history:
+    get:
+      operationId: getIssuanceHistory
+      summary: License issuance history for a customer (newest first)
+      parameters:
+        - $ref: "#/components/parameters/publicId"
+      responses:
+        "200":
+          description: History entries
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/IssuanceHistory"
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "404": { $ref: "#/components/responses/CustomerNotFound" }
+  /api/v1/customers/{public_id}/licenses:
+    post:
+      operationId: issueLicense
+      summary: Sign + archive a new license for a customer
+      parameters:
+        - $ref: "#/components/parameters/publicId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/LicenseIssueRequest"
+      responses:
+        "201":
+          description: Issued license record
+          headers:
+            Location:
+              description: Canonical URL of the created license
+              schema: { type: string }
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/License"
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "404": { $ref: "#/components/responses/CustomerNotFound" }
+        "503":
+          description: >
+            Signing custody or registry key unavailable
+            (`signing_unavailable` / `registry_unavailable`)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+  /api/v1/license-options:
+    get:
+      operationId: getLicenseOptions
+      summary: Catalog the issuance form needs (values from the shared engine)
+      responses:
+        "200":
+          description: Options catalog
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LicenseOptions"
+  /api/v1/licenses:
+    get:
+      operationId: listLicenses
+      summary: List issued licenses (metadata only; no decryption needed)
+      parameters:
+        - name: customer
+          in: query
+          required: false
+          description: Filter by customer public_id (404 if unknown)
+          schema: { type: string, pattern: "^[0-9a-f]{32}$" }
+        - name: status
+          in: query
+          required: false
+          schema:
+            type: string
+            enum: [active, superseded]
+        - $ref: "#/components/parameters/limit"
+        - $ref: "#/components/parameters/offset"
+      responses:
+        "200":
+          description: License page
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LicenseList"
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "404": { $ref: "#/components/responses/CustomerNotFound" }
+  /api/v1/licenses/{license_id}:
+    get:
+      operationId: getLicense
+      summary: Fetch one license (metadata; the customer name lives in the encrypted archive)
+      parameters:
+        - $ref: "#/components/parameters/licenseId"
+      responses:
+        "200":
+          description: License record
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/License"
+        "404": { $ref: "#/components/responses/LicenseNotFound" }
+  /api/v1/licenses/{license_id}/renew:
+    post:
+      operationId: renewLicense
+      summary: Issue a replacement license and supersede the previous one (atomic)
+      parameters:
+        - $ref: "#/components/parameters/licenseId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/LicenseIssueRequest"
+      responses:
+        "201":
+          description: New license record (previous row is now `superseded`)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/License"
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "404": { $ref: "#/components/responses/LicenseNotFound" }
+        "409":
+          description: '`license_not_active` — only active licenses can be renewed'
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "503":
+          description: Signing custody or registry key unavailable
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+  /api/v1/licenses/{license_id}/bundle:
+    get:
+      operationId: exportLicenseBundle
+      summary: >
+        Delivery bundle (zip): `<id>.lic` + `license_public_key.pem` +
+        `README.txt` + `SHA256SUMS.txt`; verifiable offline
+      parameters:
+        - $ref: "#/components/parameters/licenseId"
+      responses:
+        "200":
+          description: Zip archive (attachment)
+          content:
+            application/zip:
+              schema: { type: string, format: binary }
+        "404": { $ref: "#/components/responses/LicenseNotFound" }
+        "500":
+          description: '`registry_data_corrupt` — archive failed authentication'
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "503":
+          description: Signing custody or registry key unavailable
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+  /api/v1/audit:
+    get:
+      operationId: listAudit
+      summary: Master-side audit trail (license_issued / license_renewed / license_bundle_exported)
+      parameters:
+        - $ref: "#/components/parameters/limit"
+        - $ref: "#/components/parameters/offset"
+      responses:
+        "200":
+          description: Audit page
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AuditTrail"
+        "400": { $ref: "#/components/responses/BadRequest" }
+components:
+  parameters:
+    publicId:
+      name: public_id
+      in: path
+      required: true
+      description: 32 lowercase hex characters (uuid4, generated server-side)
+      schema: { type: string, pattern: "^[0-9a-f]{32}$" }
+    licenseId:
+      name: license_id
+      in: path
+      required: true
+      description: Engine-generated id, e.g. `LIC-4711-AEGIS-SEC-PROD`
+      schema: { type: string }
+    limit:
+      name: limit
+      in: query
+      required: false
+      schema: { type: integer, minimum: 1, maximum: 200, default: 50 }
+    offset:
+      name: offset
+      in: query
+      required: false
+      schema: { type: integer, minimum: 0, default: 0 }
+  responses:
+    BadRequest:
+      description: '`validation_error` — the request was rejected as specified'
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    CustomerNotFound:
+      description: '`customer_not_found` — no such customer id'
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    LicenseNotFound:
+      description: '`license_not_found` — no such license id'
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    RegistryUnavailable:
+      description: >
+        `registry_unavailable` — the registry PII key is missing or invalid;
+        run `python -m pam_master.keygen`. Nothing was guessed or created.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+  schemas:
+    Error:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: object
+          required: [type, message]
+          properties:
+            type:
+              type: string
+              enum:
+                - internal_error
+                - validation_error
+                - customer_not_found
+                - license_not_found
+                - license_not_active
+                - registry_unavailable
+                - signing_unavailable
+                - registry_data_corrupt
+            message:
+              type: string
+    Index:
+      type: object
+      required: [service, role, endpoints]
+      properties:
+        service: { type: string, example: vy-pam-master }
+        role: { type: string }
+        endpoints:
+          type: object
+          required: [health, customers, licenses, license-options, audit]
+          properties:
+            health: { type: string }
+            customers: { type: string }
+            licenses: { type: string }
+            license-options: { type: string }
+            audit: { type: string }
+    Health:
+      type: object
+      required: [status, service, role, database, signing, registry]
+      properties:
+        status: { type: string, enum: [ok] }
+        service: { type: string }
+        role: { type: string }
+        database:
+          $ref: "#/components/schemas/DatabaseStatus"
+        signing:
+          $ref: "#/components/schemas/SigningStatus"
+        registry:
+          $ref: "#/components/schemas/RegistryStatus"
+    DatabaseStatus:
+      type: object
+      required: [scheme, reachable, tables]
+      properties:
+        scheme: { type: string, enum: [sqlite] }
+        reachable: { type: boolean }
+        tables: { type: integer, description: Real count of application tables }
+        error: { type: string, description: Present only when unreachable }
+    SigningStatus:
+      type: object
+      required: [algorithms, rsa_key, ed25519_key, ready]
+      properties:
+        algorithms:
+          type: array
+          items: { type: string }
+        rsa_key: { type: string, enum: [present, missing] }
+        ed25519_key: { type: string, enum: [present, missing] }
+        ready: { type: boolean, description: Both private keys present }
+    RegistryStatus:
+      type: object
+      required: [pii_key, ready]
+      properties:
+        pii_key: { type: string, enum: [present, missing, invalid] }
+        ready: { type: boolean }
+    Customer:
+      type: object
+      required:
+        - public_id
+        - created_at
+        - updated_at
+        - name
+        - region
+        - contact_name
+        - contact_email
+        - contact_phone
+        - notes
+      properties:
+        public_id: { type: string, pattern: "^[0-9a-f]{32}$" }
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+        name: { type: string, maxLength: 200 }
+        region: { type: string, maxLength: 100 }
+        contact_name: { type: string, nullable: true, maxLength: 200 }
+        contact_email: { type: string, nullable: true, maxLength: 320 }
+        contact_phone: { type: string, nullable: true, maxLength: 40 }
+        notes: { type: string, nullable: true, maxLength: 4000 }
+    CustomerCreateRequest:
+      type: object
+      additionalProperties: false
+      required: [name, region]
+      properties:
+        name: { type: string, minLength: 1, maxLength: 200 }
+        region: { type: string, minLength: 1, maxLength: 100 }
+        contact_name: { type: string, maxLength: 200 }
+        contact_email: { type: string, format: email, maxLength: 320 }
+        contact_phone: { type: string, maxLength: 40 }
+        notes: { type: string, maxLength: 4000 }
+    CustomerPatchRequest:
+      type: object
+      additionalProperties: false
+      minProperties: 1
+      description: At least one field; null clears an optional field
+      properties:
+        name: { type: string, minLength: 1, maxLength: 200 }
+        region: { type: string, minLength: 1, maxLength: 100 }
+        contact_name: { type: string, nullable: true, maxLength: 200 }
+        contact_email: { type: string, nullable: true, format: email, maxLength: 320 }
+        contact_phone: { type: string, nullable: true, maxLength: 40 }
+        notes: { type: string, nullable: true, maxLength: 4000 }
+    CustomerList:
+      type: object
+      required: [customers, total, limit, offset]
+      properties:
+        customers:
+          type: array
+          items:
+            $ref: "#/components/schemas/Customer"
+        total: { type: integer }
+        limit: { type: integer }
+        offset: { type: integer }
+    IssuanceHistoryAction:
+      type: object
+      required: [license_id, action, detail, created_at]
+      properties:
+        license_id: { type: string }
+        action:
+          type: string
+          enum: [issued, renewed, upgraded, revoked, restored]
+        detail:
+          type: object
+          nullable: true
+          description: Non-PII entitlement facts (license type, tier, expiry, algorithm)
+        created_at: { type: string, format: date-time }
+    IssuanceHistory:
+      type: object
+      required: [customer_public_id, actions, total]
+      properties:
+        customer_public_id: { type: string, pattern: "^[0-9a-f]{32}$" }
+        actions:
+          type: array
+          items:
+            $ref: "#/components/schemas/IssuanceHistoryAction"
+        total: { type: integer }
+    LicenseIssueRequest:
+      type: object
+      additionalProperties: false
+      required: [license_type]
+      properties:
+        license_type:
+          type: string
+          enum: [trial, subscription, perpetual, enterprise]
+        validity_days:
+          type: integer
+          minimum: 1
+          maximum: 3650
+          description: >
+            Trial -> trial_days; other types override expires_on. Defaults
+            when omitted: trial 30, subscription 365, perpetual/enterprise
+            never expire (shared-engine behavior).
+        modules:
+          type: array
+          minItems: 1
+          uniqueItems: true
+          items:
+            type: string
+            enum:
+              - zsp_dynamic_leases
+              - hsm_integration
+              - dual_control_quorum
+              - worm_audit_ledger
+              - ai_anomaly_radar
+              - airgap_bastion_tunnels
+              - idp_federation_bridge
+              - shamir_breakglass
+        quotas:
+          type: object
+          description: >
+            JSON object of scalar values (max depth 3); passed through to
+            the shared engine. Omitted -> engine defaults for the type.
+        algorithm:
+          type: string
+          enum: [RSA-PSS-SHA256, Ed25519]
+        environment:
+          type: string
+          pattern: "[A-Za-z0-9-]{1,16}"
+          default: PROD
+          description: Environment segment of the generated license id
+    License:
+      type: object
+      required:
+        - license_id
+        - license_key
+        - customer_public_id
+        - license_type
+        - tier
+        - plan
+        - algorithm
+        - format
+        - status
+        - issued_date
+        - expires_on
+        - fingerprint
+        - superseded_by
+        - created_at
+        - updated_at
+      properties:
+        license_id: { type: string }
+        license_key: { type: string }
+        customer_public_id: { type: string, pattern: "^[0-9a-f]{32}$" }
+        license_type: { type: string, enum: [trial, subscription, perpetual, enterprise] }
+        tier: { type: string }
+        plan: { type: string, nullable: true }
+        algorithm: { type: string, enum: [RSA-PSS-SHA256, Ed25519] }
+        format: { type: string, enum: [json] }
+        status: { type: string, enum: [active, superseded] }
+        issued_date: { type: string, format: date-time }
+        expires_on:
+          type: string
+          nullable: true
+          format: date-time
+          description: null for non-expiring license types
+        fingerprint: { type: string }
+        superseded_by:
+          type: string
+          nullable: true
+          description: License id that replaced this one, when superseded
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+    LicenseList:
+      type: object
+      required: [licenses, total, limit, offset]
+      properties:
+        licenses:
+          type: array
+          items:
+            $ref: "#/components/schemas/License"
+        total: { type: integer }
+        limit: { type: integer }
+        offset: { type: integer }
+    AuditEvent:
+      type: object
+      required: [action, subject, detail, created_at]
+      properties:
+        action:
+          type: string
+          enum: [license_issued, license_renewed, license_bundle_exported]
+        subject: { type: string, description: License id the event acted on }
+        detail: { type: object, nullable: true }
+        created_at: { type: string, format: date-time }
+    AuditTrail:
+      type: object
+      required: [events, total, limit, offset]
+      properties:
+        events:
+          type: array
+          items:
+            $ref: "#/components/schemas/AuditEvent"
+        total: { type: integer }
+        limit: { type: integer }
+        offset: { type: integer }
+    LicenseTypeOption:
+      type: object
+      required:
+        - value
+        - default_tier
+        - default_plan
+        - default_classification
+        - default_modules
+        - default_validity_days
+      properties:
+        value: { type: string, enum: [trial, subscription, perpetual, enterprise] }
+        default_tier: { type: string }
+        default_plan: { type: string }
+        default_classification: { type: string }
+        default_modules:
+          type: array
+          items: { type: string }
+        default_validity_days:
+          type: integer
+          nullable: true
+          description: null = never expires (engine behavior)
+    Module:
+      type: object
+      required: [id, name, icon, detail, description]
+      properties:
+        id: { type: string }
+        name: { type: string }
+        icon: { type: string }
+        detail: { type: string }
+        description: { type: string }
+    LicenseOptions:
+      type: object
+      required:
+        - license_types
+        - modules
+        - algorithms
+        - formats
+        - enforcement_levels
+        - validity_days
+        - environment
+      properties:
+        license_types:
+          type: array
+          items:
+            $ref: "#/components/schemas/LicenseTypeOption"
+        modules:
+          type: array
+          items:
+            $ref: "#/components/schemas/Module"
+        algorithms:
+          type: array
+          items: { type: string, enum: [RSA-PSS-SHA256, Ed25519] }
+        formats:
+          type: array
+          items: { type: string, enum: [json] }
+        enforcement_levels:
+          type: array
+          items:
+            type: string
+            enum: [soft-warning, auto-scale, audit-log, hard-block]
+        validity_days:
+          type: object
+          required: [min, max]
+          properties:
+            min: { type: integer }
+            max: { type: integer }
+        environment:
+          type: object
+          required: [pattern, default]
+          properties:
+            pattern: { type: string }
+            default: { type: string }

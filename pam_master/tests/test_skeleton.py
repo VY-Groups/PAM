@@ -235,14 +235,23 @@ def test_generator_is_cached_per_key_pair(config):
 
 
 # ----------------------------------------------------------- anti-mixing --
+FORBIDDEN_SOURCE_TOKENS = (
+    "phase2_license_server",  # shipped PAM runtime
+    "from backend.",          # cross-product package imports (engine only
+    "import backend",         #  may arrive via the licensing bridge)
+)
+
+
 def test_master_source_never_references_the_pam_runtime():
-    """The package runtime must not import the shipped PAM server (extraction
-    rule). Tests are excluded from the scan — they legitimately name the
-    forbidden module to assert on it."""
+    """The package runtime must not import the shipped PAM server or the
+    backend package (extraction rule: only the licensing bridge may reach
+    the shared engine, via its own flat imports). Tests are excluded from
+    the scan — they legitimately name the forbidden module to assert on it."""
     package_dir = Path(licensing.__file__).resolve().parent
     offenders = [
-        path.name
+        f"{path.name}: {token}"
         for path in sorted(package_dir.rglob("*.py"))
-        if "phase2_license_server" in path.read_text(encoding="utf-8")
+        for token in FORBIDDEN_SOURCE_TOKENS
+        if token in path.read_text(encoding="utf-8")
     ]
     assert offenders == []

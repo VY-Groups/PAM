@@ -9,7 +9,7 @@
 
 ## What is implemented
 
-Phase 2c (skeleton + customer registry + license issuance):
+Phase 2d (skeleton + registry + issuance + API contract):
 
 | Piece | State |
 | --- | --- |
@@ -22,7 +22,7 @@ Phase 2c (skeleton + customer registry + license issuance):
 | Dev-only Docker | ✅ `Dockerfile` + `docker-compose.yml` |
 | Customer registry: list/create/get/edit + issuance history, **PII AES-256-GCM at rest** | ✅ `registry.py` + `crypto.py` + `db.py` |
 | License issuance: sign via shared engine, encrypted archive, renewal, audit, offline-verifiable delivery bundle | ✅ `issuance.py` + `errors.py` |
-| Own `openapi.yaml` + contract/anti-mixing tests | ☐ (2d) |
+| Own `openapi.yaml` + contract/anti-mixing tests | ✅ `openapi.yaml` + `tests/test_openapi_contract.py` |
 
 ## Run (development)
 
@@ -88,6 +88,19 @@ Settings (all optional, defaults shown):
 * The bundle verifies offline: `sha256sum -c SHA256SUMS.txt`, then verify
   the `.lic` envelope with the included `license_public_key.pem`.
 * No auth layer yet (same as the registry): binds `127.0.0.1` by default.
+
+## API contract
+
+`pam_master/openapi.yaml` is this product's own OpenAPI 3 contract (the
+shipped product's contract lives separately in `apis/openapi.yaml`).
+`tests/test_openapi_contract.py` enforces it **both ways** (documented
+operations ↔ served routes), compares live response shapes against the
+documented schemas, mirrors documented enums/ranges against the code
+constants they claim to describe — and, as a shipped-surface invariant,
+fails if any git-tracked file contains a private-key block. The anti-mixing
+scan additionally forbids `phase2_license_server` and `backend.` package
+imports in the MASTER's package sources (tests excluded — they name the
+forbidden tokens deliberately).
 
 ## Key custody rules
 
