@@ -26,7 +26,10 @@ def test_index_is_descriptive_only(client):
     payload = response.get_json()
     assert payload["service"] == "vy-pam-master"
     assert "never shipped" in payload["role"]
-    assert payload["endpoints"] == {"health": "/health"}
+    assert payload["endpoints"] == {
+        "health": "/health",
+        "customers": "/api/v1/customers",
+    }
 
 
 # ----------------------------------------------------------------- health --
@@ -43,12 +46,14 @@ def test_health_reports_real_state(client):
     assert database["reachable"] is True
     assert database["tables"] == 0
 
-    # Real key custody state: the fixture generated both keys.
+    # Real key custody state: the fixture generated all three keys.
     signing = payload["signing"]
     assert signing["algorithms"] == list(licensing.sig.SUPPORTED_ALGORITHMS)
     assert signing["rsa_key"] == "present"
     assert signing["ed25519_key"] == "present"
     assert signing["ready"] is True
+    assert payload["registry"]["pii_key"] == "present"
+    assert payload["registry"]["ready"] is True
 
     # Presence only — key material never appears in any response.
     body = response.get_data(as_text=True)
@@ -89,6 +94,10 @@ def test_config_defaults_match_documented_custody_layout():
     assert config.ed25519_private_key_path == (
         licensing.REPO_ROOT / "license_ed25519_private.pem"
     )
+    assert config.customer_key_b64 is None
+    assert config.customer_key_path == (
+        licensing.REPO_ROOT / "pam_master" / "customer_registry.key"
+    )
 
 
 def test_config_honors_env_overrides(tmp_path):
@@ -97,6 +106,8 @@ def test_config_honors_env_overrides(tmp_path):
             "MASTER_DATABASE_URI": f"sqlite:///{tmp_path / 'vendor.db'}",
             "MASTER_RSA_PRIVATE_KEY_PATH": str(tmp_path / "rsa.pem"),
             "MASTER_ED25519_PRIVATE_KEY_PATH": str(tmp_path / "ed.pem"),
+            "MASTER_CUSTOMER_KEY_PATH": str(tmp_path / "pii.key"),
+            "MASTER_CUSTOMER_KEY_B64": "aGVsbG8td29ybGQ=",
             "MASTER_SERVER_PORT": "6001",
             "MASTER_BIND": "0.0.0.0",
         }
@@ -104,6 +115,8 @@ def test_config_honors_env_overrides(tmp_path):
     assert config.database_path == tmp_path / "vendor.db"
     assert config.rsa_private_key_path == tmp_path / "rsa.pem"
     assert config.ed25519_private_key_path == tmp_path / "ed.pem"
+    assert config.customer_key_path == tmp_path / "pii.key"
+    assert config.customer_key_b64 == "aGVsbG8td29ybGQ="
     assert config.port == 6001
     assert config.host == "0.0.0.0"
 
@@ -154,7 +167,7 @@ def test_key_generation_refuses_overwrite(tmp_path):
     assert ed_path.read_bytes() == ed_original
 
 
-def test_keygen_creates_both_keys_then_keeps_them(tmp_path):
+def test_keygen_creates_all_keys_then_keeps_them(tmp_path):
     config = Config.from_env(
         {
             "MASTER_DATABASE_URI": f"sqlite:///{tmp_path / 'master.db'}",
@@ -164,21 +177,32 @@ def test_keygen_creates_both_keys_then_keeps_them(tmp_path):
             "MASTER_ED25519_PRIVATE_KEY_PATH": str(
                 tmp_path / "license_ed25519_private.pem"
             ),
+            "MASTER_CUSTOMER_KEY_PATH": str(
+                tmp_path / "customer_registry.key"
+            ),
         }
     )
     lines = keygen_run(config)
-    assert sum("created" in line for line in lines) == 2
+    assert sum("created" in line for line in lines) == 3
     assert (tmp_path / "license_private_key.pem").is_file()
     assert (tmp_path / "license_ed25519_private.pem").is_file()
+    assert (tmp_path / "customer_registry.key").is_file()
     # Public counterparts follow the engine's naming convention so
     # LicenseValidator on the shipped side finds them.
     assert (tmp_path / "license_public_key.pem").is_file()
     assert (tmp_path / "license_ed25519_public.pem").is_file()
+    # The registry key is symmetric — no public counterpart.
+    assert not (tmp_path / "customer_registry_public.key").exists()
 
     rsa_bytes = (tmp_path / "license_private_key.pem").read_bytes()
+    registry_bytes = (tmp_path / "customer_registry.key").read_bytes()
     second = keygen_run(config)
     assert all("kept" in line for line in second)
     assert (tmp_path / "license_private_key.pem").read_bytes() == rsa_bytes
+    assert (
+        (tmp_path / "customer_registry.key").read_bytes()
+        == registry_bytes
+    )
 
 
 # ---------------------------------------------------------- engine wiring --

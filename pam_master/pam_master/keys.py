@@ -16,6 +16,9 @@ engine's naming convention (``..._private.pem`` -> ``..._public.pem``) so
 """
 from __future__ import annotations
 
+import base64
+import binascii
+import os
 from pathlib import Path
 
 from cryptography.hazmat.primitives import serialization
@@ -99,3 +102,76 @@ def load_public_key(path: Path):
     if not path.is_file():
         raise KeyCustodyError(f"public key not found: {path}")
     return serialization.load_pem_public_key(path.read_bytes())
+
+
+# ------------------------------------------------------- registry PII key --
+# Customer-registry data-encryption key (AES-256-GCM), completely separate
+# from the license signing keys: data confidentiality is not signing trust.
+
+REGISTRY_KEY_BYTES = 32
+
+
+class RegistryKeyError(KeyCustodyError):
+    """The customer-registry PII key is missing or unusable."""
+
+
+def _decode_registry_key(raw: str, origin: str) -> bytes:
+    try:
+        key = base64.b64decode(raw.strip(), validate=True)
+    except (binascii.Error, ValueError) as exc:
+        raise RegistryKeyError(
+            f"registry PII key from {origin} is not valid base64: {exc}"
+        ) from exc
+    if len(key) != REGISTRY_KEY_BYTES:
+        raise RegistryKeyError(
+            f"registry PII key from {origin} must decode to "
+            f"{REGISTRY_KEY_BYTES} bytes, got {len(key)}"
+        )
+    return key
+
+
+def generate_registry_key(path: Path) -> Path:
+    """Create the registry PII key (base64 of 32 random bytes, never
+    overwriting)."""
+    if path.exists():
+        raise KeyCustodyError(
+            f"refusing to overwrite an existing registry key: {path}"
+        )
+    path.parent.mkdir(parents=True, exist_ok=True)
+    token = base64.b64encode(os.urandom(REGISTRY_KEY_BYTES)).decode("ascii")
+    path.write_text(token + "\n", encoding="ascii")
+    return path
+
+
+def load_registry_key(config) -> bytes:
+    """Load the registry PII key — file by default, ``MASTER_CUSTOMER_KEY_B64``
+    wins when set (docker/orchestration secrets). Never creates one."""
+    if config.customer_key_b64:
+        return _decode_registry_key(
+            config.customer_key_b64, "MASTER_CUSTOMER_KEY_B64"
+        )
+    path = config.customer_key_path
+    if not path.is_file():
+        raise RegistryKeyError(
+            f"registry PII key not found: {path} — run: "
+            "python -m pam_master.keygen"
+        )
+    return _decode_registry_key(
+        path.read_text(encoding="ascii"), str(path)
+    )
+
+
+def registry_key_status(config) -> str:
+    """Honest presence marker for health output: present | missing | invalid."""
+    try:
+        if config.customer_key_b64:
+            _decode_registry_key(
+                config.customer_key_b64, "MASTER_CUSTOMER_KEY_B64"
+            )
+            return "present"
+        if config.customer_key_path.is_file():
+            load_registry_key(config)
+            return "present"
+    except RegistryKeyError:
+        return "invalid"
+    return "missing"

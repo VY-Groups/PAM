@@ -212,8 +212,12 @@ signs with it, PAM verifies with it).
   README with custody rules; live boot smoke honest (`rsa_key: present`,
   `ed25519_key: missing`, `ready: false` = this machine's real state)
   — **verify:** `python -m pytest pam_master -q` → 13 passed
-- ☐ **2b** Customer registry: records with PII encrypted at rest, list/create/
-  edit, issuance history
+- ☑ **2b** Customer registry: records with PII encrypted at rest, list/create/
+  edit, issuance history — **done:** `registry.py` CRUD + validation,
+  `crypto.py` AES-256-GCM bound to row `public_id`, `db.py` schema
+  (customers + issuance_history), registry key custody (file/b64 env, honest
+  503 without it), history write helper for 2c; README API table
+  — **verify:** `python -m pytest pam_master -q` → 28 passed
 - ☐ **2c** License generation: tier/modules/quotas/validity form → sign via
   `backend/ipam_licensing` → archive + audit trail + delivery bundle export
   (license file + public key + checksums); renewal/replace flow
@@ -243,6 +247,7 @@ signs with it, PAM verifies with it).
 | 2026-10-06 | 1a–1h ✅ (206 tests, 17/17 smoke, 58+58 UI checks, 12 screenshots, launcher LIVE) | **1i** (commit + push) |
 | 2026-10-06 | **Phase 1 complete ✅** (`9f83bd3` pushed: Discovery module + honest screen + chrome purge + shots_tool) | **Phase 2 / 2a** (`pam_master/` skeleton) |
 | 2026-10-07 | **Phase 2a ✅** (`pam_master/` skeleton: 13 tests, live smoke honest; regression 206 + 17/17) | **2b** (customer registry, PII encrypted at rest) |
+| 2026-10-07 | **Phase 2b ✅** (registry CRUD + PII AES-256-GCM at rest; 28 tests; live smoke: 201/list/PATCH/history + no plaintext in DB file) | **2c** (license generation + delivery bundle) |
 
 ---
 

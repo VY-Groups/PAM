@@ -9,18 +9,18 @@
 
 ## What is implemented
 
-Phase 2a (skeleton):
+Phase 2b (skeleton + customer registry):
 
 | Piece | State |
 | --- | --- |
 | Config (`MASTER_*` env, sqlite only) | ✅ `pam_master/config.py` |
 | Key custody (presence-only health, **no implicit key creation**) | ✅ `pam_master/keys.py` |
 | Signing via shared crypto engine (`backend/ipam_licensing`) | ✅ `pam_master/licensing.py` |
-| Endpoints: `GET /`, `GET /health` (real DB state + key presence) | ✅ `pam_master/routes.py` |
-| Key generator: `python -m pam_master.keygen` | ✅ `pam_master/keygen.py` |
+| Endpoints: `GET /`, `GET /health` (real DB state + key presence) + customer API | ✅ `pam_master/routes.py` |
+| Key generator: `python -m pam_master.keygen` (RSA / Ed25519 / registry) | ✅ `pam_master/keygen.py` |
 | Test suite (temp keys/db only — never real custody keys) | ✅ `tests/` |
 | Dev-only Docker | ✅ `Dockerfile` + `docker-compose.yml` |
-| Customer registry (PII encrypted at rest) | ☐ next (2b) |
+| Customer registry: list/create/get/edit + issuance history, **PII AES-256-GCM at rest** | ✅ `registry.py` + `crypto.py` + `db.py` |
 | License issuance API + delivery bundle | ☐ (2c) |
 | Own `openapi.yaml` + contract/anti-mixing tests | ☐ (2d) |
 
@@ -39,8 +39,32 @@ Settings (all optional, defaults shown):
 | `MASTER_DATABASE_URI` | `sqlite:///` → `pam_master/master.db` (git-ignored) |
 | `MASTER_RSA_PRIVATE_KEY_PATH` | `<repo>/license_private_key.pem` |
 | `MASTER_ED25519_PRIVATE_KEY_PATH` | `<repo>/license_ed25519_private.pem` |
+| `MASTER_CUSTOMER_KEY_PATH` | `pam_master/customer_registry.key` (git-ignored) |
+| `MASTER_CUSTOMER_KEY_B64` | unset — when set, base64 of 32 bytes wins over the file (orchestration secrets) |
 | `MASTER_SERVER_PORT` | `5400` |
 | `MASTER_BIND` | `127.0.0.1` |
+
+## Customer registry API
+
+| Method | Path | Notes |
+| --- | --- | --- |
+| `GET` | `/api/v1/customers` | list — `limit` 1–200 (default 50), `offset`; newest first |
+| `POST` | `/api/v1/customers` | create — `name` + `region` required → `201` + `Location` |
+| `GET` | `/api/v1/customers/<id>` | one record (32-hex `public_id`) |
+| `PATCH` | `/api/v1/customers/<id>` | partial edit; `null` clears an optional field |
+| `GET` | `/api/v1/customers/<id>/issuance-history` | newest first; entries are written by the issuance flow (2c) |
+
+* All six fields (`name`, `region`, `contact_name`, `contact_email`,
+  `contact_phone`, `notes`) are stored **encrypted** (AES-256-GCM, bound to
+  the row's `public_id`); the database file never contains plaintext — a test
+  reads the raw file and proves it.
+* No hard deletes on purpose: issued licenses must keep resolving their
+  customer (list/create/edit only, per plan).
+* **No auth layer yet** — the server binds `127.0.0.1` by default; expose
+  deliberately.
+* Honest failures: validation → `400`, unknown customer → `404`,
+  missing/invalid registry key → `503 registry_unavailable`, corrupt row →
+  `500 registry_data_corrupt`. Nothing is guessed.
 
 ## Key custody rules
 
@@ -53,8 +77,12 @@ Settings (all optional, defaults shown):
    which never overwrites an existing key.
 3. Endpoints report key **presence** (`present` / `missing`) only — key
    material never crosses the process boundary.
-4. Keys are git-ignored (repo root and `.keys/`), and generated per test run
+4. Keys are git-ignored (repo root and `.keys/`), the registry key lives in
+   `pam_master/customer_registry.key`, and tests generate every key fresh
    under pytest's temp dirs.
+5. **Customer PII is encrypted at rest** with its own AES-256-GCM key
+   (registry key) — never the signing keys; data confidentiality and signing
+   trust stay separate.
 
 ## Tests
 

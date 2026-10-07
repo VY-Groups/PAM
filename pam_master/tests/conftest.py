@@ -25,17 +25,25 @@ from pam_master.app import create_app  # noqa: E402
 from pam_master.config import Config  # noqa: E402
 from pam_master.keys import (  # noqa: E402
     generate_ed25519_key,
+    generate_registry_key,
     generate_rsa_key,
 )
 
 
 @pytest.fixture()
 def custody(tmp_path):
-    """Fresh RSA + Ed25519 key pair (engine naming) in a temp directory."""
+    """Fresh RSA + Ed25519 + registry keys (engine naming) in a temp dir."""
     keys_dir = tmp_path / "keys"
     rsa_path = generate_rsa_key(keys_dir / "license_private_key.pem")
     ed_path = generate_ed25519_key(keys_dir / "license_ed25519_private.pem")
-    return {"rsa": rsa_path, "ed25519": ed_path}
+    registry_path = generate_registry_key(
+        keys_dir / "customer_registry.key"
+    )
+    return {
+        "rsa": rsa_path,
+        "ed25519": ed_path,
+        "registry": registry_path,
+    }
 
 
 @pytest.fixture()
@@ -46,6 +54,7 @@ def config(tmp_path, custody):
             "MASTER_DATABASE_URI": f"sqlite:///{tmp_path / 'master.db'}",
             "MASTER_RSA_PRIVATE_KEY_PATH": str(custody["rsa"]),
             "MASTER_ED25519_PRIVATE_KEY_PATH": str(custody["ed25519"]),
+            "MASTER_CUSTOMER_KEY_PATH": str(custody["registry"]),
             "MASTER_SERVER_PORT": "5401",
         }
     )

@@ -23,6 +23,8 @@ SQLITE_PREFIX = "sqlite:///"
 DEFAULT_DATABASE_URI = f"sqlite:///{REPO_ROOT / 'pam_master' / 'master.db'}"
 DEFAULT_RSA_KEY = REPO_ROOT / "license_private_key.pem"
 DEFAULT_ED25519_KEY = REPO_ROOT / "license_ed25519_private.pem"
+# Separate data-encryption key for customer PII (never the signing keys).
+DEFAULT_CUSTOMER_KEY = REPO_ROOT / "pam_master" / "customer_registry.key"
 
 
 class ConfigError(ValueError):
@@ -58,6 +60,8 @@ class Config:
     database_path: Path
     rsa_private_key_path: Path
     ed25519_private_key_path: Path
+    customer_key_b64: Optional[str]
+    customer_key_path: Path
     host: str
     port: int
 
@@ -94,6 +98,12 @@ class Config:
             ed25519_private_key_path=Path(
                 source.get(
                     "MASTER_ED25519_PRIVATE_KEY_PATH", str(DEFAULT_ED25519_KEY)
+                )
+            ),
+            customer_key_b64=source.get("MASTER_CUSTOMER_KEY_B64"),
+            customer_key_path=Path(
+                source.get(
+                    "MASTER_CUSTOMER_KEY_PATH", str(DEFAULT_CUSTOMER_KEY)
                 )
             ),
             host=source.get("MASTER_BIND", DEFAULT_BIND),
