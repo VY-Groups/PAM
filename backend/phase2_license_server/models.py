@@ -1540,3 +1540,32 @@ class BreakGlassEvent(db.Model):
             "detail": self.detail or {},
             "created_at": self.created_at.isoformat(),
         }
+
+
+class IntegrationEvent(db.Model):
+    """Module action log for section 20: MFA enrolments and verifications,
+    the medium-band MFA gate, ITSM ticket verifications, LDAP logins and
+    SIEM push failures - folded into the section-19 ledger as the eleventh
+    source (`integration`). Connector configuration itself stays on the
+    settings changelog; this trail records what the product *did* against
+    an external system. Secrets (TOTP seeds, API tokens, passwords) never
+    appear in `detail` - only what was attempted and how it answered."""
+
+    __tablename__ = "integration_events"
+
+    id = db.Column(db.Integer, primary_key=True)
+    created_at = db.Column(db.DateTime, nullable=False, default=datetime.now, index=True)
+    action = db.Column(db.String(32), nullable=False)
+    actor = db.Column(db.String(64), nullable=False, default="system")
+    subject = db.Column(db.String(160), nullable=False, default="")
+    detail = db.Column(db.JSON, nullable=False, default=dict)
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "id": self.id,
+            "action": self.action,
+            "actor": self.actor,
+            "subject": self.subject,
+            "detail": self.detail or {},
+            "created_at": self.created_at.isoformat(),
+        }

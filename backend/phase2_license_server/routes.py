@@ -10,7 +10,7 @@ from flask import Blueprint, Response, current_app, jsonify, request
 
 import service
 from config import Config
-from errors import Unauthorized, ValidationFailed
+from errors import Conflict, Unauthorized, ValidationFailed
 from licensing_bridge import sig
 
 api = Blueprint("api", __name__, url_prefix="/api/v1")
@@ -47,10 +47,14 @@ def _int_param(name: str, default: int, *, minimum: int = 0) -> int:
 
 
 def require_admin(view):
-    """Reject the request unless a valid admin token is presented.
+    """Reject the request unless a valid admin credential is presented.
 
-    When LICENSE_ADMIN_TOKEN is unset the server runs in open/dev mode and
-    every route is allowed (the response header reports this).
+    The admin token is the default credential. In token mode a signed LDAP
+    login ticket (minted by POST /api/v1/auth/ldap after a real bind) is
+    also accepted - the directory vouches for the operator, the routes stay
+    identical. When LICENSE_ADMIN_TOKEN is unset the server runs in
+    open/dev mode and every route is allowed (the response header reports
+    this).
     """
 
     @wraps(view)
@@ -62,9 +66,11 @@ def require_admin(view):
             if auth_header.lower().startswith("bearer "):
                 token = auth_header[7:].strip()
             if not token or not hmac.compare_digest(token, config.admin_token):
-                raise Unauthorized(
-                    "Admin token required (Authorization: Bearer <token> or X-Admin-Token)"
-                )
+                identity = service.verify_ldap_ticket(token, config=config)
+                if identity is None:
+                    raise Unauthorized(
+                        "Admin token required (Authorization: Bearer <token> or X-Admin-Token)"
+                    )
         return view(*args, **kwargs)
 
     return wrapped
@@ -287,6 +293,69 @@ def get_events():
     across every trail, newest first."""
     limit = min(_int_param("limit", 20), MAX_PAGE_SIZE)
     return jsonify(service.unified_events(source=request.args.get("source"), limit=limit))
+
+
+# ---------------------------------------------------------------------------
+# enterprise integrations (architecture section 20: MFA / ITSM / SIEM / LDAP)
+# ---------------------------------------------------------------------------
+@api.get("/integrations/status")
+def get_integrations_status():
+    """Every connector's real state - MFA factor, ITSM, SIEM outbound
+    push, LDAP - plus the last push result. `not connected` is a measured
+    fact here, never a placeholder."""
+    return jsonify(service.integrations_status())
+
+
+@api.post("/mfa/enroll")
+@require_admin
+def enroll_mfa_factor():
+    """Generate this operator's TOTP factor (RFC 6238). The secret is
+    returned exactly once, for the authenticator app, and stored sealed."""
+    body = _json_body(required=False)
+    return jsonify(service.mfa_enroll(body, actor=_actor())), 201
+
+
+@api.post("/mfa/verify")
+@require_admin
+def verify_mfa_code():
+    """Check a 6-digit code against the enrolled factor for real."""
+    return jsonify(service.mfa_verify(_json_body(), actor=_actor()))
+
+
+@api.post("/itsm/verify")
+@require_admin
+def verify_itsm_ticket():
+    """Ask the configured ITSM instance whether a ticket exists - a real
+    HTTP GET, 409 when no instance is configured."""
+    body = _json_body()
+    ticket = body.get("ticket")
+    if not isinstance(ticket, str) or not ticket.strip():
+        raise ValidationFailed("'ticket' is required", {"field": "ticket"})
+    ticket = ticket.strip()
+    if len(ticket) > 64:
+        raise ValidationFailed(
+            "'ticket' must be at most 64 characters",
+            {"field": "ticket", "max_length": 64},
+        )
+    outcome = service.itsm_verify_ticket(ticket, actor=_actor())
+    if not outcome["configured"]:
+        raise Conflict(
+            "ITSM is not configured",
+            {"field": "itsm", "configured": False, "detail": outcome["detail"]},
+        )
+    return jsonify(outcome)
+
+
+@api.post("/auth/ldap")
+def ldap_login():
+    """Verify credentials with a real LDAP bind (section 20 IAM). In token
+    mode a successful bind returns a short-lived ticket the admin routes
+    accept beside the admin token; in open dev mode there is nothing to
+    grant and the response says so."""
+    result = service.ldap_login(
+        _json_body(), actor=_actor(default=""), config=_config()
+    )
+    return jsonify(result)
 
 
 # ---------------------------------------------------------------------------

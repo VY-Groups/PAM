@@ -26,10 +26,10 @@ resumable source of truth while working)
 | §7 Risk-Based Access | 8-component engine + session gate | ✅ built | 4f |
 | §8 Privileged Sessions | recording, controls, cascade | ✅ built | 4c |
 | §9 Command Control | default-allow rules, holds, incidents | ✅ built | 4d |
-| §19 Immutable Audit | hash chain, 10 sources, verify/export | ✅ built | 4e |
+| §19 Immutable Audit | hash chain, 11 sources, verify/export | ✅ built | 4e |
 | §10 PAM Bypass Detection | direct-access detection | ✅ built | **4g** |
 | §17 Break Glass | emergency protocol (dual approval → recorded session → rotation) | ✅ built | **4h** |
-| §20 Enterprise Integrations | IAM/MFA/ITSM/SIEM/SOAR/EDR | ⛔ pending (export seam only) | **4i** |
+| §20 Enterprise Integrations | TOTP MFA gate, ITSM verify, SIEM push, LDAP bind | ✅ built | **4i** |
 | §11 AI Security / UEBA | behavior baselines, anomaly response | ⛔ pending | **4j** |
 | §12 Dynamic Watermarking | contextual session overlay | ⛔ pending (custody string only) | **4k** |
 | §13 Third-Party / Vendor PAM | vendor invite → JIT flow | ⛔ pending | **5a** |
@@ -178,11 +178,37 @@ SIEM (Splunk/Sentinel/QRadar/Elastic/Wazuh/ArcSight), SOAR, EDR.*
   status.
 
 **Depends on:** 4e (ledger export seam), 4f (risk `mfa`/`ticket` consumers).
-**Tests:** `test_integrations.py` — `—` (external calls tested against
+**Tests:** `test_integrations.py` — **41** (external calls tested against
 local stub servers, never mocked domain behavior).
 **Done when:** a configured TOTP factor actually gates a medium-band session
 start, a configured ITSM key is really verified, and SIEM push moves real
 ledger records — with every unconfigured path rendering `not connected`.
+
+**As built (4i):** 1 model (`integration_events`) / **26** tables; 5
+endpoints across 5 path keys (`mfa/enroll`, `mfa/verify`, `itsm/verify`,
+`auth/ldap`, `integrations/status` — 3 admin) under the new `integrations`
+tag; RFC-6238 TOTP over stdlib `hmac`/`hashlib` (±1 window, SHA-1/256/512,
+deterministic window math unit-tested) enforces the `mfa` decision at
+session start (`mfa_code`, refusal 403 `details.mfa`) and at break-glass
+open (refusal 401 `details.mfa`) — **no factor → honest pass**
+(`mfa: "not configured"`, never a fake challenge); ITSM verified over real
+HTTP against local stub servers (verified/not_verified + status on the
+ledger, `itsm_verify_ticket` never raises); SIEM signed NDJSON (`sha256=`
+HMAC) pushed **after commit** — a failed push records exactly one
+`siem-push-failed` event via a fresh post-commit session (SQLAlchemy 2.x
+refuses SQL on the committed session inside `after_commit`); LDAP BER bind
++ `vypam-ldap1.<b64url>.<hmac>` tickets on `config.secret_key` (open mode
+answers honestly); settings groups `mfa`/`itsm`/`siem`/`ldap` (8 total —
+secrets sealed AES-256-GCM AAD `settings:{group}:{field}` with
+`<set>`/`<cleared>` changelog values, `mfa.factor_*` readonly → 400 with
+`POST /mfa/enroll` hint, plain-`http` connector URLs rejected unless
+`allow_http`); `Unauthorized` now carries `details` (3× 500s fixed); ledger
+source `integration` (**11th**) via `_map_integration`; Settings screen §20
+cards + 4 live chips + one-time secret reveal, Compliance 11→12 chips +
+`integration` trail + SIEM header chip, Break-Glass open modal with the MFA
+field gated on `GET /integrations/status`; contract **84 paths / 93 ops /
+14 tags / 48 admin**; `test_integrations.py` **41** + full backend
+**425**; MFA footnote retired — the gate is live.
 
 ## 6. Phase 4j — AI Security / UEBA (§11)
 
@@ -279,7 +305,7 @@ procedures in `docs/DEPLOYMENT_RUNBOOK.md` extend to replication runbooks.
 ### 6b — RBAC / ABAC
 Multi-role model (today: single admin token + open dev mode): roles
 (admin / approver / operator / auditor / auditor-read-only), policy bindings
-on the 45 admin operations, attribute rules on vault items and targets.
+on the 48 admin operations, attribute rules on vault items and targets.
 Contract lockstep: security schemes gain role requirements.
 
 ### 6c — SSO + HSM enforcement
@@ -313,12 +339,12 @@ real numbers collected at that time, `—` until then**:
 2. **Console:** all 10 sidebar screens live (including Break-Glass), zero
    `data-kind="static"` surfaces, zero FORBIDDEN strings, `file://` fallback
    intact.
-3. **Evidence:** one append-only ledger covering every module source (10+
+3. **Evidence:** one append-only ledger covering every module source (11+
    sources), chain verified in CI, NDJSON + webhook export flowing to a real
    SIEM when configured.
-4. **Contracts:** `apis/openapi.yaml` (path count `—`, today 79) and the
+4. **Contracts:** `apis/openapi.yaml` (path count `—`, today 84) and the
    vendor tool contract both enforced both-ways; zero dark endpoints.
-5. **Quality gates:** backend suite (today **384**) grows per phase with real
+5. **Quality gates:** backend suite (today **425**) grows per phase with real
    counts recorded in the READMEs; pam_master stays green (**46**); smoke,
    both UI verifiers, leak check all green at every boundary.
 6. **Operations:** single-node install stays Docker-free; §18 adds replicated

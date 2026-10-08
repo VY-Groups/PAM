@@ -466,6 +466,85 @@
 <div class="grid grid-cols-1 md:grid-cols-2 gap-space-sm" data-settings-group="worm"></div>
 </div>
 </section>
+<!-- SECTION 5: Enterprise Integrations (architecture section 20) -->
+<section class="bg-surface-container-lowest rounded-xl p-space-lg shadow-sm">
+<div class="flex flex-wrap items-start justify-between gap-space-sm pb-space-sm mb-space-md border-b border-surface-container">
+<div class="max-w-3xl">
+<div class="flex items-center gap-2">
+<span class="material-symbols-outlined text-primary text-[20px]">hub</span>
+<h2 class="font-headline-sm text-headline-sm text-on-surface">Enterprise Integrations</h2>
+</div>
+<p class="font-body-sm text-body-sm text-on-surface-variant mt-1">TOTP MFA, ITSM ticket verification, SIEM outbound push and LDAP directory bind - every connector either works for real or reports <span class="font-code-sm text-code-sm">not connected</span>. The chips and notes come from <span class="font-code-sm text-code-sm">GET /api/v1/integrations/status</span>.</p>
+</div>
+<button class="flex items-center gap-1.5 px-space-md py-2 rounded-lg bg-primary-container text-on-primary-container hover:bg-primary font-label-md text-label-md font-semibold shadow-sm" id="btn-mfa-enroll" type="button">
+<span class="material-symbols-outlined text-[16px]">phonelink_lock</span>
+<span>Enroll MFA Factor</span>
+</button>
+</div>
+<!-- live connector chips (honest "—" until the status endpoint answers) -->
+<div class="grid grid-cols-2 md:grid-cols-4 gap-space-sm mb-space-md" id="integration-chips">
+<div class="p-space-sm rounded-lg bg-surface-container-low flex flex-col gap-1">
+<span class="font-label-badge text-label-badge text-outline">MFA (TOTP)</span>
+<span class="inline-flex items-center gap-1.5 font-code-sm text-code-sm text-on-surface-variant" id="chip-mfa"><span class="w-1.5 h-1.5 rounded-full bg-outline"></span>&mdash;</span>
+</div>
+<div class="p-space-sm rounded-lg bg-surface-container-low flex flex-col gap-1">
+<span class="font-label-badge text-label-badge text-outline">ITSM</span>
+<span class="inline-flex items-center gap-1.5 font-code-sm text-code-sm text-on-surface-variant" id="chip-itsm"><span class="w-1.5 h-1.5 rounded-full bg-outline"></span>&mdash;</span>
+</div>
+<div class="p-space-sm rounded-lg bg-surface-container-low flex flex-col gap-1">
+<span class="font-label-badge text-label-badge text-outline">SIEM Push</span>
+<span class="inline-flex items-center gap-1.5 font-code-sm text-code-sm text-on-surface-variant" id="chip-siem"><span class="w-1.5 h-1.5 rounded-full bg-outline"></span>&mdash;</span>
+</div>
+<div class="p-space-sm rounded-lg bg-surface-container-low flex flex-col gap-1">
+<span class="font-label-badge text-label-badge text-outline">LDAP Bind</span>
+<span class="inline-flex items-center gap-1.5 font-code-sm text-code-sm text-on-surface-variant" id="chip-ldap"><span class="w-1.5 h-1.5 rounded-full bg-outline"></span>&mdash;</span>
+</div>
+</div>
+<!-- the enrolled secret, shown exactly once (never re-read from the API) -->
+<div class="hidden p-space-sm rounded-lg border border-tertiary/40 bg-tertiary/10 mb-space-md" id="mfa-secret-once">
+<span class="font-label-badge text-label-badge text-tertiary font-semibold">TOTP SECRET - SHOWN ONCE, SEALING NOW</span>
+<code class="block font-code-sm text-code-sm text-on-surface break-all mt-1" id="mfa-secret-value"></code>
+<code class="block font-code-sm text-code-sm text-on-surface-variant break-all" id="mfa-secret-uri"></code>
+</div>
+<div class="grid grid-cols-1 xl:grid-cols-2 gap-space-md">
+<!-- MFA card -->
+<div class="p-space-sm rounded-lg bg-surface-container-low border border-outline-variant/30 flex flex-col gap-space-sm">
+<div class="flex items-center justify-between gap-2">
+<h3 class="font-headline-sm text-[14px] text-on-surface font-semibold">MFA - TOTP factor (RFC 6238)</h3>
+<span class="font-code-sm text-code-sm text-on-surface-variant" data-group-meta="mfa">loading...</span>
+</div>
+<p class="font-body-sm text-body-sm text-on-surface-variant" id="mfaGateNote">MFA gate status: &mdash;</p>
+<div class="grid grid-cols-1 md:grid-cols-2 gap-space-sm" data-settings-group="mfa"></div>
+</div>
+<!-- ITSM card -->
+<div class="p-space-sm rounded-lg bg-surface-container-low border border-outline-variant/30 flex flex-col gap-space-sm">
+<div class="flex items-center justify-between gap-2">
+<h3 class="font-headline-sm text-[14px] text-on-surface font-semibold">ITSM - ticket verification</h3>
+<span class="font-code-sm text-code-sm text-on-surface-variant" data-group-meta="itsm">loading...</span>
+</div>
+<p class="font-body-sm text-body-sm text-on-surface-variant" id="itsmNote">ITSM status: &mdash;</p>
+<div class="grid grid-cols-1 md:grid-cols-2 gap-space-sm" data-settings-group="itsm"></div>
+</div>
+<!-- SIEM card -->
+<div class="p-space-sm rounded-lg bg-surface-container-low border border-outline-variant/30 flex flex-col gap-space-sm">
+<div class="flex items-center justify-between gap-2">
+<h3 class="font-headline-sm text-[14px] text-on-surface font-semibold">SIEM - outbound audit push</h3>
+<span class="font-code-sm text-code-sm text-on-surface-variant" data-group-meta="siem">loading...</span>
+</div>
+<p class="font-body-sm text-body-sm text-on-surface-variant" id="siemNote">SIEM status: &mdash;</p>
+<div class="grid grid-cols-1 md:grid-cols-2 gap-space-sm" data-settings-group="siem"></div>
+</div>
+<!-- LDAP card -->
+<div class="p-space-sm rounded-lg bg-surface-container-low border border-outline-variant/30 flex flex-col gap-space-sm">
+<div class="flex items-center justify-between gap-2">
+<h3 class="font-headline-sm text-[14px] text-on-surface font-semibold">LDAP - directory bind</h3>
+<span class="font-code-sm text-code-sm text-on-surface-variant" data-group-meta="ldap">loading...</span>
+</div>
+<p class="font-body-sm text-body-sm text-on-surface-variant" id="ldapNote">LDAP status: &mdash;</p>
+<div class="grid grid-cols-1 md:grid-cols-2 gap-space-sm" data-settings-group="ldap"></div>
+</div>
+</div>
+</section>
 </div>
 <!-- Right Rail: System Health Diagnostics & Config Audit Stream (4 of 12 columns) -->
 <div class="xl:col-span-4 flex flex-col gap-space-lg">
@@ -610,7 +689,8 @@
   var WORDS = {
     url: 'URL', id: 'ID', ttl: 'TTL', sso: 'SSO', mfa: 'MFA', jit: 'JIT', kms: 'KMS',
     hsm: 'HSM', fips: 'FIPS', pin: 'PIN', tier0: 'Tier-0', aws: 'AWS', gcp: 'GCP',
-    idp: 'IdP', api: 'API'
+    idp: 'IdP', api: 'API', itsm: 'ITSM', siem: 'SIEM', ldap: 'LDAP',
+    totp: 'TOTP', dn: 'DN', ssl: 'SSL', upn: 'UPN', url2: 'URL'
   };
 
   function el(id) { return document.getElementById(id); }
@@ -705,11 +785,27 @@
   function controlHtml(group, name, spec, value) {
     var id = 'f-' + group + '-' + name;
     var attrs = ' id="' + esc(id) + '" data-field="' + esc(name) + '" data-group="' + esc(group) + '"';
-    var label = '<label class="font-headline-sm text-[13px] text-on-surface font-medium">' + esc(pretty(name)) + '</label>';
+    var roBadge = spec.readonly
+      ? ' <span class="font-code-sm text-code-sm text-outline font-normal">read-only</span>'
+      : '';
+    var label = '<label class="font-headline-sm text-[13px] text-on-surface font-medium">' +
+      esc(pretty(name)) + roBadge + '</label>';
     var base = 'w-full px-3 py-2 rounded bg-surface-container-lowest text-on-surface font-body-sm text-body-sm focus:outline-none focus:ring-1 focus:ring-primary-container';
     var field;
 
-    if (spec.type === 'bool') {
+    if (spec.readonly) {
+      // factor state etc. is written by its own endpoint (POST /mfa/enroll):
+      // the field displays the stored value and is never part of a PUT
+      field = '<input class="' + base + ' bg-surface-container cursor-not-allowed"' +
+        ' type="text"' + attrs + ' value="' + esc(value) + '" readonly disabled/>';
+    } else if (spec.type === 'secret') {
+      // secrets read `<set>` / `` from the API and are never echoed back:
+      // the box starts empty (placeholder says whether one is stored) and
+      // only a typed value is ever sent - empty means "leave it alone"
+      field = '<input class="' + base + '" type="password" autocomplete="new-password"' + attrs +
+        ' value="" placeholder="' +
+        (value ? 'stored - type to replace' : 'not set') + '"/>';
+    } else if (spec.type === 'bool') {
       field = '<div class="flex items-center gap-2 mt-1">' +
         '<label class="relative inline-flex items-center cursor-pointer">' +
         '<input class="sr-only peer" type="checkbox"' + attrs + (value ? ' checked' : '') + '/>' +
@@ -833,6 +929,102 @@
     if (arn && worm.bucket) arn.textContent = 'arn:aws:s3:::' + worm.bucket;
   }
 
+  /* ------------------------------------------------- integrations status */
+  function setChip(id, text, tone) {
+    // tone: ok (working) / warn (configured, first push pending) / err /
+    // off (not connected) - the color always matches the real state
+    var chip = el(id);
+    if (!chip) return;
+    var color = tone === 'ok' ? 'bg-tertiary'
+      : tone === 'warn' ? 'bg-primary'
+      : tone === 'err' ? 'bg-error' : 'bg-outline';
+    chip.innerHTML = '<span class="w-1.5 h-1.5 rounded-full ' + color + '"></span>' + esc(text);
+    chip.className = 'inline-flex items-center gap-1.5 font-code-sm text-code-sm ' +
+      (tone === 'ok' ? 'text-tertiary font-semibold'
+        : tone === 'warn' ? 'text-primary font-semibold'
+        : tone === 'err' ? 'text-error font-medium' : 'text-on-surface-variant');
+  }
+
+  function note(id, text) {
+    var node = el(id);
+    if (node) node.textContent = text;
+  }
+
+  async function loadIntegrations() {
+    try {
+      var res = await fetch(API + 'integrations/status', { headers: headers(false) });
+      if (!res.ok) throw new Error('HTTP ' + res.status);
+      var data = await res.json();
+      var mfa = data.mfa || {};
+      var itsm = data.itsm || {};
+      var siem = data.siem || {};
+      var ldap = data.ldap || {};
+      setChip('chip-mfa', mfa.configured ? 'enrolled' : 'not configured',
+        mfa.configured ? 'ok' : 'off');
+      setChip('chip-itsm', itsm.configured ? 'connected' : 'not connected',
+        itsm.configured ? 'ok' : 'off');
+      setChip('chip-siem', siem.state || 'not connected',
+        siem.state === 'connected' ? 'ok'
+          : siem.state === 'error' ? 'err'
+          : siem.state === 'configured' ? 'warn' : 'off');
+      setChip('chip-ldap', ldap.configured ? 'connected' : 'not connected',
+        ldap.configured ? 'ok' : 'off');
+      note('mfaGateNote', mfa.gate || 'MFA gate status: \u2014');
+      note('itsmNote', itsm.configured
+        ? itsm.vendor + ' at ' + itsm.base_url + ' - credentials ' +
+          (itsm.credentials_configured ? 'stored (sealed)' : 'missing')
+        : (itsm.detail || 'not connected'));
+      var push = siem.last_push || {};
+      note('siemNote', siem.configured
+        ? 'state: ' + siem.state + ' - last push ' + (push.last_push_status || 'never') +
+          (push.records_pushed ? ', ' + push.records_pushed + ' record(s) delivered' : '') +
+          (push.batches_failed ? ', ' + push.batches_failed + ' failed batch(es)' : '')
+        : (siem.detail || 'not connected'));
+      note('ldapNote', ldap.configured
+        ? ldap.server + ':' + ldap.port + ' - bind template ' + ldap.user_bind_template +
+          ', ticket TTL ' + ldap.ticket_ttl_seconds + 's'
+        : (ldap.detail || 'not connected'));
+    } catch (error) {
+      setChip('chip-mfa', '\u2014', 'off');
+      setChip('chip-itsm', '\u2014', 'off');
+      setChip('chip-siem', '\u2014', 'off');
+      setChip('chip-ldap', '\u2014', 'off');
+      note('mfaGateNote', 'MFA gate status: \u2014 (license server not reachable)');
+      note('itsmNote', 'ITSM status: \u2014 (license server not reachable)');
+      note('siemNote', 'SIEM status: \u2014 (license server not reachable)');
+      note('ldapNote', 'LDAP status: \u2014 (license server not reachable)');
+    }
+  }
+
+  async function enrollMfa() {
+    try {
+      var res = await fetch(API + 'mfa/enroll', {
+        method: 'POST', headers: headers(true), body: '{}'
+      });
+      var body = {};
+      try { body = await res.json(); } catch (parseError) { body = {}; }
+      if (res.status === 401) {
+        banner('error', body.error || 'Admin token required to enroll a factor.');
+        openToken();
+        return;
+      }
+      if (!res.ok) {
+        banner('error', body.error || 'The factor could not be enrolled.');
+        return;
+      }
+      var box = el('mfa-secret-once');
+      if (box) {
+        el('mfa-secret-value').textContent = body.secret || '';
+        el('mfa-secret-uri').textContent = body.otpauth_uri || '';
+        box.classList.remove('hidden');
+      }
+      banner('ok', body.message || 'Factor enrolled - add it to your authenticator app.');
+      await loadAll();
+    } catch (error) {
+      banner('error', 'Could not reach the license server - no factor was enrolled.');
+    }
+  }
+
   /* ----------------------------------------------------------------- load */
   async function loadAll() {
     setState('idle', 'Loading settings...');
@@ -858,6 +1050,7 @@
     }
     await health();
     await loadAudit();
+    await loadIntegrations();
   }
 
   async function health() {
@@ -911,6 +1104,12 @@
         var name = ctl.getAttribute('data-field');
         var spec = (schema && schema[group]) ? schema[group][name] : null;
         if (!spec) return;
+        if (spec.readonly) return;   // never sent: the endpoint owns the field
+        if (spec.type === 'secret') {
+          var typed = String(ctl.value).trim();
+          if (typed) payload[name] = typed;  // untouched secrets stay untouched
+          return;
+        }
         if (spec.type === 'bool') {
           payload[name] = !!ctl.checked;
         } else if (spec.type === 'int') {
@@ -1034,6 +1233,7 @@
   bind('btn-save-settings', 'click', save);
   bind('btn-reload-settings', 'click', loadAll);
   bind('btn-export-settings', 'click', exportSettings);
+  bind('btn-mfa-enroll', 'click', enrollMfa);
   bind('btn-token', 'click', openToken);
   bind('closeTokenModal', 'click', closeToken);
   bind('bannerClose', 'click', hideBanner);

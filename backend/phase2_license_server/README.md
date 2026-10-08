@@ -25,9 +25,10 @@ Supported wire formats and algorithms:
 | `app.py` | Flask app factory, error handlers, `/health`, screen routes, `python app.py` entrypoint |
 | `config.py` | Environment-driven configuration (`.env` supported) |
 | `routes.py` | HTTP layer: parsing, auth, status codes |
-| `service.py` | Business logic: import, list, revoke, restore, validate, usage, checks, `meta`, platform settings, credential vault, dashboard overview + unified events, infrastructure discovery, JIT access grants, privileged sessions, zero-trust command-control policy engine, risk-based access engine (§7), PAM bypass detection (§10), break-glass emergency path (§17), immutable §19 audit ledger |
-| `models.py` | `LicenseRecord` (signed license + spec fields), `LicenseEvent`, `SettingGroup` + `SettingsEvent` (config changelog), `VaultItem` + `VaultEvent` + `VaultSecretVersion` (vault inventory + audit + immutable versions), `DiscoveredAsset`/`DiscoveredAccount`/`DiscoveryScan`/`DiscoveryEvent`, `JitRequest` + `JitEvent` (grants + trail), `PrivilegedSession` + `SessionEvent` (session recording, append-only), `CommandRule` + `CommandIncident` (zero-trust policy + escalations, append-only), `RiskEvent` (§7 scored access evaluations), `BypassSignal` + `BypassIncident` + `BypassEvent` (§10 direct-access evidence, incidents, action log), `BreakGlassRequest` + `BreakGlassApproval` + `BreakGlassEvent` (§17 emergencies, dual-approval snapshots, action log), `AuditEvent` (immutable §19 hash chain) |
-| `audit.py` | The §19 ledger: flush listener fans every module trail into `audit_events`, sha256 chain (`prev_hash`/`event_hash`), boot backfill, append-only triggers, verify/stats/export |
+| `service.py` | Business logic: import, list, revoke, restore, validate, usage, checks, `meta`, platform settings, credential vault, dashboard overview + unified events, infrastructure discovery, JIT access grants, privileged sessions, zero-trust command-control policy engine, risk-based access engine (§7), PAM bypass detection (§10), break-glass emergency path (§17), immutable §19 audit ledger, §20 integrations (MFA gate, ITSM verify, SIEM status, LDAP login) |
+| `models.py` | `LicenseRecord` (signed license + spec fields), `LicenseEvent`, `SettingGroup` + `SettingsEvent` (config changelog), `VaultItem` + `VaultEvent` + `VaultSecretVersion` (vault inventory + audit + immutable versions), `DiscoveredAsset`/`DiscoveredAccount`/`DiscoveryScan`/`DiscoveryEvent`, `JitRequest` + `JitEvent` (grants + trail), `PrivilegedSession` + `SessionEvent` (session recording, append-only), `CommandRule` + `CommandIncident` (zero-trust policy + escalations, append-only), `RiskEvent` (§7 scored access evaluations), `BypassSignal` + `BypassIncident` + `BypassEvent` (§10 direct-access evidence, incidents, action log), `BreakGlassRequest` + `BreakGlassApproval` + `BreakGlassEvent` (§17 emergencies, dual-approval snapshots, action log), `AuditEvent` (immutable §19 hash chain), `IntegrationEvent` (§20 integration trail, fan-in 11) |
+| `audit.py` | The §19 ledger: flush listener fans every module trail into `audit_events`, sha256 chain (`prev_hash`/`event_hash`), boot backfill, append-only triggers, verify/stats/export, plus the §20 SIEM drain — committed batches pushed outbound as signed NDJSON after commit |
+| `integrations.py` | §20 stdlib connectors: RFC-6238 TOTP (HMAC-SHA1/256/512, ±1 window), ITSM ticket verification (ServiceNow/Jira REST), SIEM push signing (`sha256=` HMAC, NDJSON), RFC-4515 LDAP filter escape + BER bind probe, LDAP login tickets |
 | `keys.py` | Startup key checks (fail fast, public/private must match, both algorithms) |
 | `licensing_bridge.py` | Path bootstrap + cached Phase 1 `LicenseGenerator`/`LicenseValidator` |
 | `tests/test_api.py` | End-to-end license API tests |
@@ -38,10 +39,11 @@ Supported wire formats and algorithms:
 | `tests/test_jit.py` | JIT access: deterministic risk bands, approvals, time-boxed grants, expiry rotation |
 | `tests/test_sessions.py` | Privileged sessions: start/attach, channel events, control gating, lifecycle + cascades |
 | `tests/test_command_control.py` | Zero-trust command policy: rule CRUD, dry-run decisions, approval queue, incident escalation |
-| `tests/test_audit.py` | Immutable §19 ledger: ten-source fan-in, hash chain, append-only triggers, backfill, verify/export, drift guard |
+| `tests/test_audit.py` | Immutable §19 ledger: eleven-source fan-in, hash chain, append-only triggers, backfill, verify/export, drift guard |
 | `tests/test_risk.py` | §7 risk-based access engine: the eight scored components, bands/decisions, the session-start gate, ledger fan-in |
 | `tests/test_bypass.py` | §10 PAM bypass detection: log/JSON ingest, dedupe, correlation (candidate/covered/out_of_scope), incidents with forced rotation + honest `not_connected`, closure, stats, ledger fan-in |
 | `tests/test_break_glass.py` | §17 break-glass: request lifecycle, dual approval (self/second-signature rules), risk-gated open → recorded session → close with forced rotation + review, stats, ledger fan-in |
+| `tests/test_integrations.py` | §20 integrations: RFC-6238 TOTP + MFA gate/break-glass enforcement, ITSM ticket verify, SIEM signed push + drain failure event, LDAP login + ticket, settings secrets/readonly, contract |
 | `tests/test_openapi_contract.py` | `apis/openapi.yaml` ↔ live route map (both directions) |
 
 ## Quick start
@@ -90,9 +92,12 @@ only). If `LICENSE_ADMIN_TOKEN` is unset the server runs in open mode.
 `GET /settings` serves the **Platform Settings** screen
 (`frontend/screens/platform_settings_center/`), built from the spec screen
 `platform_settings_idp_hsm_configuration/` and wired to the settings API below:
-it loads the four configuration groups plus their schema, renders editable
-controls, tracks dirty fields, saves through the admin token and shows the live
-configuration changelog.
+it loads the eight configuration groups plus their schema, renders editable
+controls (readonly factor fields disabled with a badge, secrets as
+sealed `not set` boxes), tracks dirty fields, saves through the admin token,
+shows the live configuration changelog and the §20 **Enterprise Integrations**
+cards with live chips over `GET /api/v1/integrations/status` (including
+**Enroll MFA Factor**, whose secret is shown once).
 
 More screens render from their own APIs: the **Command Center** and
 **Compliance** screens (`GET /api/v1/overview` + the unified
@@ -103,8 +108,9 @@ bundle, run the correlation scan, review/close incidents; the Compliance
 screen also reads
 `GET /api/v1/audit/stats` for the immutable digest, runs `GET /api/v1/audit/verify`
 on its **Verify Hash Chain** button, exports `GET /api/v1/audit/export`, and its
-per-trail filter fetches one of the ten sources — license, settings, vault,
-discovery, jit, session, command, risk, bypass, break-glass — on click), the **Credential Vault**
+per-trail filter fetches one of the eleven sources — license, settings, vault,
+discovery, jit, session, command, risk, bypass, break-glass, integration — on
+click, and its header chip reads the §20 SIEM push state), the **Credential Vault**
 (`GET/POST /api/v1/vault/*` — onboarding via **Onboard New Credential**, rotation
 SLA, type/status filters, JIT checkouts and an audit trail), the
 **Infrastructure Discovery** screen (`GET/POST /api/v1/discovery/*` — register,
@@ -138,8 +144,8 @@ is no seed inventory: every credential enters through **Onboard New Credential**
 "not connected" states instead of sample rows.
 
 ```bash
-python -m pytest tests -q     # 302 tests (from backend/phase2_license_server)
-python -m pytest backend -q   # 384 tests from the repo root (+ shared crypto core)
+python -m pytest tests -q     # 343 tests (from backend/phase2_license_server)
+python -m pytest backend -q   # 425 tests from the repo root (+ shared crypto core)
 ```
 
 **Docker (development/runtime testing only — never a shipping instruction):**
@@ -196,11 +202,16 @@ cross-checked against these routes by `tests/test_openapi_contract.py`.
 | POST | `/licenses/<key>/usage` | admin | Record runtime consumption (returns the recomputed summary) |
 | POST | `/licenses/<key>/check` | – | Feature / module / quota-limit checks |
 | POST | `/licenses/validate` | – | Full check: structure → signature → revocation → expiry |
-| GET | `/settings` | – | Stored configuration + editable schema (`sso`, `hsm`, `zsp`, `worm`) |
+| GET | `/settings` | – | Stored configuration + editable schema (8 groups: `sso`, `hsm`, `zsp`, `worm`, `mfa`, `itsm`, `siem`, `ldap`; per-field `readonly`/`secret` flags included) |
+| POST | `/mfa/enroll` | admin | Mint an RFC-6238 TOTP factor (secret shown **once** + `otpauth://` URI; re-enroll rotates and resets `last_verified_at`) |
+| POST | `/mfa/verify` | admin | Check a code against the factor (`no-factor` → 409, missing code → 400, invalid → 401 with `details.field=code`; the failed attempt lands on the `integration` trail, the code itself never does; no lockout exists) |
+| POST | `/itsm/verify` | admin | Verify an ITSM ticket over REST (not configured → 409; configured → 200 with the honest `verified`/`http_status`/`detail` — upstream 404, refused connection or a missing path template stay `verified: false`, never a fabricated pass; missing/oversized ticket → 400) |
+| POST | `/auth/ldap` | – | LDAP bind login: token mode issues `vypam-ldap1.<b64url>.<hmac>`; open mode honest (`verified: true`, `note` "open dev mode") |
+| GET | `/integrations/status` | – | §20 connector aggregate: MFA factor + gate line, ITSM, SIEM state + last push result, LDAP, `event_count` |
 | GET | `/settings/audit?limit=` | – | Configuration changelog, newest first |
-| PUT | `/settings/<group>` | admin | Merge-update one group, returns the per-field change diff |
+| PUT | `/settings/<group>` | admin | Merge-update one group, returns the per-field change diff (secrets seal AES-256-GCM → changelog `<set>`/`<cleared>`; readonly `mfa.*` factor fields → 400 with `details.fields` + the `POST /mfa/enroll` hint; URL fields must be `https` unless flagged `allow_http` — `itsm.base_url`/`siem.webhook_url` accept plain http for internal instances — bad shape → 400 with `details.field`/`details.scheme`) |
 | GET | `/overview` | – | Dashboard aggregate: health, license posture, vault stats, settings, counters, computed control posture, recent activity |
-| GET | `/events?limit=&source=` | – | Unified audit feed across all ten trails (license, settings, vault, discovery, jit, session, command, risk, bypass, break-glass), newest first |
+| GET | `/events?limit=&source=` | - | Unified audit feed across all eleven trails (license, settings, vault, discovery, jit, session, command, risk, bypass, break-glass, integration), newest first |
 | GET | `/vault/stats` | – | Inventory aggregates: totals by type/status, rotation compliance, `secrets` coverage (`managed`/`unmanaged`/`versions`), checkouts, today's events |
 | GET | `/vault/items?…` | – | List inventory (`q`, `type`, `status`, `limit`, `offset`) |
 | POST | `/vault/items` | admin | Onboard a credential (201, strictly validated; optional `secret`, else a real type-appropriate value is generated — sealed with AES-256-GCM either way) |
@@ -221,7 +232,7 @@ cross-checked against these routes by `tests/test_openapi_contract.py`.
 | POST | `/jit/requests/<id>/close` | admin | End a grant early: release the checkout and rotate the credential (audited) |
 | GET | `/sessions/stats` | – | Session aggregates: per-status counts, event and blocked totals |
 | GET | `/sessions?status=&protocol=&q=&limit=&offset=` | – | Sessions, newest first (live and archived; `status`/`protocol`/search filters) |
-| POST | `/sessions` | admin | Start a privileged session (201; `protocol` (13), `target`, optional `device` (scored at start), `item_id` — checks the credential out — or `jit_request_id` that must be an active grant, plus the 7 control flags). The response carries the §7 `risk` evaluation; a band the gate refuses (critical, or high without an active grant) → 403 with `details.risk` — the evaluation is already committed as ledger evidence. One live session per grant → 409 |
+| POST | `/sessions` | admin | Start a privileged session (201; `protocol` (13), `target`, optional `device` (scored at start), `item_id` — checks the credential out — or `jit_request_id` that must be an active grant, plus the 7 control flags). The response carries the §7 `risk` evaluation; a band the gate refuses (critical, or high without an active grant) → 403 with `details.risk` — the evaluation is already committed as ledger evidence. One live session per grant → 409. When a TOTP factor is enrolled the §7 `mfa` decision additionally demands `mfa_code` in the body (no factor → 201 without it; missing/wrong → 403 with `details.mfa`, committed as `mfa-gate` evidence) |
 | GET | `/sessions/<id>` | – | One session plus stats and its latest events (evaluates linked grant expiry) |
 | GET | `/sessions/<id>/events?order=&type=&limit=&offset=` | – | The append-only recording: `seq`, type, content, `allowed`/`blocked_reason`, `withheld`, `watermark`, actor |
 | POST | `/sessions/<id>/events` | admin | Record a channel event. Not-live → 409; typed content while `record=false` → 403; gated channels store `allowed=false` + reason (blocked evidence); `keystroke_log=false` stores content `null` + `withheld=true` |
@@ -267,10 +278,10 @@ cross-checked against these routes by `tests/test_openapi_contract.py`.
 | GET | `/break-glass/requests/<id>` | – | One request with its append-only approval signatures and the recorded session (or `null` while unopened) |
 | POST | `/break-glass/requests/<id>/approve` | admin | Record one approval signature (200; optional `note`) — the requester cannot approve their own emergency (403), a repeat signature from the same approver is rejected (400), two distinct signatures flip the request to `approved` |
 | POST | `/break-glass/requests/<id>/deny` | admin | Refuse a pending request with a note (any actor may, including the requester — the refusal itself is always recorded with who/when; 400 once the request is decided) |
-| POST | `/break-glass/requests/<id>/open` | admin | Release the approved credential (201): dual approval checked first, then the §7 risk gate (critical → 403 with `details.risk`, nothing released); real vault checkout + mandatory recorded session (`session_id` stored on the request) |
+| POST | `/break-glass/requests/<id>/open` | admin | Release the approved credential (201): dual approval checked first, then the §7 risk gate (critical → 403 with `details.risk`, nothing released) and the §20 MFA gate (factor enrolled → `mfa_code` required; refusal → 401 with `details.mfa`); real vault checkout + mandatory recorded session (`session_id` stored on the request) |
 | POST | `/break-glass/requests/<id>/close` | admin | End the emergency (200): session stopped, credential force-rotated through the §5 pipeline (`trigger=break-glass`, outcome recorded), review note required |
 | GET | `/break-glass/stats` | – | §17 aggregates: requests by status + total, approval signatures recorded/outstanding, action counters, `last_request_at`/`last_opened_at`/`last_closed_at`, `open_emergencies` |
-| GET | `/audit/stats` | – | Immutable ledger aggregates (§19): `total`, per-source counts for all ten trails, `last_seq`, `head_hash`, oldest/newest, `trigger_protection` |
+| GET | `/audit/stats` | - | Immutable ledger aggregates (§19): `total`, per-source counts for all eleven trails, `last_seq`, `head_hash`, oldest/newest, `trigger_protection` |
 | GET | `/audit/verify` | – | Walk the whole chain: recomputes every record's hash and reports `intact`, `checked`, `head_hash` plus the first `broken_at`/`reason` (sequence gap, content change, re-link) |
 | GET | `/audit/export` | – | The full ledger in chain order as NDJSON (`application/x-ndjson`, `vy-pam-audit.ndjson`) — one record per line for SIEM ingest |
 
@@ -377,15 +388,25 @@ curl -s -X PUT http://127.0.0.1:5000/api/v1/settings/zsp \
 curl -s "http://127.0.0.1:5000/api/v1/settings/audit?limit=20"
 ```
 
-- Four groups: `sso` (9 fields), `hsm` (9), `zsp` (4), `worm` (6). The schema
+- Eight groups: `sso` (9 fields), `hsm` (9), `zsp` (4), `worm` (6), plus the
+  §20 connector groups `mfa` (4), `itsm` (6), `siem` (4), `ldap` (6). The schema
   lives in `service.py` (`SETTINGS_SCHEMA`); defaults mirror the values the
   spec screen displays (2-of-3 quorum, 120-minute TTL extension, 2,555-day
   retention, the spec's bucket and cluster host).
-- Writes merge into the stored row. Unknown groups/fields, wrong types,
-  out-of-range numbers, non-`https` metadata URLs, invalid enum values and
-  malformed bucket names are rejected with
-  `400 {"error": "...", "details": {"field": ...}}` before anything is saved;
-  a no-op write returns `{"message": "No changes"}` and writes no event.
+- Writes merge into the stored row. Unknown **fields**, wrong types,
+  out-of-range numbers, URL fields outside their allowed scheme (plain
+  `http` is accepted only where the schema flags `allow_http` —
+  `itsm.base_url` and `siem.webhook_url`, which commonly sit on internal
+  instances), invalid enum values and malformed bucket names are rejected
+  with `400 {"error": "...", "details": {"field": ...}}` before anything is
+  saved; an unknown **group** is a 404. A no-op write returns
+  `{"message": "No changes"}` and writes no event.
+- `secret` fields (`itsm.api_token`, `siem.signing_secret`) seal AES-256-GCM
+  with AAD `settings:{group}:{field}` — reads never echo them (empty string),
+  the changelog stores `<set>`/`<cleared>` instead of a value, and clearing
+  is `""`. `readonly` fields (`mfa.factor_*`) are rejected with
+  `400 details.readonly` and the hint to mint/rotate through
+  `POST /mfa/enroll`.
 - Every accepted change records a `SettingsEvent` with the actor
   (`X-Actor`, else the authenticated admin) and a per-field old/new diff.
 - Reads are public so the screen can render read-only without a token; `PUT`
@@ -398,8 +419,8 @@ curl -s "http://127.0.0.1:5000/api/v1/settings/audit?limit=20"
 # dashboard aggregate powering the Command Center / Compliance screens
 curl -s http://127.0.0.1:5000/api/v1/overview
 
-# unified audit feed (all ten trails: license, settings, vault, discovery,
-# jit, session, command, risk, bypass, break-glass - newest first, each row chain-linked with seq + hash)
+# unified audit feed (all eleven trails: license, settings, vault, discovery,
+# jit, session, command, risk, bypass, break-glass, integration - newest first, each row chain-linked with seq + hash)
 curl -s "http://127.0.0.1:5000/api/v1/events?limit=10"
 
 # inventory aggregates: rotation compliance, checkouts, attention list
@@ -633,7 +654,10 @@ curl -s "http://127.0.0.1:5000/api/v1/risk/evaluations?band=critical&limit=5"
   its evaluation as SOC evidence in the ledger (`403` + `details.risk`):
   critical refuses outright, high proceeds only under an active JIT grant
   (approved by someone other than the requester), medium prescribes MFA, low
-  allows.
+  allows. The `mfa` band is **enforced at start** when a TOTP factor is
+  enrolled: the body must carry a valid `mfa_code` (missing/wrong → 403 with
+  `details.mfa`; no factor enrolled → the start proceeds and says so), and
+  every gate decision fans into the ledger as `mfa-gate` evidence.
 
 ### Discovery
 
@@ -715,9 +739,13 @@ curl -s -X POST http://127.0.0.1:5000/api/v1/break-glass/requests/1/approve \
 # -> {"request": {"status": "approved", ...}}
 
 # open: dual approval first, then the §7 risk gate (critical -> 403,
-# nothing released); approved -> real vault checkout + recorded session
+# nothing released) and the §20 MFA gate (a factor enrolled -> a valid
+# TOTP code is demanded: {"mfa_code": "123456"}; refusal -> 401
+# {"error": "...", "details": {"field": "mfa_code", "mfa": "..."}});
+# approved -> real vault checkout + recorded session
 curl -s -X POST http://127.0.0.1:5000/api/v1/break-glass/requests/1/open \
-  -H "Authorization: Bearer $LICENSE_ADMIN_TOKEN" -H "X-Actor: incident-commander"
+  -H "Authorization: Bearer $LICENSE_ADMIN_TOKEN" -H "X-Actor: incident-commander" \
+  -H "Content-Type: application/json" -d '{"mfa_code": "123456"}'
 # -> {"session": {"id": 4, "session_ref": "sess-ccdcc3b9", ...}, ...}  (201)
 
 # close: session stopped, credential force-rotated (trigger=break-glass),
@@ -746,15 +774,16 @@ curl -s "http://127.0.0.1:5000/api/v1/break-glass/requests?limit=10"
 ```bash
 # aggregates: every module trail fanned into one append-only hash chain
 curl -s http://127.0.0.1:5000/api/v1/audit/stats
-# -> {"total": 65, "by_source": {"break-glass": 12, "bypass": 7,
-#     "command": 7, "discovery": 4, "jit": 1, "license": 1, "risk": 9,
-#     "session": 8, "settings": 2, "vault": 14}, "last_seq": 65,
+# -> {"total": 67, "by_source": {"break-glass": 12, "bypass": 7,
+#     "command": 7, "discovery": 4, "integration": 1, "jit": 1,
+#     "license": 1, "risk": 9, "session": 8, "settings": 3,
+#     "vault": 14}, "last_seq": 67,
 #     "head_hash": "c4e1...", "trigger_protection": true, ...}
 
 # walk every record and recompute every hash (what the console's
 # "Verify Hash Chain" button runs on click)
 curl -s http://127.0.0.1:5000/api/v1/audit/verify
-# -> {"intact": true, "checked": 65, "total": 65, "last_seq": 65,
+# -> {"intact": true, "checked": 67, "total": 67, "last_seq": 67,
 #     "head_hash": "c4e1...", "broken_at": null, "reason": null}
 
 # the whole ledger as NDJSON in chain order, one record per line (SIEM ingest)
@@ -762,6 +791,60 @@ curl -s http://127.0.0.1:5000/api/v1/audit/export
 # -> {"id":"license:1","seq":1,"event_ref":"license:1","source":"license",
 #     "action":"imported", ...,"prev_hash":"000..0","event_hash":"..64 hex.."}
 ```
+
+### Enterprise integrations (§20)
+
+```bash
+# enroll a TOTP factor (admin) - the secret is shown ONCE; the response
+# also carries the otpauth:// URI for the authenticator app
+curl -s -X POST http://127.0.0.1:5000/api/v1/mfa/enroll \
+  -H "Authorization: Bearer $LICENSE_ADMIN_TOKEN" -H "X-Actor: sre-admin" \
+  -H "Content-Type: application/json" -d '{}'
+# -> {"factor": {"configured": true, "digits": 6, "period": 30,
+#     "algorithm": "SHA1", "enrolled_for": "sre-admin",
+#     "gate": "medium-risk (mfa-decision) session starts require a valid code",
+#     ...}, "secret": "...", "otpauth_uri": "otpauth://totp/VY-PAM:...", ...}
+
+# verify a code (6 digits, ±1 30s window; a wrong code -> 401 +
+# `mfa-verify-failed` evidence on the integration trail - the code
+# itself never lands anywhere)
+curl -s -X POST http://127.0.0.1:5000/api/v1/mfa/verify \
+  -H "Authorization: Bearer $LICENSE_ADMIN_TOKEN" -H "X-Actor: sre-admin" \
+  -H "Content-Type: application/json" -d '{"code": "123456"}'
+
+# verify an ITSM ticket over REST (itsm.base_url + api_token must be stored)
+curl -s -X POST http://127.0.0.1:5000/api/v1/itsm/verify \
+  -H "Content-Type: application/json" -d '{"ticket": "INC-001"}'
+
+# LDAP bind login (ldap.server + ldap.user_bind_template must be stored;
+# token mode answers a vypam-ldap1 ticket, open mode answers honestly)
+curl -s -X POST http://127.0.0.1:5000/api/v1/auth/ldap \
+  -H "Content-Type: application/json" \
+  -d '{"username": "alice", "password": "..."}'
+
+# one aggregate for the Integrations cards + the console chips
+curl -s http://127.0.0.1:5000/api/v1/integrations/status
+# -> {"mfa": {...}, "itsm": {...}, "siem": {"state": "not connected", ...},
+#     "ldap": {...}, "event_count": 1}
+```
+
+- **Integrations** (architecture module 20, **stdlib only** — no new
+  dependencies): RFC-6238/4226 TOTP over `hmac`/`hashlib` (SHA-1/256/512,
+  ±1 window; the deterministic time-window math is unit tested). The gate
+  runs at session start on a `mfa` decision and at break-glass open. With no
+  factor enrolled nothing is ever faked: the start proceeds and says
+  `mfa: "not configured"`.
+- ITSM verification queries the vendor REST path template with sealed
+  credentials; every outcome (`verified`/`not_verified` plus the HTTP
+  status) lands on the `integration` ledger source — never a fabricated pass.
+- SIEM pushes committed ledger batches outbound as signed NDJSON
+  (`sha256=` HMAC-SHA256) after commit; a failed push records exactly one
+  `siem-push-failed` event and never breaks the write path.
+- LDAP logins bind over a BER-encoded simple bind (stdlib socket) and issue
+  `vypam-ldap1.<b64url>.<hmac>` tickets on `config.secret_key` in token
+  mode. All four connectors report honestly through
+  `GET /integrations/status`; every gate decision, enrollment, verification
+  and login fans into the §19 chain as source eleven `integration`.
 
 ## Design notes
 

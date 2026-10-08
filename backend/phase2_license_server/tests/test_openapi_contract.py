@@ -71,6 +71,9 @@ ADMIN_OPERATIONS = [
     ("post", "/api/v1/break-glass/requests/{request_id}/deny"),
     ("post", "/api/v1/break-glass/requests/{request_id}/open"),
     ("post", "/api/v1/break-glass/requests/{request_id}/close"),
+    ("post", "/api/v1/mfa/enroll"),
+    ("post", "/api/v1/mfa/verify"),
+    ("post", "/api/v1/itsm/verify"),
 ]
 
 

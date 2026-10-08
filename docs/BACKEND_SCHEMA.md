@@ -11,7 +11,7 @@ external migration tool.
 
 ---
 
-## 1. Shipped runtime — 25 tables
+## 1. Shipped runtime — 26 tables
 
 ### ERD (logical)
 
@@ -31,6 +31,7 @@ bypass_signals ─1:n─ bypass_incidents         (signal_id → bypass_signals)
 bypass_events                                  (module actions → ledger source `bypass`)
 break_glass_requests ─1:n─ break_glass_approvals (request_id → break_glass_requests)
 break_glass_events                             (emergency actions → ledger source `break-glass`)
+integration_events                             (connector actions → ledger source `integration`)
 audit_events                                    (hash chain over all of the above)
 ```
 
@@ -78,7 +79,7 @@ use real FKs (`PRAGMA foreign_keys = ON`).
 `detail` JSON · `created_at` DateTime.
 
 ### 1.3 `platform_settings` — group store (one row per group)
-`id` PK · `group_name` String(32) **unique** indexed (`sso|hsm|zsp|worm`) ·
+`id` PK · `group_name` String(32) **unique** indexed (`sso|hsm|zsp|worm|mfa|itsm|siem|ldap`) ·
 `value` JSON · `updated_at` · `updated_by` String(64) default `admin`.
 
 ### 1.4 `settings_events` — change log with diffs
@@ -219,7 +220,7 @@ default `advisory` · `components` JSON — the 8-element
 | id | PK | ✗ | |
 | seq | Integer | ✗ | **unique**, indexed — chain position |
 | event_ref | String(64) | ✗ | **unique** indexed (`ev-…`) |
-| source | String(16) | ✗ | indexed — `license, settings, vault, discovery, jit, session, command, risk, bypass` |
+| source | String(16) | ✗ | indexed — `license, settings, vault, discovery, jit, session, command, risk, bypass, break-glass, integration` |
 | action | String(32) | ✗ | |
 | actor | String(64) | ✗ | `system` default |
 | subject | String(160) | ✗ | |
@@ -288,6 +289,17 @@ denied|opened|closed`) · `actor` String(64) · `subject` String(160) ·
 `detail` JSON — folded into the §19 ledger by `_map_break_glass`
 (action, `bg:<request_ref>` ref, detail); the 10th source in
 `LEDGER_MODELS`/`MAPPERS`.
+
+### 1.26 `integration_events` — §20 module action log (ledger source `integration`)
+`id` PK · `created_at` DateTime indexed · `action` String(32)
+(`mfa-enrolled|mfa-verified|mfa-verify-failed|mfa-gate|itsm-verified|
+itsm-verify-failed|siem-push-failed|ldap-login|ldap-login-failed`) ·
+`actor` String(64) default `system` · `subject` String(160) · `detail` JSON
+— folded into the §19 ledger by `_map_integration` (11th source in
+`LEDGER_MODELS`/`MAPPERS`). Secrets (TOTP seeds, API tokens, passwords)
+never appear in `detail`. Connector *configuration* stays on the
+settings changelog (`settings_events`); this trail records what the
+product did against an external system.
 
 ---
 
@@ -362,7 +374,6 @@ column sets land with the code + contract commit; counts are `—` until then.
 
 | Phase | Tables | Notes |
 |---|---|---|
-| 4i §20 | settings groups `mfa`/`itsm`/`siem`/`ldap` (rows in `platform_settings`), `connector_health` (or computed) | reuse existing settings+events pattern; no new auth tables |
 | 4j §11 | `behavior_baselines` | rolling per-actor windows derived from real history rows |
 | 4k §12 | *(none — payload assembled from `privileged_sessions`/`session_events`)* | |
 | 5a §13 | `vendor_accounts`, vendor link columns on `jit_requests` | |

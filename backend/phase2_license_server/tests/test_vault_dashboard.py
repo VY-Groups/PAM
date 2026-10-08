@@ -391,7 +391,7 @@ def test_overview_shape_and_defaults(client):
     assert data["health"]["status"] == "ok"
     assert data["licenses"]["total"] == 0
     assert data["vault"]["total"] == 0  # empty until real credentials onboard
-    assert data["settings"]["groups"] == 4
+    assert data["settings"]["groups"] == 8  # four platform + four section-20
     assert data["settings"]["worm_retention_days"] == 2555
     assert data["settings"]["zsp_quorum_approvers"] == 2
     assert data["settings"]["sso_provider"] == "okta"
@@ -531,6 +531,7 @@ def test_events_source_filter_and_validation(client):
         "risk",
         "bypass",
         "break-glass",
+        "integration",
     ]
 
     limited = client.get("/api/v1/events", query_string={"limit": 1}).get_json()

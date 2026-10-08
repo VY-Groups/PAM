@@ -178,13 +178,16 @@ def test_every_module_trail_reaches_the_ledger(client):
               "severity": "sev1"},
         headers=ACTOR,
     ).status_code == 201
+    assert client.post(
+        "/api/v1/mfa/enroll", json={}, headers=ACTOR,
+    ).status_code == 201
 
     state = stats(client)
     assert state["total"] >= 8
-    # one real record behind each of the ten sources, none fabricated
+    # one real record behind each of the eleven sources, none fabricated
     assert all(count >= 1 for count in state["by_source"].values()), state
 
-    # the feed filter that works for the old four works for all ten
+    # the feed filter that works for the old four works for all eleven
     for source in audit.AUDIT_SOURCES:
         page = client.get("/api/v1/events",
                           query_string={"source": source}).get_json()
@@ -594,6 +597,6 @@ def test_drift_guard_every_event_model_is_mirrored(client):
     assert CommandIncident in audit.MAPPERS
     assert set(audit.MAPPERS) <= sources | {CommandIncident}
     assert len(audit.MAPPERS) == len(sources) + 1
-    # the ten sources the contract advertises match the mappers exactly
+    # the eleven sources the contract advertises match the mappers exactly
     mapped_sources = set(stats(client)["by_source"])
     assert mapped_sources == set(audit.AUDIT_SOURCES)

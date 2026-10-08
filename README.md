@@ -24,7 +24,7 @@ PAM/
 │   ├── screens/<name>/          #   one folder per screen: code.html + screen.png
 │   └── README.md                #   layout + how to add a screen (the contract)
 ├── apis/                            # HTTP contract for every backend service
-│   ├── openapi.yaml             #   OpenAPI 3.1: all 79 paths (synced by a test)
+│   ├── openapi.yaml             #   OpenAPI 3.1: all 84 paths (synced by a test)
 │   └── README.md                #   conventions + how to view
 ├── backend/
 │   ├── ipam_licensing/              # Phase 1: library + CLIs
@@ -49,6 +49,7 @@ PAM/
 │       ├── tests/test_risk.py        # §7 risk-based access engine (19 tests)
 │       ├── tests/test_bypass.py      # §10 PAM bypass detection (19 tests)
 │       ├── tests/test_break_glass.py  # §17 break-glass emergency path (22 tests)
+│       ├── tests/test_integrations.py # §20 MFA/ITSM/SIEM/LDAP integrations (41 tests)
 │       ├── tests/test_openapi_contract.py # apis/openapi.yaml ↔ routes (5 tests)
 │       ├── Dockerfile + docker-compose.yml  # development/runtime testing only
 │       └── README.md                # full API reference
@@ -90,7 +91,7 @@ python -m pam_master.keygen                      # RSA + Ed25519 + registry PII 
 python -m pam_master                             # http://127.0.0.1:5400
 
 # Tests (shared core + shipped API contract + vendor tool)
-python -m pytest backend -q                      # 384 tests
+python -m pytest backend -q                      # 425 tests
 python -m pytest pam_master -q                   # 46 tests (vendor tool)
 ```
 
@@ -127,9 +128,12 @@ python -m pytest pam_master -q                   # 46 tests (vendor tool)
   `stitch_pam_suite_dashboard_ui/`. Every screen carries the same sidebar with
   real links, `frontend/index.html` is the launcher. Served by Phase 2, all
   ten sidebar screens are **live**: licensing (`/`), platform settings (`/settings`,
-  backed by `GET/PUT /api/v1/settings` with an audit changelog), the Command
+  backed by `GET/PUT /api/v1/settings` with an audit changelog, plus the §20
+  Enterprise Integrations cards over `GET /api/v1/integrations/status`), the Command
   Center and Compliance screens (backed by `GET /api/v1/overview` and the
-  unified `GET /api/v1/events` feed, plus the Command Center's §10 PAM
+  unified `GET /api/v1/events` feed — an eleven-source trail filter that
+  includes the `integration` trail, plus a live SIEM-push chip — and the
+  Command Center's §10 PAM
   bypass detection section over `GET/POST /api/v1/bypass/*` — real auth-log
   ingest, correlation against managed targets and recorded sessions,
   incidents with forced credential rotation), the Credential Vault (backed by
@@ -150,7 +154,8 @@ python -m pytest pam_master -q                   # 46 tests (vendor tool)
   audit-ledger evidence), and the Emergency Break-Glass console
   (`GET/POST /api/v1/break-glass/*` — emergency requests with dual approval
   from two distinct approvers, a recorded session that releases a real vault
-  credential, and forced rotation plus a required review note at close).
+  credential, and forced rotation plus a required review note at close —
+  with the §20 MFA gate at open whenever a TOTP factor is enrolled).
   The two remaining cards are `spec` design-reference pages under
   `/screens/`.
 

@@ -13,6 +13,10 @@
 <span class="w-2 h-2 rounded-full bg-outline"></span>
             WORM: &mdash;
           </span>
+<span class="flex items-center gap-1.5 font-label-badge text-label-badge text-on-surface-variant">
+<span class="w-2 h-2 rounded-full bg-outline"></span>
+<span id="siemChip">SIEM: &mdash;</span>
+          </span>
 </div>
 <h1 class="font-headline-xl text-headline-xl text-on-surface tracking-tight">Compliance Posture &amp; Continuous Audit Center</h1>
 <p class="font-body-md text-body-md text-on-surface-variant">Automated evidence collection, immutable cryptographic WORM ledger verification, and real-time posture reporting for SOC-2 Type II, ISO 27001, and NIST 800-53.</p>
@@ -742,11 +746,21 @@
         'break-glass:denied': 'Break-glass request denied',
         'break-glass:opened': 'Emergency credential released',
         'break-glass:closed': 'Emergency closed (review filed)',
+        'integration:mfa-enrolled': 'MFA factor enrolled',
+        'integration:mfa-verified': 'MFA code verified',
+        'integration:mfa-verify-failed': 'MFA code rejected',
+        'integration:mfa-gate': 'MFA gate decision',
+        'integration:itsm-verified': 'ITSM ticket verified',
+        'integration:itsm-verify-failed': 'ITSM ticket not verified',
+        'integration:siem-push-failed': 'SIEM push failed',
+        'integration:ldap-login': 'LDAP directory login',
+        'integration:ldap-login-failed': 'LDAP bind rejected',
       };
       const SOURCE_ICONS = {
         license: 'workspace_premium', settings: 'tune', vault: 'key',
         discovery: 'travel_explore', jit: 'bolt', session: 'present_to_all',
         command: 'gpp_maybe', risk: 'speed', 'break-glass': 'emergency_home',
+        integration: 'hub',
       };
       const SOURCE_LABELS = {
         license: 'License audit trail', settings: 'Settings audit trail',
@@ -754,6 +768,7 @@
         jit: 'JIT audit trail', session: 'Session audit trail',
         command: 'Command audit trail', risk: 'Risk audit trail',
         'break-glass': 'Break-glass audit trail',
+        integration: 'Integration audit trail',
       };
 
       // headline-xl spans: [overall posture, SOC-2 pass, evidence, next cycle]
@@ -826,9 +841,40 @@
         }
       }
 
-      // ---- 10-source filter: click-to-fetch per trail (reveal on click) ---
+      // ---- section 20: outbound SIEM push state (honest chip) -----------
+      async function loadIntegrations() {
+        const chip = document.getElementById('siemChip');
+        const dot = chip ? chip.previousElementSibling : null;
+        try {
+          const res = await fetch(ROOT + 'api/v1/integrations/status');
+          if (!res.ok) throw new Error('integrations/status -> ' + res.status);
+          const data = await res.json();
+          const siem = data.siem || {};
+          const push = siem.last_push || {};
+          const text = siem.configured
+            ? 'SIEM: ' + (siem.state || 'configured')
+              + (push.last_push_status
+                ? ' \u00b7 push ' + push.last_push_status
+                + (push.records_pushed
+                  ? ' (' + push.records_pushed + ' rec)' : '')
+                : '')
+            : 'SIEM: not connected';
+          if (chip) chip.textContent = text;
+          if (dot) {
+            dot.className = 'w-2 h-2 rounded-full '
+              + (siem.state === 'connected' ? 'bg-tertiary'
+                : siem.state === 'error' ? 'bg-error'
+                : siem.state === 'configured' ? 'bg-primary' : 'bg-outline');
+          }
+        } catch (err) {
+          console.info('Integrations status unreachable - SIEM chip stays honest.', err);
+        }
+      }
+
+      // ---- 11-source filter: click-to-fetch per trail (reveal on click) ---
       const SOURCES = ['all', 'license', 'settings', 'vault', 'discovery',
-        'jit', 'session', 'command', 'risk', 'bypass', 'break-glass'];
+        'jit', 'session', 'command', 'risk', 'bypass', 'break-glass',
+        'integration'];
       let activeSource = 'all';
       const filterWrap = document.createElement('div');
       filterWrap.className = 'flex flex-wrap gap-1.5 pb-1';
@@ -1029,6 +1075,7 @@
 
       loadDigest();
       load();
+      loadIntegrations();
     })();
   </script>
 </div></main><footer class="fixed bottom-0 left-64 right-0 h-10 bg-surface-container-lowest/95 backdrop-blur-sm border-t border-outline-variant/30 z-30 flex items-center justify-between px-space-xl text-on-surface-variant font-code-sm text-code-sm shadow-[0_-1px_4px_rgba(0,0,0,0.02)]"><div class="flex items-center gap-space-md"><div class="flex items-center gap-1.5"><span class="w-2 h-2 rounded-full bg-tertiary"></span><span class="text-on-surface font-medium">License server: &mdash;</span><span class="text-outline">(&mdash; nodes)</span></div><span class="text-outline-variant">•</span><span class="text-tertiary font-semibold">&mdash; credentials checked out</span></div><div class="flex items-center gap-space-lg text-outline"><span>Auth: &mdash;</span><span>WORM: &mdash;</span><span>Audit: &mdash; events</span></div></footer></div></body></html>

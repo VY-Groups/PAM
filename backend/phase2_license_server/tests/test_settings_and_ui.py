@@ -96,8 +96,12 @@ def test_settings_returns_spec_defaults_and_schema(client):
     assert response.status_code == 200
     data = response.get_json()
 
-    assert set(data["settings"]) == {"sso", "hsm", "zsp", "worm"}
-    assert set(data["schema"]) == {"sso", "hsm", "zsp", "worm"}
+    assert set(data["settings"]) == {
+        "sso", "hsm", "zsp", "worm", "mfa", "itsm", "siem", "ldap",
+    }
+    assert set(data["schema"]) == {
+        "sso", "hsm", "zsp", "worm", "mfa", "itsm", "siem", "ldap",
+    }
 
     sso = data["settings"]["sso"]
     hsm = data["settings"]["hsm"]

@@ -66,7 +66,7 @@ token or explicit open dev mode), (c) runtime↔disk (encrypted secrets),
 
 ## 4. Authentication & accountability
 
-- **45 admin operations** carry security schemes in `openapi.yaml`
+- **48 admin operations** carry security schemes in `openapi.yaml`
   (contract-tested) — they require `Bearer`/`X-Admin-Token` whenever
   `LICENSE_ADMIN_TOKEN` is set.
 - **Open dev mode is loud, never silent:** responses carry
@@ -88,7 +88,7 @@ token or explicit open dev mode), (c) runtime↔disk (encrypted secrets),
 | Ordered | `seq` unique, ascending | `test_audit.py` chain walk |
 | Chained | `prev_hash` → `event_hash = sha256(canonical record)`, genesis `0`×64 | verify endpoint recompute |
 | Append-only | SQLite triggers abort `UPDATE`/`DELETE` with `'audit_events is append-only (architecture 19)'` | trigger tests |
-| Complete coverage | 10 sources (`license settings vault discovery jit session command risk bypass break-glass`); mapper-coverage test fails if any event model lacks a mapper | `MAPPERS` ⇄ models ⇄ `by_source` assertions |
+| Complete coverage | 11 sources (`license settings vault discovery jit session command risk bypass break-glass integration`); mapper-coverage test fails if any event model lacks a mapper | `MAPPERS` ⇄ models ⇄ `by_source` assertions |
 | Detect, don't repair | tampering is **reported** (`first break` index), never silently fixed | forged-insert test |
 | Portable evidence | `/audit/verify`, `/audit/export` NDJSON in chain order | contract + audit tests |
 
@@ -119,7 +119,7 @@ with per-event `seq` and custody watermarks.
 | Key management — custody + rotation | ✅ partial | vault key rotation; license key = manual reissue (no HSM) |
 | Incident response evidence | ✅ | incidents + preserved session events |
 | PAM bypass detection (§10) | ✅ | verbatim auth-log evidence → correlation vs inventory + sessions → incident with forced rotation; ledger `bypass` |
-| SSO / MFA / HSM integration | ⛔ schema only | settings store; not enforced — posture says so |
+| SSO / MFA / HSM integration | ⚠️ MFA enforced when enrolled | §20 RFC-6238 gate at session start + break-glass open (no factor → honest `not configured`, never simulated); SSO/HSM stay settings-store only — posture counts them honestly |
 | Geo-IP / UEBA behavioral analytics | ⛔ | `location` = `is_global` only; `behavior` = local events only |
 | TLS in transit | ⛔ at app layer | terminate at reverse proxy (see runbook) |
 | HA / DR | ⛔ | single-node SQLite |
@@ -133,9 +133,6 @@ reported as missing — never as partial-good.
 
 | Gap today | Closes in | Target state |
 |---|---|---|
-| MFA not enforced (`mfa` band advisory only) | 4i | RFC-6238 TOTP verified for real; medium-risk starts require a valid code |
-| ITSM tickets shape-only (§7 `ticket`) | 4i | Real ServiceNow/Jira verification when configured; verified flag in the score |
-| SIEM = pull-only NDJSON seam (§20) | 4i | Outbound signed webhook push when configured; `not connected` otherwise |
 | No UEBA baselines (§11) | 4j | Per-actor baselines from real history; deviations drive block→rotate→incident |
 | Watermark = custody string only (§12) | 4k | Live contextual overlay from real session data; protocol-level overlays pending gateway work |
 | Single admin role (RBAC/ABAC claimed in matrix) | 6b | Roles + attribute bindings over all admin operations and vault/target scoping |

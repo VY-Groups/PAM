@@ -48,6 +48,8 @@ tags:
     description: PAM Bypass Detection - log ingest, correlation scans and direct-access incidents
   - name: break-glass
     description: Break Glass - emergency requests, dual approval, recorded unseal, forced rotation (architecture 17)
+  - name: integrations
+    description: Enterprise Integrations - TOTP MFA, ITSM ticket verification, SIEM status, LDAP bind login (architecture 20)
 paths:
   /health:
     get:
@@ -334,9 +336,12 @@ paths:
       tags: [settings]
       summary: Read all settings groups + schema
       description: |
-        Every group (`sso`, `hsm`, `zsp`, `worm`) with its stored-or-default
-        values plus the render schema (types, ranges, enums, defaults).
-        Public so the Platform Settings screen can render read-only.
+        Every group (`sso`, `hsm`, `zsp`, `worm`, `mfa`, `itsm`, `siem`,
+        `ldap`) with its stored-or-default values plus the render schema
+        (types, ranges, enums, defaults, read-only flags). Secret fields
+        (ITSM token, SIEM signing secret, the TOTP factor) read `<set>` /
+        `` - never material. Public so the Platform Settings screen can
+        render read-only.
       responses:
         "200":
           description: Settings and schema
@@ -370,7 +375,10 @@ paths:
         enums/URLs/bucket names are rejected with 400). A no-op write returns
         `{"message": "No changes"}` and records no event. Every accepted
         change appends a `SettingsEvent` with the actor (`X-Actor` header,
-        else the authenticated admin) and a per-field old/new diff.
+        else the authenticated admin) and a per-field old/new diff. Secret
+        fields are sealed before storage and only `<set>` / `<cleared>`
+        ever reaches the diff; read-only fields (the MFA factor state) are
+        rejected - they are managed by their own endpoints.
       security:
         - bearerAuth: []
         - adminTokenHeader: []
@@ -379,7 +387,7 @@ paths:
         - name: group
           in: path
           required: true
-          schema: {type: string, enum: [sso, hsm, zsp, worm]}
+          schema: {type: string, enum: [sso, hsm, zsp, worm, mfa, itsm, siem, ldap]}
         - name: X-Actor
           in: header
           description: Who is making the change (recorded in the audit changelog).
@@ -422,11 +430,11 @@ paths:
     get:
       tags: [ops]
       summary: Unified recent activity feed
-      description: Recent entries from the immutable audit ledger (architecture 19) across every trail - license, settings, vault, discovery, JIT, session lifecycle, command control and risk evaluation - newest first. Each entry carries its chain position (seq) and content hash (event_hash).
+      description: Recent entries from the immutable audit ledger (architecture 19) across every trail - license, settings, vault, discovery, JIT, session lifecycle, command control, risk evaluation, bypass detection, break glass and enterprise integrations - newest first. Each entry carries its chain position (seq) and content hash (event_hash).
       parameters:
         - name: source
           in: query
-          schema: {type: string, enum: [license, settings, vault, discovery, jit, session, command, risk]}
+          schema: {type: string, enum: [license, settings, vault, discovery, jit, session, command, risk, bypass, break-glass, integration]}
         - name: limit
           in: query
           schema: {type: integer, minimum: 0, maximum: 200, default: 20}
@@ -2011,10 +2019,6 @@ paths:
     get:
       tags: [bypass]
       summary: One incident with its parsed log-line evidence
-      security:
-        - bearerAuth: []
-        - adminTokenHeader: []
-        - {}
       parameters:
         - name: incident_id
           in: path
@@ -2214,6 +2218,10 @@ paths:
       tags: [break-glass]
       summary: Release the emergency credential and start the recorded session
       description: |
+        Section-20 emergency authentication first: with a TOTP factor
+        enrolled the release demands a valid `mfa_code` before anything is
+        unsealed (the request then records `mfa: verified`); without a
+        factor there is nothing to verify - `not configured` stays honest.
         The approved request's credential is released through the real
         vault checkout and a privileged session starts with `record=true`
         forced - recording is not an operator preference here. The
@@ -2233,6 +2241,16 @@ paths:
           in: header
           description: Who is opening the emergency (recorded as the session actor).
           schema: {type: string, maxLength: 64}
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              description: Optional - `mfa_code` is required only when a TOTP factor is enrolled.
+              properties:
+                mfa_code: {type: string, maxLength: 32, description: "6-digit TOTP code for the enrolled factor."}
+              additionalProperties: false
       responses:
         "201":
           description: Credential released; recorded session open
@@ -2240,7 +2258,11 @@ paths:
             application/json:
               schema: {$ref: "#/components/schemas/BreakGlassOpenResponse"}
         "400": {$ref: "#/components/responses/BadRequest"}
-        "401": {$ref: "#/components/responses/Unauthorized"}
+        "401":
+          description: MFA required - a TOTP factor is enrolled and the code was missing, invalid or expired (nothing unsealed).
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/Error"}
         "403":
           description: Risk policy refused this session start (evaluation recorded; nothing released).
           content:
@@ -2298,6 +2320,161 @@ paths:
           content:
             application/json:
               schema: {$ref: "#/components/schemas/BreakGlassStats"}
+
+  /api/v1/integrations/status:
+    get:
+      tags: [integrations]
+      summary: Real state of every enterprise connector
+      description: |
+        One aggregate for the Integrations cards and the compliance chips:
+        MFA factor, ITSM instance, SIEM webhook (configured + the last
+        signed push result) and LDAP directory. `not connected` /
+        `not configured` are measured facts here, never placeholders.
+      responses:
+        "200":
+          description: Per-connector state
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/IntegrationsStatus"}
+
+  /api/v1/mfa/enroll:
+    post:
+      tags: [integrations]
+      summary: Generate this operator's TOTP factor (RFC 6238)
+      description: |
+        Mints a real SHA-1 / 6-digit / 30-second factor bound to the acting
+        operator. The plaintext secret and an `otpauth://` URI are returned
+        exactly once - what an authenticator app scans or types - and the
+        stored factor is sealed AES-256-GCM. Re-enrolling replaces the
+        factor; the changelog records the replacement, never the material.
+        The read-only `factor_*` settings fields reject PUT /settings/mfa:
+        this endpoint manages them.
+      security:
+        - bearerAuth: []
+        - adminTokenHeader: []
+        - {}
+      parameters:
+        - name: X-Actor
+          in: header
+          description: Who is enrolling (the factor binds to this operator).
+          schema: {type: string, maxLength: 64}
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema: {type: object, additionalProperties: false, description: No fields yet - the factor binds to the acting operator.}
+      responses:
+        "201":
+          description: Factor enrolled; the secret is present exactly once
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/MfaEnrollResponse"}
+        "400": {$ref: "#/components/responses/BadRequest"}
+        "401": {$ref: "#/components/responses/Unauthorized"}
+
+  /api/v1/mfa/verify:
+    post:
+      tags: [integrations]
+      summary: Check a 6-digit TOTP code against the enrolled factor
+      description: |
+        A real RFC-6238 check (±1 window). Success records `mfa-verified`
+        on the `integration` trail and stamps the factor's last-verified
+        time; failure records `mfa-verify-failed` and returns 401 - the
+        code itself never appears anywhere.
+      security:
+        - bearerAuth: []
+        - adminTokenHeader: []
+        - {}
+      parameters:
+        - name: X-Actor
+          in: header
+          description: Who is verifying.
+          schema: {type: string, maxLength: 64}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: "#/components/schemas/MfaVerifyRequest"}
+      responses:
+        "200":
+          description: Code accepted
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/MfaVerifyResponse"}
+        "400": {$ref: "#/components/responses/BadRequest"}
+        "401":
+          description: Invalid or expired TOTP code (recorded on the integration trail).
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/Error"}
+        "409": {$ref: "#/components/responses/Conflict"}
+
+  /api/v1/itsm/verify:
+    post:
+      tags: [integrations]
+      summary: Verify a ticket against the configured ITSM instance (real HTTP)
+      description: |
+        GETs the ticket's record through the configured connector - vendor
+        presets for ServiceNow, Jira and Freshservice, a custom
+        `path_template` for everything else - and reports what the instance
+        actually answered. Unconfigured is 409 `not connected`; transport
+        errors come back as `verified: false` with the honest reason.
+      security:
+        - bearerAuth: []
+        - adminTokenHeader: []
+        - {}
+      parameters:
+        - name: X-Actor
+          in: header
+          description: Who is asking (recorded on the integration trail).
+          schema: {type: string, maxLength: 64}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: "#/components/schemas/ItsmVerifyRequest"}
+      responses:
+        "200":
+          description: The instance's verdict
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/ItsmVerifyResponse"}
+        "400": {$ref: "#/components/responses/BadRequest"}
+        "401": {$ref: "#/components/responses/Unauthorized"}
+        "409": {$ref: "#/components/responses/Conflict"}
+
+  /api/v1/auth/ldap:
+    post:
+      tags: [integrations]
+      summary: Verify credentials with a real LDAP bind; mint a short-lived admin ticket
+      description: |
+        Binds to the configured directory as
+        `user_bind_template.replace('{user}', username)` with the supplied
+        password - a real BER BindRequest, never a simulation. The password
+        travels only inside the bind and is never stored, logged or
+        echoed. Success in token mode returns an HMAC ticket
+        (`vypam-ldap1.` + payload + signature, TTL `ldap.ticket_ttl_seconds`)
+        that the admin routes accept beside the admin token; in open dev
+        mode there is nothing to grant and the response says so. The result
+        lands on the `integration` trail (`ldap-login` / `ldap-login-failed`).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: "#/components/schemas/LdapLoginRequest"}
+      responses:
+        "200":
+          description: Bind succeeded (ticket present in token mode)
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/LdapLoginResponse"}
+        "400": {$ref: "#/components/responses/BadRequest"}
+        "401":
+          description: LDAP bind failed (the directory's result code is named, e.g. invalidCredentials).
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/Error"}
+        "409": {$ref: "#/components/responses/Conflict"}
 
 components:
   securitySchemes:
@@ -2598,6 +2775,10 @@ components:
             hsm: {$ref: "#/components/schemas/SettingsGroup"}
             zsp: {$ref: "#/components/schemas/SettingsGroup"}
             worm: {$ref: "#/components/schemas/SettingsGroup"}
+            mfa: {$ref: "#/components/schemas/SettingsGroup"}
+            itsm: {$ref: "#/components/schemas/SettingsGroup"}
+            siem: {$ref: "#/components/schemas/SettingsGroup"}
+            ldap: {$ref: "#/components/schemas/SettingsGroup"}
         schema:
           type: object
           description: Per-group, per-field render schema (type, min/max, default, choices).
@@ -2719,9 +2900,9 @@ components:
       properties:
         id: {type: string, description: 'Source-prefixed id, e.g. "vault:12".'}
         seq: {type: integer, description: Position in the immutable hash chain.}
-        source: {type: string, enum: [license, settings, vault, discovery, jit, session, command, risk]}
+        source: {type: string, enum: [license, settings, vault, discovery, jit, session, command, risk, bypass, break-glass, integration]}
         action: {type: string}
-        subject: {type: string, description: License key, settings group, vault item, JIT request, session ref, incident ref or risk subject}
+        subject: {type: string, description: License key, settings group, vault item, JIT request, session ref, incident ref, risk subject, bypass signal, break-glass ref or integration target}
         actor: {type: string}
         detail: {type: object, additionalProperties: true}
         created_at: {type: string}
@@ -2736,7 +2917,7 @@ components:
           items: {$ref: "#/components/schemas/UnifiedEvent"}
         total: {type: integer}
         limit: {type: integer}
-        source: {type: string, enum: [license, settings, vault, discovery, jit, session, command, risk, all]}
+        source: {type: string, enum: [license, settings, vault, discovery, jit, session, command, risk, bypass, break-glass, integration, all]}
 
     AuditStats:
       type: object
@@ -2783,6 +2964,13 @@ components:
         component: {type: string, enum: [user, device, asset, time, location, behavior, ticket, command]}
         points: {type: integer, minimum: 0}
         detail: {type: string, description: The measured input that produced these points (0 points still explains why).}
+        verified:
+          type: boolean
+          description: >
+            Present only on `ticket` when an ITSM instance is configured and
+            a real verification was attempted: true when the instance
+            confirmed the ticket, false when it did not (or errored).
+            Unconfigured ITSM stays shape-only and omits the flag.
 
     RiskEvaluation:
       type: object
@@ -3939,7 +4127,7 @@ components:
         status: {type: string, enum: [pending, approved, denied, used, closed]}
         requested_by: {type: string}
         requested_at: {type: string, format: date-time}
-        mfa: {type: string, description: "Honest MFA state - `not configured` until a factor exists (section 20); never a fake challenge."}
+        mfa: {type: string, description: "Honest MFA state (section 20) - `not configured` without a factor, `required at open` when one is enrolled at filing, `verified` when a valid code was checked at release; never a fake challenge."}
         denied_by: {type: [string, "null"]}
         denied_at: {type: [string, "null"], format: date-time}
         deny_note: {type: string}
@@ -4067,3 +4255,145 @@ components:
         last_request_at: {type: [string, "null"], format: date-time}
         last_opened_at: {type: [string, "null"], format: date-time}
         last_closed_at: {type: [string, "null"], format: date-time}
+
+    # -------------------------------------------------------------------------
+    # enterprise integrations (architecture section 20)
+    # -------------------------------------------------------------------------
+    MfaStatus:
+      type: object
+      required: [configured, enrolled_for, algorithm, digits, period,
+                 created_at, last_verified_at, gate]
+      properties:
+        configured: {type: boolean, description: True only when a TOTP factor is enrolled.}
+        enrolled_for: {type: string, description: "The operator the factor binds to (`` when none)."}
+        algorithm: {type: string, enum: [SHA1]}
+        digits: {type: integer, enum: [6]}
+        period: {type: integer, enum: [30]}
+        created_at: {type: [string, "null"], format: date-time}
+        last_verified_at: {type: [string, "null"], format: date-time}
+        gate: {type: string, description: "Honest enforcement statement - advisory without a factor, code-required at medium-band starts with one."}
+
+    MfaEnrollResponse:
+      type: object
+      required: [factor, otpauth_uri, secret, message]
+      properties:
+        factor: {$ref: "#/components/schemas/MfaStatus"}
+        otpauth_uri: {type: string, description: "otpauth://totp/... URI the authenticator app scans (contains the secret)."}
+        secret: {type: string, description: "Base32 TOTP seed - present in exactly this one response, sealed at rest."}
+        message: {type: string}
+
+    MfaVerifyRequest:
+      type: object
+      required: [code]
+      properties:
+        code: {type: string, minLength: 6, maxLength: 6, description: 6-digit TOTP code.}
+      additionalProperties: false
+
+    MfaVerifyResponse:
+      type: object
+      required: [verified, verified_at, factor]
+      properties:
+        verified: {type: boolean, enum: [true]}
+        verified_at: {type: string, format: date-time}
+        factor: {$ref: "#/components/schemas/MfaStatus"}
+
+    ItsmStatus:
+      type: object
+      required: [configured, vendor, base_url, username,
+                 credentials_configured, path_template, timeout_seconds, detail]
+      properties:
+        configured: {type: boolean, description: True when an instance URL is set.}
+        vendor: {type: string, enum: [servicenow, jira, freshservice, bmc]}
+        base_url: {type: string}
+        username: {type: string, description: API user for the Basic-auth header.}
+        credentials_configured: {type: boolean, description: True when an API token is stored (sealed).}
+        path_template: {type: string, description: "Custom path (`{ticket}` placeholder) - required for vendors without a preset (e.g. BMC)."}
+        timeout_seconds: {type: integer}
+        detail: {type: [string, "null"], description: Honest gap, e.g. `not connected - set itsm.base_url`.}
+
+    ItsmVerifyRequest:
+      type: object
+      required: [ticket]
+      properties:
+        ticket: {type: string, minLength: 1, maxLength: 64, description: ITSM reference to look up.}
+      additionalProperties: false
+
+    ItsmVerifyResponse:
+      type: object
+      required: [ticket, configured, verified, detail]
+      properties:
+        ticket: {type: string}
+        configured: {type: boolean}
+        verified: {type: boolean, description: What the instance answered - false with `detail` when it could not be asked.}
+        vendor: {type: string, description: Present only when configured.}
+        http_status: {type: [integer, "null"], description: Present when the instance answered over HTTP.}
+        detail: {type: string}
+        checked_at: {type: string, format: date-time, description: Present when configured.}
+
+    SiemPushStatus:
+      type: object
+      required: [last_push_at, last_push_status, last_http_status,
+                 last_error, batches_ok, batches_failed, records_pushed]
+      properties:
+        last_push_at: {type: [string, "null"], format: date-time}
+        last_push_status: {type: string, enum: [never, ok, error], description: "honest before the first configured batch: `never`."}
+        last_http_status: {type: [integer, "null"]}
+        last_error: {type: [string, "null"]}
+        batches_ok: {type: integer, minimum: 0}
+        batches_failed: {type: integer, minimum: 0}
+        records_pushed: {type: integer, minimum: 0}
+
+    SiemStatus:
+      type: object
+      required: [configured, state, detail, webhook_url, enabled,
+                 signing_secret_set, last_push]
+      properties:
+        configured: {type: boolean, description: True when URL + signing secret + enabled are all present.}
+        state: {type: string, enum: [not connected, configured, connected, error]}
+        detail: {type: [string, "null"], description: Honest gap or last error.}
+        webhook_url: {type: string}
+        enabled: {type: boolean}
+        signing_secret_set: {type: boolean}
+        last_push: {$ref: "#/components/schemas/SiemPushStatus"}
+
+    LdapStatus:
+      type: object
+      required: [configured, server, port, use_ssl, user_bind_template,
+                 timeout_seconds, ticket_ttl_seconds, detail]
+      properties:
+        configured: {type: boolean, description: True when server + user template are both set.}
+        server: {type: string}
+        port: {type: integer, minimum: 1, maximum: 65535}
+        use_ssl: {type: boolean}
+        user_bind_template: {type: string, description: "DN/UPN template with a `{user}` placeholder."}
+        timeout_seconds: {type: integer}
+        ticket_ttl_seconds: {type: integer, description: Lifetime of a minted LDAP ticket.}
+        detail: {type: [string, "null"], description: Honest gap when not connected.}
+
+    LdapLoginRequest:
+      type: object
+      required: [username, password]
+      properties:
+        username: {type: string, minLength: 1, maxLength: 64}
+        password: {type: string, minLength: 1, maxLength: 1024, description: Sent only inside the LDAP BindRequest; never stored or echoed.}
+      additionalProperties: false
+
+    LdapLoginResponse:
+      type: object
+      required: [username, verified, ticket, expires_in, mode, note]
+      properties:
+        username: {type: string}
+        verified: {type: boolean, enum: [true]}
+        ticket: {type: [string, "null"], description: "`vypam-ldap1.<payload>.<hmac>` bearer ticket in token mode, null in open mode."}
+        expires_in: {type: [integer, "null"], description: Ticket lifetime in seconds (null in open mode).}
+        mode: {type: string, enum: [token, open]}
+        note: {type: [string, "null"], description: Honest statement when there is nothing to grant (open dev mode).}
+
+    IntegrationsStatus:
+      type: object
+      required: [mfa, itsm, siem, ldap]
+      properties:
+        mfa: {$ref: "#/components/schemas/MfaStatus"}
+        itsm: {$ref: "#/components/schemas/ItsmStatus"}
+        siem: {$ref: "#/components/schemas/SiemStatus"}
+        ldap: {$ref: "#/components/schemas/LdapStatus"}

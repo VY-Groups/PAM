@@ -7,7 +7,7 @@
 <!-- Critical banner: honest claims only (architecture section 17) -->
 <div class="flex items-center gap-2 px-space-lg py-2.5 mb-4 rounded-lg bg-error-container/70 border border-error/30 text-on-error-container font-code-sm text-code-sm">
   <span class="material-symbols-outlined text-[18px]">warning</span>
-  <span>EMERGENCY ACCESS (architecture section 17) — every step is written to the immutable audit ledger (source <span class="font-semibold">break-glass</span>). MFA: <span class="font-semibold">not configured</span> — a factor arrives with the section-20 phase; until then the request records this honestly, never a fake challenge.</span>
+  <span>EMERGENCY ACCESS (architecture section 17) — every step is written to the immutable audit ledger (source <span class="font-semibold">break-glass</span>). MFA: <span id="mfaBannerState" class="font-semibold">not configured — no challenge is ever faked; the release records this honestly.</span></span>
 </div>
 
 <!-- Screen header -->
@@ -96,7 +96,7 @@
         <li><span class="text-on-surface font-semibold">4. Unseal</span> — the credential is checked out of the vault and a session starts with recording forced.</li>
         <li><span class="text-on-surface font-semibold">5. Close</span> — session ends, the credential ends up rotated, and the post-incident review note is required.</li>
       </ol>
-      <div class="mt-3 pt-3 border-t border-outline-variant/40 font-code-sm text-code-sm text-outline">MFA: <span class="text-on-surface font-semibold">not configured</span> (no factor exists yet — phase 4i wires TOTP here; no challenge is simulated).</div>
+      <div class="mt-3 pt-3 border-t border-outline-variant/40 font-code-sm text-code-sm text-outline">MFA: <span id="mfaRailState" class="text-on-surface font-semibold">not configured</span><span id="mfaRailNote"> (no factor enrolled — no challenge is simulated).</span></div>
     </div>
 
     <div class="bg-surface-container-lowest border border-outline-variant/40 rounded-xl p-space-lg shadow-sm">
@@ -198,6 +198,33 @@
   </div>
 </div>
 
+<!-- Open (unseal) modal - the section-20 MFA gate, shown when a factor is enrolled -->
+<div id="openModal" class="hidden fixed inset-0 z-50 bg-on-surface/40 backdrop-blur-sm flex items-center justify-center p-space-xl">
+  <div class="w-full max-w-lg bg-surface-container-lowest rounded-xl border border-outline-variant/40 shadow-xl p-space-xl">
+    <div class="flex items-center justify-between mb-4">
+      <div>
+        <h3 class="font-headline-sm text-headline-sm text-on-surface">Open emergency &mdash; MFA release</h3>
+        <p id="openRef" class="font-code-sm text-code-sm text-outline mt-0.5">&mdash;</p>
+      </div>
+      <button id="openModalClose" class="p-1.5 rounded-lg hover:bg-surface-container text-on-surface-variant"><span class="material-symbols-outlined">close</span></button>
+    </div>
+    <div class="space-y-3">
+      <div>
+        <label class="block font-code-sm text-code-sm uppercase tracking-wider text-outline font-semibold mb-1">TOTP code (6 digits)</label>
+        <input id="openMfaCode" type="text" inputmode="numeric" autocomplete="one-time-code" maxlength="6" placeholder="123456"
+               class="w-full p-2.5 rounded-lg bg-surface-container-low font-code-sm text-code-sm tracking-[0.4em] text-on-surface focus:outline-none focus:bg-surface-container-lowest shadow-xs" />
+      </div>
+      <p id="openGateNote" class="font-code-sm text-code-sm text-outline leading-relaxed">&mdash;</p>
+      <p class="font-code-sm text-code-sm text-outline leading-relaxed">Unsealing releases the emergency credential through the real vault checkout and starts the mandatory recorded session.</p>
+      <div id="openError" class="hidden font-code-sm text-code-sm text-error"></div>
+    </div>
+    <div class="flex justify-end gap-space-md mt-4">
+      <button id="openModalCancel" class="px-space-lg py-2.5 rounded-lg bg-surface-container hover:bg-surface-container-high text-on-surface font-code-sm text-code-sm font-semibold transition-colors">Cancel</button>
+      <button id="openSubmit" class="px-space-lg py-2.5 rounded-lg bg-error text-on-error font-code-sm text-code-sm font-semibold transition-all">Unseal (Open)</button>
+    </div>
+  </div>
+</div>
+
 <div id="bgToast" class="hidden fixed bottom-14 right-5 z-50 max-w-md px-space-lg py-3 rounded-lg bg-surface-container-high text-on-surface font-code-sm text-code-sm shadow-lg border border-outline-variant/40"></div>
 
 </div>
@@ -213,6 +240,9 @@
 
         const state = { stats: null, requests: [], overview: null, connected: false };
         let pendingCloseId = null;
+        let pendingOpenId = null;
+        // section 20: the open (unseal) gate needs the factor's real state
+        let mfaState = { configured: false, gate: '' };
 
         const f = (id) => document.getElementById(id);
         const put = (el, text) => { if (el) el.textContent = text; };
@@ -434,6 +464,26 @@
             state.overview = null;
             fillFooter(null);
           }
+          try {
+            const status = await call('integrations/status');
+            mfaState = {
+              configured: !!(status.mfa && status.mfa.configured),
+              gate: (status.mfa || {}).gate || '',
+            };
+            put(f('footMfa'), mfaState.configured
+              ? 'MFA: factor enrolled' : 'MFA: not configured');
+            // the banner and the process rail state the same fact, live
+            put(f('mfaBannerState'), mfaState.configured
+              ? 'factor enrolled — releasing a credential demands a valid TOTP code, verified server-side and recorded on the integration trail.'
+              : 'not configured — no challenge is ever faked; the release records this honestly.');
+            put(f('mfaRailState'), mfaState.configured
+              ? 'factor enrolled' : 'not configured');
+            put(f('mfaRailNote'), mfaState.configured
+              ? ' (a valid TOTP code is demanded at open; a rejected code is recorded, never simulated).'
+              : ' (no factor enrolled — no challenge is simulated).');
+          } catch (err) {
+            // footer keeps its honest static text when the status endpoint is down
+          }
           renderAll();
         }
 
@@ -532,6 +582,51 @@
           }
         }
 
+        // ---- modal: open (unseal) with the MFA gate ------------------------
+        function openOpenModal(id, ref) {
+          pendingOpenId = id;
+          put(f('openRef'), ref + ' — a valid TOTP code is required to release the credential.');
+          const input = f('openMfaCode');
+          if (input) input.value = '';
+          put(f('openGateNote'), mfaState.gate || '');
+          const err = f('openError');
+          if (err) err.classList.add('hidden');
+          const modal = f('openModal');
+          if (modal) modal.classList.remove('hidden');
+          if (input) input.focus();
+        }
+        function closeOpenModal() {
+          pendingOpenId = null;
+          const modal = f('openModal');
+          if (modal) modal.classList.add('hidden');
+        }
+        async function submitOpen() {
+          const errBox = f('openError');
+          if (errBox) errBox.classList.add('hidden');
+          const input = f('openMfaCode');
+          const code = input ? input.value.trim() : '';
+          if (!code) {
+            if (errBox) {
+              errBox.textContent = 'A 6-digit TOTP code is required to unseal the credential.';
+              errBox.classList.remove('hidden');
+            }
+            return;
+          }
+          try {
+            const out = await call('break-glass/requests/' + pendingOpenId + '/open',
+              'POST', { mfa_code: code });
+            toast(out.message || 'Emergency credential released.');
+            closeOpenModal();
+            await load();
+          } catch (e) {
+            // a rejected code keeps the modal open with the server's reason
+            if (errBox) {
+              errBox.textContent = e.message;
+              errBox.classList.remove('hidden');
+            }
+          }
+        }
+
         // ---- row actions ---------------------------------------------------
         async function rowAction(action, id) {
           if (FILE_MODE) {
@@ -550,6 +645,12 @@
             } else if (action === 'deny') {
               out = await call('break-glass/requests/' + id + '/deny', 'POST', {});
             } else if (action === 'open') {
+              if (mfaState.configured) {
+                // a factor is enrolled: the release goes through the MFA gate
+                const row = state.requests.find(function (r) { return r.id === id; });
+                openOpenModal(id, row ? row.request_ref : 'request #' + id);
+                return;
+              }
               out = await call('break-glass/requests/' + id + '/open', 'POST', {});
             } else {
               return;
@@ -571,6 +672,8 @@
             if (btn.id === 'bgSubmit') { submitRequest(); return; }
             if (btn.id === 'closeModalClose' || btn.id === 'closeModalCancel') { closeCloseModal(); return; }
             if (btn.id === 'closeSubmit') { submitClose(); return; }
+            if (btn.id === 'openModalClose' || btn.id === 'openModalCancel') { closeOpenModal(); return; }
+            if (btn.id === 'openSubmit') { submitOpen(); return; }
             const action = btn.getAttribute('data-action');
             if (action) {
               const id = Number(btn.getAttribute('data-id'));
@@ -599,6 +702,12 @@
               if (!actorEl.value.trim()) actorEl.value = 'break-glass-ui';
             });
           }
+          const openCode = f('openMfaCode');
+          if (openCode) {
+            openCode.addEventListener('keydown', function (ev) {
+              if (ev.key === 'Enter') submitOpen();
+            });
+          }
         }
 
         // ---- boot ----------------------------------------------------------
@@ -616,4 +725,4 @@
         }
       })();
     </script>
-</main><footer class="fixed bottom-0 left-64 right-0 h-10 bg-surface-container-lowest/95 backdrop-blur-sm border-t border-outline-variant/30 z-30 flex items-center justify-between px-space-xl text-on-surface-variant font-code-sm text-code-sm shadow-[0_-1px_4px_rgba(0,0,0,0.02)]"><div class="flex items-center gap-space-md"><div class="flex items-center gap-1.5"><span class="w-2 h-2 rounded-full bg-tertiary"></span><span id="footServer" class="text-on-surface font-medium">License server: not connected</span><span id="footOpen" class="text-outline">(— open emergencies)</span></div><span class="text-outline-variant">•</span><span class="text-tertiary font-semibold">MFA: not configured</span></div><div class="flex items-center gap-space-lg text-outline"><span id="footAuth">Auth: —</span><span id="footAudit">Audit: — events</span></div></footer></div></body></html>
+</main><footer class="fixed bottom-0 left-64 right-0 h-10 bg-surface-container-lowest/95 backdrop-blur-sm border-t border-outline-variant/30 z-30 flex items-center justify-between px-space-xl text-on-surface-variant font-code-sm text-code-sm shadow-[0_-1px_4px_rgba(0,0,0,0.02)]"><div class="flex items-center gap-space-md"><div class="flex items-center gap-1.5"><span class="w-2 h-2 rounded-full bg-tertiary"></span><span id="footServer" class="text-on-surface font-medium">License server: not connected</span><span id="footOpen" class="text-outline">(— open emergencies)</span></div><span class="text-outline-variant">•</span><span id="footMfa" class="text-tertiary font-semibold">MFA: not configured</span></div><div class="flex items-center gap-space-lg text-outline"><span id="footAuth">Auth: —</span><span id="footAudit">Audit: — events</span></div></footer></div></body></html>

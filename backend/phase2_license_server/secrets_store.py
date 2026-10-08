@@ -111,15 +111,15 @@ def aad_for(item_id: int) -> bytes:
     return f"vault_item:{item_id}".encode("utf-8")
 
 
-def seal(plaintext: str, item_id: int, config: Config) -> Dict[str, Any]:
-    """Encrypt one secret value for storage."""
+def seal_with_aad(plaintext: str, aad: bytes, config: Config) -> Dict[str, Any]:
+    """Encrypt one secret value under explicit additional data (used by the
+    vault items with the item id, and by the settings store with the
+    `settings:{group}:{field}` binding)."""
     if not isinstance(plaintext, str) or not plaintext:
         raise ValidationFailed("Secret value must be a non-empty string")
     key = load_key(config)
     nonce = os.urandom(_NONCE_BYTES)
-    ciphertext = AESGCM(key).encrypt(
-        nonce, plaintext.encode("utf-8"), aad_for(item_id)
-    )
+    ciphertext = AESGCM(key).encrypt(nonce, plaintext.encode("utf-8"), aad)
     return {
         "v": WIRE_VERSION,
         "alg": ALGORITHM,
@@ -128,8 +128,9 @@ def seal(plaintext: str, item_id: int, config: Config) -> Dict[str, Any]:
     }
 
 
-def unseal(blob: Dict[str, Any], item_id: int, config: Config) -> str:
-    """Decrypt one stored secret; a tampered/moved blob fails honestly."""
+def unseal_with_aad(blob: Dict[str, Any], aad: bytes, config: Config) -> str:
+    """Decrypt one stored secret under explicit additional data; a
+    tampered/moved blob fails honestly."""
     if not isinstance(blob, dict) or blob.get("v") != WIRE_VERSION:
         raise APIError(500, "Stored secret has an unsupported format")
     if blob.get("alg") != ALGORITHM:
@@ -140,15 +141,23 @@ def unseal(blob: Dict[str, Any], item_id: int, config: Config) -> str:
     except (KeyError, ValueError) as exc:
         raise APIError(500, "Stored secret is malformed") from exc
     try:
-        plaintext = AESGCM(load_key(config)).decrypt(
-            nonce, ciphertext, aad_for(item_id)
-        )
+        plaintext = AESGCM(load_key(config)).decrypt(nonce, ciphertext, aad)
     except InvalidTag as exc:
         # Wrong key, tampered ciphertext or a blob moved from another item.
         raise APIError(
             500, "Stored secret failed its integrity check (wrong key, tampered data or foreign row)"
         ) from exc
     return plaintext.decode("utf-8")
+
+
+def seal(plaintext: str, item_id: int, config: Config) -> Dict[str, Any]:
+    """Encrypt one secret value for storage."""
+    return seal_with_aad(plaintext, aad_for(item_id), config)
+
+
+def unseal(blob: Dict[str, Any], item_id: int, config: Config) -> str:
+    """Decrypt one stored secret; a tampered/moved blob fails honestly."""
+    return unseal_with_aad(blob, aad_for(item_id), config)
 
 
 # ---------------------------------------------------------------------------

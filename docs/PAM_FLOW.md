@@ -123,8 +123,9 @@ Policy screen §7 section → Evaluate (advisory)
 Compliance screen
   Ledger digest (real totals, chain intact/first-break)
   Verify walk (recompute all hashes) → first break index or OK
-  Per-source chips (10): license, settings, vault, discovery, jit,
-                        session, command, risk, bypass, break-glass
+  Per-source chips (11): license, settings, vault, discovery, jit,
+                        session, command, risk, bypass, break-glass,
+                        integration
                         → filter trail
   Export → NDJSON in chain order (SIEM seam)
   Record-inspect modal → one event's full payload
@@ -153,7 +154,7 @@ Command Center → bypass section → paste an auth-log bundle → Ingest
       failures recorded) · block source "not connected" (no connector yet)
   → analyst closes with a note (who + when)     GET /bypass/incidents…
   → every ingest/scan/detect/close fans into the ledger (source `bypass`)
-  → Compliance screen: `bypass` chip in the 10-source filter
+  → Compliance screen: `bypass` chip in the 11-source filter
 ```
 
 ### 2.9 Break-glass emergency (§17)
@@ -167,13 +168,32 @@ Break-Glass screen → Initiate emergency (target + reason + severity +
       → 2/2 → approved        → a refusal → denied
   → Open (approved only): risk gate runs here first —
       critical → 403 + details.risk, nothing released
+      → MFA gate next (factor enrolled): mfa_code demanded,
+         refusal → 401 + details.mfa (no factor → says so)
       → real vault checkout + RECORDED session        POST …/{id}/open (201)
   → Close (review note required)                      POST …/{id}/close
       → session ended, credential force-rotated (§5 pipeline,
         trigger `break-glass`), cascade recorded on the request
   → every request/approve/deny/open/close fans into the ledger
       (source `break-glass`, ref `bg-…`)
-  → Compliance screen: `break-glass` chip in the 10-source filter
+  → Compliance screen: `break-glass` chip in the 11-source filter
+```
+
+### 2.10 Enterprise integrations (§20)
+
+```
+Settings → Enterprise Integrations cards (mfa | itsm | siem | ldap)
+  → MFA: Enroll Factor (secret shown once) → TOTP code
+      → medium-risk session start / break-glass open require a real code
+         (403/401 + details.mfa, recorded as `mfa-gate` evidence)
+      → no factor enrolled → honest pass, never a fake challenge
+  → ITSM: ticket key verified against ServiceNow/Jira REST (when configured)
+  → SIEM: signed NDJSON batches pushed after commit (when configured);
+      a failed push records exactly one `siem-push-failed` ledger row
+  → LDAP: real bind → vypam-ldap1.* ticket (token mode); open mode says so
+  → every gate/verify/login fans into the ledger (source `integration`)
+  → unconfigured → chip "not connected" (never simulated)
+  → Compliance screen: `integration` chip (11th) + header SIEM chip
 ```
 
 ## 3. Cross-cutting interaction rules
@@ -232,16 +252,7 @@ BreakGlassRequest.status:
 Flows below are **not implemented yet**; they show the target journeys the
 console will gain, quoted from the architecture doc.
 
-### 6.1 Integrations (§20 → phase 4i)
-```
-Settings → Integrations cards (mfa | itsm | siem | ldap)
-  → MFA: TOTP enrol → medium-risk session start requires real code
-  → ITSM: ticket key verified against ServiceNow/Jira REST (when configured)
-  → SIEM: signed NDJSON batches pushed on ledger append (when configured)
-  → unconfigured → chip "not connected" (never simulated)
-```
-
-### 6.2 Vendor / third-party access (§13 → phase 5a)
+### 6.1 Vendor / third-party access (§13 → phase 5a)
 ```
 Invite vendor → MFA → NDA/Agreement → ticket → approval
   → JIT access (scoped: allowed/denied targets + time window)
@@ -249,7 +260,7 @@ Invite vendor → MFA → NDA/Agreement → ticket → approval
   → vendor dashboard shows access ✓ / denied ✗ / validity window / recording
 ```
 
-### 6.3 DevSecOps & AI-agent access (§15/§16 → phases 5c/5d)
+### 6.2 DevSecOps & AI-agent access (§15/§16 → phases 5c/5d)
 ```
 Pipeline/Agent → request credential or task access
   → identity verification → risk evaluation → JIT token
@@ -257,7 +268,7 @@ Pipeline/Agent → request credential or task access
   → monitored session → token expiry (no static secrets left behind)
 ```
 
-### 6.4 UEBA anomaly response (§11 → phase 4j)
+### 6.3 UEBA anomaly response (§11 → phase 4j)
 ```
 Baseline per actor learned from real history (hours/device/IP/target/command)
   → deviation detected → reasons listed (+unusual time/device/IP/…)

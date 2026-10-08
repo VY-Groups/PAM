@@ -1,7 +1,7 @@
 # VY-PAM — API Reference
 
-**Status:** as-built for Phase 4h
-**Contract:** `apis/openapi.yaml` (OpenAPI 3.1) — **79 paths / 88
+**Status:** as-built for Phase 4i
+**Contract:** `apis/openapi.yaml` (OpenAPI 3.1) — **84 paths / 93
 operations**, enforced in both directions by
 `backend/phase2_license_server/tests/test_openapi_contract.py`. If this page
 and the YAML ever disagree, the YAML wins.
@@ -15,13 +15,13 @@ and the YAML ever disagree, the YAML wins.
 | Base URL (dev) | `http://127.0.0.1:5000` (`LICENSE_SERVER_HOST`/`LICENSE_SERVER_PORT`) |
 | Version | `/api/v1/…` (`/health`, `/api/v1/meta` unversioned) |
 | Content type | `application/json` (license import also accepts multipart upload / raw body) |
-| Auth | When `LICENSE_ADMIN_TOKEN` is set: `Authorization: Bearer <token>` **or** `X-Admin-Token: <token>` on the **45 admin operations**. When unset: open dev mode — responses carry `X-Auth-Mode: open` (explicit, never silent). |
+| Auth | When `LICENSE_ADMIN_TOKEN` is set: `Authorization: Bearer <token>` **or** `X-Admin-Token: <token>` on the **48 admin operations**. When unset: open dev mode — responses carry `X-Auth-Mode: open` (explicit, never silent). |
 | Actor | `X-Actor: <name>` recorded verbatim in the audit ledger on every audited write |
 | Errors | `{"error":{"code","message","details?"}}` — 400 validation · 401 auth · 403 policy refusal (risk gate) · 404 · 409 conflict/state · 422 unprocessable shape · 503 fail-closed dependency |
 | Pagination | `limit` (≤200) + `offset`, newest first |
 | Ordering | Ledger/session streams ascending `seq`; listings newest-first |
 
-## 2. Operations by tag (13 tags)
+## 2. Operations by tag (14 tags)
 
 ### `ops` — unversioned
 | Method | Path | Summary |
@@ -45,9 +45,18 @@ and the YAML ever disagree, the YAML wins.
 ### `settings` — configuration groups
 | Method | Path | Summary |
 |---|---|---|
-| GET | `/api/v1/settings` | all groups (`sso`, `hsm`, `zsp`, `worm`) |
-| PUT | `/api/v1/settings/{group}` | upsert group; writes per-field diff event |
+| GET | `/api/v1/settings` | all groups (`sso`, `hsm`, `zsp`, `worm`, `mfa`, `itsm`, `siem`, `ldap`) |
+| PUT | `/api/v1/settings/{group}` | upsert group; writes per-field diff event (secrets sealed, readonly `mfa.*` rejected) |
 | GET | `/api/v1/settings/audit` | changelog (group filter) |
+
+### `integrations` — Enterprise Integrations (§20)
+| Method | Path | Summary |
+|---|---|---|
+| GET | `/api/v1/integrations/status` | real state of every connector + last SIEM push + `event_count` |
+| POST | `/api/v1/mfa/enroll` | mint this operator's RFC-6238 TOTP factor (secret shown once) |
+| POST | `/api/v1/mfa/verify` | check a 6-digit code (401 invalid with ledger evidence, 409 no-factor, 400 missing) |
+| POST | `/api/v1/itsm/verify` | verify a ticket against the configured ITSM instance (real HTTP) |
+| POST | `/api/v1/auth/ldap` | real LDAP bind; token mode mints `vypam-ldap1.*`, open mode says so |
 
 ### Dashboard feeds (untagged but public in spec)
 | Method | Path | Summary |
@@ -91,7 +100,7 @@ and the YAML ever disagree, the YAML wins.
 |---|---|---|
 | GET | `/api/v1/sessions/stats` | live counters |
 | GET | `/api/v1/sessions` | list (status/actor filters) |
-| POST | `/api/v1/sessions` | start — **§7 risk gate runs first** (403 `details.risk` when refused) |
+| POST | `/api/v1/sessions` | start — **§7 risk gate runs first** (403 `details.risk` when refused); a `mfa` decision also demands `mfa_code` when a factor is enrolled (403 `details.mfa`) |
 | GET | `/api/v1/sessions/{session_id}` | detail |
 | GET | `/api/v1/sessions/{session_id}/events` | recorded stream (`after` cursor) |
 | POST | `/api/v1/sessions/{session_id}/events` | append event (controls enforced) |
@@ -152,7 +161,7 @@ and the YAML ever disagree, the YAML wins.
 | GET | `/api/v1/break-glass/requests/{request_id}` | detail with approval snapshots + recorded session |
 | POST | `/api/v1/break-glass/requests/{request_id}/approve` | record one signature — requester excluded, two distinct approvers required |
 | POST | `/api/v1/break-glass/requests/{request_id}/deny` | refuse a pending request with a note (any actor may; 400 once decided) |
-| POST | `/api/v1/break-glass/requests/{request_id}/open` | release the approved credential — dual approval + §7 risk gate enforced, 201 with the recorded session |
+| POST | `/api/v1/break-glass/requests/{request_id}/open` | release the approved credential — dual approval + §7 risk gate + the §20 MFA gate (`mfa_code`, refusal 401 `details.mfa`) enforced, 201 with the recorded session |
 | POST | `/api/v1/break-glass/requests/{request_id}/close` | end session, forced credential rotation, review note required |
 | GET | `/api/v1/break-glass/stats` | request statuses, approval signatures, action counts, last unseal |
 
@@ -202,13 +211,12 @@ keys only via `python -m pam_master.keygen`.
 
 ## 5. Planned endpoints (NOT in the contract — see `IMPLEMENTATION_PLAN.md`)
 
-These do **not** exist today; the contract's **79 paths / 88 operations**
+These do **not** exist today; the contract's **84 paths / 93 operations**
 are the complete current surface. Each lands in `openapi.yaml` + ADMIN
 security + tests in the same commit when its phase starts (counts `—`):
 
 | Phase | Planned additions |
 |---|---|
-| 4i §20 | `POST /api/v1/mfa/enroll`, `POST /api/v1/mfa/verify`, ITSM ticket verify, SIEM/LDAP connector config + health endpoints |
 | 4j §11 | `GET /api/v1/risk/baselines`, anomaly detail additions on evaluations |
 | 4k §12 | watermark payload fields on `GET /sessions/{id}` + events (additive schema) |
 | 5a §13 | vendor account CRUD + vendor-scoped lifecycle endpoints |

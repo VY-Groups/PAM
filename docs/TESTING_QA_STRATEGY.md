@@ -9,7 +9,7 @@ Every number below was collected from the real suite at this commit.
 
 | Suite | File | Tests |
 |---|---|---|
-| **Backend total** | `python -m pytest backend -q` | **384** |
+| **Backend total** | `python -m pytest backend -q` | **425** |
 | ├ licensing core | `backend/ipam_licensing/test_license_core.py` | 46 |
 | ├ licensing spec | `backend/ipam_licensing/test_license_spec.py` | 35 |
 | ├ licensing bridge | `backend/ipam_licensing/test_licensing.py` | 1 |
@@ -25,6 +25,7 @@ Every number below was collected from the real suite at this commit.
 | ├ risk engine (4f) | `…/tests/test_risk.py` | 19 |
 | ├ bypass detection (4g) | `…/tests/test_bypass.py` | 19 |
 | ├ break-glass (4h) | `…/tests/test_break_glass.py` | 22 |
+| ├ integrations (4i) | `…/tests/test_integrations.py` | 41 |
 | └ OpenAPI contract | `…/tests/test_openapi_contract.py` | 5 |
 | **Vendor tool total** | `python -m pytest pam_master -q` | **46** |
 | ├ registry (encrypted PII) | `pam_master/tests/test_registry.py` | 15 |
@@ -33,9 +34,9 @@ Every number below was collected from the real suite at this commit.
 | └ vendor OpenAPI contract | `pam_master/tests/test_openapi_contract.py` | 6 |
 
 Contract test asserts (5): documented ⇄ implemented routes both directions,
-security schemes on **45** admin operations, enums ⇄ code constants,
-required `info`/tags (13), and live response shapes ⇄ schemas — currently
-**79 paths / 88 operations**.
+security schemes on **48** admin operations, enums ⇄ code constants,
+required `info`/tags (14), and live response shapes ⇄ schemas — currently
+**84 paths / 93 operations**.
 
 ## 2. Test design rules
 
@@ -94,7 +95,7 @@ a fullPage path.
 ## 4. Boundary regression (run before every commit)
 
 ```powershell
-python -X utf8 -m pytest backend -q          # 384
+python -X utf8 -m pytest backend -q          # 425
 python -X utf8 -m pytest pam_master -q       # 46
 python -X utf8 -m pytest backend\phase2_license_server\tests\test_openapi_contract.py -q   # 5
 # boundary smoke (Temp\opencode\smoke_restructure.py): 17/17

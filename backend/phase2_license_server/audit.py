@@ -7,6 +7,10 @@ One append-only, hash-chained store for every module event:
 
 - A ``before_flush`` listener copies each new event row into the ledger in
   the same transaction, so an event cannot be committed unaudited.
+- When a SIEM webhook is configured (section 20), each committed batch is
+  POSTed after_commit as HMAC-signed NDJSON - the same records
+  ``GET /api/v1/audit/export`` emits; a failed push is recorded honestly
+  and never breaks the request that committed it.
 - ``event_hash`` links seq N to N-1; ``GET /api/v1/audit/verify`` walks the
   whole chain and reports the first break (gap, re-link or content change).
 - SQLite ``BEFORE UPDATE``/``BEFORE DELETE`` triggers make the rows
@@ -26,7 +30,7 @@ from datetime import datetime
 from typing import Any, Dict, List, Optional, Tuple
 
 from sqlalchemy import event, func, text
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, sessionmaker
 
 from extensions import db
 from models import (
@@ -36,16 +40,18 @@ from models import (
     BypassEvent,
     CommandIncident,
     DiscoveryEvent,
+    IntegrationEvent,
     JitEvent,
     LicenseEvent,
     PrivilegedSession,
     RiskEvent,
     SessionEvent,
+    SettingGroup,
     SettingsEvent,
     VaultEvent,
 )
 
-# the ten trails folded into the ledger (the unified feed reads these)
+# the eleven trails folded into the ledger (the unified feed reads these)
 AUDIT_SOURCES = (
     "license",
     "settings",
@@ -57,6 +63,7 @@ AUDIT_SOURCES = (
     "risk",
     "bypass",
     "break-glass",
+    "integration",
 )
 SOURCE_RANK = {name: index for index, name in enumerate(AUDIT_SOURCES)}
 
@@ -345,6 +352,23 @@ def _map_break_glass(event: BreakGlassEvent, db_session) -> Dict[str, Any]:
     )
 
 
+def _map_integration(event: IntegrationEvent, db_session) -> Dict[str, Any]:
+    """MFA verifications, the medium-band MFA gate, ITSM ticket checks,
+    LDAP logins and SIEM push failures under the eleventh trail
+    `integration` (architecture section 20) - what the product did against
+    an external system, without the secrets it did it with."""
+    return _entry(
+        source="integration",
+        event_ref=f"integration:{event.id}",
+        action=_value(event, "action"),
+        actor=_value(event, "actor"),
+        subject=_value(event, "subject"),
+        detail=_value(event, "detail") or {},
+        created_at=event.created_at,
+        sort_id=event.id,
+    )
+
+
 # every event model that must reach the ledger, in a stable backfill order
 LEDGER_MODELS = (
     LicenseEvent,
@@ -357,6 +381,7 @@ LEDGER_MODELS = (
     RiskEvent,
     BypassEvent,
     BreakGlassEvent,
+    IntegrationEvent,
 )
 
 MAPPERS = {
@@ -370,6 +395,7 @@ MAPPERS = {
     RiskEvent: _map_risk_evaluation,
     BypassEvent: _map_bypass,
     BreakGlassEvent: _map_break_glass,
+    IntegrationEvent: _map_integration,
 }
 
 
@@ -404,7 +430,164 @@ def append_entries(entries: List[Dict[str, Any]], db_session) -> List[AuditEvent
         db_session.add(row)
         prev_hash = row.event_hash
         rows.append(row)
+    # queue the export form of this batch for the SIEM drain: the push
+    # happens after_commit (a rolled-back transaction discards its own
+    # pending records in after_rollback - evidence never ships uncommitted)
+    _PENDING_PUSH.extend(row.to_dict() for row in rows)
     return rows
+
+
+# ---------------------------------------------------------------------------
+# SIEM outbound: every committed ledger batch, NDJSON + HMAC-SHA256
+# ---------------------------------------------------------------------------
+# The queue holds the exact records `GET /audit/export` would emit, staged
+# during append and drained once the transaction that wrote them commits.
+_PENDING_PUSH: List[Dict[str, Any]] = []
+
+# last drain outcome, surfaced by GET /integrations/status (honest about
+# "never pushed" before the first configured batch)
+_SIEM_STATUS: Dict[str, Any] = {
+    "last_push_at": None,
+    "last_push_status": "never",  # never | ok | error
+    "last_http_status": None,
+    "last_error": None,
+    "batches_ok": 0,
+    "batches_failed": 0,
+    "records_pushed": 0,
+}
+
+# re-entrancy guard: the push-failure event commits its own ledger row from
+# inside a drain, and that row must not be pushed (a dead endpoint would
+# otherwise fail, emit, push, fail, ...)
+_SIEM_DRAINING = False
+
+
+def siem_status() -> Dict[str, Any]:
+    """A copy of the last drain outcome (settings live in the service)."""
+    return dict(_SIEM_STATUS)
+
+
+def _post_commit_session() -> Session:
+    """A dedicated Session for work performed inside `after_commit`.
+
+    The listener fires while the writing session is in SQLAlchemy's
+    `committed` state, which refuses any new SQL until its `commit()`
+    returns - so the settings read and the push-failure event run on a
+    session of their own (same engine, post-commit data visible).
+    """
+    return sessionmaker(bind=db.engine)()
+
+
+def _siem_settings() -> Tuple[Optional[str], Optional[str], bool, float]:
+    """Read the `siem` group post-commit: (webhook, secret, enabled, t/o).
+
+    Deferred imports: service imports this module at the top level.
+    """
+    from service import _setting_aad, _vault_config
+    from secrets_store import unseal_with_aad
+
+    session = _post_commit_session()
+    try:
+        row = session.query(SettingGroup).filter_by(group_name="siem").first()
+        values = dict(row.value) if row is not None and row.value else {}
+    finally:
+        session.close()
+
+    webhook = (values.get("webhook_url") or "").strip()
+    enabled = bool(values.get("enabled"))
+    raw = values.get("signing_secret")
+    if not raw:
+        secret = ""
+    elif isinstance(raw, str):
+        secret = raw  # never sealed in the first place - pass through
+    else:
+        secret = unseal_with_aad(raw, _setting_aad("siem", "signing_secret"), _vault_config())
+    timeout = float(values.get("timeout_seconds") or 5)
+    return webhook, secret, enabled, timeout
+
+
+def _siem_drain() -> None:
+    """Push the committed batch when a webhook is configured; record the
+    outcome honestly, including a ledger event for a failed push."""
+    global _SIEM_DRAINING
+    records = list(_PENDING_PUSH)
+    _PENDING_PUSH.clear()
+    if not records:
+        return
+
+    try:
+        webhook, secret, enabled, timeout = _siem_settings()
+    except Exception:  # settings unreadable: nothing configured to push to
+        return
+    if not enabled or not webhook:
+        return
+
+    import integrations  # stdlib-only, cycle-free
+
+    result = integrations.siem_push(
+        records, webhook_url=webhook, signing_secret=secret or "", timeout=timeout
+    )
+    _SIEM_STATUS["last_push_at"] = datetime.now().isoformat()
+    _SIEM_STATUS["last_http_status"] = result.get("http_status")
+    if result.get("ok"):
+        _SIEM_STATUS["last_push_status"] = "ok"
+        _SIEM_STATUS["last_error"] = None
+        _SIEM_STATUS["batches_ok"] += 1
+        _SIEM_STATUS["records_pushed"] += int(result.get("records", 0))
+        return
+
+    detail = result.get("detail") or "push failed"
+    _SIEM_STATUS["last_push_status"] = "error"
+    _SIEM_STATUS["last_error"] = detail
+    _SIEM_STATUS["batches_failed"] += 1
+
+    # the failed push is itself auditable - under the re-entrancy guard, so
+    # this event's ledger row is never pushed back at the dead endpoint.
+    # It commits on its own session: we are inside `after_commit`, where
+    # the writing session refuses SQL (see `_post_commit_session`).
+    try:
+        _SIEM_DRAINING = True
+        session = _post_commit_session()
+        try:
+            session.add(
+                IntegrationEvent(
+                    action="siem-push-failed",
+                    actor="system",
+                    subject=f"{len(records)} record(s)",
+                    detail={"error": detail, "records": len(records)},
+                )
+            )
+            session.commit()
+        finally:
+            session.close()
+    except Exception:
+        pass
+    finally:
+        _SIEM_DRAINING = False
+        _PENDING_PUSH.clear()
+
+
+def _after_commit(_session: Session) -> None:
+    """Drain the SIEM queue once the writing transaction committed."""
+    if _SIEM_DRAINING:
+        # the failure event's own commit: its records are for the chain,
+        # not for the endpoint that just failed
+        _PENDING_PUSH.clear()
+        return
+    try:
+        if _PENDING_PUSH:
+            _siem_drain()
+    except Exception as exc:  # never let a push break the request that committed
+        _PENDING_PUSH.clear()
+        _SIEM_STATUS["last_push_status"] = "error"
+        _SIEM_STATUS["last_error"] = f"{type(exc).__name__}: {exc}"
+
+
+def _after_rollback(_session: Session) -> None:
+    """A rolled-back transaction's records never reached the ledger: drop
+    them so a later commit cannot ship uncommitted evidence."""
+    if not _SIEM_DRAINING:
+        _PENDING_PUSH.clear()
 
 
 def append_explicit(
@@ -483,11 +666,13 @@ _LISTENER_INSTALLED = False
 
 
 def install_listener() -> bool:
-    """Register the flush listener once (idempotent)."""
+    """Register the flush + SIEM drain listeners once (idempotent)."""
     global _LISTENER_INSTALLED
     if _LISTENER_INSTALLED:
         return False
     event.listen(Session, "before_flush", _before_flush)
+    event.listen(Session, "after_commit", _after_commit)
+    event.listen(Session, "after_rollback", _after_rollback)
     _LISTENER_INSTALLED = True
     return True
 

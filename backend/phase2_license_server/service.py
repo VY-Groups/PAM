@@ -10,6 +10,7 @@ from __future__ import annotations
 import base64
 import fnmatch
 import hashlib
+import hmac
 import ipaddress
 import json
 import re
@@ -22,7 +23,7 @@ from datetime import datetime, timedelta
 from typing import Any, Dict, List, Optional, Tuple
 
 from config import Config
-from errors import APIError, Conflict, NotFound, ValidationFailed
+from errors import APIError, Conflict, NotFound, Unauthorized, ValidationFailed
 from licensing_bridge import (
     DEFAULT_TIERS,
     ENFORCEMENT_LEVELS,
@@ -101,6 +102,7 @@ from models import (
     DiscoveredAsset,
     DiscoveryEvent,
     DiscoveryScan,
+    IntegrationEvent,
     JitEvent,
     JitRequest,
     LicenseEvent,
@@ -130,10 +132,13 @@ from secrets_store import (
     generate_secret,
     generated_secret_is_valid,
     seal,
+    seal_with_aad,
     unseal,
+    unseal_with_aad,
 )
 
 import audit
+import integrations
 
 _QUOTA_SCALARS = (
     "nodes",
@@ -844,12 +849,19 @@ def meta() -> Dict[str, Any]:
 
 
 # ---------------------------------------------------------------------------
-# platform settings (SSO / HSM / ZSP / WORM ledger)
+# platform settings (SSO / HSM / ZSP / WORM + the section-20 connectors:
+# MFA / ITSM / SIEM / LDAP)
 #
 # Every field is validated server-side against SETTINGS_SCHEMA; unknown groups
 # and unknown/ill-typed/out-of-range fields are rejected before anything is
 # stored, and each accepted change is written to the config audit changelog.
-# Secrets are never stored here -- only references (e.g. a Vault path).
+# Two field kinds carry material:
+#   - `secret` fields (ITSM token, SIEM signing secret, the TOTP factor) are
+#     sealed with AES-256-GCM (`secrets_store`), never returned by the API
+#     (`<set>` on read) and never written to the changelog in plaintext;
+#   - `readonly` fields (the TOTP factor state) reject PUT /settings outright:
+#     they are managed by their own endpoints (/mfa/enroll, /mfa/verify).
+# Plain fields stay what they always were: references and configuration.
 # ---------------------------------------------------------------------------
 _IDP_PROVIDERS = ("okta", "entra", "ping-federate", "adfs", "keycloak")
 _HSM_PROVIDERS = (
@@ -929,6 +941,89 @@ SETTINGS_SCHEMA: Dict[str, Dict[str, Dict[str, Any]]] = {
         "object_lock_mode": {"type": "enum", "choices": ("COMPLIANCE", "GOVERNANCE"), "default": "COMPLIANCE"},
         "immutability_enabled": {"type": "bool", "default": True},
     },
+    # --- section 20: enterprise integrations (every connector either works
+    # for real or honestly reports `not connected`) -----------------------
+    "mfa": {
+        # the TOTP factor: enrolled through POST /mfa/enroll, verified
+        # through POST /mfa/verify / the medium-band session-start gate.
+        # Read-only here - PUT /settings/mfa rejects these fields.
+        "factor_enrolled_for": {
+            "type": "str",
+            "max_length": 64,
+            "allow_empty": True,
+            "default": "",
+            "readonly": True,
+        },
+        "factor_secret": {
+            "type": "secret",
+            "max_length": 4096,
+            "allow_empty": True,
+            "default": "",
+            "readonly": True,
+        },
+        "factor_created_at": {
+            "type": "str",
+            "max_length": 32,
+            "allow_empty": True,
+            "default": "",
+            "readonly": True,
+        },
+        "factor_last_verified_at": {
+            "type": "str",
+            "max_length": 32,
+            "allow_empty": True,
+            "default": "",
+            "readonly": True,
+        },
+    },
+    "itsm": {
+        "vendor": {
+            "type": "enum",
+            "choices": integrations.ITSM_VENDORS,
+            "default": "servicenow",
+        },
+        "base_url": {
+            "type": "url",
+            "allow_empty": True,
+            "allow_http": True,  # internal Jira/Elastic instances often are
+            "default": "",
+        },
+        "username": {"type": "str", "max_length": 128, "allow_empty": True, "default": ""},
+        "api_token": {"type": "secret", "max_length": 4096, "allow_empty": True, "default": ""},
+        "path_template": {
+            "type": "str",
+            "max_length": 255,
+            "allow_empty": True,
+            "default": "",
+        },
+        "timeout_seconds": {"type": "int", "min": 1, "max": 30, "default": 5},
+    },
+    "siem": {
+        "webhook_url": {
+            "type": "url",
+            "allow_empty": True,
+            "allow_http": True,  # HEC collectors sit on plain http internally
+            "default": "",
+        },
+        "signing_secret": {"type": "secret", "max_length": 4096, "allow_empty": True, "default": ""},
+        "enabled": {"type": "bool", "default": False},
+        "timeout_seconds": {"type": "int", "min": 1, "max": 30, "default": 5},
+    },
+    "ldap": {
+        "server": {"type": "str", "max_length": 255, "allow_empty": True, "default": ""},
+        "port": {"type": "int", "min": 1, "max": 65535, "default": 389},
+        "use_ssl": {"type": "bool", "default": False},
+        # DN/UPN the user's own password is tried against, e.g.
+        # `uid={user},ou=people,dc=example,dc=com` or `{user}@corp.example`
+        "user_bind_template": {
+            "type": "str",
+            "max_length": 255,
+            "allow_empty": True,
+            "default": "",
+        },
+        "timeout_seconds": {"type": "int", "min": 1, "max": 30, "default": 5},
+        "ticket_ttl_seconds": {"type": "int", "min": 60, "max": 86400, "default": 900},
+    },
 }
 
 SETTINGS_GROUPS = tuple(SETTINGS_SCHEMA)
@@ -989,14 +1084,26 @@ def _validate_setting(group: str, field: str, spec: Dict[str, Any], value: Any) 
             {"field": where, "max_length": spec.get("max_length", 255)},
         )
 
+    if ftype == "secret":
+        # plaintext in - `update_settings` seals it before storage and the
+        # changelog only ever records `<set>` / `<cleared>`; empty clears
+        return value
+
     if ftype == "url":
         if not value:
             if spec.get("allow_empty"):
                 return ""
             raise ValidationFailed(f"'{where}' is required", {"field": where})
-        if not value.startswith("https://") or len(value) <= len("https://"):
+        allowed = ("https://", "http://") if spec.get("allow_http") else ("https://",)
+        host = value.split("://", 1)[1] if "://" in value else ""
+        if not value.startswith(allowed) or not host:
+            message = (
+                f"'{where}' must be an http(s) URL"
+                if len(allowed) > 1
+                else f"'{where}' must be an https URL"
+            )
             raise ValidationFailed(
-                f"'{where}' must be an https URL", {"field": where, "scheme": "https"}
+                message, {"field": where, "scheme": allowed[0][:-3]}
             )
         return value
 
@@ -1034,9 +1141,45 @@ def _settings_row(group: str) -> Dict[str, Any]:
     return row.to_dict(merged)
 
 
+def _redact_settings_values(group: str, values: Dict[str, Any]) -> Dict[str, Any]:
+    """API-facing copy of a group's values: a secret field reads `<set>`
+    when material exists and `` when it does not - never the ciphertext."""
+    out = dict(values)
+    for name, spec in SETTINGS_SCHEMA[group].items():
+        if spec.get("type") == "secret":
+            out[name] = "<set>" if out.get(name) else ""
+    return out
+
+
+def _setting_aad(group: str, field: str) -> bytes:
+    """AAD: a settings ciphertext belongs to exactly one field."""
+    return f"settings:{group}:{field}".encode("utf-8")
+
+
+def seal_setting_secret(group: str, field: str, plaintext: str) -> Dict[str, Any]:
+    """Seal one settings secret for storage (AES-256-GCM, field-bound)."""
+    return seal_with_aad(plaintext, _setting_aad(group, field), _vault_config())
+
+
+def unseal_setting_secret(group: str, field: str) -> str:
+    """Unseal one settings secret; `` when never set. An unsealed plaintext
+    string (never sealed in the first place) passes through unchanged."""
+    raw = _settings_row(group)["values"].get(field)
+    if not raw:
+        return ""
+    if isinstance(raw, str):
+        return raw
+    return unseal_with_aad(raw, _setting_aad(group, field), _vault_config())
+
+
 def get_settings() -> Dict[str, Any]:
-    """All settings groups (defaults merged in for anything never saved)."""
-    return {group: _settings_row(group) for group in SETTINGS_GROUPS}
+    """All settings groups (defaults merged in, secrets redacted)."""
+    out: Dict[str, Any] = {}
+    for group in SETTINGS_GROUPS:
+        data = _settings_row(group)
+        data["values"] = _redact_settings_values(group, data["values"])
+        out[group] = data
+    return out
 
 
 def update_settings(group: str, payload: Any, actor: str = "admin") -> Dict[str, Any]:
@@ -1063,24 +1206,63 @@ def update_settings(group: str, payload: Any, actor: str = "admin") -> Dict[str,
             {"group": group, "allowed": sorted(fields)},
         )
 
+    readonly = sorted(name for name in payload if fields[name].get("readonly"))
+    if readonly:
+        raise ValidationFailed(
+            f"'{group}' field(s) are read-only in settings",
+            {
+                "group": group,
+                "fields": readonly,
+                "hint": "managed by their own endpoint (POST /api/v1/mfa/enroll, /mfa/verify)",
+            },
+        )
+
     current = _settings_row(group)["values"]
     changes: Dict[str, Dict[str, Any]] = {}
+    stored: Dict[str, Any] = {}
     for name, raw in payload.items():
-        new_value = _validate_setting(group, name, fields[name], raw)
+        spec = fields[name]
+        new_value = _validate_setting(group, name, spec, raw)
         old_value = current.get(name)
+        if spec.get("type") == "secret":
+            # plaintext never reaches the changelog or the response: the
+            # row gets ciphertext, the event gets `<set>` / `<cleared>`
+            if new_value:
+                changes[name] = {"old": "<set>" if old_value else "", "new": "<set>"}
+                stored[name] = seal_setting_secret(group, name, new_value)
+            elif old_value:
+                changes[name] = {"old": "<set>", "new": ""}
+                stored[name] = ""
+            continue
         if new_value != old_value:
             changes[name] = {"old": old_value, "new": new_value}
+            stored[name] = new_value
 
     if not changes:
         return {
             "group": group,
-            "values": current,
+            "values": _redact_settings_values(group, current),
             "changes": {},
             "changed_fields": [],
             "message": "No changes",
         }
 
-    merged = {**current, **{name: change["new"] for name, change in changes.items()}}
+    return _persist_settings(group, changes, stored, actor)
+
+
+def _persist_settings(
+    group: str,
+    changes: Dict[str, Dict[str, Any]],
+    stored: Dict[str, Any],
+    actor: str,
+) -> Dict[str, Any]:
+    """Merge validated changes into the row, write the changelog entry and
+    commit. `changes` is already sanitized for the changelog; `stored` holds
+    what goes to the row (ciphertext for secret fields). Also used by the
+    MFA factor endpoints, which manage read-only fields through their own
+    flow but keep the same changelog discipline."""
+    current = _settings_row(group)["values"]
+    merged = {**current, **stored}
     now = datetime.now()
     row = SettingGroup.query.filter_by(group_name=group).first()
     if row is None:
@@ -1104,7 +1286,7 @@ def update_settings(group: str, payload: Any, actor: str = "admin") -> Dict[str,
 
     return {
         "group": group,
-        "values": merged,
+        "values": _redact_settings_values(group, merged),
         "changes": changes,
         "changed_fields": sorted(changes),
         "message": "Settings stored",
@@ -1128,6 +1310,432 @@ def settings_audit(limit: int = 20) -> Dict[str, Any]:
         "events": [event.to_dict() for event in events],
         "total": total,
         "limit": limit,
+    }
+
+
+# ---------------------------------------------------------------------------
+# enterprise integrations foundation (architecture section 20): MFA
+# (RFC-6238 TOTP), ITSM ticket verification, SIEM outbound push, LDAP bind
+# ---------------------------------------------------------------------------
+# Every connector either works for real or honestly reports `not
+# connected`; nothing here simulates an external system, and no secret ever
+# enters a response, a changelog entry or a ledger `detail`.
+
+
+def _integration_event(
+    action: str, subject: str, actor: str, detail: Dict[str, Any]
+) -> IntegrationEvent:
+    """Queue one section-20 action record; the flush listener folds it into
+    the audit ledger under the eleventh source `integration` in the same
+    commit - MFA verifications, the medium-band gate, ITSM checks, LDAP
+    logins and SIEM push failures."""
+    event = IntegrationEvent(action=action, actor=actor, subject=subject, detail=detail)
+    db.session.add(event)
+    return event
+
+
+# --- MFA: TOTP (RFC 6238) -------------------------------------------------
+def mfa_status() -> Dict[str, Any]:
+    """Honest factor state: `configured` only when a factor is enrolled."""
+    values = _settings_row("mfa")["values"]
+    configured = bool(values.get("factor_secret") and values.get("factor_enrolled_for"))
+    return {
+        "configured": configured,
+        "enrolled_for": values.get("factor_enrolled_for") or "",
+        "algorithm": "SHA1",
+        "digits": 6,
+        "period": 30,
+        "created_at": values.get("factor_created_at") or None,
+        "last_verified_at": values.get("factor_last_verified_at") or None,
+        "gate": (
+            "medium-risk (mfa-decision) session starts require a valid code"
+            if configured
+            else "not configured - the mfa band stays advisory"
+        ),
+    }
+
+
+def mfa_enroll(payload: Any, *, actor: str) -> Dict[str, Any]:
+    """Generate a real TOTP factor for the acting operator.
+
+    The plaintext secret appears exactly once - in this response, which is
+    what an authenticator app scans or types - and is sealed AES-256-GCM at
+    rest. Re-enrolling replaces the factor; the changelog records the
+    replacement, never the material."""
+    if payload is None:
+        payload = {}
+    if not isinstance(payload, dict):
+        raise ValidationFailed("Request body must be a JSON object")
+
+    secret = integrations.generate_totp_secret()
+    now = datetime.now().isoformat()
+    current = _settings_row("mfa")["values"]
+    had_factor = bool(current.get("factor_secret"))
+    _integration_event(
+        "mfa-enrolled",
+        actor,
+        actor,
+        {
+            "algorithm": "SHA1",
+            "digits": 6,
+            "period": 30,
+            "replaced_existing": had_factor,
+        },
+    )
+    _persist_settings(
+        "mfa",
+        {
+            "factor_enrolled_for": {
+                "old": current.get("factor_enrolled_for") or "",
+                "new": actor,
+            },
+            "factor_secret": {
+                "old": "<set>" if had_factor else "",
+                "new": "<set>",
+            },
+            "factor_created_at": {
+                "old": current.get("factor_created_at") or "",
+                "new": now,
+            },
+            "factor_last_verified_at": {
+                "old": current.get("factor_last_verified_at") or "",
+                "new": "",
+            },
+        },
+        {
+            "factor_enrolled_for": actor,
+            "factor_secret": seal_setting_secret("mfa", "factor_secret", secret),
+            "factor_created_at": now,
+            "factor_last_verified_at": "",
+        },
+        actor,
+    )
+    return {
+        "factor": mfa_status(),
+        "otpauth_uri": integrations.otpauth_uri(secret, account=actor),
+        "secret": secret,
+        "message": "Factor enrolled - add it to your authenticator app; the secret is shown once",
+    }
+
+
+def mfa_verify(payload: Any, *, actor: str) -> Dict[str, Any]:
+    """Check a code against the enrolled factor (explicit verification)."""
+    if not isinstance(payload, dict):
+        raise ValidationFailed("Request body must be a JSON object")
+    code = payload.get("code")
+    status = mfa_status()
+    if not status["configured"]:
+        raise Conflict(
+            "MFA factor is not configured",
+            {"field": "factor", "hint": "POST /api/v1/mfa/enroll first"},
+        )
+    if not isinstance(code, str) or not code.strip():
+        raise ValidationFailed("'code' is required (6-digit TOTP)", {"field": "code"})
+
+    if integrations.verify_totp(unseal_setting_secret("mfa", "factor_secret"), code):
+        verified_at = datetime.now().isoformat()
+        _integration_event(
+            "mfa-verified",
+            actor,
+            actor,
+            {"enrolled_for": status["enrolled_for"], "method": "totp"},
+        )
+        _persist_settings(
+            "mfa",
+            {
+                "factor_last_verified_at": {
+                    "old": status["last_verified_at"],
+                    "new": verified_at,
+                }
+            },
+            {"factor_last_verified_at": verified_at},
+            actor,
+        )
+        return {"verified": True, "verified_at": verified_at, "factor": mfa_status()}
+
+    _integration_event(
+        "mfa-verify-failed",
+        actor,
+        actor,
+        {
+            "enrolled_for": status["enrolled_for"],
+            "reason": "invalid or expired TOTP code",
+        },
+    )
+    db.session.commit()
+    raise Unauthorized(
+        "Invalid or expired TOTP code",
+        {"field": "code", "verified": False},
+    )
+
+
+def _mfa_gate(mfa_code: Any) -> Tuple[bool, str, str]:
+    """The medium-band session-start gate (architecture section 7's `mfa`
+    decision made actionable by section 20): with a factor enrolled, only a
+    valid TOTP code passes. Without a factor there is nothing to verify -
+    honest advisory, never a fake challenge. Returns
+    `(passed, outcome, reason)` where outcome is `verified` / `no-factor` /
+    `refused`; pure over its input, so the evaluator, the session gate and
+    the break-glass open can all derive the same verdict."""
+    status = mfa_status()
+    if not status["configured"]:
+        return True, "no-factor", "no TOTP factor enrolled - mfa band is advisory"
+    if not isinstance(mfa_code, str) or not mfa_code.strip():
+        return False, "refused", "TOTP code required - a factor is enrolled"
+    if integrations.verify_totp(unseal_setting_secret("mfa", "factor_secret"), mfa_code):
+        return True, "verified", "TOTP code verified"
+    return False, "refused", "invalid or expired TOTP code"
+
+
+# --- ITSM: real ticket verification ---------------------------------------
+def itsm_status() -> Dict[str, Any]:
+    """Honest connector state: configured only when an instance URL is set."""
+    values = _settings_row("itsm")["values"]
+    configured = bool((values.get("base_url") or "").strip())
+    return {
+        "configured": configured,
+        "vendor": values.get("vendor") or "servicenow",
+        "base_url": values.get("base_url") or "",
+        "username": values.get("username") or "",
+        "credentials_configured": bool(values.get("api_token")),
+        "path_template": values.get("path_template") or "",
+        "timeout_seconds": values.get("timeout_seconds") or 5,
+        "detail": None if configured else "not connected - set itsm.base_url",
+    }
+
+
+def itsm_verify_ticket(
+    ticket: str, *, actor: str, record: bool = True
+) -> Dict[str, Any]:
+    """Ask the configured ITSM instance whether `ticket` exists - a real
+    HTTP GET, never a simulation. `record=False` lets the risk scorer fold
+    the verdict into its components instead of writing a ledger event of
+    its own (every evaluation already is one)."""
+    status = itsm_status()
+    if not status["configured"]:
+        return {
+            "ticket": ticket,
+            "configured": False,
+            "verified": False,
+            "detail": "itsm is not configured",
+        }
+    values = _settings_row("itsm")["values"]
+    result = integrations.verify_itsm_ticket(
+        base_url=values.get("base_url") or "",
+        vendor=values.get("vendor") or "servicenow",
+        path_template=values.get("path_template") or "",
+        username=values.get("username") or "",
+        token=unseal_setting_secret("itsm", "api_token"),
+        ticket=ticket,
+        timeout=float(values.get("timeout_seconds") or 5),
+    )
+    outcome: Dict[str, Any] = {
+        "ticket": ticket,
+        "configured": True,
+        "verified": bool(result.get("verified")),
+        "vendor": status["vendor"],
+        "http_status": result.get("http_status"),
+        "detail": result.get("detail") or "",
+        "checked_at": datetime.now().isoformat(),
+    }
+    if record:
+        _integration_event(
+            "itsm-verified" if outcome["verified"] else "itsm-verify-failed",
+            actor,
+            ticket,
+            {
+                "vendor": outcome["vendor"],
+                "http_status": outcome["http_status"],
+                "detail": outcome["detail"],
+            },
+        )
+        db.session.commit()
+    return outcome
+
+
+# --- LDAP: real bind as an optional admin auth backend ---------------------
+_LDAP_TICKET_PREFIX = "vypam-ldap1."
+
+
+def mint_ldap_ticket(username: str, ttl_seconds: int, config: Config) -> str:
+    """A signed, expiring bearer ticket proving an LDAP bind succeeded."""
+    payload = json.dumps(
+        {"u": username, "exp": int(time.time()) + int(ttl_seconds)},
+        sort_keys=True,
+        separators=(",", ":"),
+    )
+    body = base64.urlsafe_b64encode(payload.encode("utf-8")).decode("ascii").rstrip("=")
+    signed = _LDAP_TICKET_PREFIX + body
+    signature = hmac.new(
+        config.secret_key.encode("utf-8"), signed.encode("ascii"), hashlib.sha256
+    ).digest()
+    sig = base64.urlsafe_b64encode(signature).decode("ascii").rstrip("=")
+    return f"{signed}.{sig}"
+
+
+def verify_ldap_ticket(token: Any, *, config: Config) -> Optional[Dict[str, Any]]:
+    """The ticket's username when signature and expiry both hold, else None
+    (tampered, malformed or expired - all indistinguishable to the caller)."""
+    if not isinstance(token, str) or not token.startswith(_LDAP_TICKET_PREFIX):
+        return None
+    body, dot, signature = token[len(_LDAP_TICKET_PREFIX) :].partition(".")
+    if not dot or not body:
+        return None
+    signed = _LDAP_TICKET_PREFIX + body
+    expected = base64.urlsafe_b64encode(
+        hmac.new(
+            config.secret_key.encode("utf-8"), signed.encode("ascii"), hashlib.sha256
+        ).digest()
+    ).decode("ascii").rstrip("=")
+    if not hmac.compare_digest(signature, expected):
+        return None
+    try:
+        raw = base64.urlsafe_b64decode(body + "=" * (-len(body) % 4))
+        data = json.loads(raw)
+        expires = int(data["exp"])
+        username = data["u"]
+    except (ValueError, KeyError, TypeError):
+        return None
+    if not isinstance(username, str) or not username:
+        return None
+    if expires < time.time():
+        return None
+    return {"username": username, "expires_at": expires}
+
+
+def ldap_status() -> Dict[str, Any]:
+    """Honest connector state: server + user template both set to connect."""
+    values = _settings_row("ldap")["values"]
+    server = (values.get("server") or "").strip()
+    template = (values.get("user_bind_template") or "").strip()
+    configured = bool(server and template)
+    return {
+        "configured": configured,
+        "server": server,
+        "port": values.get("port") or 389,
+        "use_ssl": bool(values.get("use_ssl")),
+        "user_bind_template": template,
+        "timeout_seconds": values.get("timeout_seconds") or 5,
+        "ticket_ttl_seconds": values.get("ticket_ttl_seconds") or 900,
+        "detail": None if configured else "not connected - set ldap.server and ldap.user_bind_template",
+    }
+
+
+def ldap_login(payload: Any, *, actor: str, config: Config) -> Dict[str, Any]:
+    """Verify username/password with a real LDAP bind (section 20 IAM) and,
+    in token mode, mint a short-lived admin ticket the routes accept beside
+    the admin token. The password travels only inside the BindRequest; it is
+    never stored, logged or echoed."""
+    if not isinstance(payload, dict):
+        raise ValidationFailed("Request body must be a JSON object")
+
+    username = payload.get("username")
+    if not isinstance(username, str) or not username.strip():
+        raise ValidationFailed("'username' is required", {"field": "username"})
+    username = username.strip()
+    if len(username) > 64:
+        raise ValidationFailed(
+            "'username' must be at most 64 characters",
+            {"field": "username", "max_length": 64},
+        )
+    password = payload.get("password")
+    if not isinstance(password, str) or not password:
+        raise ValidationFailed("'password' is required", {"field": "password"})
+    if len(password) > 1024:
+        raise ValidationFailed(
+            "'password' must be at most 1024 characters",
+            {"field": "password", "max_length": 1024},
+        )
+
+    status = ldap_status()
+    if not status["configured"]:
+        raise Conflict(
+            "LDAP is not configured",
+            {"field": "ldap", "configured": False, "detail": status["detail"]},
+        )
+
+    dn = status["user_bind_template"].replace("{user}", username)
+    result = integrations.ldap_bind(
+        server=status["server"],
+        port=status["port"],
+        use_ssl=status["use_ssl"],
+        dn=dn,
+        password=password,
+        timeout=float(status["timeout_seconds"]),
+    )
+    if not result["ok"]:
+        _integration_event(
+            "ldap-login-failed",
+            actor or username,
+            username,
+            {"detail": result.get("detail") or "bind failed", "result_code": result.get("result_code")},
+        )
+        db.session.commit()
+        raise Unauthorized(
+            "LDAP bind failed",
+            {"detail": result.get("detail") or "bind failed", "configured": True},
+        )
+
+    ttl = status["ticket_ttl_seconds"]
+    ticket = mint_ldap_ticket(username, ttl, config) if config.admin_token else None
+    _integration_event(
+        "ldap-login",
+        actor or username,
+        username,
+        {
+            "dn": dn,
+            "mode": "token" if ticket else "open",
+            "ticket_ttl_seconds": ttl if ticket else None,
+        },
+    )
+    db.session.commit()
+    return {
+        "username": username,
+        "verified": True,
+        "ticket": ticket,
+        "expires_in": ttl if ticket else None,
+        "mode": "token" if ticket else "open",
+        "note": (
+            None
+            if ticket
+            else "open dev mode - no admin token configured, nothing to grant"
+        ),
+    }
+
+
+# --- one aggregate for the Integrations cards and the SIEM chip -----------
+def integrations_status() -> Dict[str, Any]:
+    """Every connector's real state plus the last outbound push result."""
+    siem_values = _settings_row("siem")["values"]
+    siem_url = (siem_values.get("webhook_url") or "").strip()
+    siem_secret_set = bool(siem_values.get("signing_secret"))
+    siem_enabled = bool(siem_values.get("enabled"))
+    push = audit.siem_status()
+    if not (siem_url and siem_secret_set and siem_enabled):
+        siem_state = "not connected"
+        siem_detail = "not connected - set siem.webhook_url, a signing secret and enabled=true"
+    elif push["last_push_status"] == "ok":
+        siem_state = "connected"
+        siem_detail = None
+    elif push["last_push_status"] == "error":
+        siem_state = "error"
+        siem_detail = push.get("last_error")
+    else:
+        siem_state = "configured"
+        siem_detail = "configured - awaiting the first committed ledger batch"
+    return {
+        "mfa": mfa_status(),
+        "itsm": itsm_status(),
+        "siem": {
+            "configured": bool(siem_url and siem_secret_set and siem_enabled),
+            "state": siem_state,
+            "detail": siem_detail,
+            "webhook_url": siem_url,
+            "enabled": siem_enabled,
+            "signing_secret_set": siem_secret_set,
+            "last_push": push,
+        },
+        "ldap": ldap_status(),
     }
 
 
@@ -2308,8 +2916,10 @@ def create_session(
     grant (attached, no second checkout).
 
     The request is scored first (architecture section 7): CRITICAL is
-    refused, HIGH needs the approval an active JIT grant represents, and
-    the evaluation is recorded either way.
+    refused, HIGH needs the approval an active JIT grant represents and
+    MEDIUM needs a valid TOTP code when a factor is enrolled (section 20,
+    threaded through as `mfa_code`), and the evaluation is recorded either
+    way.
     """
     if not isinstance(payload, dict):
         raise ValidationFailed("Request body must be a JSON object")
@@ -2395,23 +3005,31 @@ def create_session(
 
     # architecture section 7: score this request before it runs. The band
     # drives policy - CRITICAL is refused outright, HIGH needs the approval
-    # of an active JIT grant - and the evaluation commits on its own so a
+    # of an active JIT grant, MEDIUM needs a valid TOTP code when a factor
+    # is enrolled (section 20) - and the evaluation commits on its own so a
     # refusal is still recorded (SOC evidence in the audit ledger).
     risk = evaluate_risk(
         {
             "subject": actor,
             "target": target,
             "device": payload.get("device"),
+            "mfa_code": payload.get("mfa_code"),
         },
         actor=actor,
         context=RISK_CONTEXT_SESSION_START,
         approved_grant=grant,
     )
     if risk.result == "refused":
+        details: Dict[str, Any] = {"risk": risk.to_dict()}
+        if risk.decision == "mfa":
+            # the medium band refused through the factor gate: name why
+            # (same pure check the evaluator ran, moments ago)
+            _passed, _outcome, reason = _mfa_gate(payload.get("mfa_code"))
+            details["mfa"] = reason
         raise APIError(
             403,
             "Risk policy refuses this session start",
-            {"risk": risk.to_dict()},
+            details,
         )
 
     session = PrivilegedSession(
@@ -4705,13 +5323,42 @@ def _score_risk(
         ),
     )
 
-    # ticket: shape only (same ITSM reference pattern the JIT module scores)
+    # ticket: shape first, then - when an ITSM instance is configured (section
+    # 20) - a real verification against it: the component gains a `verified`
+    # flag, unconfigured stays shape-only and labelled so
     if not ticket:
         add("ticket", 0, "no ticket supplied")
-    elif _JIT_TICKET_RE.match(ticket):
-        add("ticket", 0, f"'{ticket}' matches the ITSM reference shape")
     else:
-        add("ticket", RISK_TICKET_SHAPE, "ticket is not an ITSM-style reference")
+        shape_ok = bool(_JIT_TICKET_RE.match(ticket))
+        check = itsm_verify_ticket(ticket, actor="risk-engine", record=False)
+        if not check["configured"]:
+            if shape_ok:
+                add("ticket", 0, f"'{ticket}' matches the ITSM reference shape")
+            else:
+                add("ticket", RISK_TICKET_SHAPE, "ticket is not an ITSM-style reference")
+        elif check["verified"]:
+            add(
+                "ticket",
+                0,
+                f"'{ticket}' verified against {check['vendor']} ({check['detail']})",
+            )
+            components[-1]["verified"] = True
+        elif shape_ok:
+            add(
+                "ticket",
+                0,
+                f"'{ticket}' matches the ITSM reference shape; "
+                f"verification failed: {check['detail']}",
+            )
+            components[-1]["verified"] = False
+        else:
+            add(
+                "ticket",
+                RISK_TICKET_SHAPE,
+                f"ticket is not an ITSM-style reference; "
+                f"verification failed: {check['detail']}",
+            )
+            components[-1]["verified"] = False
 
     # command: the live command policy (the same engine judging session
     # commands) - a block is the strongest signal this component carries
@@ -4746,7 +5393,10 @@ def evaluate_risk(
     The row commits on its own: a refused session start keeps its
     evaluation (SOC evidence in the audit ledger) even though no session
     follows. Console evaluations (context `manual`) only advise; a session
-    start is allowed or refused by its band.
+    start is allowed or refused by its band - CRITICAL outright, HIGH on
+    the approval of an active JIT grant, MEDIUM on a valid TOTP code when
+    a factor is enrolled (section 20), each recorded with its reason on
+    the `integration` trail.
     """
     if not isinstance(payload, dict):
         raise ValidationFailed("Request body must be a JSON object")
@@ -4757,6 +5407,7 @@ def evaluate_risk(
     source_ip = _risk_text(payload, "source_ip", max_length=64)
     ticket = _risk_text(payload, "ticket", max_length=64)
     command = _risk_text(payload, "command", max_length=1000)
+    mfa_code = _risk_text(payload, "mfa_code", max_length=32)
 
     now = datetime.now()
     score, components = _score_risk(
@@ -4771,6 +5422,7 @@ def evaluate_risk(
     band = _risk_band(score)
     decision = RISK_DECISION_BY_BAND[band]
 
+    gate: Optional[Dict[str, Any]] = None
     if context == RISK_CONTEXT_SESSION_START:
         if band == "critical":
             result = "refused"  # CRITICAL: block, no exceptions
@@ -4782,6 +5434,13 @@ def evaluate_risk(
                 if approved_grant is not None and approved_grant.status == "active"
                 else "refused"
             )
+        elif decision == "mfa":
+            # MEDIUM: the section-20 factor judges the start - a valid
+            # TOTP code when a factor is enrolled, honest advisory when
+            # there is none
+            passed, outcome, reason = _mfa_gate(mfa_code)
+            result = "allowed" if passed else "refused"
+            gate = {"outcome": outcome, "reason": reason}
         else:
             result = "allowed"
     else:
@@ -4803,6 +5462,15 @@ def evaluate_risk(
         components=components,
     )
     db.session.add(evaluation)
+    if gate is not None:
+        # every medium-band start records how the factor judged it - the
+        # evaluation row carries score/band/result, this carries the reason
+        _integration_event(
+            "mfa-gate",
+            actor,
+            subject,
+            {**gate, "context": context, "target": target, "risk_result": result},
+        )
     db.session.commit()
     return evaluation
 
@@ -5455,8 +6123,9 @@ def create_break_glass_request(payload: Any, *, actor: str) -> BreakGlassRequest
 
     The operator's reason, severity and target are recorded verbatim and
     the request waits for two distinct approvals. MFA is recorded exactly
-    as it stands - `not configured` until a factor exists (section 20),
-    never a fake challenge."""
+    as it stands: `not configured` without a factor, `required at open`
+    when one is enrolled (the release will demand a valid code - section
+    20), never a fake challenge."""
     if not isinstance(payload, dict):
         raise ValidationFailed("Request body must be a JSON object")
 
@@ -5503,6 +6172,7 @@ def create_break_glass_request(payload: Any, *, actor: str) -> BreakGlassRequest
         target=target,
         protocol=protocol,
         requested_by=actor,
+        mfa="required at open" if mfa_status()["configured"] else "not configured",
     )
     db.session.add(request)
     db.session.flush()
@@ -5682,12 +6352,16 @@ def open_break_glass_request(
     """Release the emergency credential and start its session (architecture
     section 17: unseal -> session recorded -> automatic alert).
 
-    The credential goes through the real vault checkout and the session
-    runs with `record=true` forced - recording is not an operator
-    preference here. The section-7 risk gate still judges the start and its
-    evaluation commits either way: a refusal keeps the request `approved`
-    and releases nothing, and the `opened` ledger record it writes (the
-    section-17 automatic alert) is the SOC's evidence trail."""
+    Section-20 emergency authentication first: with a TOTP factor enrolled
+    the release demands a valid code before anything is unsealed (recorded
+    as `mfa: verified` on the request), without one there is nothing to
+    verify - `not configured` stays honest. The credential then goes
+    through the real vault checkout and the session runs with `record=true`
+    forced - recording is not an operator preference here. The section-7
+    risk gate still judges the start and its evaluation commits either
+    way: a refusal keeps the request `approved` and releases nothing, and
+    the `opened` ledger record it writes (the section-17 automatic alert)
+    is the SOC's evidence trail."""
     request = get_break_glass_request(request_id)
     if request.status == "used":
         raise ValidationFailed(
@@ -5701,6 +6375,28 @@ def open_break_glass_request(
             {"field": "status", "status": request.status},
         )
 
+    if payload is None:
+        payload = {}
+    if not isinstance(payload, dict):
+        raise ValidationFailed("Request body must be a JSON object")
+    mfa_code = payload.get("mfa_code")
+    passed, outcome, reason = _mfa_gate(mfa_code)
+    if not passed:
+        # refused before anything is unsealed - the refusal itself is SOC
+        # evidence on the integration trail
+        _integration_event(
+            "mfa-gate",
+            actor,
+            request.request_ref,
+            {"outcome": outcome, "reason": reason, "flow": "break-glass-open"},
+        )
+        db.session.commit()
+        raise Unauthorized(
+            "Break-glass release requires a valid TOTP code",
+            {"field": "mfa_code", "mfa": reason},
+        )
+    factor_verified = outcome == "verified"
+
     item = _break_glass_credential(request)
     session, risk = create_session(
         {
@@ -5708,6 +6404,7 @@ def open_break_glass_request(
             "target": request.target,
             "item_id": item.id,
             "record": True,
+            "mfa_code": mfa_code,
         },
         actor=actor,
     )
@@ -5717,6 +6414,8 @@ def open_break_glass_request(
     request.opened_at = datetime.now()
     request.opened_item_id = item.id
     request.opened_secret_version = item.secret_version
+    if factor_verified:
+        request.mfa = "verified"
     _break_glass_event(
         "opened",
         request.request_ref,

@@ -30,12 +30,12 @@ frontend/
 | `GET /settings` | **live** Platform Settings screen (talks to `/api/v1/settings*`) |
 | `GET /screens/pam_command_center_threat_dashboard/code.html` | **live** Command Center (talks to `/api/v1/overview` + `/api/v1/events`, plus the §10 bypass section over `/api/v1/bypass/*` — ingest/scan/incidents posted on click only) |
 | `GET /screens/credential_vault_secrets_inventory/code.html` | **live** Credential Vault (talks to `/api/v1/vault/*`) |
-| `GET /screens/compliance_soc_2_audit_center/code.html` | **live** Compliance (talks to `/api/v1/overview`, `/api/v1/events` — a 10-source trail filter, one fetch per source on click — and the immutable `/api/v1/audit/*` ledger) |
+| `GET /screens/compliance_soc_2_audit_center/code.html` | **live** Compliance (talks to `/api/v1/overview`, `/api/v1/events` - an 11-source trail filter, one fetch per source on click - and the immutable `/api/v1/audit/*` ledger, plus the §20 SIEM push chip over `/api/v1/integrations/status`) |
 | `GET /screens/target_infrastructure_connectors/code.html` | **live** Target Infrastructure (talks to `/api/v1/discovery/*`) |
 | `GET /screens/jit_access_ephemeral_approvals/code.html` | **live** JIT access (talks to `/api/v1/jit/*`) |
 | `GET /screens/live_session_recording_inspection_hub/code.html` | **live** Live Session hub (talks to `/api/v1/sessions/*`) |
 | `GET /screens/policy_zero_trust_rules_engine/code.html` | **live** Zero-trust policy console (talks to `/api/v1/command-control/*` + `/api/v1/risk/*` — the §7 eight-component scorer, posted on click only) |
-| `GET /screens/break_glass_emergency_protocol/code.html` | **live** Emergency Break-Glass (talks to `/api/v1/break-glass/*` — file/approve/deny/open/close posted on click only) |
+| `GET /screens/break_glass_emergency_protocol/code.html` | **live** Emergency Break-Glass (talks to `/api/v1/break-glass/*` — file/approve/deny/open/close posted on click only - the open action demands a TOTP `mfa_code` when a factor is enrolled) |
 | `GET /screens/<name>/code.html` | any other screen |
 | `GET /screens/<name>/screen.png` | preview image |
 
