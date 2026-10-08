@@ -25,8 +25,8 @@ Supported wire formats and algorithms:
 | `app.py` | Flask app factory, error handlers, `/health`, screen routes, `python app.py` entrypoint |
 | `config.py` | Environment-driven configuration (`.env` supported) |
 | `routes.py` | HTTP layer: parsing, auth, status codes |
-| `service.py` | Business logic: import, list, revoke, restore, validate, usage, checks, `meta`, platform settings, credential vault, dashboard overview + unified events, infrastructure discovery, JIT access grants, privileged sessions, zero-trust command-control policy engine, risk-based access engine (§7), immutable §19 audit ledger |
-| `models.py` | `LicenseRecord` (signed license + spec fields), `LicenseEvent`, `SettingGroup` + `SettingsEvent` (config changelog), `VaultItem` + `VaultEvent` + `VaultSecretVersion` (vault inventory + audit + immutable versions), `DiscoveredAsset`/`DiscoveredAccount`/`DiscoveryScan`/`DiscoveryEvent`, `JitRequest` + `JitEvent` (grants + trail), `PrivilegedSession` + `SessionEvent` (session recording, append-only), `CommandRule` + `CommandIncident` (zero-trust policy + escalations, append-only), `RiskEvent` (§7 scored access evaluations), `AuditEvent` (immutable §19 hash chain) |
+| `service.py` | Business logic: import, list, revoke, restore, validate, usage, checks, `meta`, platform settings, credential vault, dashboard overview + unified events, infrastructure discovery, JIT access grants, privileged sessions, zero-trust command-control policy engine, risk-based access engine (§7), PAM bypass detection (§10), immutable §19 audit ledger |
+| `models.py` | `LicenseRecord` (signed license + spec fields), `LicenseEvent`, `SettingGroup` + `SettingsEvent` (config changelog), `VaultItem` + `VaultEvent` + `VaultSecretVersion` (vault inventory + audit + immutable versions), `DiscoveredAsset`/`DiscoveredAccount`/`DiscoveryScan`/`DiscoveryEvent`, `JitRequest` + `JitEvent` (grants + trail), `PrivilegedSession` + `SessionEvent` (session recording, append-only), `CommandRule` + `CommandIncident` (zero-trust policy + escalations, append-only), `RiskEvent` (§7 scored access evaluations), `BypassSignal` + `BypassIncident` + `BypassEvent` (§10 direct-access evidence, incidents, action log), `AuditEvent` (immutable §19 hash chain) |
 | `audit.py` | The §19 ledger: flush listener fans every module trail into `audit_events`, sha256 chain (`prev_hash`/`event_hash`), boot backfill, append-only triggers, verify/stats/export |
 | `keys.py` | Startup key checks (fail fast, public/private must match, both algorithms) |
 | `licensing_bridge.py` | Path bootstrap + cached Phase 1 `LicenseGenerator`/`LicenseValidator` |
@@ -38,8 +38,9 @@ Supported wire formats and algorithms:
 | `tests/test_jit.py` | JIT access: deterministic risk bands, approvals, time-boxed grants, expiry rotation |
 | `tests/test_sessions.py` | Privileged sessions: start/attach, channel events, control gating, lifecycle + cascades |
 | `tests/test_command_control.py` | Zero-trust command policy: rule CRUD, dry-run decisions, approval queue, incident escalation |
-| `tests/test_audit.py` | Immutable §19 ledger: eight-source fan-in, hash chain, append-only triggers, backfill, verify/export, drift guard |
+| `tests/test_audit.py` | Immutable §19 ledger: nine-source fan-in, hash chain, append-only triggers, backfill, verify/export, drift guard |
 | `tests/test_risk.py` | §7 risk-based access engine: the eight scored components, bands/decisions, the session-start gate, ledger fan-in |
+| `tests/test_bypass.py` | §10 PAM bypass detection: log/JSON ingest, dedupe, correlation (candidate/covered/out_of_scope), incidents with forced rotation + honest `not_connected`, closure, stats, ledger fan-in |
 | `tests/test_openapi_contract.py` | `apis/openapi.yaml` ↔ live route map (both directions) |
 
 ## Quick start
@@ -95,11 +96,14 @@ configuration changelog.
 More screens render from their own APIs: the **Command Center** and
 **Compliance** screens (`GET /api/v1/overview` + the unified
 `GET /api/v1/events` feed — health, license posture, vault stats, computed
-control posture, recent activity; the Compliance screen also reads
+control posture, recent activity; the Command Center also carries the §10
+bypass detection section over `GET/POST /api/v1/bypass/*` — ingest a log
+bundle, run the correlation scan, review/close incidents; the Compliance
+screen also reads
 `GET /api/v1/audit/stats` for the immutable digest, runs `GET /api/v1/audit/verify`
 on its **Verify Hash Chain** button, exports `GET /api/v1/audit/export`, and its
-per-trail filter fetches one of the eight sources — license, settings, vault,
-discovery, jit, session, command, risk — on click), the **Credential Vault**
+per-trail filter fetches one of the nine sources — license, settings, vault,
+discovery, jit, session, command, risk, bypass — on click), the **Credential Vault**
 (`GET/POST /api/v1/vault/*` — onboarding via **Onboard New Credential**, rotation
 SLA, type/status filters, JIT checkouts and an audit trail), the
 **Infrastructure Discovery** screen (`GET/POST /api/v1/discovery/*` — register,
@@ -129,9 +133,17 @@ is no seed inventory: every credential enters through **Onboard New Credential**
 "not connected" states instead of sample rows.
 
 ```bash
-python -m pytest tests -q     # 261 tests (from backend/phase2_license_server)
-python -m pytest backend -q   # 343 tests from the repo root (+ shared crypto core)
+python -m pytest tests -q     # 280 tests (from backend/phase2_license_server)
+python -m pytest backend -q   # 362 tests from the repo root (+ shared crypto core)
 ```
+
+**Docker (development/runtime testing only — never a shipping instruction):**
+`Dockerfile` + `docker-compose.yml` in this folder build a dev-only image from
+the repository root (`docker compose up --build` → host **5010 → container
+5000**, throwaway `dev-admin-token`, fresh in-container database per `up`;
+`.dockerignore` keeps `*.pem`/`*.key`/`.env`/`*.db` out of every build
+context). The same image runs this suite in its Linux runtime:
+`docker run --rm vypam-license-server:dev python -m pytest tests -q`.
 
 ## Configuration
 
@@ -183,7 +195,7 @@ cross-checked against these routes by `tests/test_openapi_contract.py`.
 | GET | `/settings/audit?limit=` | – | Configuration changelog, newest first |
 | PUT | `/settings/<group>` | admin | Merge-update one group, returns the per-field change diff |
 | GET | `/overview` | – | Dashboard aggregate: health, license posture, vault stats, settings, counters, computed control posture, recent activity |
-| GET | `/events?limit=&source=` | – | Unified audit feed across all eight trails (license, settings, vault, discovery, jit, session, command, risk), newest first |
+| GET | `/events?limit=&source=` | – | Unified audit feed across all nine trails (license, settings, vault, discovery, jit, session, command, risk, bypass), newest first |
 | GET | `/vault/stats` | – | Inventory aggregates: totals by type/status, rotation compliance, `secrets` coverage (`managed`/`unmanaged`/`versions`), checkouts, today's events |
 | GET | `/vault/items?…` | – | List inventory (`q`, `type`, `status`, `limit`, `offset`) |
 | POST | `/vault/items` | admin | Onboard a credential (201, strictly validated; optional `secret`, else a real type-appropriate value is generated — sealed with AES-256-GCM either way) |
@@ -238,7 +250,14 @@ cross-checked against these routes by `tests/test_openapi_contract.py`.
 | GET | `/risk/stats` | – | §7 aggregates: `total`, `by_band`, `by_decision`, `by_result`, `by_context`, `refused`, `avg_score`, `last_evaluated_at` |
 | GET | `/risk/evaluations?band=&context=&limit=&offset=` | – | Every evaluation, newest first: score, band, decision, result, context and all 8 scored components with their measured-input details |
 | POST | `/risk/evaluate` | admin | Score one access request (201; `subject` required ≤160, optional `target`, `device`, `source_ip`, `ticket`, `command`) — always `result=advisory`; the same scorer gates `POST /sessions` |
-| GET | `/audit/stats` | – | Immutable ledger aggregates (§19): `total`, per-source counts for all eight trails, `last_seq`, `head_hash`, oldest/newest, `trigger_protection` |
+| POST | `/bypass/ingest` | admin | Parse a real log bundle into connection observations (201; `origin` + `content` required ≤200000, optional `target` for OpenSSH lines) — every raw line kept verbatim; dedupe by origin+target+raw |
+| GET | `/bypass/signals?status=&protocol=&q=&limit=&offset=` | – | Parsed observations, newest first (`observed`, `candidate`, `covered`, `out_of_scope`) |
+| POST | `/bypass/scans` | admin | Correlate unscanned `observed` signals (201; `candidates`, `covered`, `out_of_scope`, `incidents`, `rotations_forced`) — a managed target outside any recorded session opens an incident with forced rotation; re-scans never duplicate |
+| GET | `/bypass/incidents?status=&limit=&offset=` | – | Direct-access incidents, newest first (`byp-` ref, signal snapshot, ACTION block: alert / rotation / block_source) |
+| GET | `/bypass/incidents/{incident_id}` | – | One incident with its verbatim `evidence.raw` log line |
+| POST | `/bypass/incidents/{incident_id}/close` | admin | Analyst closure (optional `note`; records who/when and fans into the ledger) |
+| GET | `/bypass/stats` | – | §10 aggregates: `signals` by status, `incidents` open/closed, `rotations_forced`, action counters, last ingest/scan timestamps |
+| GET | `/audit/stats` | – | Immutable ledger aggregates (§19): `total`, per-source counts for all nine trails, `last_seq`, `head_hash`, oldest/newest, `trigger_protection` |
 | GET | `/audit/verify` | – | Walk the whole chain: recomputes every record's hash and reports `intact`, `checked`, `head_hash` plus the first `broken_at`/`reason` (sequence gap, content change, re-link) |
 | GET | `/audit/export` | – | The full ledger in chain order as NDJSON (`application/x-ndjson`, `vy-pam-audit.ndjson`) — one record per line for SIEM ingest |
 
@@ -366,8 +385,8 @@ curl -s "http://127.0.0.1:5000/api/v1/settings/audit?limit=20"
 # dashboard aggregate powering the Command Center / Compliance screens
 curl -s http://127.0.0.1:5000/api/v1/overview
 
-# unified audit feed (all eight trails: license, settings, vault, discovery,
-# jit, session, command, risk - newest first, each row chain-linked with seq + hash)
+# unified audit feed (all nine trails: license, settings, vault, discovery,
+# jit, session, command, risk, bypass - newest first, each row chain-linked with seq + hash)
 curl -s "http://127.0.0.1:5000/api/v1/events?limit=10"
 
 # inventory aggregates: rotation compliance, checkouts, attention list
@@ -631,24 +650,58 @@ curl -s -X POST http://127.0.0.1:5000/api/v1/discovery/assets \
   managed rows keep the operator's classification. New hosts land as
   `unmanaged` until adopted via `POST /discovery/assets/<id>/onboard`.
 
+### PAM bypass detection (§10)
+
+```bash
+# ingest a real auth-log bundle (OpenSSH lines take the bundle's target)
+curl -s -X POST http://127.0.0.1:5000/api/v1/bypass/ingest \
+  -H "Authorization: Bearer $LICENSE_ADMIN_TOKEN" -H "X-Actor: soc" \
+  -H "Content-Type: application/json" \
+  -d '{"origin": "auth.log", "target": "10.77.0.9",
+       "content": "Oct  8 08:39:41 bastion sshd[4112]: Accepted publickey for admin01 from 10.10.5.20 port 50984"}'
+# -> {"ingested": 1, "duplicates": 0, "skipped": 0, "total": N}
+
+# correlate unscanned observed signals against inventory + recorded sessions
+curl -s -X POST http://127.0.0.1:5000/api/v1/bypass/scans \
+  -H "Authorization: Bearer $LICENSE_ADMIN_TOKEN" -H "X-Actor: soc"
+# -> {"signals": {"scanned": 4, "candidates": 2, "covered": 1,
+#     "out_of_scope": 1}, "incidents": 2, "rotations_forced": 2}
+
+# the incidents, one incident's verbatim evidence, and aggregates
+curl -s "http://127.0.0.1:5000/api/v1/bypass/incidents?status=open"
+curl -s "http://127.0.0.1:5000/api/v1/bypass/incidents/byp-a6b82ade"
+curl -s http://127.0.0.1:5000/api/v1/bypass/stats
+```
+
+- **PAM bypass detection** (architecture module 10): every raw log line is
+  kept verbatim as evidence; correlation only ever opens an incident for a
+  managed target outside any recorded session, the ACTION block reuses the
+  real §5 rotation pipeline (failures recorded per credential, never
+  fatal), `block_source` stays honestly `not connected`, and every
+  ingest/scan/detect/close fans into the §19 chain as the ninth source
+  `bypass`. Re-scans never duplicate incidents.
+
 ### Immutable audit ledger (§19)
 
+```bash
 # aggregates: every module trail fanned into one append-only hash chain
 curl -s http://127.0.0.1:5000/api/v1/audit/stats
-# -> {"total": 35, "by_source": {"command": 7, "discovery": 3, "jit": 1,
-#     "license": 1, "risk": 8, "session": 5, "settings": 2, "vault": 8},
-#     "last_seq": 35, "head_hash": "79c4...", "trigger_protection": true, ...}
+# -> {"total": 46, "by_source": {"bypass": 7, "command": 7,
+#     "discovery": 4, "jit": 1, "license": 1, "risk": 8, "session": 5,
+#     "settings": 2, "vault": 11}, "last_seq": 46, "head_hash": "3e2b...",
+#     "trigger_protection": true, ...}
 
 # walk every record and recompute every hash (what the console's
 # "Verify Hash Chain" button runs on click)
 curl -s http://127.0.0.1:5000/api/v1/audit/verify
-# -> {"intact": true, "checked": 35, "total": 35, "last_seq": 35,
-#     "head_hash": "79c4...", "broken_at": null, "reason": null}
+# -> {"intact": true, "checked": 46, "total": 46, "last_seq": 46,
+#     "head_hash": "3e2b...", "broken_at": null, "reason": null}
 
 # the whole ledger as NDJSON in chain order, one record per line (SIEM ingest)
 curl -s http://127.0.0.1:5000/api/v1/audit/export
 # -> {"id":"license:1","seq":1,"event_ref":"license:1","source":"license",
 #     "action":"imported", ...,"prev_hash":"000..0","event_hash":"..64 hex.."}
+```
 
 ## Design notes
 

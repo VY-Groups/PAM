@@ -44,6 +44,8 @@ tags:
     description: Discovery Engine - target assets, accounts and real scans
   - name: risk
     description: Risk-Based Access Engine - eight-component scores, bands and policy decisions
+  - name: bypass
+    description: PAM Bypass Detection - log ingest, correlation scans and direct-access incidents
 paths:
   /health:
     get:
@@ -1897,6 +1899,177 @@ paths:
             application/json:
               schema: {$ref: "#/components/schemas/RiskStats"}
 
+  /api/v1/bypass/ingest:
+    post:
+      tags: [bypass]
+      summary: Parse a real log bundle into connection observations (architecture 10)
+      description: |
+        Accepts OpenSSH `Accepted ...` auth lines (target supplied with the
+        bundle - the host the log came from) and structured JSON records
+        from Windows / EDR / network telemetry exports (target and
+        timestamp per line). Every line is kept verbatim as evidence;
+        unparseable lines are counted, never invented. Ingestion is
+        recorded on the `bypass` trail of the ledger. Correlation is a
+        separate step (`POST /api/v1/bypass/scans`).
+      security:
+        - bearerAuth: []
+        - adminTokenHeader: []
+        - {}
+      parameters:
+        - name: X-Actor
+          in: header
+          description: Who is ingesting the log bundle.
+          schema: {type: string, maxLength: 64}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: "#/components/schemas/BypassIngestRequest"}
+      responses:
+        "201":
+          description: Bundle parsed
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/BypassIngestResponse"}
+        "400": {$ref: "#/components/responses/BadRequest"}
+        "401": {$ref: "#/components/responses/Unauthorized"}
+
+  /api/v1/bypass/signals:
+    get:
+      tags: [bypass]
+      summary: Parsed observations, newest first
+      parameters:
+        - name: status
+          in: query
+          schema: {type: string, enum: [observed, candidate, covered, out_of_scope]}
+        - name: q
+          in: query
+          description: Free-text search over user, source IP, target and origin.
+          schema: {type: string, maxLength: 128}
+        - {$ref: "#/components/parameters/Limit"}
+        - {$ref: "#/components/parameters/Offset"}
+      responses:
+        "200":
+          description: Paged signals
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/BypassSignalList"}
+        "400": {$ref: "#/components/responses/BadRequest"}
+
+  /api/v1/bypass/scans:
+    post:
+      tags: [bypass]
+      summary: Correlate unscanned observations (architecture 10)
+      description: |
+        Each unscanned signal is checked against the managed inventory
+        (`pam_status=managed` match on address or hostname) and against
+        recorded privileged sessions covering the same user, host and
+        moment. Outcomes: `covered` (it went through PAM),
+        `out_of_scope` (not a managed target), or `candidate` - which
+        opens an incident carrying the architecture's ACTION block: SOC
+        alert (the ledger record), forced credential rotation through the
+        real module-5 pipeline, and block source recorded honestly as
+        `not_connected` until an enforcement connector exists.
+      security:
+        - bearerAuth: []
+        - adminTokenHeader: []
+        - {}
+      parameters:
+        - name: X-Actor
+          in: header
+          description: Who is running the correlation scan.
+          schema: {type: string, maxLength: 64}
+      responses:
+        "201":
+          description: Scan finished
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/BypassScanResponse"}
+        "401": {$ref: "#/components/responses/Unauthorized"}
+
+  /api/v1/bypass/incidents:
+    get:
+      tags: [bypass]
+      summary: Direct-access incidents, newest first
+      parameters:
+        - name: status
+          in: query
+          schema: {type: string, enum: [open, closed, all]}
+        - {$ref: "#/components/parameters/Limit"}
+        - {$ref: "#/components/parameters/Offset"}
+      responses:
+        "200":
+          description: Paged incidents
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/BypassIncidentList"}
+        "400": {$ref: "#/components/responses/BadRequest"}
+
+  /api/v1/bypass/incidents/{incident_id}:
+    get:
+      tags: [bypass]
+      summary: One incident with its parsed log-line evidence
+      security:
+        - bearerAuth: []
+        - adminTokenHeader: []
+        - {}
+      parameters:
+        - name: incident_id
+          in: path
+          required: true
+          schema: {type: integer, minimum: 1}
+      responses:
+        "200":
+          description: Incident plus evidence
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/BypassIncidentResponse"}
+        "404": {$ref: "#/components/responses/NotFound"}
+
+  /api/v1/bypass/incidents/{incident_id}/close:
+    post:
+      tags: [bypass]
+      summary: Analyst closure (note optional, recorded with who/when)
+      security:
+        - bearerAuth: []
+        - adminTokenHeader: []
+        - {}
+      parameters:
+        - name: incident_id
+          in: path
+          required: true
+          schema: {type: integer, minimum: 1}
+        - name: X-Actor
+          in: header
+          description: Who is closing the incident.
+          schema: {type: string, maxLength: 64}
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema: {$ref: "#/components/schemas/BypassIncidentCloseRequest"}
+      responses:
+        "200":
+          description: Incident closed
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/BypassIncidentCloseResponse"}
+        "400": {$ref: "#/components/responses/BadRequest"}
+        "401": {$ref: "#/components/responses/Unauthorized"}
+        "404": {$ref: "#/components/responses/NotFound"}
+        "409": {$ref: "#/components/responses/Conflict"}
+
+  /api/v1/bypass/stats:
+    get:
+      tags: [bypass]
+      summary: Signal states, incidents and forced-rotation aggregates
+      responses:
+        "200":
+          description: Real aggregates over signals, incidents and module actions
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/BypassStats"}
+
 components:
   securitySchemes:
     bearerAuth:
@@ -3377,3 +3550,146 @@ components:
       properties:
         scan: {$ref: "#/components/schemas/DiscoveryScan"}
         message: {type: string}
+
+    BypassIngestRequest:
+      type: object
+      required: [origin, content]
+      properties:
+        origin: {type: string, maxLength: 128, description: "Where the bundle came from (file name or api label) - duplicate detection is per origin."}
+        target: {type: string, maxLength: 255, description: "Host the OpenSSH lines belong to (the log's own machine); JSON lines may carry their own target instead."}
+        content: {type: string, maxLength: 200000, description: "Raw log text - one entry per line, OpenSSH `Accepted ...` or a JSON object per line."}
+
+    BypassIngestResult:
+      type: object
+      required: [origin, target, lines, parsed, stored, malformed, untargeted, duplicates]
+      properties:
+        origin: {type: string}
+        target: {type: string}
+        lines: {type: integer, description: Lines submitted.}
+        parsed: {type: integer, description: Lines that yielded a structured observation.}
+        stored: {type: integer, description: New signal rows written.}
+        malformed: {type: integer, description: Lines that could not be parsed - counted, never invented.}
+        untargeted: {type: integer, description: Parsed lines with no target to correlate against.}
+        duplicates: {type: integer, description: Lines already stored for this origin.}
+
+    BypassIngestResponse:
+      type: object
+      required: [ingest, message]
+      properties:
+        ingest: {$ref: "#/components/schemas/BypassIngestResult"}
+        message: {type: string}
+
+    BypassSignal:
+      type: object
+      required: [id, created_at, observed_at, user, source_ip, target, protocol,
+                 origin, raw, status, detail]
+      properties:
+        id: {type: integer}
+        created_at: {type: string, format: date-time}
+        observed_at: {type: string, format: date-time, description: "The line's own timestamp when it carried one (detail.at_source=line), else the ingest time."}
+        user: {type: string}
+        source_ip: {type: string}
+        target: {type: string}
+        protocol: {type: string, description: "ssh for OpenSSH lines; whatever the structured record declared, else unknown."}
+        origin: {type: string}
+        raw: {type: string, description: The original log line, kept verbatim as evidence.}
+        status: {type: string, enum: [observed, candidate, covered, out_of_scope]}
+        detail: {type: object, additionalProperties: true, description: "Correlation notes: reason, matched asset, covering session, at_source."}
+
+    BypassSignalList:
+      type: object
+      required: [signals, total, limit, offset]
+      properties:
+        signals: {type: array, items: {$ref: "#/components/schemas/BypassSignal"}}
+        total: {type: integer}
+        limit: {type: integer}
+        offset: {type: integer}
+
+    BypassScanResult:
+      type: object
+      required: [scanned, covered, out_of_scope, candidates, incidents, rotations_forced]
+      properties:
+        scanned: {type: integer, description: Signals correlated (previously `observed`).}
+        covered: {type: integer, description: Signals matched to a recorded privileged session.}
+        out_of_scope: {type: integer, description: Signals whose target is not a managed PAM asset.}
+        candidates: {type: integer, description: Managed target, no covering session.}
+        incidents: {type: integer, description: New incidents opened.}
+        rotations_forced: {type: integer, description: Incidents whose forced rotation actually ran.}
+
+    BypassScanResponse:
+      type: object
+      required: [scan, message]
+      properties:
+        scan: {$ref: "#/components/schemas/BypassScanResult"}
+        message: {type: string}
+
+    BypassIncidentActions:
+      type: object
+      description: The architecture's ACTION block as it actually resolved.
+      properties:
+        alert: {type: object, additionalProperties: true, description: "SOC alert = the ledger record under source `bypass`."}
+        rotation: {type: object, additionalProperties: true, description: "Forced rotation outcome: rotated items with their new version, skipped/failed entries, or no_credential_on_file."}
+        block_source: {type: object, additionalProperties: true, description: "Honest state: not_connected until a firewall/EDR enforcement connector exists."}
+
+    BypassIncident:
+      type: object
+      required: [id, incident_ref, signal_id, user, source_ip, target, protocol,
+                 observed_at, status, actions, closed_by, closed_at, close_note, created_at]
+      properties:
+        id: {type: integer}
+        incident_ref: {type: string, example: byp-1a2b3c4d}
+        signal_id: {type: integer, description: The evidence signal behind this incident.}
+        user: {type: string}
+        source_ip: {type: string}
+        target: {type: string}
+        protocol: {type: string}
+        observed_at: {type: [string, "null"], format: date-time}
+        status: {type: string, enum: [open, closed]}
+        actions: {$ref: "#/components/schemas/BypassIncidentActions"}
+        closed_by: {type: [string, "null"]}
+        closed_at: {type: [string, "null"], format: date-time}
+        close_note: {type: string}
+        created_at: {type: string, format: date-time}
+
+    BypassIncidentList:
+      type: object
+      required: [incidents, total, limit, offset]
+      properties:
+        incidents: {type: array, items: {$ref: "#/components/schemas/BypassIncident"}}
+        total: {type: integer}
+        limit: {type: integer}
+        offset: {type: integer}
+
+    BypassIncidentResponse:
+      type: object
+      required: [incident, evidence]
+      properties:
+        incident: {$ref: "#/components/schemas/BypassIncident"}
+        evidence:
+          oneOf:
+            - {$ref: "#/components/schemas/BypassSignal"}
+            - type: "null"
+          description: The parsed log line behind the incident (null if it was deleted).
+
+    BypassIncidentCloseRequest:
+      type: object
+      properties:
+        note: {type: string, maxLength: 255, description: Why the incident was closed.}
+
+    BypassIncidentCloseResponse:
+      type: object
+      required: [incident, message]
+      properties:
+        incident: {$ref: "#/components/schemas/BypassIncident"}
+        message: {type: string}
+
+    BypassStats:
+      type: object
+      required: [signals, incidents, rotations_forced, actions, last_ingest_at, last_scan_at]
+      properties:
+        signals: {type: object, additionalProperties: {type: integer}, description: "Counts per signal status plus the total."}
+        incidents: {type: object, additionalProperties: {type: integer}, description: "total / open / closed."}
+        rotations_forced: {type: integer, description: Incidents whose forced rotation actually ran.}
+        actions: {type: object, additionalProperties: {type: integer}, description: "Ledger action counts: ingested / scanned / detected / closed."}
+        last_ingest_at: {type: [string, "null"], format: date-time}
+        last_scan_at: {type: [string, "null"], format: date-time}

@@ -11,7 +11,7 @@ external migration tool.
 
 ---
 
-## 1. Shipped runtime — 19 tables
+## 1. Shipped runtime — 22 tables
 
 ### ERD (logical)
 
@@ -27,6 +27,8 @@ privileged_sessions ─1:n─ session_events      (item_id → vault_items, jit_
 privileged_sessions ─1:n─ command_incidents   (event_seq → session_events.seq)
 command_rules                                  (referenced by rules/incidents, not FK)
 risk_events
+bypass_signals ─1:n─ bypass_incidents         (signal_id → bypass_signals)
+bypass_events                                  (module actions → ledger source `bypass`)
 audit_events                                    (hash chain over all of the above)
 ```
 
@@ -215,7 +217,7 @@ default `advisory` · `components` JSON — the 8-element
 | id | PK | ✗ | |
 | seq | Integer | ✗ | **unique**, indexed — chain position |
 | event_ref | String(64) | ✗ | **unique** indexed (`ev-…`) |
-| source | String(16) | ✗ | indexed — `license, settings, vault, discovery, jit, session, command, risk` |
+| source | String(16) | ✗ | indexed — `license, settings, vault, discovery, jit, session, command, risk, bypass` |
 | action | String(32) | ✗ | |
 | actor | String(64) | ✗ | `system` default |
 | subject | String(160) | ✗ | |
@@ -232,6 +234,33 @@ BEGIN SELECT RAISE(ABORT, 'audit_events is append-only (architecture 19)'); END;
 CREATE TRIGGER audit_events_no_delete BEFORE DELETE ON audit_events
 BEGIN SELECT RAISE(ABORT, 'audit_events is append-only (architecture 19)'); END;
 ```
+
+### 1.20 `bypass_signals` — §10 connection observations (verbatim evidence)
+`id` · `created_at` indexed · `observed_at` DateTime indexed (the line's own
+timestamp when it carried one, else ingest time — recorded in
+`detail.at_source`) · `user` String(128) indexed · `source_ip` String(64)
+indexed · `target` String(255) default `""` (bundle-level for OpenSSH lines,
+per-line for structured JSON) · `protocol` String(16) default `unknown` ·
+`origin` String(128) default `api` (log bundle name) · `raw` Text — the
+original line, never rewritten · `status` String(16) indexed
+(`observed|candidate|covered|out_of_scope`) · `detail` JSON — correlation
+notes (matched asset, covering session, reason).
+
+### 1.21 `bypass_incidents` — managed target reached outside any session
+`id` · `created_at` indexed · `incident_ref` String(32) **unique** indexed
+(`byp-…`) · `signal_id` Integer indexed → `bypass_signals` · `user` /
+`source_ip` / `target` / `protocol` / `observed_at` — snapshot of the
+signal · `status` String(16) indexed (`open|closed`) · `actions` JSON — the
+architecture's ACTION block (`alert`, `rotation` with the real §5 outcome,
+`block_source` honestly `not_connected`) · `closed_by` · `closed_at` ·
+`close_note` String(255).
+
+### 1.22 `bypass_events` — §10 module action log (ledger source `bypass`)
+`id` · `created_at` indexed · `action` String(32) (`ingested|scanned|
+detected|closed`) · `actor` String(64) default `system` · `subject`
+String(160) · `detail` JSON — folded into the §19 ledger by `_map_bypass`
+(action, `bypass:<id>` ref, counts); signal rows stay evidence, only
+product actions reach the chain.
 
 ---
 
@@ -306,7 +335,6 @@ column sets land with the code + contract commit; counts are `—` until then.
 
 | Phase | Tables | Notes |
 |---|---|---|
-| 4g §10 | `bypass_signals`, `bypass_incidents` | evidence pointers into logs/sessions; new ledger source `bypass` |
 | 4h §17 | `break_glass_requests`, `break_glass_approvals` | approval snapshots append-only (same pattern as `manager_approval`); ledger source `break-glass` |
 | 4i §20 | settings groups `mfa`/`itsm`/`siem`/`ldap` (rows in `platform_settings`), `connector_health` (or computed) | reuse existing settings+events pattern; no new auth tables |
 | 4j §11 | `behavior_baselines` | rolling per-actor windows derived from real history rows |

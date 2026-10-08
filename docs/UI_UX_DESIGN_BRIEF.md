@@ -102,13 +102,13 @@ loaded from Google Fonts; Material Symbols Outlined for icons.
 
 | Screen | Primary content | Live since |
 |---|---|---|
-| Command Center | posture KPIs, health strip, recent activity feed | phase 2a |
+| Command Center | posture KPIs, health strip, recent activity feed, **§10 bypass detection section** (ingest → scan → incidents) | 2a/4g |
 | Credential Vault | inventory grid, checkout/reveal/rotate, version history | 4a |
 | JIT Access | request list, score breakdown, approvals, grants | 4b |
 | Live Session Hub | active sessions, controls, event stream, terminate cascade | 4c |
 | Target Infrastructure | scans, discovered assets/accounts, register/ignore | 2d/3c |
 | Policy & Zero Trust | command rules table, evaluate, approval queue, incidents, **§7 risk section** | 4d/4f |
-| Compliance & SOC2 | ledger digest, verify walk, 8-source chips, export, record modal | 4e/4f |
+| Compliance & SOC2 | ledger digest, verify walk, 9-source chips, export, record modal | 4e/4f/4g |
 | Licensing | entitlements, quota usage, import/validate/revoke | 3a |
 | Break-Glass | **static** (`data-kind="static"`) honest placeholders — §17 unbuilt | — |
 | Settings | group forms + per-field changelog | 2b |
@@ -137,10 +137,9 @@ loaded from Google Fonts; Material Symbols Outlined for icons.
 | Screen / surface | Pending work | Phase |
 |---|---|---|
 | `break_glass_emergency_protocol` | **Static → live**: request modal, dual-approval stepper, emergency-credential state, post-incident review view; purge `data-kind="static"` placeholders | 4h |
-| Command Center | Bypass alert feed section (direct-access detections, forced-rotation notices) + posture widget including bypass/integration states | 4g |
 | Policy & Zero Trust (§7 section) | "Anomalies" subsection — baseline deviations with per-reason chips (UEBA) | 4j |
 | Live Session Hub | Dynamic watermark overlay pane (USER/SESSION/TARGET/TIME/TICKET/SOURCE) that reacts to pause/resume/terminate; protocol-level overlays remain `not connected` until gateway work | 4k |
-| Compliance & SOC2 | Ledger chips grow with each new source (8 → `—`); SIEM push status chip (`connected`/`not connected`) | 4g/4h/4i |
+| Compliance & SOC2 | Ledger chips grow with each new source (9 → `—`); SIEM push status chip (`connected`/`not connected`) | 4h/4i |
 | Settings | Integrations cards (MFA enrol, ITSM/SIEM/LDAP connector health) following the existing group+changelog pattern | 4i |
 | Target Infrastructure | Cloud connector cards (AWS/Azure/GCP/K8s) — `not connected` until configured | 5b |
 | New nav entries | Vendor/agent surfaces (5a/5d) require sidebar growth — **decision point**: extend the canonical 10-item nav (and the nav-consistency test) or nest under existing screens; decided at phase start, not earlier | 5a/5d |

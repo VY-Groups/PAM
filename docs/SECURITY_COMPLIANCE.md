@@ -66,7 +66,7 @@ token or explicit open dev mode), (c) runtime↔disk (encrypted secrets),
 
 ## 4. Authentication & accountability
 
-- **37 admin operations** carry security schemes in `openapi.yaml`
+- **40 admin operations** carry security schemes in `openapi.yaml`
   (contract-tested) — they require `Bearer`/`X-Admin-Token` whenever
   `LICENSE_ADMIN_TOKEN` is set.
 - **Open dev mode is loud, never silent:** responses carry
@@ -88,7 +88,7 @@ token or explicit open dev mode), (c) runtime↔disk (encrypted secrets),
 | Ordered | `seq` unique, ascending | `test_audit.py` chain walk |
 | Chained | `prev_hash` → `event_hash = sha256(canonical record)`, genesis `0`×64 | verify endpoint recompute |
 | Append-only | SQLite triggers abort `UPDATE`/`DELETE` with `'audit_events is append-only (architecture 19)'` | trigger tests |
-| Complete coverage | 8 sources (`license settings vault discovery jit session command risk`); mapper-coverage test fails if any event model lacks a mapper | `MAPPERS` ⇄ models ⇄ `by_source` assertions |
+| Complete coverage | 9 sources (`license settings vault discovery jit session command risk bypass`); mapper-coverage test fails if any event model lacks a mapper | `MAPPERS` ⇄ models ⇄ `by_source` assertions |
 | Detect, don't repair | tampering is **reported** (`first break` index), never silently fixed | forged-insert test |
 | Portable evidence | `/audit/verify`, `/audit/export` NDJSON in chain order | contract + audit tests |
 
@@ -110,7 +110,7 @@ with per-event `seq` and custody watermarks.
 
 | Control theme | Status | Where |
 |---|---|---|
-| Logical access — least privilege on admin APIs | ✅ (token mode) | 37 secured operations, contract-tested |
+| Logical access — least privilege on admin APIs | ✅ (token mode) | 40 secured operations, contract-tested |
 | Logical access — dev-mode transparency | ✅ explicit | `X-Auth-Mode: open`, posture violation logged |
 | Encryption of secrets at rest | ✅ | AES-256-GCM vault versions |
 | Change management — config change log | ✅ | `settings_events` per-field diffs |
@@ -118,6 +118,7 @@ with per-event `seq` and custody watermarks.
 | Segregation of duties | ✅ for JIT/commands | requester ≠ approver; approval rows |
 | Key management — custody + rotation | ✅ partial | vault key rotation; license key = manual reissue (no HSM) |
 | Incident response evidence | ✅ | incidents + preserved session events |
+| PAM bypass detection (§10) | ✅ | verbatim auth-log evidence → correlation vs inventory + sessions → incident with forced rotation; ledger `bypass` |
 | SSO / MFA / HSM integration | ⛔ schema only | settings store; not enforced — posture says so |
 | Geo-IP / UEBA behavioral analytics | ⛔ | `location` = `is_global` only; `behavior` = local events only |
 | TLS in transit | ⛔ at app layer | terminate at reverse proxy (see runbook) |
@@ -132,7 +133,6 @@ reported as missing — never as partial-good.
 
 | Gap today | Closes in | Target state |
 |---|---|---|
-| No bypass detection (§10) | 4g | Direct-access signals ingested from real auth logs/telemetry; incidents + forced rotation; ledger source `bypass` |
 | Break-glass not implemented (§17) | 4h | Dual-approval emergency path, forced recording, forced rotation, auditable end-to-end (screen static → live) |
 | MFA not enforced (`mfa` band advisory only) | 4i | RFC-6238 TOTP verified for real; medium-risk starts require a valid code |
 | ITSM tickets shape-only (§7 `ticket`) | 4i | Real ServiceNow/Jira verification when configured; verified flag in the score |

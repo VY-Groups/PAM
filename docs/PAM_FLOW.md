@@ -1,6 +1,6 @@
 # VY-PAM — PAM Flow (Application Flow)
 
-**Status:** as-built for Phase 4f (`110909f`)
+**Status:** as-built for Phase 4g
 Maps navigation, user journeys, and state machines across the console.
 Screen files live in `frontend/screens/<slug>/code.html`; the canonical
 navigation is the 10-item sidebar rendered on every screen.
@@ -13,7 +13,7 @@ Sidebar order (slugs = `data-path`, labels = nav text, icons = Material Symbols)
 
 | # | Slug | Label | Icon | Backed by live API |
 |---|---|---|---|---|
-| 1 | `pam-command-center-threat-dashboard` | Command Center | `grid_view` | ✅ `/overview`, `/events` |
+| 1 | `pam-command-center-threat-dashboard` | Command Center | `grid_view` | ✅ `/overview`, `/events`, `/bypass/*` |
 | 2 | `credential-vault-secrets-inventory` | Credential Vault | `vpn_key` | ✅ `/vault/*` |
 | 3 | `jit-access-ephemeral-approvals` | JIT Access & Approvals | `hourglass_top` | ✅ `/jit/*` |
 | 4 | `live-session-recording-inspection-hub` | Live Session Hub | `terminal` | ✅ `/sessions/*` |
@@ -123,8 +123,8 @@ Policy screen §7 section → Evaluate (advisory)
 Compliance screen
   Ledger digest (real totals, chain intact/first-break)
   Verify walk (recompute all hashes) → first break index or OK
-  Per-source chips (8): license, settings, vault, discovery, jit,
-                        session, command, risk  → filter trail
+  Per-source chips (9): license, settings, vault, discovery, jit,
+                        session, command, risk, bypass  → filter trail
   Export → NDJSON in chain order (SIEM seam)
   Record-inspect modal → one event's full payload
 ```
@@ -135,6 +135,24 @@ Compliance screen
 Settings screen → edit group (sso | hsm | zsp | worm)
   → PUT /settings/{group} → per-field diff persisted
   → changelog widget shows actor + before/after (real rows)
+```
+
+### 2.8 PAM bypass detection (§10)
+
+```
+Command Center → bypass section → paste an auth-log bundle → Ingest
+  → verbatim observations (raw line kept; malformed/untargeted counted,
+     duplicates skipped)                              GET /bypass/signals
+  → Run correlation scan (unscanned observed signals only)
+      → target not in managed inventory     → OUT_OF_SCOPE
+      → recorded session covers it (same actor + host, in window) → COVERED
+      → managed target, no covering session → CANDIDATE + incident {byp-…}
+  → ACTION block on the incident:
+      alert (ledger row) · force rotation (real §5 pipeline, per credential,
+      failures recorded) · block source "not connected" (no connector yet)
+  → analyst closes with a note (who + when)     GET /bypass/incidents…
+  → every ingest/scan/detect/close fans into the ledger (source `bypass`)
+  → Compliance screen: `bypass` chip in the 9-source filter
 ```
 
 ## 3. Cross-cutting interaction rules
@@ -198,17 +216,7 @@ Break-Glass button / screen → New emergency request (reason + target)
   → every step auditable under ledger source `break-glass`
 ```
 
-### 6.2 PAM bypass detection (§10 → phase 4g)
-```
-Log ingest (auth.log / Windows Event Log export / telemetry)
-  → correlate: known principal → managed target with NO active recorded session
-  → DIRECT ACCESS DETECTED {user, source, target, protocol, PAM: BYPASSED}
-  → Alert SOC · Block source (connector hook or honest "not connected")
-  → Create incident · Force credential rotation (real §5 pipeline)
-  → evidence preserved in ledger (source `bypass`)
-```
-
-### 6.3 Integrations (§20 → phase 4i)
+### 6.2 Integrations (§20 → phase 4i)
 ```
 Settings → Integrations cards (mfa | itsm | siem | ldap)
   → MFA: TOTP enrol → medium-risk session start requires real code
@@ -217,7 +225,7 @@ Settings → Integrations cards (mfa | itsm | siem | ldap)
   → unconfigured → chip "not connected" (never simulated)
 ```
 
-### 6.4 Vendor / third-party access (§13 → phase 5a)
+### 6.3 Vendor / third-party access (§13 → phase 5a)
 ```
 Invite vendor → MFA → NDA/Agreement → ticket → approval
   → JIT access (scoped: allowed/denied targets + time window)
@@ -225,7 +233,7 @@ Invite vendor → MFA → NDA/Agreement → ticket → approval
   → vendor dashboard shows access ✓ / denied ✗ / validity window / recording
 ```
 
-### 6.5 DevSecOps & AI-agent access (§15/§16 → phases 5c/5d)
+### 6.4 DevSecOps & AI-agent access (§15/§16 → phases 5c/5d)
 ```
 Pipeline/Agent → request credential or task access
   → identity verification → risk evaluation → JIT token
@@ -233,7 +241,7 @@ Pipeline/Agent → request credential or task access
   → monitored session → token expiry (no static secrets left behind)
 ```
 
-### 6.6 UEBA anomaly response (§11 → phase 4j)
+### 6.5 UEBA anomaly response (§11 → phase 4j)
 ```
 Baseline per actor learned from real history (hours/device/IP/target/command)
   → deviation detected → reasons listed (+unusual time/device/IP/…)

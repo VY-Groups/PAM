@@ -26,8 +26,8 @@ resumable source of truth while working)
 | §7 Risk-Based Access | 8-component engine + session gate | ✅ built | 4f |
 | §8 Privileged Sessions | recording, controls, cascade | ✅ built | 4c |
 | §9 Command Control | default-allow rules, holds, incidents | ✅ built | 4d |
-| §19 Immutable Audit | hash chain, 8 sources, verify/export | ✅ built | 4e |
-| §10 PAM Bypass Detection | direct-access detection | ⛔ pending | **4g** |
+| §19 Immutable Audit | hash chain, 9 sources, verify/export | ✅ built | 4e |
+| §10 PAM Bypass Detection | direct-access detection | ✅ built | **4g** |
 | §17 Break Glass | emergency protocol (screen static) | ⛔ pending (screen exists) | **4h** |
 | §20 Enterprise Integrations | IAM/MFA/ITSM/SIEM/SOAR/EDR | ⛔ pending (export seam only) | **4i** |
 | §11 AI Security / UEBA | behavior baselines, anomaly response | ⛔ pending | **4j** |
@@ -92,10 +92,19 @@ discipline, contract lockstep in one commit.
   Compliance chips.
 
 **Depends on:** 4e (ledger), 4c (sessions), §3 (inventory).
-**Tests:** `test_bypass.py` — count `—` at plan time.
+**Tests:** `test_bypass.py` — **19** (as built).
 **Done when:** a real direct-connection log line produces a real incident with
 forced rotation of the affected credential, chain intact, all boundary
 suites green.
+
+**As built (4g):** 3 models (`bypass_signals`, `bypass_incidents`,
+`bypass_events`) / 22 tables; 7 endpoints (ingest, signals, scans,
+incidents ×3, stats — 3 admin); ledger source `bypass` (9th) via
+`_map_bypass`; compliance chips 9→10; Command Center bypass section
+(click-only, `file://` dashes); contract 72 paths / 80 ops / 12 tags / 40
+admin; `test_bypass.py` 19 + full backend **362**; dev-only Docker image
+(`backend/phase2_license_server/Dockerfile`) ran the suite green inside
+the container (280/280) plus a 41/41 fresh-database HTTP E2E.
 
 ## 4. Phase 4h — Break Glass (§17)
 
@@ -111,8 +120,8 @@ itself is auditable**.
 - Flow: request → two approvals → **emergency credential** released via real
   vault checkout → mandatory recorded session (`record=true` regardless of
   user prefs) → on close: forced rotation + post-incident review note →
-  every step to the ledger (new source **`break-glass`**, 9th/10th depending
-  on 4g landing first).
+  every step to the ledger (new source **`break-glass`**, the 10th — 4g
+  landed `bypass` as the 9th).
 - MFA step: executed only when a factor exists (4i); until then the request
   records `mfa: not configured` **honestly** — never a fake challenge.
 - Endpoints: `POST|GET /break-glass/requests`, `/{id}/approve` (×2), deny,
@@ -255,7 +264,7 @@ procedures in `docs/DEPLOYMENT_RUNBOOK.md` extend to replication runbooks.
 ### 6b — RBAC / ABAC
 Multi-role model (today: single admin token + open dev mode): roles
 (admin / approver / operator / auditor / auditor-read-only), policy bindings
-on the 37 admin operations, attribute rules on vault items and targets.
+on the 40 admin operations, attribute rules on vault items and targets.
 Contract lockstep: security schemes gain role requirements.
 
 ### 6c — SSO + HSM enforcement
@@ -296,9 +305,9 @@ real numbers collected at that time, `—` until then**:
 3. **Evidence:** one append-only ledger covering every module source (9+
    sources), chain verified in CI, NDJSON + webhook export flowing to a real
    SIEM when configured.
-4. **Contracts:** `apis/openapi.yaml` (path count `—`, today 65) and the
+4. **Contracts:** `apis/openapi.yaml` (path count `—`, today 72) and the
    vendor tool contract both enforced both-ways; zero dark endpoints.
-5. **Quality gates:** backend suite (today **343**) grows per phase with real
+5. **Quality gates:** backend suite (today **362**) grows per phase with real
    counts recorded in the READMEs; pam_master stays green (**46**); smoke,
    both UI verifiers, leak check all green at every boundary.
 6. **Operations:** single-node install stays Docker-free; §18 adds replicated

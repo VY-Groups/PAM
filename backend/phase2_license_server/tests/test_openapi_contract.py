@@ -63,6 +63,9 @@ ADMIN_OPERATIONS = [
     ("post", "/api/v1/discovery/assets/{asset_id}/onboard"),
     ("post", "/api/v1/discovery/scans"),
     ("post", "/api/v1/risk/evaluate"),
+    ("post", "/api/v1/bypass/ingest"),
+    ("post", "/api/v1/bypass/scans"),
+    ("post", "/api/v1/bypass/incidents/{incident_id}/close"),
 ]
 
 

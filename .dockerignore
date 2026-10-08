@@ -1,0 +1,18 @@
+# Build-context exclusions for the DEV-ONLY Docker images (repo root).
+# Keeps secrets, databases and build noise out of every image.
+.git
+**/__pycache__
+**/*.pyc
+**/.pytest_cache
+**/.env
+**/*.db
+**/*.db-journal
+**/*.db-wal
+**/*.db-shm
+# Key material never enters an image - the contract suite refuses to track
+# it, and the Dockerfiles generate dev keys inside the build instead.
+**/*.pem
+**/*.key
+.keys/
+node_modules/
+**/node_modules/

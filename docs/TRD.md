@@ -51,7 +51,7 @@ repo.
 | Store | SQLite (`licenses.db`, git-ignored) | append-only enforced by triggers on `audit_events` |
 | Crypto | `cryptography` lib | RSA-PSS-SHA256 (default) / Ed25519 envelopes; AES-256-GCM secrets |
 | Frontend | Static HTML + Tailwind (CDN build) + vanilla JS | 10 sidebar screens, no bundler, works from `file://` |
-| Tests | pytest | 343 backend + 46 pam_master |
+| Tests | pytest | 362 backend + 46 pam_master |
 | UI verification | Node + `playwright-core` (`shots_tool/`) | viewport 1920×1600, never `fullPage` |
 | Vendor tool | Flask + raw `sqlite3` | `pam_master` package, `python -m pam_master` |
 
@@ -191,12 +191,32 @@ Rules enforced by tests/conventions:
 - `/audit/verify` recomputes the entire chain (reports first break index);
   `/audit/export` streams NDJSON in chain order (the SIEM seam).
 
+### 4.11 PAM bypass detection (§10) — Phase 4g
+- Ingest parses real bundles: OpenSSH `Accepted …` lines take the bundle's
+  `target`; structured JSON records carry per-line `target`/`at`. Each raw
+  line is kept as verbatim evidence (never rewritten); malformed or
+  untargeted lines are counted, never invented; dedupe by
+  origin+target+raw, including inside a batch.
+- Correlation touches only unscanned `observed` signals: target not in the
+  managed inventory → `out_of_scope`; a recorded session by the same actor
+  on the same host covering `observed_at` → `covered`; otherwise
+  `candidate` + a `bypass_incident` (`byp-` ref) whose ACTION block records
+  `alert` (the ledger row), `rotation` (the §5 pipeline run per vault item
+  on that target — `skipped` while checked out, `no_credential_on_file`
+  when the vault has nothing, per-item failures caught so one broken
+  credential never aborts the scan) and `block_source: not_connected`
+  (honest until an enforcement connector exists).
+- `BypassEvent` actions (`ingested`, `scanned`, `detected`, `closed`) fan
+  into the §19 chain as the **ninth** source `bypass`; re-scans never
+  duplicate incidents; stats and the compliance feed stay fully generic
+  (no hardcoded source lists).
+
 ## 5. API conventions
 
 | Concern | Rule |
 |---|---|
 | Versioning | Everything under `/api/v1` (health/meta unversioned) |
-| Auth | `LICENSE_ADMIN_TOKEN` set → `Authorization: Bearer …` or `X-Admin-Token` on the 37 admin operations; unset → explicit open dev mode (`X-Auth-Mode: open` response header) |
+| Auth | `LICENSE_ADMIN_TOKEN` set → `Authorization: Bearer …` or `X-Admin-Token` on the 40 admin operations; unset → explicit open dev mode (`X-Auth-Mode: open` response header) |
 | Actor | `X-Actor` header recorded on every audited write |
 | Errors | `{"error": {"code", "message", "details?"}}`; 400 validation, 401 auth, 403 policy refusal, 404, 409 conflict/state, 422 shape, 503 fail-closed dependency |
 | Pagination | `limit` (max 200) + `offset`, newest first |
@@ -253,7 +273,6 @@ its phase starts (plan > code > docs, in that order).
 
 | Phase / section | Data additions | API additions | Runtime behavior |
 |---|---|---|---|
-| 4g §10 Bypass | `bypass_signals`, `bypass_incidents` | `POST /bypass/scans`, `GET /bypass/signals`, `GET+POST /bypass/incidents…` | log/telemetry ingest → correlate against inventory + live sessions → incident; forced rotation reuses §5 pipeline; ledger source `bypass` |
 | 4h §17 Break Glass | `break_glass_requests`, `break_glass_approvals` | `POST|GET /break-glass/requests`, `/{id}/approve|deny|open|close` | dual approval (2 distinct approvers) → real vault checkout → mandatory recorded session → forced rotation + review note; ledger source `break-glass`; MFA step honest until 4i |
 | 4i §20 Integrations | settings groups `mfa/itsm/siem/ldap`; `connector_health` | `POST|GET /mfa/enroll|verify`, ITSM verify, SIEM push config | RFC-6238 TOTP actually gates the `mfa` band; ITSM REST verifies tickets (§7 `ticket` gains verified flag); ledger batches POSTed as signed NDJSON when configured |
 | 4j §11 UEBA | `behavior_baselines` (rolling, per actor) | `GET /risk/baselines`, anomaly detail on evaluations | baselines learned from real `risk_events`/`session_events` rows; deviation joins §7 `behavior` component with per-reason breakdown → cascade/rotate/incident chain |
@@ -263,7 +282,7 @@ its phase starts (plan > code > docs, in that order).
 | 5c §15 DevSecOps | broker policy rows | `POST /broker/credentials` | time-boxed pipeline credentials (JIT semantics), no static CI secrets |
 | 5d §16 AI-Agent | `agent_identities`, task scopes | agent request endpoints + task-scoped rule evaluation | identity → task → risk → JIT → restricted commands → expiry |
 | 6a §18 HA | replication/failover topology | health/failover endpoints | multi-node; storage engine decision = core design item |
-| 6b RBAC | `roles`, `role_bindings` | security schemes gain role requirements | attribute checks on the 37 admin ops + vault/target scoping |
+| 6b RBAC | `roles`, `role_bindings` | security schemes gain role requirements | attribute checks on the 40 admin ops + vault/target scoping |
 | 6c SSO/HSM | SSO/HSM config state | SAML/OIDC login path, PKCS#11/KMS key ops | settings schema becomes enforcement; posture counts flip honestly |
 
 Standing constraints that carry into all of these: ledger emission inside

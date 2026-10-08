@@ -32,6 +32,7 @@ from extensions import db
 from models import (
     AUDIT_GENESIS_HASH,
     AuditEvent,
+    BypassEvent,
     CommandIncident,
     DiscoveryEvent,
     JitEvent,
@@ -43,7 +44,7 @@ from models import (
     VaultEvent,
 )
 
-# the eight trails folded into the ledger (the unified feed reads these)
+# the nine trails folded into the ledger (the unified feed reads these)
 AUDIT_SOURCES = (
     "license",
     "settings",
@@ -53,6 +54,7 @@ AUDIT_SOURCES = (
     "session",
     "command",
     "risk",
+    "bypass",
 )
 SOURCE_RANK = {name: index for index, name in enumerate(AUDIT_SOURCES)}
 
@@ -309,6 +311,22 @@ def _map_risk_evaluation(event: RiskEvent, db_session) -> Dict[str, Any]:
     )
 
 
+def _map_bypass(event: BypassEvent, db_session) -> Dict[str, Any]:
+    """Ingestions, correlation scans, detections and closes under the ninth
+    trail `bypass` (architecture section 10) - the SOC evidence trail for
+    direct access that skipped PAM."""
+    return _entry(
+        source="bypass",
+        event_ref=f"bypass:{event.id}",
+        action=_value(event, "action"),
+        actor=_value(event, "actor"),
+        subject=_value(event, "subject"),
+        detail=_value(event, "detail") or {},
+        created_at=event.created_at,
+        sort_id=event.id,
+    )
+
+
 # every event model that must reach the ledger, in a stable backfill order
 LEDGER_MODELS = (
     LicenseEvent,
@@ -319,6 +337,7 @@ LEDGER_MODELS = (
     SessionEvent,
     CommandIncident,
     RiskEvent,
+    BypassEvent,
 )
 
 MAPPERS = {
@@ -330,6 +349,7 @@ MAPPERS = {
     SessionEvent: _map_session,
     CommandIncident: _map_incident,
     RiskEvent: _map_risk_evaluation,
+    BypassEvent: _map_bypass,
 }
 
 

@@ -1,7 +1,7 @@
 # VY-PAM — API Reference
 
-**Status:** as-built for Phase 4f (`110909f`)
-**Contract:** `apis/openapi.yaml` (OpenAPI 3.1) — **65 paths / 73
+**Status:** as-built for Phase 4g
+**Contract:** `apis/openapi.yaml` (OpenAPI 3.1) — **72 paths / 80
 operations**, enforced in both directions by
 `backend/phase2_license_server/tests/test_openapi_contract.py`. If this page
 and the YAML ever disagree, the YAML wins.
@@ -15,13 +15,13 @@ and the YAML ever disagree, the YAML wins.
 | Base URL (dev) | `http://127.0.0.1:5000` (`LICENSE_SERVER_HOST`/`LICENSE_SERVER_PORT`) |
 | Version | `/api/v1/…` (`/health`, `/api/v1/meta` unversioned) |
 | Content type | `application/json` (license import also accepts multipart upload / raw body) |
-| Auth | When `LICENSE_ADMIN_TOKEN` is set: `Authorization: Bearer <token>` **or** `X-Admin-Token: <token>` on the **37 admin operations**. When unset: open dev mode — responses carry `X-Auth-Mode: open` (explicit, never silent). |
+| Auth | When `LICENSE_ADMIN_TOKEN` is set: `Authorization: Bearer <token>` **or** `X-Admin-Token: <token>` on the **40 admin operations**. When unset: open dev mode — responses carry `X-Auth-Mode: open` (explicit, never silent). |
 | Actor | `X-Actor: <name>` recorded verbatim in the audit ledger on every audited write |
 | Errors | `{"error":{"code","message","details?"}}` — 400 validation · 401 auth · 403 policy refusal (risk gate) · 404 · 409 conflict/state · 422 unprocessable shape · 503 fail-closed dependency |
 | Pagination | `limit` (≤200) + `offset`, newest first |
 | Ordering | Ledger/session streams ascending `seq`; listings newest-first |
 
-## 2. Operations by tag (11 tags)
+## 2. Operations by tag (12 tags)
 
 ### `ops` — unversioned
 | Method | Path | Summary |
@@ -133,6 +133,17 @@ and the YAML ever disagree, the YAML wins.
 | GET | `/api/v1/risk/evaluations` | history (band/context filters) |
 | GET | `/api/v1/risk/stats` | band distribution + averages (real) |
 
+### `bypass` — §10 detection (Phase 4g)
+| Method | Path | Summary |
+|---|---|---|
+| POST | `/api/v1/bypass/ingest` | parse a real log bundle into connection observations (admin) |
+| GET | `/api/v1/bypass/signals` | parsed observations, newest first (status/protocol filters) |
+| POST | `/api/v1/bypass/scans` | correlate unobserved/observed signals → incidents + forced rotation (admin) |
+| GET | `/api/v1/bypass/incidents` | direct-access incidents, newest first (status filter) |
+| GET | `/api/v1/bypass/incidents/{incident_id}` | one incident with its parsed log-line evidence |
+| POST | `/api/v1/bypass/incidents/{incident_id}/close` | analyst closure (note optional, recorded with who/when; admin) |
+| GET | `/api/v1/bypass/stats` | signal states, incident and forced-rotation aggregates |
+
 ### Ledger (Compliance feeds)
 | Method | Path | Summary |
 |---|---|---|
@@ -152,6 +163,11 @@ and the YAML ever disagree, the YAML wins.
   released, credential → rotated once; response reports `cascade`.
 - **Reveal endpoints are click-gated in the UI** (30 s re-mask) and never
   write plaintext to logs.
+- **Bypass correlation** (`POST /bypass/scans`): only unscanned `observed`
+  signals are considered; unmanaged targets → `out_of_scope`, a managed
+  target covered by a session in its window → `covered`, otherwise an
+  incident opens with alert + forced rotation (real §5 pipeline) and
+  `block_source: not_connected`. Re-scanning never duplicates an incident.
 - **`X-Auth-Mode: open`** on responses when no admin token is configured —
   development-only by construction.
 
@@ -174,13 +190,12 @@ keys only via `python -m pam_master.keygen`.
 
 ## 5. Planned endpoints (NOT in the contract — see `IMPLEMENTATION_PLAN.md`)
 
-These do **not** exist today; the contract's **65 paths / 73 operations**
+These do **not** exist today; the contract's **72 paths / 80 operations**
 are the complete current surface. Each lands in `openapi.yaml` + ADMIN
 security + tests in the same commit when its phase starts (counts `—`):
 
 | Phase | Planned additions |
 |---|---|
-| 4g §10 | `POST /api/v1/bypass/scans`, `GET /api/v1/bypass/signals`, `GET /api/v1/bypass/incidents`, `POST /api/v1/bypass/incidents/{id}/close` |
 | 4h §17 | `POST|GET /api/v1/break-glass/requests`, `/{id}/approve` (×2 required), `/{id}/deny`, `/{id}/open`, `/{id}/close` |
 | 4i §20 | `POST /api/v1/mfa/enroll`, `POST /api/v1/mfa/verify`, ITSM ticket verify, SIEM/LDAP connector config + health endpoints |
 | 4j §11 | `GET /api/v1/risk/baselines`, anomaly detail additions on evaluations |

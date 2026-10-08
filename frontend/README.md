@@ -28,9 +28,9 @@ frontend/
 | `GET /index.html` | launcher |
 | `GET /` · `GET /license` | **live** Licensing screen (talks to `/api/v1/licenses*`) |
 | `GET /settings` | **live** Platform Settings screen (talks to `/api/v1/settings*`) |
-| `GET /screens/pam_command_center_threat_dashboard/code.html` | **live** Command Center (talks to `/api/v1/overview` + `/api/v1/events`) |
+| `GET /screens/pam_command_center_threat_dashboard/code.html` | **live** Command Center (talks to `/api/v1/overview` + `/api/v1/events`, plus the §10 bypass section over `/api/v1/bypass/*` — ingest/scan/incidents posted on click only) |
 | `GET /screens/credential_vault_secrets_inventory/code.html` | **live** Credential Vault (talks to `/api/v1/vault/*`) |
-| `GET /screens/compliance_soc_2_audit_center/code.html` | **live** Compliance (talks to `/api/v1/overview`, `/api/v1/events` — an 8-source trail filter, one fetch per source on click — and the immutable `/api/v1/audit/*` ledger) |
+| `GET /screens/compliance_soc_2_audit_center/code.html` | **live** Compliance (talks to `/api/v1/overview`, `/api/v1/events` — a 9-source trail filter, one fetch per source on click — and the immutable `/api/v1/audit/*` ledger) |
 | `GET /screens/target_infrastructure_connectors/code.html` | **live** Target Infrastructure (talks to `/api/v1/discovery/*`) |
 | `GET /screens/jit_access_ephemeral_approvals/code.html` | **live** JIT access (talks to `/api/v1/jit/*`) |
 | `GET /screens/live_session_recording_inspection_hub/code.html` | **live** Live Session hub (talks to `/api/v1/sessions/*`) |

@@ -41,6 +41,12 @@ from models import (
     ASSET_SECRET_TYPES,
     ASSET_TYPES,
     BASE_RISK,
+    BYPASS_INCIDENT_STATUSES,
+    BYPASS_SIGNAL_CANDIDATE,
+    BYPASS_SIGNAL_COVERED,
+    BYPASS_SIGNAL_OBSERVED,
+    BYPASS_SIGNAL_OUT_OF_SCOPE,
+    BYPASS_SIGNAL_STATUSES,
     COMMAND_ACTIONS,
     DISCOVERY_ACTION_ASSET_DISCOVERED,
     DISCOVERY_ACTION_ASSET_ONBOARDED,
@@ -105,6 +111,9 @@ from models import (
     VaultItem,
     VaultSecretVersion,
     AuditEvent,
+    BypassEvent,
+    BypassIncident,
+    BypassSignal,
     classify_account_kind,
     CommandIncident,
     CommandRule,
@@ -4848,4 +4857,528 @@ def risk_stats() -> Dict[str, Any]:
             round(sum(row.score for row in rows) / len(rows), 1) if rows else None
         ),
         "last_evaluated_at": newest.created_at.isoformat() if newest else None,
+    }
+
+
+# ---------------------------------------------------------------------------
+# PAM bypass detection (architecture section 10)
+# ---------------------------------------------------------------------------
+_BYPASS_MAX_CONTENT = 200_000
+_BYPASS_MAX_RAW = 2_000
+# OpenSSH auth line: "Accepted password for admin01 from 10.10.5.20 port 22"
+_BYPASS_SSHD = re.compile(
+    r"Accepted\s+\S+\s+for\s+(?P<user>\S+)\s+from\s+(?P<source_ip>\S+)\s+port\s+\d+"
+)
+
+
+def _bypass_event(
+    action: str, subject: str, actor: str, detail: Dict[str, Any]
+) -> BypassEvent:
+    """Queue one section-10 action record; the flush listener folds it into
+    the audit ledger under the ninth source `bypass` in the same commit."""
+    event = BypassEvent(action=action, actor=actor, subject=subject, detail=detail)
+    db.session.add(event)
+    return event
+
+
+def _bypass_timestamp(raw: str, now: datetime) -> Tuple[datetime, str]:
+    """The line's own timestamp when it has one (ISO 8601), otherwise the
+    ingest time - which of the two it was is recorded as `at_source`."""
+    if not raw:
+        return now, "ingest_time"
+    try:
+        parsed = datetime.fromisoformat(raw.replace("Z", "+00:00").replace("z", "+00:00"))
+    except ValueError:
+        return now, "ingest_time"
+    if parsed.tzinfo is not None:
+        parsed = parsed.astimezone().replace(tzinfo=None)
+    return parsed, "line"
+
+
+def _parse_bypass_line(
+    line: str, *, fallback_target: str, now: datetime
+) -> Tuple[Optional[Dict[str, Any]], str]:
+    """One log line -> signal fields, or the reason it was skipped.
+
+    Two real formats are accepted: structured JSON records (Windows / EDR /
+    network telemetry exports that carry their own target and timestamp) and
+    OpenSSH `Accepted ...` auth lines (whose target is the host the log
+    bundle came from, passed with the ingest). Anything else is counted as
+    malformed and never invented into a signal.
+    """
+    stripped = line.strip()
+    if not stripped:
+        return None, "blank"
+    if stripped.startswith("{"):
+        try:
+            obj = json.loads(stripped)
+        except ValueError:
+            return None, "malformed"
+        if not isinstance(obj, dict):
+            return None, "malformed"
+        user = str(obj.get("user") or obj.get("username") or "").strip()
+        source_ip = str(
+            obj.get("source_ip") or obj.get("source") or obj.get("ip") or ""
+        ).strip()
+        target = (
+            str(obj.get("target") or obj.get("host") or "").strip()
+            or fallback_target.strip()
+        )
+        if not user or not source_ip:
+            return None, "malformed"
+        if not target:
+            return None, "untargeted"
+        observed_at, at_source = _bypass_timestamp(
+            str(obj.get("at") or obj.get("timestamp") or ""), now
+        )
+        return {
+            "user": user[:128],
+            "source_ip": source_ip[:64],
+            "target": target[:255],
+            "protocol": str(obj.get("protocol") or "unknown").strip().lower()[:16]
+            or "unknown",
+            "observed_at": observed_at,
+            "at_source": at_source,
+        }, None
+    match = _BYPASS_SSHD.search(stripped)
+    if match:
+        target = fallback_target.strip()
+        if not target:
+            return None, "untargeted"
+        return {
+            "user": match.group("user")[:128],
+            "source_ip": match.group("source_ip")[:64],
+            "target": target[:255],
+            "protocol": "ssh",
+            "observed_at": now,
+            "at_source": "ingest_time",
+        }, None
+    return None, "malformed"
+
+
+def ingest_bypass_signals(payload: Any, *, actor: str) -> Dict[str, Any]:
+    """Parse a real log bundle into connection observations (the section-10
+    source material: Windows event logs, Linux auth.log, SSH/RDP logs ...).
+
+    Nothing is correlated here - lines are kept as evidence with their
+    original text, and a later scan decides what they mean.
+    """
+    if not isinstance(payload, dict):
+        raise ValidationFailed("Request body must be a JSON object")
+    origin = _required_text(payload, "origin", 128)
+    target = _optional_text(payload, "target", 255)
+    content = payload.get("content")
+    if not isinstance(content, str) or not content.strip():
+        raise ValidationFailed("Log content is required", {"field": "content"})
+    if len(content) > _BYPASS_MAX_CONTENT:
+        raise ValidationFailed(
+            f"Log content exceeds {_BYPASS_MAX_CONTENT} characters",
+            {"field": "content", "max": _BYPASS_MAX_CONTENT},
+        )
+
+    now = datetime.now()
+    lines = content.splitlines()
+    parsed = malformed = untargeted = duplicates = stored = 0
+    batch: set = set()
+    for line in lines:
+        row, reason = _parse_bypass_line(
+            line, fallback_target=target, now=now
+        )
+        if row is None:
+            if reason == "malformed":
+                malformed += 1
+            elif reason == "untargeted":
+                untargeted += 1
+            continue
+        parsed += 1
+        raw = line.strip()[:_BYPASS_MAX_RAW]
+        key = (row["user"], row["source_ip"], row["target"], raw)
+        if key in batch:
+            duplicates += 1
+            continue
+        batch.add(key)
+        exists = BypassSignal.query.filter_by(
+            origin=origin, target=row["target"], raw=raw
+        ).first()
+        if exists is not None:
+            duplicates += 1
+            continue
+        db.session.add(
+            BypassSignal(
+                observed_at=row["observed_at"],
+                user=row["user"],
+                source_ip=row["source_ip"],
+                target=row["target"],
+                protocol=row["protocol"],
+                origin=origin,
+                raw=raw,
+                detail={"at_source": row["at_source"]},
+            )
+        )
+        stored += 1
+
+    detail = {
+        "origin": origin,
+        "target": target,
+        "lines": len(lines),
+        "parsed": parsed,
+        "stored": stored,
+        "malformed": malformed,
+        "untargeted": untargeted,
+        "duplicates": duplicates,
+    }
+    _bypass_event("ingested", origin, actor, detail)
+    db.session.commit()
+    return detail
+
+
+def list_bypass_signals(
+    *,
+    status: Optional[str] = None,
+    q: Optional[str] = None,
+    limit: int = 50,
+    offset: int = 0,
+) -> Tuple[List[BypassSignal], int]:
+    """Parsed observations, newest first (status filter + text search over
+    user, source IP, target and origin)."""
+    if status is not None and status not in BYPASS_SIGNAL_STATUSES:
+        raise ValidationFailed(
+            f"Unknown signal status '{status}'",
+            {"field": "status", "allowed": list(BYPASS_SIGNAL_STATUSES)},
+        )
+    query = BypassSignal.query
+    if status:
+        query = query.filter(BypassSignal.status == status)
+    if q:
+        needle = f"%{q.lower()}%"
+        query = query.filter(
+            db.or_(
+                db.func.lower(BypassSignal.user).like(needle),
+                db.func.lower(BypassSignal.source_ip).like(needle),
+                db.func.lower(BypassSignal.target).like(needle),
+                db.func.lower(BypassSignal.origin).like(needle),
+            )
+        )
+    total = query.count()
+    rows = (
+        query.order_by(BypassSignal.created_at.desc(), BypassSignal.id.desc())
+        .offset(offset)
+        .limit(limit)
+        .all()
+    )
+    return rows, total
+
+
+def _force_bypass_rotation(host: str, *, actor: str) -> Dict[str, Any]:
+    """Section-10 ACTION: force credential rotation for the bypassed target -
+    the real module-5 pipeline, never a simulated one. One credential failing
+    must not abort the scan, so every outcome is recorded and the loop
+    continues."""
+    rotated: List[Dict[str, Any]] = []
+    skipped: List[Dict[str, Any]] = []
+    failed: List[Dict[str, Any]] = []
+    for item in VaultItem.query.all():
+        if _target_host(item.target).lower() != host.lower():
+            continue
+        if item.status == VAULT_STATUS_CHECKED_OUT:
+            skipped.append({"id": item.id, "name": item.name, "reason": "checked_out"})
+            continue
+        if item.status == VAULT_STATUS_ROTATING:
+            skipped.append(
+                {"id": item.id, "name": item.name, "reason": "already_rotating"}
+            )
+            continue
+        try:
+            _, rotation = rotate_vault_item(
+                item.id,
+                actor=actor,
+                trigger="bypass",
+                extra_detail={
+                    "reason": "direct access to a managed target (architecture 10)"
+                },
+            )
+            rotated.append(
+                {
+                    "id": item.id,
+                    "name": item.name,
+                    "version": rotation.get("secret_version"),
+                }
+            )
+        except Exception as exc:  # noqa: BLE001 - keep scanning
+            failed.append({"id": item.id, "name": item.name, "error": str(exc)})
+    if not rotated and not skipped and not failed:
+        return {
+            "status": "no_credential_on_file",
+            "detail": "No vault credential is registered for this target",
+            "items": [],
+            "skipped": [],
+            "failed": [],
+        }
+    return {
+        "status": "rotated" if rotated else ("failed" if failed else "skipped"),
+        "items": rotated,
+        "skipped": skipped,
+        "failed": failed,
+    }
+
+
+def _new_bypass_ref() -> str:
+    for _ in range(6):
+        ref = f"byp-{secrets.token_hex(4)}"
+        if BypassIncident.query.filter_by(incident_ref=ref).first() is None:
+            return ref
+    raise APIError(500, "Could not allocate a unique incident reference")
+
+
+def scan_bypass_signals(*, actor: str) -> Dict[str, Any]:
+    """Correlate every unscanned observation against the managed inventory
+    and the recorded sessions (architecture section 10).
+
+    Outcomes per signal: target not a managed asset -> `out_of_scope`; a
+    recorded session covering the same user, host and moment -> `covered`
+    (it went through PAM); otherwise `candidate` - an incident opens with
+    the architecture's ACTION block (alert SOC, force rotation, block
+    source recorded honestly as not connected).
+    """
+    signals = (
+        BypassSignal.query.filter_by(status=BYPASS_SIGNAL_OBSERVED)
+        .order_by(BypassSignal.id.asc())
+        .all()
+    )
+    scanned = len(signals)
+    covered = out_of_scope = candidates = 0
+    incidents = 0
+    rotations_forced = 0
+
+    for signal in signals:
+        host = _target_host(signal.target).lower()
+        asset = None
+        if host:
+            asset = (
+                DiscoveredAsset.query.filter(
+                    db.func.lower(DiscoveredAsset.address) == host,
+                    DiscoveredAsset.pam_status == "managed",
+                ).first()
+                or DiscoveredAsset.query.filter(
+                    db.func.lower(DiscoveredAsset.hostname) == host,
+                    DiscoveredAsset.pam_status == "managed",
+                ).first()
+            )
+        detail = dict(signal.detail or {})
+        if asset is None:
+            signal.status = BYPASS_SIGNAL_OUT_OF_SCOPE
+            detail["reason"] = "target is not a managed PAM asset"
+            detail["asset_id"] = None
+            signal.detail = detail
+            out_of_scope += 1
+            continue
+
+        observed_at = signal.observed_at or signal.created_at
+        covering = None
+        if signal.user:
+            for session in PrivilegedSession.query.filter(
+                PrivilegedSession.actor == signal.user
+            ).all():
+                if _target_host(session.target).lower() != host:
+                    continue
+                started = session.started_at or session.created_at
+                if started > observed_at:
+                    continue
+                if session.ended_at is not None and session.ended_at < observed_at:
+                    continue
+                covering = session
+                break
+        if covering is not None:
+            signal.status = BYPASS_SIGNAL_COVERED
+            detail["reason"] = "covered by a recorded privileged session"
+            detail["session_ref"] = covering.session_ref
+            signal.detail = detail
+            covered += 1
+            continue
+
+        rotation = _force_bypass_rotation(host, actor=actor)
+        if rotation["status"] == "rotated":
+            rotations_forced += 1
+        signal.status = BYPASS_SIGNAL_CANDIDATE
+        detail["reason"] = "managed target reached with no recorded session"
+        detail["asset_id"] = asset.id
+        detail["asset_address"] = asset.address
+        signal.detail = detail
+
+        incident = BypassIncident(
+            incident_ref=_new_bypass_ref(),
+            signal_id=signal.id,
+            user=signal.user,
+            source_ip=signal.source_ip,
+            target=signal.target,
+            protocol=signal.protocol,
+            observed_at=observed_at,
+            actions={
+                "alert": {
+                    "status": "recorded",
+                    "detail": "SOC alert recorded in the audit ledger (source 'bypass')",
+                },
+                "rotation": rotation,
+                "block_source": {
+                    "status": "not_connected",
+                    "detail": "No firewall/EDR enforcement connector is configured",
+                },
+            },
+        )
+        db.session.add(incident)
+        _bypass_event(
+            "detected",
+            incident.incident_ref,
+            actor,
+            {
+                "signal_id": signal.id,
+                "user": signal.user,
+                "source_ip": signal.source_ip,
+                "target": signal.target,
+                "protocol": signal.protocol,
+                "asset_id": asset.id,
+                "rotation": rotation["status"],
+            },
+        )
+        candidates += 1
+        incidents += 1
+
+    _bypass_event(
+        "scanned",
+        "signals",
+        actor,
+        {
+            "scanned": scanned,
+            "covered": covered,
+            "out_of_scope": out_of_scope,
+            "candidates": candidates,
+            "incidents": incidents,
+            "rotations_forced": rotations_forced,
+        },
+    )
+    db.session.commit()
+    return {
+        "scanned": scanned,
+        "covered": covered,
+        "out_of_scope": out_of_scope,
+        "candidates": candidates,
+        "incidents": incidents,
+        "rotations_forced": rotations_forced,
+    }
+
+
+def list_bypass_incidents(
+    *, status: Optional[str] = None, limit: int = 50, offset: int = 0
+) -> Tuple[List[BypassIncident], int]:
+    """Detected direct-access incidents, newest first."""
+    if status is not None and status not in ("open", "closed", "all"):
+        raise ValidationFailed(
+            f"Unknown incident status '{status}'",
+            {"field": "status", "allowed": ["open", "closed", "all"]},
+        )
+    query = BypassIncident.query
+    if status in BYPASS_INCIDENT_STATUSES:
+        query = query.filter(BypassIncident.status == status)
+    total = query.count()
+    rows = (
+        query.order_by(BypassIncident.created_at.desc(), BypassIncident.id.desc())
+        .offset(offset)
+        .limit(limit)
+        .all()
+    )
+    return rows, total
+
+
+def get_bypass_incident(
+    incident_id: int,
+) -> Tuple[BypassIncident, Optional[BypassSignal]]:
+    incident = BypassIncident.query.filter_by(id=incident_id).first()
+    if incident is None:
+        raise NotFound(f"No bypass incident with id {incident_id}")
+    signal = BypassSignal.query.filter_by(id=incident.signal_id).first()
+    return incident, signal
+
+
+def close_bypass_incident(
+    incident_id: int, payload: Any, *, actor: str
+) -> BypassIncident:
+    """Analyst closure - the close writes no incident row of its own, so it
+    gets its own ledger record in the same transaction."""
+    incident, _ = get_bypass_incident(incident_id)
+    if incident.status == "closed":
+        raise Conflict(
+            "Incident already closed",
+            {"field": "status", "status": "closed"},
+        )
+    if payload is not None and not isinstance(payload, dict):
+        raise ValidationFailed("Request body must be a JSON object")
+    note = _optional_text(payload or {}, "note", 255)
+    incident.status = "closed"
+    incident.closed_by = actor
+    incident.closed_at = datetime.now()
+    incident.close_note = note
+    _bypass_event(
+        "closed",
+        incident.incident_ref,
+        actor,
+        {
+            "note": note,
+            "user": incident.user,
+            "source_ip": incident.source_ip,
+            "target": incident.target,
+        },
+    )
+    db.session.commit()
+    return incident
+
+
+def bypass_stats() -> Dict[str, Any]:
+    """Real aggregates over signals, incidents and the module's ledger
+    actions (the Command Center bypass cards)."""
+    signals = {"total": 0}
+    for status in BYPASS_SIGNAL_STATUSES:
+        signals[status] = 0
+    for status, count in (
+        db.session.query(BypassSignal.status, db.func.count(BypassSignal.id))
+        .group_by(BypassSignal.status)
+        .all()
+    ):
+        signals[status] = int(count)
+        signals["total"] += int(count)
+
+    incidents = {"total": 0, "open": 0, "closed": 0}
+    for status, count in (
+        db.session.query(BypassIncident.status, db.func.count(BypassIncident.id))
+        .group_by(BypassIncident.status)
+        .all()
+    ):
+        incidents[status] = int(count)
+        incidents["total"] += int(count)
+
+    rotations_forced = sum(
+        1
+        for (actions,) in db.session.query(BypassIncident.actions).all()
+        if ((actions or {}).get("rotation") or {}).get("status") == "rotated"
+    )
+
+    actions = {"ingested": 0, "scanned": 0, "detected": 0, "closed": 0}
+    last_ingest = last_scan = None
+    for action, count, latest in db.session.query(
+        BypassEvent.action,
+        db.func.count(BypassEvent.id),
+        db.func.max(BypassEvent.created_at),
+    ).group_by(BypassEvent.action).all():
+        actions[action] = int(count)
+        if action == "ingested":
+            last_ingest = latest
+        elif action == "scanned":
+            last_scan = latest
+
+    return {
+        "signals": signals,
+        "incidents": incidents,
+        "rotations_forced": rotations_forced,
+        "actions": actions,
+        "last_ingest_at": last_ingest.isoformat() if last_ingest else None,
+        "last_scan_at": last_scan.isoformat() if last_scan else None,
     }

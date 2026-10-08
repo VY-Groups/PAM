@@ -24,7 +24,7 @@ PAM/
 │   ├── screens/<name>/          #   one folder per screen: code.html + screen.png
 │   └── README.md                #   layout + how to add a screen (the contract)
 ├── apis/                            # HTTP contract for every backend service
-│   ├── openapi.yaml             #   OpenAPI 3.1: all 65 paths (synced by a test)
+│   ├── openapi.yaml             #   OpenAPI 3.1: all 72 paths (synced by a test)
 │   └── README.md                #   conventions + how to view
 ├── backend/
 │   ├── ipam_licensing/              # Phase 1: library + CLIs
@@ -47,7 +47,9 @@ PAM/
 │       ├── tests/test_command_control.py # zero-trust command policy engine (18 tests)
 │       ├── tests/test_audit.py       # immutable §19 audit ledger (19 tests)
 │       ├── tests/test_risk.py        # §7 risk-based access engine (19 tests)
+│       ├── tests/test_bypass.py      # §10 PAM bypass detection (19 tests)
 │       ├── tests/test_openapi_contract.py # apis/openapi.yaml ↔ routes (5 tests)
+│       ├── Dockerfile + docker-compose.yml  # development/runtime testing only
 │       └── README.md                # full API reference
 ├── pam_master/                        # VY-PAM MASTER: vendor tool (never shipped)
 │   ├── pam_master/               #   Flask package: registry, issuance, custody
@@ -87,7 +89,7 @@ python -m pam_master.keygen                      # RSA + Ed25519 + registry PII 
 python -m pam_master                             # http://127.0.0.1:5400
 
 # Tests (shared core + shipped API contract + vendor tool)
-python -m pytest backend -q                      # 343 tests
+python -m pytest backend -q                      # 362 tests
 python -m pytest pam_master -q                   # 46 tests (vendor tool)
 ```
 
@@ -126,7 +128,10 @@ python -m pytest pam_master -q                   # 46 tests (vendor tool)
   screens are **live**: licensing (`/`), platform settings (`/settings`,
   backed by `GET/PUT /api/v1/settings` with an audit changelog), the Command
   Center and Compliance screens (backed by `GET /api/v1/overview` and the
-  unified `GET /api/v1/events` feed), the Credential Vault (backed by
+  unified `GET /api/v1/events` feed, plus the Command Center's §10 PAM
+  bypass detection section over `GET/POST /api/v1/bypass/*` — real auth-log
+  ingest, correlation against managed targets and recorded sessions,
+  incidents with forced credential rotation), the Credential Vault (backed by
   `GET/POST /api/v1/vault/*` — inventory, rotation SLA and checkouts),
   Infrastructure Discovery (`GET/POST /api/v1/discovery/*`), the JIT
   access console (`GET/POST /api/v1/jit/*` — requests, risk evaluation,

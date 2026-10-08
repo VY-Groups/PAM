@@ -1003,3 +1003,118 @@ def list_risk_evaluations():
 def risk_stats():
     """Real aggregates over the evaluations: bands, decisions, refusals."""
     return jsonify(service.risk_stats())
+
+
+# ---------------------------------------------------------------------------
+# PAM bypass detection (architecture section 10, Command Center screen)
+# ---------------------------------------------------------------------------
+@api.post("/bypass/ingest")
+@require_admin
+def ingest_bypass_signals():
+    """Parse a real log bundle (auth.log / Windows / EDR export) into
+    connection observations - evidence only, no verdicts yet."""
+    detail = service.ingest_bypass_signals(_json_body(), actor=_actor())
+    return (
+        jsonify(
+            {
+                "ingest": detail,
+                "message": (
+                    f"Stored {detail['stored']}/{detail['lines']} line(s) from "
+                    f"{detail['origin']} ({detail['malformed']} malformed, "
+                    f"{detail['duplicates']} duplicate)"
+                ),
+            }
+        ),
+        201,
+    )
+
+
+@api.get("/bypass/signals")
+def list_bypass_signals():
+    """Parsed observations, newest first (status + text-search filters)."""
+    limit = min(_int_param("limit", 50), MAX_PAGE_SIZE)
+    offset = _int_param("offset", 0)
+    rows, total = service.list_bypass_signals(
+        status=request.args.get("status"),
+        q=request.args.get("q"),
+        limit=limit,
+        offset=offset,
+    )
+    return jsonify(
+        {
+            "signals": [row.to_dict() for row in rows],
+            "total": total,
+            "limit": limit,
+            "offset": offset,
+        }
+    )
+
+
+@api.post("/bypass/scans")
+@require_admin
+def scan_bypass_signals():
+    """Correlate every unscanned observation: managed target + no covering
+    session opens an incident with the section-10 ACTION block."""
+    result = service.scan_bypass_signals(actor=_actor())
+    return (
+        jsonify(
+            {
+                "scan": result,
+                "message": (
+                    f"Correlated {result['scanned']}: {result['covered']} covered, "
+                    f"{result['out_of_scope']} out of scope, "
+                    f"{result['incidents']} new incident(s), "
+                    f"{result['rotations_forced']} forced rotation(s)"
+                ),
+            }
+        ),
+        201,
+    )
+
+
+@api.get("/bypass/incidents")
+def list_bypass_incidents():
+    """Detected direct-access incidents, newest first (open/closed/all)."""
+    limit = min(_int_param("limit", 50), MAX_PAGE_SIZE)
+    offset = _int_param("offset", 0)
+    rows, total = service.list_bypass_incidents(
+        status=request.args.get("status"), limit=limit, offset=offset
+    )
+    return jsonify(
+        {
+            "incidents": [row.to_dict() for row in rows],
+            "total": total,
+            "limit": limit,
+            "offset": offset,
+        }
+    )
+
+
+@api.get("/bypass/incidents/<int:incident_id>")
+def get_bypass_incident(incident_id: int):
+    """One incident with its parsed log-line evidence."""
+    incident, signal = service.get_bypass_incident(incident_id)
+    return jsonify(
+        {"incident": incident.to_dict(), "evidence": signal.to_dict() if signal else None}
+    )
+
+
+@api.post("/bypass/incidents/<int:incident_id>/close")
+@require_admin
+def close_bypass_incident(incident_id: int):
+    """Analyst closure - recorded on the `bypass` trail in the same commit."""
+    incident = service.close_bypass_incident(
+        incident_id, _json_body(required=False), actor=_actor()
+    )
+    return jsonify(
+        {
+            "incident": incident.to_dict(),
+            "message": f"Incident {incident.incident_ref} closed",
+        }
+    )
+
+
+@api.get("/bypass/stats")
+def bypass_stats():
+    """Real aggregates: signal states, open incidents, forced rotations."""
+    return jsonify(service.bypass_stats())

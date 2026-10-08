@@ -56,7 +56,7 @@ never drift apart.
 5. **Zero standing privilege.** Access is requested, risk-scored, approved by
    someone else, time-boxed, recorded, and revoked on expiry — by default.
 
-## 4. Scope — built (as of Phase 4f)
+## 4. Scope — built (as of Phase 4g)
 
 | # | Architecture section | Requirement | Status | Evidence |
 |---|---|---|---|---|
@@ -69,10 +69,11 @@ never drift apart.
 | 7 | §7 Risk-Based Access Engine | Eight-component scoring (caps sum to 100), bands → allow/mfa/approval/block, console evaluation + session-start gate with 403 evidence | Built | `POST /risk/evaluate` (3 paths), `test_risk.py` (19) |
 | 8 | §8 Privileged Session Management | Start against credential or grant, append-only recorded events with custody watermarks, 7 control flags, pause/lock/resume, release-and-rotate cascade on end | Built | 12 session paths, `test_sessions.py` (23) |
 | 9 | §9 Command Control | Default-allow engine, shipped §9 rules (15, seeded once), block → approval → allow, dry-run, approval queue, incidents with preserved evidence | Built | 8 command-control paths, `test_command_control.py` (18) |
-| 10 | §19 Immutable Audit Architecture | Hash-chained append-only ledger over 8 module trails, SQLite triggers, boot backfill, verify walk, NDJSON export | Built | 3 audit paths, `test_audit.py` (19) |
-| 11 | §21 Admin Dashboard | Command Center overview (health, posture, counters, recent activity) + Compliance center (digest, verify, per-trail filter, export) | Built | `GET /overview`, `GET /events` |
-| 12 | Product delivery | Console: 10-item sidebar, launcher, 9 screens live against real APIs, honest `file://` fallback | Built | `frontend/`, verifiers in `shots_tool/` |
-| 13 | Vendor side | VY-PAM MASTER: encrypted customer registry, signed issuance/renewal, delivery bundles, own audit + own OpenAPI contract | Built | `pam_master/` (46 tests) |
+| 10 | §10 PAM Bypass Detection | Real auth-log/JSON ingest → verbatim observations, correlation against managed inventory + recorded sessions, incidents with alert + forced rotation (real §5 pipeline) + honest `block_source` | Built | 7 bypass paths, `test_bypass.py` (19) |
+| 11 | §19 Immutable Audit Architecture | Hash-chained append-only ledger over 9 module trails, SQLite triggers, boot backfill, verify walk, NDJSON export | Built | 3 audit paths, `test_audit.py` (19) |
+| 12 | §21 Admin Dashboard | Command Center overview (health, posture, counters, recent activity) + Compliance center (digest, verify, per-trail filter, export) | Built | `GET /overview`, `GET /events` |
+| 13 | Product delivery | Console: 10-item sidebar, launcher, 9 screens live against real APIs, honest `file://` fallback | Built | `frontend/`, verifiers in `shots_tool/` |
+| 14 | Vendor side | VY-PAM MASTER: encrypted customer registry, signed issuance/renewal, delivery bundles, own audit + own OpenAPI contract | Built | `pam_master/` (46 tests) |
 
 ## 5. Scope — explicitly NOT built yet (pending requirements)
 
@@ -82,7 +83,6 @@ from the architecture doc, phase assigned in `IMPLEMENTATION_PLAN.md`:
 
 | Arch. section | Pending requirement (target behavior) | Current state | Phase |
 |---|---|---|---|
-| §10 PAM Bypass Detection | Detect direct privileged access skipping PAM; respond: *Alert SOC · Block source · Create incident · Force credential rotation* | Not started | 4g |
 | §11 AI Security / UEBA | Learn per-principal baselines (hours/device/IP/target/command/privilege); on deviation: *block session → rotate credential → alert → incident → preserve evidence* | Not started (§7 `behavior` = local 24h counts only) | 4j |
 | §12 Dynamic Watermarking | Contextual overlay `USER/SESSION/TARGET/TIME/TICKET/SOURCE` on RDP/VNC/browser/DB/SSH/file-transfer, changing with session state | Not started (session custody string only) | 4k |
 | §13 Third-Party / Vendor PAM | Vendor lifecycle *invite → MFA → NDA → ticket → approval → JIT → recording → auto-expiry* + vendor access dashboard | Not started | 5a |
@@ -132,8 +132,8 @@ from the architecture doc, phase assigned in `IMPLEMENTATION_PLAN.md`:
 ### FR-3 Audit ledger (§19)
 - R3.1 One append-only `audit_events` chain: `seq`, `prev_hash`, `event_hash`
   (sha256 over the canonical record; genesis `0`×64).
-- R3.2 Eight sources fan in: license, settings, vault, discovery, jit,
-  session, command, risk.
+- R3.2 Nine sources fan in: license, settings, vault, discovery, jit,
+  session, command, risk, bypass.
 - R3.3 SQLite triggers refuse `UPDATE`/`DELETE` outright.
 - R3.4 `/audit/verify` recomputes every hash and reports the first break;
   `/audit/export` streams NDJSON in chain order; first boot backfills history
@@ -149,24 +149,36 @@ from the architecture doc, phase assigned in `IMPLEMENTATION_PLAN.md`:
 - R4.3 Terminate/complete cascade: linked grant closes, own checkout releases
   and the credential rotates exactly once (`cascade` reported).
 
+### FR-5 PAM bypass detection (§10)
+- R5.1 Ingest real platform logs (OpenSSH `Accepted …` lines with a bundle
+  target; structured JSON records with per-line target/`at`) into verbatim
+  observations; malformed or untargeted lines are counted, never invented.
+- R5.2 Correlate `observed` signals: not a managed asset → `out_of_scope`;
+  covered by a recorded session in its window → `covered`; otherwise a
+  `candidate` opens an incident with the architecture's ACTION block —
+  `alert` (the ledger record), `rotation` (the real §5 pipeline, per vault
+  item, failures recorded not fatal), `block_source: not_connected`.
+- R5.3 Re-scans never duplicate incidents; every ingest/scan/detect/close
+  fans into the §19 ledger as source `bypass`.
+
 ## 7. Non-functional requirements
 
 | NFR | Requirement | How it is met today |
 |---|---|---|
 | Data honesty | No fabricated values anywhere in the product | Live-data wiring + FORBIDDEN-string sweep (`shots_tool/__verify_live.mjs`, 7 screens × HTTP/file) |
-| Portability | Installs directly on a machine | Pure Python deps; SQLite files; Docker only under `pam_master/` for development |
+| Portability | Installs directly on a machine | Pure Python deps; SQLite files; Docker only under `pam_master/` and `backend/phase2_license_server/` for development |
 | Tamper evidence | Audit trail provable | sha256 chain + append-only triggers + `/audit/verify` |
-| Least privilege | Admin actions authenticated | 37 admin operations require `Bearer`/`X-Admin-Token` when `LICENSE_ADMIN_TOKEN` is set; open dev mode is explicit (`X-Auth-Mode: open`) |
+| Least privilege | Admin actions authenticated | 40 admin operations require `Bearer`/`X-Admin-Token` when `LICENSE_ADMIN_TOKEN` is set; open dev mode is explicit (`X-Auth-Mode: open`) |
 | Bounded resource use | Scans and lists bounded | Scan ≤256 hosts × ≤24 ports, single-flight; pagination `limit` max 200 |
 | Contract stability | API evolution controlled | OpenAPI 3.1, both-direction contract test, `/api/v1` version segment |
-| Testability | Every phase ships tests | 343 backend + 46 vendor-tool tests; UI verifiers; 17-step smoke |
+| Testability | Every phase ships tests | 362 backend + 46 vendor-tool tests; UI verifiers; 17-step smoke |
 | Offline crypto | Verification without network | Phase 1 validator verifies envelope/JWS offline (signature → structure → expiry) |
 
 ## 8. Success criteria (per release)
 
-1. `python -m pytest backend -q` green (currently **343**) and
+1. `python -m pytest backend -q` green (currently **362**) and
    `python -m pytest pam_master -q` green (**46**).
-2. Contract test green: **65** documented paths both directions, **37**
+2. Contract test green: **72** documented paths both directions, **40**
    admin operations carrying security schemes.
 3. Boundary verifiers green: smoke 17/17, `__verify_live.mjs`,
    `__verify_discovery.mjs`.
@@ -179,8 +191,8 @@ from the architecture doc, phase assigned in `IMPLEMENTATION_PLAN.md`:
 The full phase-wise backlog (4g → 6c), scope, dependencies and
 definition-of-done per phase live in **`docs/IMPLEMENTATION_PLAN.md`**;
 execution checkpoints are logged in
-`VY-PAM_MASTER_and_PAM_Workflow.md`. Next phase: **4g — §10 PAM Bypass
-Detection**, then 4h §17 Break Glass, 4i §20 Integrations.
+`VY-PAM_MASTER_and_PAM_Workflow.md`. Next phase: **4h — §17 Break
+Glass**, then 4i §20 Integrations, 4j §11 UEBA.
 
 ## 10. Target end-state (final output after full development)
 
@@ -200,6 +212,6 @@ DevOps and AI environments"*):
 | **Threat response** | Bypass detection, UEBA anomalies, and risk banding all drive the *real* response machinery — session cascade, forced rotation, incidents with preserved evidence |
 | **Integrations** | IAM, MFA, ITSM, SIEM, SOAR, EDR, cloud and DevSecOps connectors — each either verified working against a real endpoint or explicitly `not connected` |
 | **Scale** | §18 replicated deployment (load balancer, vault/audit replication, failover) with runbooks; single-node install remains Docker-free |
-| **Contracts** | `apis/openapi.yaml` (65 paths today, `—` at completion) enforced both-ways; vendor tool contract likewise; zero dark endpoints |
-| **Quality** | Backend suite (343 today) grows per phase with real counts recorded in READMEs; pam_master 46 stays green; smoke + both UI verifiers green at every boundary |
+| **Contracts** | `apis/openapi.yaml` (72 paths today, `—` at completion) enforced both-ways; vendor tool contract likewise; zero dark endpoints |
+| **Quality** | Backend suite (362 today) grows per phase with real counts recorded in READMEs; pam_master 46 stays green; smoke + both UI verifiers green at every boundary |
 | **Honesty invariant** | Unchanged and non-negotiable: every displayed number comes from an API at render time — the product never fabricates, complete or not |

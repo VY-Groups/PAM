@@ -1,7 +1,8 @@
 # VY-PAM — Deployment & Operations Runbook
 
-**Status:** as-built for Phase 4f (`110909f`)
-Docker exists **only** for developing the vendor tool. The shipped product
+**Status:** as-built for Phase 4g
+Docker exists **only** for development and runtime testing (vendor tool +
+license server). The shipped product
 installs directly on a machine — no VM, no container.
 
 ---
@@ -39,6 +40,16 @@ scheduler.
 
 **Verify:** `GET /health` → 200 with a real DB ping; open
 `http://127.0.0.1:5000/` → the 10-item console with live numbers.
+
+Development alternative (**runtime/real-time testing only**, never a
+shipping instruction): `backend/phase2_license_server/docker-compose.yml`
+builds a **dev-only** image from the repo root
+(`docker build -f backend/phase2_license_server/Dockerfile -t vypam-license-server:dev .`),
+maps **5010 → 5000** (the host dev server usually owns 5000), gives every
+`up` a fresh in-container database, and bakes throwaway signing keys per
+build — `.dockerignore` keeps `*.pem`/`*.key`/`.env`/`*.db` out of every
+build context. The same image runs the suite in its Linux runtime:
+`docker run --rm vypam-license-server:dev python -m pytest tests -q`.
 
 ## 3. Install — vendor tool (VY-PAM MASTER, internal only)
 
@@ -104,7 +115,7 @@ across the restored history).
 → start. Schema changes are additive and applied at boot by
 `ensure_schema()`; the one-time chain backfill and rule seeding never repeat.
 Run the boundary suites before exposing it: `python -m pytest backend -q`
-(expect **343**) and `python -m pytest pam_master -q` (**46**).
+(expect **362**) and `python -m pytest pam_master -q` (**46**).
 
 ## 7. Monitoring
 

@@ -1,0 +1,34 @@
+# DEV ONLY - phase-2 license server development environment.
+#
+# The shipped product installs directly on its target system; Docker exists
+# purely as a convenience for local development and real-time testing and is
+# never a deployment requirement (docs/DEPLOYMENT_RUNBOOK.md).
+#
+#   docker compose up --build
+# Health:  http://127.0.0.1:5010/health
+# API:     http://127.0.0.1:5010/api/v1  (admin token below, dev-only)
+#
+# Port 5010 is intentional: the host dev server (`python app.py`) usually
+# owns 5000, and both must be able to run side by side.
+# The database lives inside the container - every `up` starts from a fresh,
+# empty database, which is exactly what runtime testing wants.
+services:
+  license-server:
+    build:
+      context: ../..
+      dockerfile: backend/phase2_license_server/Dockerfile
+    ports:
+      - "5010:5000"
+    environment:
+      LICENSE_ADMIN_TOKEN: "dev-admin-token"
+      LICENSE_SECRET_KEY: "dev-only-do-not-use"
+      LICENSE_AUTOGENERATE_KEYS: "1"
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - "import urllib.request; urllib.request.urlopen('http://127.0.0.1:5000/health', timeout=3)"
+      interval: 15s
+      timeout: 5s
+      retries: 3

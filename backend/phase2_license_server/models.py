@@ -1270,3 +1270,140 @@ class AuditEvent(db.Model):
             "prev_hash": self.prev_hash,
             "event_hash": self.event_hash,
         }
+
+
+# ---------------------------------------------------------------------------
+# PAM bypass detection (architecture section 10)
+# ---------------------------------------------------------------------------
+# Correlation outcome for one parsed connection observation.
+BYPASS_SIGNAL_OBSERVED = "observed"        # ingested, not yet correlated
+BYPASS_SIGNAL_CANDIDATE = "candidate"      # managed target, no recorded session
+BYPASS_SIGNAL_COVERED = "covered"          # a recorded (through-PAM) session covers it
+BYPASS_SIGNAL_OUT_OF_SCOPE = "out_of_scope"  # target is not a managed PAM asset
+BYPASS_SIGNAL_STATUSES = (
+    BYPASS_SIGNAL_OBSERVED,
+    BYPASS_SIGNAL_CANDIDATE,
+    BYPASS_SIGNAL_COVERED,
+    BYPASS_SIGNAL_OUT_OF_SCOPE,
+)
+BYPASS_INCIDENT_STATUSES = ("open", "closed")
+
+
+class BypassSignal(db.Model):
+    """One connection observation parsed from real platform logs (§10).
+
+    Ingest feeds it (OpenSSH `Accepted …` lines or structured JSON records
+    from Windows/EDR/network exports); a correlation scan then decides
+    whether the target is a managed PAM asset and whether a recorded
+    privileged session covers the connection. The original line is kept as
+    evidence - it is never rewritten.
+    """
+
+    __tablename__ = "bypass_signals"
+
+    id = db.Column(db.Integer, primary_key=True)
+    created_at = db.Column(db.DateTime, nullable=False, default=datetime.now, index=True)
+    # when the connection happened: the line's own timestamp when it carried
+    # one, otherwise the ingest time (recorded in `detail.at_source`)
+    observed_at = db.Column(db.DateTime, nullable=False, default=datetime.now, index=True)
+    user = db.Column(db.String(128), nullable=False, index=True)
+    source_ip = db.Column(db.String(64), nullable=False, index=True)
+    target = db.Column(db.String(255), nullable=False, default="")
+    protocol = db.Column(db.String(16), nullable=False, default="unknown")
+    # which log bundle this came from (file name or api label)
+    origin = db.Column(db.String(128), nullable=False, default="api")
+    raw = db.Column(db.Text, nullable=False, default="")
+    status = db.Column(
+        db.String(16), nullable=False, default=BYPASS_SIGNAL_OBSERVED, index=True
+    )
+    # correlation notes: matched asset, covering session, reason
+    detail = db.Column(db.JSON, nullable=False, default=dict)
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "id": self.id,
+            "created_at": self.created_at.isoformat(),
+            "observed_at": self.observed_at.isoformat(),
+            "user": self.user,
+            "source_ip": self.source_ip,
+            "target": self.target,
+            "protocol": self.protocol,
+            "origin": self.origin,
+            "raw": self.raw,
+            "status": self.status,
+            "detail": self.detail or {},
+        }
+
+
+class BypassIncident(db.Model):
+    """A managed target reached outside any recorded session (§10).
+
+    Creating one carries the architecture's response: alert SOC (the ledger
+    record itself), force credential rotation (the real §5 pipeline), and
+    block source - recorded honestly as `not_connected` until an
+    enforcement connector exists.
+    """
+
+    __tablename__ = "bypass_incidents"
+
+    id = db.Column(db.Integer, primary_key=True)
+    created_at = db.Column(db.DateTime, nullable=False, default=datetime.now, index=True)
+    incident_ref = db.Column(db.String(32), nullable=False, unique=True, index=True)
+    signal_id = db.Column(db.Integer, nullable=False, index=True)
+    user = db.Column(db.String(128), nullable=False, default="")
+    source_ip = db.Column(db.String(64), nullable=False, default="")
+    target = db.Column(db.String(255), nullable=False, default="")
+    protocol = db.Column(db.String(16), nullable=False, default="unknown")
+    observed_at = db.Column(db.DateTime, nullable=True)
+    status = db.Column(
+        db.String(16), nullable=False, default=BYPASS_INCIDENT_STATUSES[0], index=True
+    )
+    # the ACTION block: alert / rotation / block_source outcomes
+    actions = db.Column(db.JSON, nullable=False, default=dict)
+    closed_by = db.Column(db.String(64), nullable=True)
+    closed_at = db.Column(db.DateTime, nullable=True)
+    close_note = db.Column(db.String(255), nullable=False, default="")
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "id": self.id,
+            "incident_ref": self.incident_ref,
+            "signal_id": self.signal_id,
+            "user": self.user,
+            "source_ip": self.source_ip,
+            "target": self.target,
+            "protocol": self.protocol,
+            "observed_at": self.observed_at.isoformat() if self.observed_at else None,
+            "status": self.status,
+            "actions": self.actions or {},
+            "closed_by": self.closed_by,
+            "closed_at": self.closed_at.isoformat() if self.closed_at else None,
+            "close_note": self.close_note,
+            "created_at": self.created_at.isoformat(),
+        }
+
+
+class BypassEvent(db.Model):
+    """Module action log for §10: log ingestions, correlation scans,
+    detections and incident closes - folded into the §19 ledger as the
+    ninth source (`bypass`). Individual signal rows stay evidence, not
+    actions, so the ledger records what the product *did*."""
+
+    __tablename__ = "bypass_events"
+
+    id = db.Column(db.Integer, primary_key=True)
+    created_at = db.Column(db.DateTime, nullable=False, default=datetime.now, index=True)
+    action = db.Column(db.String(32), nullable=False)
+    actor = db.Column(db.String(64), nullable=False, default="system")
+    subject = db.Column(db.String(160), nullable=False, default="")
+    detail = db.Column(db.JSON, nullable=False, default=dict)
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "id": self.id,
+            "action": self.action,
+            "actor": self.actor,
+            "subject": self.subject,
+            "detail": self.detail or {},
+            "created_at": self.created_at.isoformat(),
+        }

@@ -1,6 +1,6 @@
 # VY-PAM — Testing & QA Strategy
 
-**Status:** as-built for Phase 4f (`110909f`)
+**Status:** as-built for Phase 4g
 Every number below was collected from the real suite at this commit.
 
 ---
@@ -9,7 +9,7 @@ Every number below was collected from the real suite at this commit.
 
 | Suite | File | Tests |
 |---|---|---|
-| **Backend total** | `python -m pytest backend -q` | **343** |
+| **Backend total** | `python -m pytest backend -q` | **362** |
 | ├ licensing core | `backend/ipam_licensing/test_license_core.py` | 46 |
 | ├ licensing spec | `backend/ipam_licensing/test_license_spec.py` | 35 |
 | ├ licensing bridge | `backend/ipam_licensing/test_licensing.py` | 1 |
@@ -23,6 +23,7 @@ Every number below was collected from the real suite at this commit.
 | ├ command control | `…/tests/test_command_control.py` | 18 |
 | ├ audit ledger | `…/tests/test_audit.py` | 19 |
 | ├ risk engine (4f) | `…/tests/test_risk.py` | 19 |
+| ├ bypass detection (4g) | `…/tests/test_bypass.py` | 19 |
 | └ OpenAPI contract | `…/tests/test_openapi_contract.py` | 5 |
 | **Vendor tool total** | `python -m pytest pam_master -q` | **46** |
 | ├ registry (encrypted PII) | `pam_master/tests/test_registry.py` | 15 |
@@ -31,9 +32,9 @@ Every number below was collected from the real suite at this commit.
 | └ vendor OpenAPI contract | `pam_master/tests/test_openapi_contract.py` | 6 |
 
 Contract test asserts (5): documented ⇄ implemented routes both directions,
-security schemes on **37** admin operations, enums ⇄ code constants,
-required `info`/tags (11), and live response shapes ⇄ schemas — currently
-**65 paths**.
+security schemes on **40** admin operations, enums ⇄ code constants,
+required `info`/tags (12), and live response shapes ⇄ schemas — currently
+**72 paths**.
 
 ## 2. Test design rules
 
@@ -60,7 +61,13 @@ required `info`/tags (11), and live response shapes ⇄ schemas — currently
 - Risk `user` component = 5 per prior critical → seed **two** prior criticals
   to reach cap 10.
 - Assert `set(state["by_source"]) == set(audit.AUDIT_SOURCES)` after any
-  feature adds a source (4f added `risk` as the 8th).
+  feature adds a source (4f added `risk` as the 8th, 4g added `bypass` as
+  the 9th).
+- Asset registration (`POST /discovery/assets`) ingests the admin
+  credential **in the same call** — a managed target always has a vault
+  item, so §10 rotation assertions expect `rotated`; hit `skipped` by
+  checking the credential out first (and `no_credential_on_file` only by
+  removing the item at model level).
 
 ## 3. UI verification (`shots_tool/`)
 
@@ -77,7 +84,7 @@ a fullPage path.
 ## 4. Boundary regression (run before every commit)
 
 ```powershell
-python -X utf8 -m pytest backend -q          # 343
+python -X utf8 -m pytest backend -q          # 362
 python -X utf8 -m pytest pam_master -q       # 46
 python -X utf8 -m pytest backend\phase2_license_server\tests\test_openapi_contract.py -q   # 5
 # boundary smoke (Temp\opencode\smoke_restructure.py): 17/17

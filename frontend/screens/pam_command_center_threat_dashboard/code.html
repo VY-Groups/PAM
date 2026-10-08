@@ -394,6 +394,58 @@
 </div>
 </div>
 </div>
+<!-- PAM Bypass Detection (architecture section 10) -->
+<section class="mt-space-xl bg-surface-container-lowest rounded-xl p-space-lg shadow-sm flex flex-col gap-space-md" data-role="bypass-section">
+<div class="flex items-center justify-between flex-wrap gap-space-sm">
+<div class="flex items-center gap-space-sm">
+<span class="material-symbols-outlined text-error text-[22px]">link_off</span>
+<h2 class="font-headline-md text-headline-md text-on-surface">PAM Bypass Detection</h2>
+</div>
+<span class="inline-flex items-center gap-1 px-2 py-0.5 rounded font-label-badge text-label-badge bg-surface-container text-on-surface-variant font-semibold" data-role="bypass-status">&mdash;</span>
+</div>
+<p class="font-body-sm text-body-sm text-on-surface-variant">Direct access that skipped the gateway (architecture section 10). Real auth-log lines are ingested as evidence, then correlated against the managed inventory and the recorded privileged sessions; a managed target reached outside any recorded session opens an incident that forces credential rotation through the vault pipeline.</p>
+<!-- Live aggregates -->
+<div class="grid grid-cols-2 sm:grid-cols-4 gap-space-md">
+<div class="rounded-lg bg-surface-container p-space-sm flex flex-col gap-1">
+<span class="font-label-md text-label-md text-on-surface-variant">Signals ingested</span>
+<span class="font-headline-md text-headline-md text-on-surface font-semibold" data-role="bypass-signals">&mdash;</span>
+</div>
+<div class="rounded-lg bg-surface-container p-space-sm flex flex-col gap-1">
+<span class="font-label-md text-label-md text-on-surface-variant">Open incidents</span>
+<span class="font-headline-md text-headline-md text-on-surface font-semibold" data-role="bypass-open">&mdash;</span>
+</div>
+<div class="rounded-lg bg-surface-container p-space-sm flex flex-col gap-1">
+<span class="font-label-md text-label-md text-on-surface-variant">Forced rotations</span>
+<span class="font-headline-md text-headline-md text-on-surface font-semibold" data-role="bypass-rotations">&mdash;</span>
+</div>
+<div class="rounded-lg bg-surface-container p-space-sm flex flex-col gap-1">
+<span class="font-label-md text-label-md text-on-surface-variant">Last correlation scan</span>
+<span class="font-code-sm text-code-sm text-on-surface font-semibold" data-role="bypass-last">&mdash;</span>
+</div>
+</div>
+<div class="grid grid-cols-1 lg:grid-cols-2 gap-space-md">
+<!-- Log ingest -->
+<div class="flex flex-col gap-space-sm rounded-lg bg-surface-container p-space-sm">
+<span class="font-label-md text-label-md text-on-surface-variant">Ingest platform auth logs</span>
+<input data-role="bypass-origin" maxlength="128" class="w-full px-3 py-1.5 rounded bg-surface-container-low text-on-surface font-code-sm text-code-sm focus:outline-none" type="text" placeholder="origin: prod-db01-auth.log"/>
+<input data-role="bypass-target" maxlength="255" class="w-full px-3 py-1.5 rounded bg-surface-container-low text-on-surface font-code-sm text-code-sm focus:outline-none" type="text" placeholder="bundle target host/IP (for OpenSSH lines)"/>
+<textarea data-role="bypass-content" rows="4" maxlength="200000" class="w-full p-2.5 rounded bg-surface-container-low text-on-surface font-code-sm text-code-sm focus:ring-1 focus:ring-primary focus:outline-none resize-none" placeholder="Accepted password for admin01 from 10.10.5.20 port 22 ssh2&#10;{&quot;user&quot;: &quot;dba&quot;, &quot;source_ip&quot;: &quot;10.20.30.41&quot;, &quot;target&quot;: &quot;10.77.0.9&quot;, &quot;protocol&quot;: &quot;rdp&quot;}"></textarea>
+<div class="flex items-center gap-space-sm flex-wrap">
+<button type="button" data-role="bypass-ingest" class="px-space-md py-2 rounded-lg bg-primary text-on-primary font-label-md text-label-md transition-all shadow-sm font-semibold tracking-wide">Ingest bundle</button>
+<button type="button" data-role="bypass-scan" class="px-space-md py-2 rounded-lg bg-surface-container hover:bg-surface-container-low text-primary font-label-md text-label-md transition-all shadow-sm font-semibold tracking-wide">Run correlation scan</button>
+</div>
+<p class="font-code-sm text-code-sm text-on-surface-variant" data-role="bypass-msg">&mdash;</p>
+</div>
+<!-- Detected direct access -->
+<div class="flex flex-col gap-space-sm rounded-lg bg-surface-container p-space-sm">
+<span class="font-label-md text-label-md text-on-surface-variant">Detected direct access</span>
+<div class="flex flex-col gap-space-sm" data-role="bypass-incidents">
+<p class="font-body-sm text-body-sm text-outline" data-role="bypass-empty">No incidents recorded.</p>
+</div>
+</div>
+</div>
+<p class="font-body-sm text-body-sm text-on-surface-variant flex items-center gap-1"><span class="material-symbols-outlined text-[14px]">block</span> Block source: not connected &mdash; no firewall/EDR enforcement connector is configured; alerting and forced rotation run, source blocking stays an integration.</p>
+</section>
 <script>
   // Emergency Lockdown: revokes every active credential checkout for real.
   document.getElementById('btn-lockdown')?.addEventListener('click', async function () {
@@ -668,6 +720,185 @@
         setSync('Sync: not connected');
         fillFooter(null);
       }
+    }
+
+    load();
+  })();
+
+  // ---------------------------------------------------------------------------
+  // PAM bypass detection (architecture section 10): stats and the incident
+  // list load once at boot; ingest, scan and close post on click only.
+  // file:// or API-down keep honest dashes and disabled actions - this
+  // section never claims detection work that did not run.
+  // ---------------------------------------------------------------------------
+  (function () {
+    const ROOT = location.protocol === 'file:' ? '' : '/';
+    const API = ROOT + 'api/v1';
+    const TOKEN_KEY = 'aegispam_admin_token';
+    const DASH = '\u2014';
+    const FILE_MODE = ROOT === '';
+
+    const section = document.querySelector('[data-role="bypass-section"]');
+    if (!section) return;
+    const f = (role) => section.querySelector('[data-role="' + role + '"]');
+
+    const esc = (value) => {
+      const div = document.createElement('div');
+      div.textContent = value == null ? '' : String(value);
+      return div.innerHTML;
+    };
+
+    const headers = () => {
+      const token = sessionStorage.getItem(TOKEN_KEY)
+        || localStorage.getItem(TOKEN_KEY) || '';
+      const out = {
+        'Content-Type': 'application/json',
+        'X-Actor': 'command-center-ui',
+      };
+      if (token) out['X-Admin-Token'] = token;
+      return out;
+    };
+
+    const stamp = (iso) => {
+      if (!iso) return DASH;
+      const time = String(iso).split('T')[1];
+      return time ? time.slice(0, 8) : String(iso);
+    };
+
+    const setActions = (enabled) => {
+      ['bypass-ingest', 'bypass-scan'].forEach((role) => {
+        const el = f(role);
+        if (el) el.disabled = !enabled;
+      });
+    };
+
+    function renderIncidents(rows) {
+      const box = f('bypass-incidents');
+      if (!box) return;
+      if (!rows || !rows.length) {
+        box.innerHTML = '<p class="font-body-sm text-body-sm text-outline">'
+          + (FILE_MODE
+            ? 'file:// preview - start the license server to record incidents.'
+            : 'No direct-access incidents recorded.')
+          + '</p>';
+        return;
+      }
+      box.innerHTML = rows.slice(0, 8).map((row) => {
+        const rotation = (row.actions && row.actions.rotation) || {};
+        const closed = row.status === 'closed';
+        return '<div class="rounded bg-surface-container-low p-2 flex flex-col gap-1">'
+          + '<div class="flex items-center justify-between gap-2">'
+          + '<span class="font-code-sm text-code-sm font-semibold '
+          + (closed ? 'text-outline' : 'text-error') + '">'
+          + esc(row.incident_ref) + (closed ? ' (closed)' : '') + '</span>'
+          + (closed ? ''
+            : '<button type="button" data-role="close" data-id="' + esc(row.id)
+              + '" class="px-2 py-1 rounded bg-surface-container hover:bg-surface-container-highest text-on-surface font-label-md text-label-md">Close</button>')
+          + '</div>'
+          + '<div class="font-body-sm text-body-sm text-on-surface">'
+          + esc(row.user) + ' via ' + esc(row.source_ip) + ' &rarr; '
+          + esc(row.target) + ' (' + esc(row.protocol) + ')</div>'
+          + '<div class="font-code-sm text-code-sm text-on-surface-variant">rotation: '
+          + esc(rotation.status || DASH) + ' &middot; alert: ledger &middot; block: not connected</div>'
+          + '</div>';
+      }).join('');
+      box.querySelectorAll('[data-role="close"]').forEach((btn) => {
+        btn.addEventListener('click', () => closeIncident(btn.getAttribute('data-id')));
+      });
+    }
+
+    async function load() {
+      try {
+        const [statsRes, listRes] = await Promise.all([
+          fetch(API + '/bypass/stats'),
+          fetch(API + '/bypass/incidents?limit=8'),
+        ]);
+        if (!statsRes.ok || !listRes.ok) {
+          throw new Error('bypass -> ' + statsRes.status + '/' + listRes.status);
+        }
+        const stats = await statsRes.json();
+        const page = await listRes.json();
+        const put = (role, text) => { const el = f(role); if (el) el.textContent = text; };
+        put('bypass-signals', stats.signals.total);
+        put('bypass-open', stats.incidents.open);
+        put('bypass-rotations', stats.rotations_forced);
+        put('bypass-last', stamp(stats.last_scan_at) !== DASH
+          ? stamp(stats.last_scan_at)
+          : stamp(stats.last_ingest_at));
+        put('bypass-status', 'LIVE');
+        put('bypass-msg', stats.actions.ingested
+          ? stats.actions.detected + ' incident(s) from '
+            + stats.actions.scanned + ' correlation scan(s)'
+          : 'No log bundle ingested yet.');
+        renderIncidents(page.incidents);
+        setActions(true);
+      } catch (err) {
+        console.warn('Bypass detection unreachable:', err);
+        const msg = f('bypass-msg');
+        if (msg) msg.textContent = 'Detection API unreachable - no claims shown.';
+        setActions(false);
+      }
+    }
+
+    async function post(path, body, okLabel) {
+      try {
+        const res = await fetch(API + path, {
+          method: 'POST',
+          headers: headers(),
+          body: JSON.stringify(body || {}),
+        });
+        const json = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(json.error || 'HTTP ' + res.status);
+        const msg = f('bypass-msg');
+        if (msg) msg.textContent = json.message || okLabel;
+        await load();
+      } catch (err) {
+        const msg = f('bypass-msg');
+        if (msg) {
+          msg.textContent = 'Request failed: '
+            + (err && err.message ? err.message : err);
+        }
+      }
+    }
+
+    function closeIncident(id) {
+      return post('/bypass/incidents/' + id + '/close',
+        { note: 'closed from Command Center' }, 'Incident closed');
+    }
+
+    if (FILE_MODE) {
+      const status = f('bypass-status');
+      if (status) status.textContent = 'file:// preview';
+      const msg = f('bypass-msg');
+      if (msg) {
+        msg.textContent = 'file:// mode: start the license server to ingest logs and run scans.';
+      }
+      setActions(false);
+      renderIncidents([]);
+      return;
+    }
+
+    const ingestBtn = f('bypass-ingest');
+    if (ingestBtn) {
+      ingestBtn.addEventListener('click', () => {
+        const origin = (f('bypass-origin').value || '').trim();
+        const content = f('bypass-content').value || '';
+        const msg = f('bypass-msg');
+        if (!origin || !content.trim()) {
+          if (msg) msg.textContent = 'Origin and log content are both required.';
+          return;
+        }
+        post('/bypass/ingest', {
+          origin: origin,
+          target: (f('bypass-target').value || '').trim(),
+          content: content,
+        }, 'Ingested');
+      });
+    }
+
+    const scanBtn = f('bypass-scan');
+    if (scanBtn) {
+      scanBtn.addEventListener('click', () => post('/bypass/scans', {}, 'Scan finished'));
     }
 
     load();
