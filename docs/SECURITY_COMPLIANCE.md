@@ -1,6 +1,6 @@
 # VY-PAM — Security & Compliance Overview
 
-**Status:** as-built for Phase 4f (`110909f`)
+**Status:** as-built for Phase 4h
 States what the platform **actually enforces today** — implemented controls
 are described with their evidence; gaps are named plainly.
 
@@ -66,7 +66,7 @@ token or explicit open dev mode), (c) runtime↔disk (encrypted secrets),
 
 ## 4. Authentication & accountability
 
-- **40 admin operations** carry security schemes in `openapi.yaml`
+- **45 admin operations** carry security schemes in `openapi.yaml`
   (contract-tested) — they require `Bearer`/`X-Admin-Token` whenever
   `LICENSE_ADMIN_TOKEN` is set.
 - **Open dev mode is loud, never silent:** responses carry
@@ -88,7 +88,7 @@ token or explicit open dev mode), (c) runtime↔disk (encrypted secrets),
 | Ordered | `seq` unique, ascending | `test_audit.py` chain walk |
 | Chained | `prev_hash` → `event_hash = sha256(canonical record)`, genesis `0`×64 | verify endpoint recompute |
 | Append-only | SQLite triggers abort `UPDATE`/`DELETE` with `'audit_events is append-only (architecture 19)'` | trigger tests |
-| Complete coverage | 9 sources (`license settings vault discovery jit session command risk bypass`); mapper-coverage test fails if any event model lacks a mapper | `MAPPERS` ⇄ models ⇄ `by_source` assertions |
+| Complete coverage | 10 sources (`license settings vault discovery jit session command risk bypass break-glass`); mapper-coverage test fails if any event model lacks a mapper | `MAPPERS` ⇄ models ⇄ `by_source` assertions |
 | Detect, don't repair | tampering is **reported** (`first break` index), never silently fixed | forged-insert test |
 | Portable evidence | `/audit/verify`, `/audit/export` NDJSON in chain order | contract + audit tests |
 
@@ -110,12 +110,12 @@ with per-event `seq` and custody watermarks.
 
 | Control theme | Status | Where |
 |---|---|---|
-| Logical access — least privilege on admin APIs | ✅ (token mode) | 40 secured operations, contract-tested |
+| Logical access — least privilege on admin APIs | ✅ (token mode) | 45 secured operations, contract-tested |
 | Logical access — dev-mode transparency | ✅ explicit | `X-Auth-Mode: open`, posture violation logged |
 | Encryption of secrets at rest | ✅ | AES-256-GCM vault versions |
 | Change management — config change log | ✅ | `settings_events` per-field diffs |
 | Audit logging — immutable, reviewable | ✅ | hash chain + triggers + verify/export |
-| Segregation of duties | ✅ for JIT/commands | requester ≠ approver; approval rows |
+| Segregation of duties | ✅ for JIT/commands/break-glass | requester ≠ approver; approval rows; two distinct break-glass signatures |
 | Key management — custody + rotation | ✅ partial | vault key rotation; license key = manual reissue (no HSM) |
 | Incident response evidence | ✅ | incidents + preserved session events |
 | PAM bypass detection (§10) | ✅ | verbatim auth-log evidence → correlation vs inventory + sessions → incident with forced rotation; ledger `bypass` |
@@ -123,7 +123,7 @@ with per-event `seq` and custody watermarks.
 | Geo-IP / UEBA behavioral analytics | ⛔ | `location` = `is_global` only; `behavior` = local events only |
 | TLS in transit | ⛔ at app layer | terminate at reverse proxy (see runbook) |
 | HA / DR | ⛔ | single-node SQLite |
-| Break-glass emergency workflow | ⛔ | §17 static screen |
+| Break-glass emergency workflow (§17) | ✅ | dual approval (requester excluded) → recorded session → forced rotation at close; ledger `break-glass` |
 | SIEM streaming | ⚠️ seam only | NDJSON export (pull), no live webhook (§20) |
 
 ## 8. Gap closure plan (target posture — see `IMPLEMENTATION_PLAN.md`)
@@ -133,7 +133,6 @@ reported as missing — never as partial-good.
 
 | Gap today | Closes in | Target state |
 |---|---|---|
-| Break-glass not implemented (§17) | 4h | Dual-approval emergency path, forced recording, forced rotation, auditable end-to-end (screen static → live) |
 | MFA not enforced (`mfa` band advisory only) | 4i | RFC-6238 TOTP verified for real; medium-risk starts require a valid code |
 | ITSM tickets shape-only (§7 `ticket`) | 4i | Real ServiceNow/Jira verification when configured; verified flag in the score |
 | SIEM = pull-only NDJSON seam (§20) | 4i | Outbound signed webhook push when configured; `not connected` otherwise |

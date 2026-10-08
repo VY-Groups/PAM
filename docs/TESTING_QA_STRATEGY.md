@@ -1,6 +1,6 @@
 # VY-PAM — Testing & QA Strategy
 
-**Status:** as-built for Phase 4g
+**Status:** as-built for Phase 4h
 Every number below was collected from the real suite at this commit.
 
 ---
@@ -9,7 +9,7 @@ Every number below was collected from the real suite at this commit.
 
 | Suite | File | Tests |
 |---|---|---|
-| **Backend total** | `python -m pytest backend -q` | **362** |
+| **Backend total** | `python -m pytest backend -q` | **384** |
 | ├ licensing core | `backend/ipam_licensing/test_license_core.py` | 46 |
 | ├ licensing spec | `backend/ipam_licensing/test_license_spec.py` | 35 |
 | ├ licensing bridge | `backend/ipam_licensing/test_licensing.py` | 1 |
@@ -24,6 +24,7 @@ Every number below was collected from the real suite at this commit.
 | ├ audit ledger | `…/tests/test_audit.py` | 19 |
 | ├ risk engine (4f) | `…/tests/test_risk.py` | 19 |
 | ├ bypass detection (4g) | `…/tests/test_bypass.py` | 19 |
+| ├ break-glass (4h) | `…/tests/test_break_glass.py` | 22 |
 | └ OpenAPI contract | `…/tests/test_openapi_contract.py` | 5 |
 | **Vendor tool total** | `python -m pytest pam_master -q` | **46** |
 | ├ registry (encrypted PII) | `pam_master/tests/test_registry.py` | 15 |
@@ -32,9 +33,9 @@ Every number below was collected from the real suite at this commit.
 | └ vendor OpenAPI contract | `pam_master/tests/test_openapi_contract.py` | 6 |
 
 Contract test asserts (5): documented ⇄ implemented routes both directions,
-security schemes on **40** admin operations, enums ⇄ code constants,
-required `info`/tags (12), and live response shapes ⇄ schemas — currently
-**72 paths**.
+security schemes on **45** admin operations, enums ⇄ code constants,
+required `info`/tags (13), and live response shapes ⇄ schemas — currently
+**79 paths / 88 operations**.
 
 ## 2. Test design rules
 
@@ -62,18 +63,27 @@ required `info`/tags (12), and live response shapes ⇄ schemas — currently
   to reach cap 10.
 - Assert `set(state["by_source"]) == set(audit.AUDIT_SOURCES)` after any
   feature adds a source (4f added `risk` as the 8th, 4g added `bypass` as
-  the 9th).
+  the 9th, 4h added `break-glass` as the 10th).
 - Asset registration (`POST /discovery/assets`) ingests the admin
   credential **in the same call** — a managed target always has a vault
   item, so §10 rotation assertions expect `rotated`; hit `skipped` by
   checking the credential out first (and `no_credential_on_file` only by
   removing the item at model level).
 
+### Fixture lessons worth repeating (from 4h)
+
+- Error responses serialize as `{"error": …, "details": …}` — assert
+  `["error"]`, never `["message"]`.
+- `from flask import request` shadows the service's `request` variable in
+  route handlers — use a local name (`req`) when both are needed.
+- YAML flow mappings (`{…}`) reject an unquoted `": "` inside a plain
+  scalar — quote any description containing a colon.
+
 ## 3. UI verification (`shots_tool/`)
 
 | Script | What it proves |
 |---|---|
-| `__verify_live.mjs` | **7 live screens** render with real API data over HTTP **and** honest `file://` fallback; sweeps the DOM for FORBIDDEN fabricated strings (exact pairs like `'Showing 5 of 2,875'`; a bare `'Showing 5 of'` is *not* forbidden — live pagination may honestly show `Showing 5 of 5 items`) |
+| `__verify_live.mjs` | **8 live screens** render with real API data over HTTP **and** honest `file://` fallback; sweeps the DOM for FORBIDDEN fabricated strings (exact pairs like `'Showing 5 of 2,875'`; a bare `'Showing 5 of'` is *not* forbidden — live pagination may honestly show `Showing 5 of 5 items`) |
 | `__verify_discovery.mjs` | discovery screen flows (scan/adopt/filter against a throwaway server) |
 | `__shots.mjs` / `__debug_screen.mjs` | pre-existing capture/debug helpers (kept) |
 
@@ -84,7 +94,7 @@ a fullPage path.
 ## 4. Boundary regression (run before every commit)
 
 ```powershell
-python -X utf8 -m pytest backend -q          # 362
+python -X utf8 -m pytest backend -q          # 384
 python -X utf8 -m pytest pam_master -q       # 46
 python -X utf8 -m pytest backend\phase2_license_server\tests\test_openapi_contract.py -q   # 5
 # boundary smoke (Temp\opencode\smoke_restructure.py): 17/17
@@ -137,8 +147,6 @@ Each pending phase adds a test file and grows the contract — **counts are
 
 | Phase | New suite | Contract impact |
 |---|---|---|
-| 4g §10 | `tests/test_bypass.py` | +bypass paths; `AUDIT_SOURCES` 8 → 9 |
-| 4h §17 | `tests/test_break_glass.py` | +break-glass paths; source +1 (order depends on 4g) |
 | 4i §20 | `tests/test_integrations.py` | +mfa/itsm/siem/ldap paths; external calls tested against local stub servers (real HTTP, never mocked domain logic) |
 | 4j §11 | `tests/test_ueba.py` | +baseline paths / evaluation schema additions |
 | 4k §12 | `tests/test_watermark.py` | additive session schema assertions |

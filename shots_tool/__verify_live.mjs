@@ -18,6 +18,7 @@ const SCREENS = [
   'jit_access_ephemeral_approvals',
   'live_session_recording_inspection_hub',
   'policy_zero_trust_rules_engine',
+  'break_glass_emergency_protocol',
 ];
 
 const FORBIDDEN = [
@@ -77,6 +78,21 @@ const FORBIDDEN = [
   'Highest Risk Intercepts', 'Destructive Pattern', 'TTL & Revocation',
   'Device & Posture', 'Quorum & Dual-Control', 'Command Intercepts',
   '4 of 42', 'mTLS Enforced',
+  // break-glass (4h) design values, replaced by the live console
+  'Shamir', '3-of-5', 'Ernst & Young', 'Signed off by CISO',
+  'INC-8812', 'INC-7409', 'INC-6110', '#EPHEM-0x9F3E', '(HSM): LEVEL 4',
+  'LEVEL 4 HSM', 'YubiKey 5 FIPS', '42 days ago', 'PD-9921',
+  'Global SSO authentication mesh', 'PagerDuty', 'War Room', 'IronMountain',
+  'TWOFISH', 'Quorum Custodians', 'HSM Nonce', 'TRNG', 'PCAP',
+  'Export Audit Bundle', 'prod-us-east-kms', 'global-root-ca-01',
+  '1/3 SHARES', 'Unseal Blocked', 'machine hardware fingerprint',
+  'RFC1918', 'SHA-384', 'Okta Outage Drill', '100% Attested',
+  'Maria Ramos', 'David K.', 'Emergency Ticket Reference', 'Forensic Rationale',
+  'STANDBY STATE', 'ISOLATED ENCLAVE', 'Validate Dispatch Channels',
+  'Cryptographic Reconstruction', 'Vault Master Key Split',
+  'Last Unseal Event', 'Historical Audit Status', 'Zero-Knowledge Root',
+  'Confirm Emergency Break-Glass Unseal', 'Recent Emergency & Drill Log History',
+  'Split-K', 'SIMULATION', 'catastrophic',
 ];
 
 const failures = [];

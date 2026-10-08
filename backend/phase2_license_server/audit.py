@@ -32,6 +32,7 @@ from extensions import db
 from models import (
     AUDIT_GENESIS_HASH,
     AuditEvent,
+    BreakGlassEvent,
     BypassEvent,
     CommandIncident,
     DiscoveryEvent,
@@ -44,7 +45,7 @@ from models import (
     VaultEvent,
 )
 
-# the nine trails folded into the ledger (the unified feed reads these)
+# the ten trails folded into the ledger (the unified feed reads these)
 AUDIT_SOURCES = (
     "license",
     "settings",
@@ -55,6 +56,7 @@ AUDIT_SOURCES = (
     "command",
     "risk",
     "bypass",
+    "break-glass",
 )
 SOURCE_RANK = {name: index for index, name in enumerate(AUDIT_SOURCES)}
 
@@ -327,6 +329,22 @@ def _map_bypass(event: BypassEvent, db_session) -> Dict[str, Any]:
     )
 
 
+def _map_break_glass(event: BreakGlassEvent, db_session) -> Dict[str, Any]:
+    """Requests, approval signatures, denials, unseals and closes under the
+    tenth trail `break-glass` (architecture section 17) - the auditable
+    trail of the emergency process itself."""
+    return _entry(
+        source="break-glass",
+        event_ref=f"break-glass:{event.id}",
+        action=_value(event, "action"),
+        actor=_value(event, "actor"),
+        subject=_value(event, "subject"),
+        detail=_value(event, "detail") or {},
+        created_at=event.created_at,
+        sort_id=event.id,
+    )
+
+
 # every event model that must reach the ledger, in a stable backfill order
 LEDGER_MODELS = (
     LicenseEvent,
@@ -338,6 +356,7 @@ LEDGER_MODELS = (
     CommandIncident,
     RiskEvent,
     BypassEvent,
+    BreakGlassEvent,
 )
 
 MAPPERS = {
@@ -350,6 +369,7 @@ MAPPERS = {
     CommandIncident: _map_incident,
     RiskEvent: _map_risk_evaluation,
     BypassEvent: _map_bypass,
+    BreakGlassEvent: _map_break_glass,
 }
 
 

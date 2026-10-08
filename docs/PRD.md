@@ -1,6 +1,6 @@
 # VY-PAM — Product Requirements Document (PRD)
 
-**Status:** as-built for Phase 4f (`110909f`)
+**Status:** as-built for Phase 4h
 **Source of truth:** `VY-PAM_Enterprise_PAM_Architecture.md` (requirements) and
 `VY-PAM_MASTER_and_PAM_Workflow.md` (phase checkpoints)
 **Companion docs:** `TRD.md`, `PAM_FLOW.md`, `UI_UX_DESIGN_BRIEF.md`,
@@ -70,10 +70,11 @@ never drift apart.
 | 8 | §8 Privileged Session Management | Start against credential or grant, append-only recorded events with custody watermarks, 7 control flags, pause/lock/resume, release-and-rotate cascade on end | Built | 12 session paths, `test_sessions.py` (23) |
 | 9 | §9 Command Control | Default-allow engine, shipped §9 rules (15, seeded once), block → approval → allow, dry-run, approval queue, incidents with preserved evidence | Built | 8 command-control paths, `test_command_control.py` (18) |
 | 10 | §10 PAM Bypass Detection | Real auth-log/JSON ingest → verbatim observations, correlation against managed inventory + recorded sessions, incidents with alert + forced rotation (real §5 pipeline) + honest `block_source` | Built | 7 bypass paths, `test_bypass.py` (19) |
-| 11 | §19 Immutable Audit Architecture | Hash-chained append-only ledger over 9 module trails, SQLite triggers, boot backfill, verify walk, NDJSON export | Built | 3 audit paths, `test_audit.py` (19) |
-| 12 | §21 Admin Dashboard | Command Center overview (health, posture, counters, recent activity) + Compliance center (digest, verify, per-trail filter, export) | Built | `GET /overview`, `GET /events` |
-| 13 | Product delivery | Console: 10-item sidebar, launcher, 9 screens live against real APIs, honest `file://` fallback | Built | `frontend/`, verifiers in `shots_tool/` |
-| 14 | Vendor side | VY-PAM MASTER: encrypted customer registry, signed issuance/renewal, delivery bundles, own audit + own OpenAPI contract | Built | `pam_master/` (46 tests) |
+| 11 | §17 Break Glass | Emergency request → dual approval (two distinct approvers, requester excluded) → recorded session releasing a real vault credential → forced rotation + required review at close, itself on the ledger | Built | 7 break-glass paths / 8 ops, `test_break_glass.py` (22) |
+| 12 | §19 Immutable Audit Architecture | Hash-chained append-only ledger over 10 module trails, SQLite triggers, boot backfill, verify walk, NDJSON export | Built | 3 audit paths, `test_audit.py` (19) |
+| 13 | §21 Admin Dashboard | Command Center overview (health, posture, counters, recent activity) + Compliance center (digest, verify, per-trail filter, export) | Built | `GET /overview`, `GET /events` |
+| 14 | Product delivery | Console: 10-item sidebar, launcher, 10 screens live against real APIs, honest `file://` fallback | Built | `frontend/`, verifiers in `shots_tool/` |
+| 15 | Vendor side | VY-PAM MASTER: encrypted customer registry, signed issuance/renewal, delivery bundles, own audit + own OpenAPI contract | Built | `pam_master/` (46 tests) |
 
 ## 5. Scope — explicitly NOT built yet (pending requirements)
 
@@ -89,7 +90,6 @@ from the architecture doc, phase assigned in `IMPLEMENTATION_PLAN.md`:
 | §14 Cloud PAM | AWS/Azure/GCP/Kubernetes connectors; K8s *RBAC → JIT → ephemeral privilege → audit* | Not started | 5b |
 | §15 DevSecOps PAM | CI/CD JIT credential broker (Jenkins/GitLab/GitHub/Terraform/Ansible/ArgoCD) — **no static secrets in pipelines** | Not started | 5c |
 | §16 AI-Agent PAM | Agent identity → task verification → risk → JIT credential → task-scoped command restrictions → monitoring → expiry | Not started | 5d |
-| §17 Break Glass | *emergency auth → MFA → dual approval → emergency credential → recorded session → alert → rotation → post-incident review*, itself auditable | **Static screen only** (`data-kind="static"`) | 4h |
 | §18 HA / DC / DR | Active-active/passive, load balancer, vault/audit/session replication, failover, health checks | Not started (SQLite single-node today) | 6a |
 | §20 Enterprise Integrations | IAM/MFA/ITSM/SIEM/SOAR/EDR connectors — real verification/push when configured, `not connected` otherwise | Not started (NDJSON export is the only seam) | 4i |
 | RBAC / ABAC | Multi-role model over the admin operations (single admin token today) | Not started | 6b |
@@ -165,20 +165,20 @@ from the architecture doc, phase assigned in `IMPLEMENTATION_PLAN.md`:
 
 | NFR | Requirement | How it is met today |
 |---|---|---|
-| Data honesty | No fabricated values anywhere in the product | Live-data wiring + FORBIDDEN-string sweep (`shots_tool/__verify_live.mjs`, 7 screens × HTTP/file) |
+| Data honesty | No fabricated values anywhere in the product | Live-data wiring + FORBIDDEN-string sweep (`shots_tool/__verify_live.mjs`, 8 screens × HTTP/file) |
 | Portability | Installs directly on a machine | Pure Python deps; SQLite files; Docker only under `pam_master/` and `backend/phase2_license_server/` for development |
 | Tamper evidence | Audit trail provable | sha256 chain + append-only triggers + `/audit/verify` |
-| Least privilege | Admin actions authenticated | 40 admin operations require `Bearer`/`X-Admin-Token` when `LICENSE_ADMIN_TOKEN` is set; open dev mode is explicit (`X-Auth-Mode: open`) |
+| Least privilege | Admin actions authenticated | 45 admin operations require `Bearer`/`X-Admin-Token` when `LICENSE_ADMIN_TOKEN` is set; open dev mode is explicit (`X-Auth-Mode: open`) |
 | Bounded resource use | Scans and lists bounded | Scan ≤256 hosts × ≤24 ports, single-flight; pagination `limit` max 200 |
 | Contract stability | API evolution controlled | OpenAPI 3.1, both-direction contract test, `/api/v1` version segment |
-| Testability | Every phase ships tests | 362 backend + 46 vendor-tool tests; UI verifiers; 17-step smoke |
+| Testability | Every phase ships tests | 384 backend + 46 vendor-tool tests; UI verifiers; 17-step smoke |
 | Offline crypto | Verification without network | Phase 1 validator verifies envelope/JWS offline (signature → structure → expiry) |
 
 ## 8. Success criteria (per release)
 
-1. `python -m pytest backend -q` green (currently **362**) and
+1. `python -m pytest backend -q` green (currently **384**) and
    `python -m pytest pam_master -q` green (**46**).
-2. Contract test green: **72** documented paths both directions, **40**
+2. Contract test green: **79** documented paths both directions, **45**
    admin operations carrying security schemes.
 3. Boundary verifiers green: smoke 17/17, `__verify_live.mjs`,
    `__verify_discovery.mjs`.
@@ -188,11 +188,11 @@ from the architecture doc, phase assigned in `IMPLEMENTATION_PLAN.md`:
 
 ## 9. Roadmap
 
-The full phase-wise backlog (4g → 6c), scope, dependencies and
+The full phase-wise backlog (4i → 6c), scope, dependencies and
 definition-of-done per phase live in **`docs/IMPLEMENTATION_PLAN.md`**;
 execution checkpoints are logged in
-`VY-PAM_MASTER_and_PAM_Workflow.md`. Next phase: **4h — §17 Break
-Glass**, then 4i §20 Integrations, 4j §11 UEBA.
+`VY-PAM_MASTER_and_PAM_Workflow.md`. Next phase: **4i — §20
+Integrations**, then 4j §11 UEBA.
 
 ## 10. Target end-state (final output after full development)
 
@@ -207,11 +207,11 @@ DevOps and AI environments"*):
 |---|---|
 | **Modules** | All architecture sections §1–§21 built (the §4 table grows to full ✅; §5 table empties); §22 Feature Matrix matches reality line-for-line |
 | **Console** | All 10 sidebar screens live — **zero `data-kind="static"` surfaces** (Break-Glass included); every widget renders real API data or honest `—`; `file://` fallback preserved |
-| **Evidence** | One append-only hash-chained ledger covering every module source (9+), verified in CI, exported as NDJSON **and** pushed to a configured SIEM |
+| **Evidence** | One append-only hash-chained ledger covering every module source (10+), verified in CI, exported as NDJSON **and** pushed to a configured SIEM |
 | **Access model** | Standing privilege eliminated everywhere: JIT for humans, task-scoped grants for agents/pipelines, MFA and SSO enforced, multi-role RBAC/ABAC over all admin operations |
 | **Threat response** | Bypass detection, UEBA anomalies, and risk banding all drive the *real* response machinery — session cascade, forced rotation, incidents with preserved evidence |
 | **Integrations** | IAM, MFA, ITSM, SIEM, SOAR, EDR, cloud and DevSecOps connectors — each either verified working against a real endpoint or explicitly `not connected` |
 | **Scale** | §18 replicated deployment (load balancer, vault/audit replication, failover) with runbooks; single-node install remains Docker-free |
-| **Contracts** | `apis/openapi.yaml` (72 paths today, `—` at completion) enforced both-ways; vendor tool contract likewise; zero dark endpoints |
-| **Quality** | Backend suite (362 today) grows per phase with real counts recorded in READMEs; pam_master 46 stays green; smoke + both UI verifiers green at every boundary |
+| **Contracts** | `apis/openapi.yaml` (79 paths today, `—` at completion) enforced both-ways; vendor tool contract likewise; zero dark endpoints |
+| **Quality** | Backend suite (384 today) grows per phase with real counts recorded in READMEs; pam_master 46 stays green; smoke + both UI verifiers green at every boundary |
 | **Honesty invariant** | Unchanged and non-negotiable: every displayed number comes from an API at render time — the product never fabricates, complete or not |

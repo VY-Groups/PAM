@@ -41,6 +41,9 @@ from models import (
     ASSET_SECRET_TYPES,
     ASSET_TYPES,
     BASE_RISK,
+    BREAK_GLASS_ACTIONS,
+    BREAK_GLASS_SEVERITIES,
+    BREAK_GLASS_STATUSES,
     BYPASS_INCIDENT_STATUSES,
     BYPASS_SIGNAL_CANDIDATE,
     BYPASS_SIGNAL_COVERED,
@@ -111,6 +114,9 @@ from models import (
     VaultItem,
     VaultSecretVersion,
     AuditEvent,
+    BreakGlassApproval,
+    BreakGlassEvent,
+    BreakGlassRequest,
     BypassEvent,
     BypassIncident,
     BypassSignal,
@@ -5069,11 +5075,13 @@ def list_bypass_signals(
     return rows, total
 
 
-def _force_bypass_rotation(host: str, *, actor: str) -> Dict[str, Any]:
-    """Section-10 ACTION: force credential rotation for the bypassed target -
-    the real module-5 pipeline, never a simulated one. One credential failing
-    must not abort the scan, so every outcome is recorded and the loop
-    continues."""
+def _force_target_rotation(
+    host: str, *, actor: str, trigger: str, reason: str
+) -> Dict[str, Any]:
+    """Force credential rotation for a target through the real module-5
+    pipeline, never a simulated one - shared by the section-10 ACTION and
+    the section-17 close step. One credential failing must not abort the
+    pass, so every outcome is recorded and the loop continues."""
     rotated: List[Dict[str, Any]] = []
     skipped: List[Dict[str, Any]] = []
     failed: List[Dict[str, Any]] = []
@@ -5092,10 +5100,8 @@ def _force_bypass_rotation(host: str, *, actor: str) -> Dict[str, Any]:
             _, rotation = rotate_vault_item(
                 item.id,
                 actor=actor,
-                trigger="bypass",
-                extra_detail={
-                    "reason": "direct access to a managed target (architecture 10)"
-                },
+                trigger=trigger,
+                extra_detail={"reason": reason},
             )
             rotated.append(
                 {
@@ -5104,7 +5110,7 @@ def _force_bypass_rotation(host: str, *, actor: str) -> Dict[str, Any]:
                     "version": rotation.get("secret_version"),
                 }
             )
-        except Exception as exc:  # noqa: BLE001 - keep scanning
+        except Exception as exc:  # noqa: BLE001 - keep the pass running
             failed.append({"id": item.id, "name": item.name, "error": str(exc)})
     if not rotated and not skipped and not failed:
         return {
@@ -5120,6 +5126,16 @@ def _force_bypass_rotation(host: str, *, actor: str) -> Dict[str, Any]:
         "skipped": skipped,
         "failed": failed,
     }
+
+
+def _force_bypass_rotation(host: str, *, actor: str) -> Dict[str, Any]:
+    """Section-10 ACTION: force credential rotation for the bypassed target."""
+    return _force_target_rotation(
+        host,
+        actor=actor,
+        trigger="bypass",
+        reason="direct access to a managed target (architecture 10)",
+    )
 
 
 def _new_bypass_ref() -> str:
@@ -5381,4 +5397,505 @@ def bypass_stats() -> Dict[str, Any]:
         "actions": actions,
         "last_ingest_at": last_ingest.isoformat() if last_ingest else None,
         "last_scan_at": last_scan.isoformat() if last_scan else None,
+    }
+
+
+# ---------------------------------------------------------------------------
+# break glass (architecture section 17)
+# ---------------------------------------------------------------------------
+def _break_glass_event(
+    action: str, subject: str, actor: str, detail: Dict[str, Any]
+) -> BreakGlassEvent:
+    """Queue one section-17 action record; the flush listener folds it into
+    the audit ledger under the tenth source `break-glass` in the same
+    commit - the emergency process itself is auditable."""
+    event = BreakGlassEvent(action=action, actor=actor, subject=subject, detail=detail)
+    db.session.add(event)
+    return event
+
+
+def _new_break_glass_ref() -> str:
+    for _ in range(6):
+        ref = f"bg-{secrets.token_hex(4)}"
+        if BreakGlassRequest.query.filter_by(request_ref=ref).first() is None:
+            return ref
+    raise APIError(500, "Could not allocate a break-glass request reference")
+
+
+def get_break_glass_request(request_id: int) -> BreakGlassRequest:
+    """Fetch one request row or raise 404."""
+    request = BreakGlassRequest.query.filter_by(id=request_id).first()
+    if request is None:
+        raise NotFound(f"No break-glass request with id {request_id}")
+    return request
+
+
+def list_break_glass_approvals(request_id: int) -> List[BreakGlassApproval]:
+    """The append-only signatures recorded on one request."""
+    return (
+        BreakGlassApproval.query.filter_by(request_id=request_id)
+        .order_by(BreakGlassApproval.id.asc())
+        .all()
+    )
+
+
+def break_glass_view(request: BreakGlassRequest) -> Dict[str, Any]:
+    """The row the screens read: request fields plus its approval snapshots
+    and the dual-approval progress."""
+    approvals = list_break_glass_approvals(request.id)
+    data = request.to_dict()
+    data["approvals"] = [row.to_dict() for row in approvals]
+    data["approvals_required"] = 2
+    data["approvals_signed"] = len(approvals)
+    return data
+
+
+def create_break_glass_request(payload: Any, *, actor: str) -> BreakGlassRequest:
+    """File one emergency request (architecture section 17).
+
+    The operator's reason, severity and target are recorded verbatim and
+    the request waits for two distinct approvals. MFA is recorded exactly
+    as it stands - `not configured` until a factor exists (section 20),
+    never a fake challenge."""
+    if not isinstance(payload, dict):
+        raise ValidationFailed("Request body must be a JSON object")
+
+    reason = payload.get("reason")
+    if not isinstance(reason, str) or not reason.strip():
+        raise ValidationFailed("'reason' is required", {"field": "reason"})
+    reason = reason.strip()
+    if len(reason) > 1000:
+        raise ValidationFailed(
+            "'reason' must be at most 1000 characters",
+            {"field": "reason", "max_length": 1000},
+        )
+
+    target = payload.get("target")
+    if not isinstance(target, str) or not target.strip():
+        raise ValidationFailed("'target' is required", {"field": "target"})
+    target = target.strip()
+    if len(target) > 255:
+        raise ValidationFailed(
+            "'target' must be at most 255 characters", {"field": "target"}
+        )
+
+    severity = payload.get("severity", "sev1")
+    if severity not in BREAK_GLASS_SEVERITIES:
+        raise ValidationFailed(
+            f"Unknown severity '{severity}'",
+            {"field": "severity", "allowed": list(BREAK_GLASS_SEVERITIES)},
+        )
+
+    protocol = payload.get("protocol", "ssh")
+    if not isinstance(protocol, str):
+        raise ValidationFailed("'protocol' must be a string", {"field": "protocol"})
+    protocol = protocol.strip().lower()
+    if protocol not in SESSION_PROTOCOLS:
+        raise ValidationFailed(
+            "Unknown protocol",
+            {"field": "protocol", "allowed": list(SESSION_PROTOCOLS)},
+        )
+
+    request = BreakGlassRequest(
+        request_ref=_new_break_glass_ref(),
+        reason=reason,
+        severity=severity,
+        target=target,
+        protocol=protocol,
+        requested_by=actor,
+    )
+    db.session.add(request)
+    db.session.flush()
+    _break_glass_event(
+        "requested",
+        request.request_ref,
+        actor,
+        {
+            "ref": request.request_ref,
+            "target": target,
+            "severity": severity,
+            "protocol": protocol,
+            "reason": reason,
+            "mfa": request.mfa,
+        },
+    )
+    db.session.commit()
+    return request
+
+
+def list_break_glass_requests(
+    *, status: Optional[str] = None, limit: int = 50, offset: int = 0
+) -> Tuple[List[BreakGlassRequest], int]:
+    """Requests newest first, optionally filtered by one lifecycle status."""
+    query = BreakGlassRequest.query
+    if status is not None:
+        if status not in BREAK_GLASS_STATUSES:
+            raise ValidationFailed(
+                f"Unknown status '{status}'",
+                {"field": "status", "allowed": list(BREAK_GLASS_STATUSES)},
+            )
+        query = query.filter_by(status=status)
+    total = query.count()
+    rows = query.order_by(BreakGlassRequest.id.desc()).limit(limit).offset(offset).all()
+    return rows, total
+
+
+def get_break_glass_detail(request_id: int) -> Dict[str, Any]:
+    """One request with its signatures and the recorded session it opened
+    (null until the emergency credential is released)."""
+    request = get_break_glass_request(request_id)
+    session = None
+    if request.session_id is not None:
+        session = PrivilegedSession.query.filter_by(id=request.session_id).first()
+    return {
+        "request": break_glass_view(request),
+        "session": session.to_dict() if session is not None else None,
+    }
+
+
+def approve_break_glass_request(
+    request_id: int, *, actor: str, payload: Any = None
+) -> Dict[str, Any]:
+    """Record one approval signature (architecture section 17, dual
+    approval): the requester cannot sign their own emergency, the second
+    signature must come from someone else, and two signatures flip the
+    request to `approved` - all enforced, never assumed."""
+    request = get_break_glass_request(request_id)
+    if payload is None:
+        payload = {}
+    if not isinstance(payload, dict):
+        raise ValidationFailed("Request body must be a JSON object")
+    if request.status != "pending":
+        raise ValidationFailed(
+            f"Request is {request.status}, not awaiting approvals",
+            {"field": "status", "status": request.status},
+        )
+    if actor == request.requested_by:
+        raise APIError(403, "Requesters cannot approve their own emergency request")
+    existing = list_break_glass_approvals(request.id)
+    if any(row.approver == actor for row in existing):
+        raise ValidationFailed(
+            "This approver has already signed this request",
+            {"field": "approver", "approver": actor},
+        )
+
+    note = payload.get("note") or ""
+    if not isinstance(note, str):
+        raise ValidationFailed("'note' must be a string", {"field": "note"})
+    note = note.strip()
+    if len(note) > 500:
+        raise ValidationFailed(
+            "'note' must be at most 500 characters",
+            {"field": "note", "max_length": 500},
+        )
+
+    db.session.add(BreakGlassApproval(request_id=request.id, approver=actor, note=note))
+    signed = len(existing) + 1
+    if signed >= 2:
+        request.status = "approved"
+    _break_glass_event(
+        "approved",
+        request.request_ref,
+        actor,
+        {
+            "ref": request.request_ref,
+            "approver": actor,
+            "approvals_signed": signed,
+            "approvals_required": 2,
+            "status": request.status,
+        },
+    )
+    db.session.commit()
+    return break_glass_view(request)
+
+
+def deny_break_glass_request(
+    request_id: int, *, actor: str, payload: Any = None
+) -> Dict[str, Any]:
+    """Turn the request down before anything was released - recorded with
+    who/when and (when given) the note, on the `break-glass` trail."""
+    request = get_break_glass_request(request_id)
+    if payload is None:
+        payload = {}
+    if not isinstance(payload, dict):
+        raise ValidationFailed("Request body must be a JSON object")
+    if request.status != "pending":
+        raise ValidationFailed(
+            f"Request is {request.status}, not awaiting approvals",
+            {"field": "status", "status": request.status},
+        )
+
+    note = payload.get("note") or ""
+    if not isinstance(note, str):
+        raise ValidationFailed("'note' must be a string", {"field": "note"})
+    note = note.strip()
+    if len(note) > 500:
+        raise ValidationFailed(
+            "'note' must be at most 500 characters",
+            {"field": "note", "max_length": 500},
+        )
+
+    request.status = "denied"
+    request.denied_by = actor
+    request.denied_at = datetime.now()
+    request.deny_note = note
+    _break_glass_event(
+        "denied",
+        request.request_ref,
+        actor,
+        {"ref": request.request_ref, "denied_by": actor, "note": note},
+    )
+    db.session.commit()
+    return break_glass_view(request)
+
+
+def _break_glass_credential(request: BreakGlassRequest) -> VaultItem:
+    """The emergency credential for this target: a free vault item on the
+    same host. Nothing is released when the target has no credential or
+    none of them is free - the real state, said plainly."""
+    host = _target_host(request.target).lower()
+    available: List[VaultItem] = []
+    blocked: List[Dict[str, Any]] = []
+    for item in VaultItem.query.order_by(VaultItem.id.asc()).all():
+        if _target_host(item.target).lower() != host:
+            continue
+        if item.status == VAULT_STATUS_AVAILABLE:
+            available.append(item)
+        else:
+            blocked.append({"id": item.id, "name": item.name, "status": item.status})
+    if not available:
+        if blocked:
+            raise Conflict(
+                "No credential for this target is free for emergency use",
+                {"field": "item_id", "credentials": blocked},
+            )
+        raise ValidationFailed(
+            "No vault credential is registered for this target",
+            {"field": "target", "target": request.target},
+        )
+    return available[0]
+
+
+def open_break_glass_request(
+    request_id: int, *, actor: str, payload: Any = None
+) -> Dict[str, Any]:
+    """Release the emergency credential and start its session (architecture
+    section 17: unseal -> session recorded -> automatic alert).
+
+    The credential goes through the real vault checkout and the session
+    runs with `record=true` forced - recording is not an operator
+    preference here. The section-7 risk gate still judges the start and its
+    evaluation commits either way: a refusal keeps the request `approved`
+    and releases nothing, and the `opened` ledger record it writes (the
+    section-17 automatic alert) is the SOC's evidence trail."""
+    request = get_break_glass_request(request_id)
+    if request.status == "used":
+        raise ValidationFailed(
+            "The emergency session for this request is already open",
+            {"field": "status", "status": request.status},
+        )
+    if request.status != "approved":
+        raise ValidationFailed(
+            f"Request is {request.status}; two distinct approvals are "
+            "required before opening",
+            {"field": "status", "status": request.status},
+        )
+
+    item = _break_glass_credential(request)
+    session, risk = create_session(
+        {
+            "protocol": request.protocol,
+            "target": request.target,
+            "item_id": item.id,
+            "record": True,
+        },
+        actor=actor,
+    )
+    request.status = "used"
+    request.session_id = session.id
+    request.opened_by = actor
+    request.opened_at = datetime.now()
+    request.opened_item_id = item.id
+    request.opened_secret_version = item.secret_version
+    _break_glass_event(
+        "opened",
+        request.request_ref,
+        actor,
+        {
+            "ref": request.request_ref,
+            "session_id": session.id,
+            "session_ref": session.session_ref,
+            "item_id": item.id,
+            "record": True,
+            "mfa": request.mfa,
+            "risk": {"score": risk.score, "band": risk.band, "result": risk.result},
+        },
+    )
+    db.session.commit()
+    return {
+        "request": break_glass_view(request),
+        "session": session.to_dict(),
+        "risk": risk.to_dict(),
+    }
+
+
+def _break_glass_rotation(
+    request: BreakGlassRequest, *, actor: str
+) -> Dict[str, Any]:
+    """Section-17 close step: the credential released for the emergency
+    must end this flow rotated. The session-end cascade normally does it;
+    this compares the current secret version against the one carried at
+    release - unchanged means the rotation is still owed and is forced
+    through the real module-5 pipeline now."""
+    item = None
+    if request.opened_item_id is not None:
+        item = VaultItem.query.filter_by(id=request.opened_item_id).first()
+    if item is None:
+        return {
+            "status": "not_applicable",
+            "detail": "No emergency credential was released for this request",
+        }
+    if item.secret_version != request.opened_secret_version:
+        return {
+            "status": "rotated",
+            "performed": "at session end",
+            "secret_version": item.secret_version,
+        }
+    return _force_target_rotation(
+        _target_host(request.target),
+        actor=actor,
+        trigger="break-glass",
+        reason="break-glass emergency closed (architecture 17)",
+    )
+
+
+def close_break_glass_request(
+    request_id: int, *, actor: str, payload: Any
+) -> Dict[str, Any]:
+    """Close the emergency (architecture section 17, final steps): end the
+    recorded session if it is still running - its release-and-rotate
+    cascade fires - guarantee the released credential ends up rotated, and
+    file the post-incident review note. The note is required: an emergency
+    that is not reviewed is not closed."""
+    request = get_break_glass_request(request_id)
+    if request.status != "used":
+        raise ValidationFailed(
+            f"Request is {request.status}; only an open emergency can be closed",
+            {"field": "status", "status": request.status},
+        )
+    if not isinstance(payload, dict):
+        raise ValidationFailed("Request body must be a JSON object")
+    review = payload.get("review")
+    if not isinstance(review, str) or not review.strip():
+        raise ValidationFailed(
+            "A post-incident review note is required to close the emergency",
+            {"field": "review"},
+        )
+    review = review.strip()
+    if len(review) > 1000:
+        raise ValidationFailed(
+            "'review' must be at most 1000 characters",
+            {"field": "review", "max_length": 1000},
+        )
+
+    session = None
+    if request.session_id is not None:
+        session = PrivilegedSession.query.filter_by(id=request.session_id).first()
+        if session is not None and session.status not in SESSION_TERMINAL_STATUSES:
+            session, _ = end_session(
+                session.id,
+                actor=actor,
+                outcome="completed",
+                payload={"reason": "break-glass closed"},
+            )
+
+    rotation = _break_glass_rotation(request, actor=actor)
+
+    request.status = "closed"
+    request.closed_by = actor
+    request.closed_at = datetime.now()
+    request.review = review
+    _break_glass_event(
+        "closed",
+        request.request_ref,
+        actor,
+        {
+            "ref": request.request_ref,
+            "review": review,
+            "rotation": rotation,
+            "session_ref": session.session_ref if session is not None else None,
+            "session_status": session.status if session is not None else None,
+        },
+    )
+    db.session.commit()
+    return {
+        "request": break_glass_view(request),
+        "session": session.to_dict() if session is not None else None,
+        "rotation": rotation,
+    }
+
+
+def break_glass_stats() -> Dict[str, Any]:
+    """Real aggregates over requests, signatures and the module's ledger
+    actions (the Break-Glass screen header cards)."""
+    requests: Dict[str, Any] = {"total": 0}
+    for status in BREAK_GLASS_STATUSES:
+        requests[status] = 0
+    for status, count in (
+        db.session.query(
+            BreakGlassRequest.status, db.func.count(BreakGlassRequest.id)
+        )
+        .group_by(BreakGlassRequest.status)
+        .all()
+    ):
+        requests[status] = int(count)
+        requests["total"] += int(count)
+
+    # signatures still owed on pending requests (two distinct approvers each)
+    pending_ids = [
+        row[0]
+        for row in db.session.query(BreakGlassRequest.id)
+        .filter_by(status="pending")
+        .all()
+    ]
+    signed: Dict[int, int] = {}
+    if pending_ids:
+        signed = {
+            int(request_id): int(count)
+            for request_id, count in (
+                db.session.query(
+                    BreakGlassApproval.request_id,
+                    db.func.count(BreakGlassApproval.id),
+                )
+                .filter(BreakGlassApproval.request_id.in_(pending_ids))
+                .group_by(BreakGlassApproval.request_id)
+                .all()
+            )
+        }
+    outstanding = sum(max(0, 2 - signed.get(pid, 0)) for pid in pending_ids)
+    recorded = BreakGlassApproval.query.count()
+
+    actions = {name: 0 for name in BREAK_GLASS_ACTIONS}
+    last_request = last_open = last_close = None
+    for action, count, latest in db.session.query(
+        BreakGlassEvent.action,
+        db.func.count(BreakGlassEvent.id),
+        db.func.max(BreakGlassEvent.created_at),
+    ).group_by(BreakGlassEvent.action).all():
+        actions[action] = int(count)
+        if action == "requested":
+            last_request = latest
+        elif action == "opened":
+            last_open = latest
+        elif action == "closed":
+            last_close = latest
+
+    return {
+        "requests": requests,
+        "approvals": {"recorded": recorded, "outstanding": outstanding},
+        "open_emergencies": requests["used"],
+        "actions": actions,
+        "last_request_at": last_request.isoformat() if last_request else None,
+        "last_opened_at": last_open.isoformat() if last_open else None,
+        "last_closed_at": last_close.isoformat() if last_close else None,
     }

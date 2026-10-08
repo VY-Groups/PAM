@@ -737,17 +737,23 @@
         'risk:mfa': 'Risk evaluation (MFA)',
         'risk:approval': 'Risk evaluation (approval)',
         'risk:block': 'Risk evaluation (block)',
+        'break-glass:requested': 'Break-glass request filed',
+        'break-glass:approved': 'Break-glass approval signed',
+        'break-glass:denied': 'Break-glass request denied',
+        'break-glass:opened': 'Emergency credential released',
+        'break-glass:closed': 'Emergency closed (review filed)',
       };
       const SOURCE_ICONS = {
         license: 'workspace_premium', settings: 'tune', vault: 'key',
         discovery: 'travel_explore', jit: 'bolt', session: 'present_to_all',
-        command: 'gpp_maybe', risk: 'speed',
+        command: 'gpp_maybe', risk: 'speed', 'break-glass': 'emergency_home',
       };
       const SOURCE_LABELS = {
         license: 'License audit trail', settings: 'Settings audit trail',
         vault: 'Vault audit trail', discovery: 'Discovery audit trail',
         jit: 'JIT audit trail', session: 'Session audit trail',
         command: 'Command audit trail', risk: 'Risk audit trail',
+        'break-glass': 'Break-glass audit trail',
       };
 
       // headline-xl spans: [overall posture, SOC-2 pass, evidence, next cycle]
@@ -820,9 +826,9 @@
         }
       }
 
-      // ---- 9-source filter: click-to-fetch per trail (reveal on click) ---
+      // ---- 10-source filter: click-to-fetch per trail (reveal on click) ---
       const SOURCES = ['all', 'license', 'settings', 'vault', 'discovery',
-        'jit', 'session', 'command', 'risk', 'bypass'];
+        'jit', 'session', 'command', 'risk', 'bypass', 'break-glass'];
       let activeSource = 'all';
       const filterWrap = document.createElement('div');
       filterWrap.className = 'flex flex-wrap gap-1.5 pb-1';

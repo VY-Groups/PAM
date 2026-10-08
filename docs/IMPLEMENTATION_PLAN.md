@@ -1,6 +1,6 @@
 # VY-PAM — Implementation Plan (remaining architecture coverage)
 
-**Status:** plan issued after Phase 4f (`110909f`) + docs set (`4acc59a`)
+**Status:** maintained through Phase 4h — remaining backlog starts at 4i
 **Authoritative spec:** `VY-PAM_Enterprise_PAM_Architecture.md`
 **Execution log:** `VY-PAM_MASTER_and_PAM_Workflow.md` (checkpoint rows — the
 resumable source of truth while working)
@@ -26,9 +26,9 @@ resumable source of truth while working)
 | §7 Risk-Based Access | 8-component engine + session gate | ✅ built | 4f |
 | §8 Privileged Sessions | recording, controls, cascade | ✅ built | 4c |
 | §9 Command Control | default-allow rules, holds, incidents | ✅ built | 4d |
-| §19 Immutable Audit | hash chain, 9 sources, verify/export | ✅ built | 4e |
+| §19 Immutable Audit | hash chain, 10 sources, verify/export | ✅ built | 4e |
 | §10 PAM Bypass Detection | direct-access detection | ✅ built | **4g** |
-| §17 Break Glass | emergency protocol (screen static) | ⛔ pending (screen exists) | **4h** |
+| §17 Break Glass | emergency protocol (dual approval → recorded session → rotation) | ✅ built | **4h** |
 | §20 Enterprise Integrations | IAM/MFA/ITSM/SIEM/SOAR/EDR | ⛔ pending (export seam only) | **4i** |
 | §11 AI Security / UEBA | behavior baselines, anomaly response | ⛔ pending | **4j** |
 | §12 Dynamic Watermarking | contextual session overlay | ⛔ pending (custody string only) | **4k** |
@@ -131,10 +131,25 @@ itself is auditable**.
   modal); static placeholders purged.
 
 **Depends on:** 4a (vault/rotation), 4c (sessions), 4e (ledger).
-**Tests:** `test_break_glass.py` — `—`.
+**Tests:** `test_break_glass.py` — **22** (as built).
 **Done when:** an emergency request walks the full path on real data, both
 approvals enforced (self/second-approver rules), rotation fires, screen is
 live, verifiers green.
+
+**As built (4h):** 3 models (`break_glass_requests`, `break_glass_approvals`,
+`break_glass_events`) / 25 tables; 8 endpoints across 7 path keys (create,
+list, detail, approve, deny, open, close, stats — 5 admin); dual approval
+enforced in code (requester self-approval 403, repeat signature 400,
+append-only snapshots); risk gate enforced **at open** (403 `details.risk`
+refuses `critical` — nothing released); `open` = real vault checkout +
+mandatory recorded session (201), `close` = session end + forced rotation
+through the shared `_force_target_rotation` helper (`trigger=break-glass`)
++ required review note; ledger source `break-glass` (10th) via
+`_map_break_glass`; compliance chips 10→11; Break-Glass screen fully live
+(`data-kind="live"` — request modal with `EMERGENCY-AUTHORIZE` confirm,
+per-status actions, honest footer, `file://` dashes); contract 79 paths /
+88 ops / 13 tags / 45 admin; `test_break_glass.py` 22 + full backend
+**384**; MFA honestly `not configured` until 4i.
 
 ## 5. Phase 4i — Enterprise Integrations foundation (§20)
 
@@ -264,7 +279,7 @@ procedures in `docs/DEPLOYMENT_RUNBOOK.md` extend to replication runbooks.
 ### 6b — RBAC / ABAC
 Multi-role model (today: single admin token + open dev mode): roles
 (admin / approver / operator / auditor / auditor-read-only), policy bindings
-on the 40 admin operations, attribute rules on vault items and targets.
+on the 45 admin operations, attribute rules on vault items and targets.
 Contract lockstep: security schemes gain role requirements.
 
 ### 6c — SSO + HSM enforcement
@@ -277,16 +292,12 @@ keys where configured. Posture widget then counts them honestly as active.
 ## 10. Suggested execution order & rationale
 
 ```
-4g §10 → 4h §17 → 4i §20 → 4j §11 → 4k §12      (Phase 4 completion)
+4i §20 → 4j §11 → 4k §12                                (Phase 4 completion)
         → 5a §13 → 5b §14 → 5c §15 → 5d §16     (expansion)
         → 6a §18 → 6b RBAC → 6c SSO/HSM          (scale)
 ```
 
-- **4g first:** next unbuilt section in architecture order; detection inputs
-  build on live session/inventory data that already exists.
-- **4h early:** the screen is already shipped as static — closing it removes
-  the last visibly-honest placeholder in the console.
-- **4i before 4j:** UEBA step-up responses and vendor flows both consume MFA/
+- **4i next:** UEBA step-up responses and vendor flows both consume MFA/
   ITSM/SIEM primitives; integrations are the multiplier.
 - Dashboard (§21) and docs close **inside each phase** — never a separate
   afterthought (lockstep rule).
@@ -302,12 +313,12 @@ real numbers collected at that time, `—` until then**:
 2. **Console:** all 10 sidebar screens live (including Break-Glass), zero
    `data-kind="static"` surfaces, zero FORBIDDEN strings, `file://` fallback
    intact.
-3. **Evidence:** one append-only ledger covering every module source (9+
+3. **Evidence:** one append-only ledger covering every module source (10+
    sources), chain verified in CI, NDJSON + webhook export flowing to a real
    SIEM when configured.
-4. **Contracts:** `apis/openapi.yaml` (path count `—`, today 72) and the
+4. **Contracts:** `apis/openapi.yaml` (path count `—`, today 79) and the
    vendor tool contract both enforced both-ways; zero dark endpoints.
-5. **Quality gates:** backend suite (today **362**) grows per phase with real
+5. **Quality gates:** backend suite (today **384**) grows per phase with real
    counts recorded in the READMEs; pam_master stays green (**46**); smoke,
    both UI verifiers, leak check all green at every boundary.
 6. **Operations:** single-node install stays Docker-free; §18 adds replicated

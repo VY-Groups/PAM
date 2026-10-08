@@ -66,6 +66,11 @@ ADMIN_OPERATIONS = [
     ("post", "/api/v1/bypass/ingest"),
     ("post", "/api/v1/bypass/scans"),
     ("post", "/api/v1/bypass/incidents/{incident_id}/close"),
+    ("post", "/api/v1/break-glass/requests"),
+    ("post", "/api/v1/break-glass/requests/{request_id}/approve"),
+    ("post", "/api/v1/break-glass/requests/{request_id}/deny"),
+    ("post", "/api/v1/break-glass/requests/{request_id}/open"),
+    ("post", "/api/v1/break-glass/requests/{request_id}/close"),
 ]
 
 

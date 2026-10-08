@@ -1,6 +1,6 @@
 # VY-PAM — Backend Schema
 
-**Status:** as-built for Phase 4f (`110909f`)
+**Status:** as-built for Phase 4h
 Two databases: the **shipped runtime DB** (`backend/phase2_license_server/
 licenses.db`, SQLAlchemy/Flask-SQLAlchemy) and the **vendor-tool DB**
 (`pam_master/master.db`, raw `sqlite3`). Both are SQLite, both git-ignored.
@@ -11,7 +11,7 @@ external migration tool.
 
 ---
 
-## 1. Shipped runtime — 22 tables
+## 1. Shipped runtime — 25 tables
 
 ### ERD (logical)
 
@@ -29,6 +29,8 @@ command_rules                                  (referenced by rules/incidents, n
 risk_events
 bypass_signals ─1:n─ bypass_incidents         (signal_id → bypass_signals)
 bypass_events                                  (module actions → ledger source `bypass`)
+break_glass_requests ─1:n─ break_glass_approvals (request_id → break_glass_requests)
+break_glass_events                             (emergency actions → ledger source `break-glass`)
 audit_events                                    (hash chain over all of the above)
 ```
 
@@ -262,6 +264,31 @@ String(160) · `detail` JSON — folded into the §19 ledger by `_map_bypass`
 (action, `bypass:<id>` ref, counts); signal rows stay evidence, only
 product actions reach the chain.
 
+### 1.23 `break_glass_requests` — §17 emergency request lifecycle
+`id` · `created_at` indexed · `request_ref` String(32) **unique** indexed
+(`bg-…`) · `requester` String(64) indexed · `target` String(255) indexed ·
+`reason` String(1000) · `severity` String(8) (`sev1|sev2|sev3`) · `protocol`
+String(16) · `status` String(16) indexed (`pending|approved|denied|used|
+closed`) · `approvals_required` Integer default `2` · `mfa` String(32)
+honestly `not configured` until §20 · `session_id` Integer indexed →
+`privileged_sessions` (set at open) · `opened_item_id` Integer →
+`vault_items` (the released credential) · `opened_at` / `closed_at` ·
+`denied_by` · `deny_note` String(500) · `review` String(1000) (required to
+close) · `close_detail` JSON — cascade + forced-rotation outcome.
+
+### 1.24 `break_glass_approvals` — append-only signature snapshots
+`id` · `created_at` · `request_id` Integer indexed → `break_glass_requests` ·
+`approver` String(64) (≠ requester, ≠ first approver) · `note` String(500).
+Two distinct rows satisfy the dual approval; no update/delete API (same
+append-only treatment as `jit_events` approval columns).
+
+### 1.25 `break_glass_events` — §17 module action log (ledger source `break-glass`)
+`id` · `created_at` indexed · `action` String(32) (`requested|approved|
+denied|opened|closed`) · `actor` String(64) · `subject` String(160) ·
+`detail` JSON — folded into the §19 ledger by `_map_break_glass`
+(action, `bg:<request_ref>` ref, detail); the 10th source in
+`LEDGER_MODELS`/`MAPPERS`.
+
 ---
 
 ## 2. Vendor tool — `pam_master/master.db` (4 tables)
@@ -335,7 +362,6 @@ column sets land with the code + contract commit; counts are `—` until then.
 
 | Phase | Tables | Notes |
 |---|---|---|
-| 4h §17 | `break_glass_requests`, `break_glass_approvals` | approval snapshots append-only (same pattern as `manager_approval`); ledger source `break-glass` |
 | 4i §20 | settings groups `mfa`/`itsm`/`siem`/`ldap` (rows in `platform_settings`), `connector_health` (or computed) | reuse existing settings+events pattern; no new auth tables |
 | 4j §11 | `behavior_baselines` | rolling per-actor windows derived from real history rows |
 | 4k §12 | *(none — payload assembled from `privileged_sessions`/`session_events`)* | |

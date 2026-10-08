@@ -1407,3 +1407,136 @@ class BypassEvent(db.Model):
             "detail": self.detail or {},
             "created_at": self.created_at.isoformat(),
         }
+
+
+# --- break glass (architecture section 17) --------------------------------
+BREAK_GLASS_SEVERITIES = ("sev1", "sev2", "sev3")
+BREAK_GLASS_STATUSES = (
+    "pending",   # filed: two distinct approvals outstanding
+    "approved",  # dual approval reached - the credential may be released
+    "denied",    # turned down before anything was released
+    "used",      # emergency credential released, recorded session running
+    "closed",    # session ended, credential rotated, review note filed
+)
+BREAK_GLASS_ACTIONS = ("requested", "approved", "denied", "opened", "closed")
+
+
+class BreakGlassRequest(db.Model):
+    """One emergency break-glass request (architecture section 17): reason,
+    severity and target up front; two distinct approvals before anything is
+    released; the opened session is recorded regardless of operator
+    preferences; close forces credential rotation plus a post-incident
+    review note.
+
+    Every transition is queued on ``BreakGlassEvent`` and folded into the
+    section-19 ledger under the tenth source (`break-glass`) in the same
+    commit - the break-glass process itself is auditable.
+    """
+
+    __tablename__ = "break_glass_requests"
+
+    id = db.Column(db.Integer, primary_key=True)
+    request_ref = db.Column(db.String(24), nullable=False, unique=True, index=True)
+    created_at = db.Column(db.DateTime, nullable=False, default=datetime.now, index=True)
+    reason = db.Column(db.String(1000), nullable=False)
+    severity = db.Column(db.String(8), nullable=False, default="sev1")
+    target = db.Column(db.String(255), nullable=False)
+    protocol = db.Column(db.String(16), nullable=False, default="ssh")
+    status = db.Column(db.String(16), nullable=False, default="pending", index=True)
+
+    requested_by = db.Column(db.String(64), nullable=False, default="system")
+    requested_at = db.Column(db.DateTime, nullable=False, default=datetime.now)
+    # MFA runs only when a factor exists (section 20); until then the request
+    # records this honestly - never a fake challenge.
+    mfa = db.Column(db.String(32), nullable=False, default="not configured")
+
+    denied_by = db.Column(db.String(64), nullable=True)
+    denied_at = db.Column(db.DateTime, nullable=True)
+    deny_note = db.Column(db.String(500), nullable=False, default="")
+
+    session_id = db.Column(db.Integer, nullable=True)
+    opened_by = db.Column(db.String(64), nullable=True)
+    opened_at = db.Column(db.DateTime, nullable=True)
+    # the credential released for the emergency and the secret version it
+    # carried at release, so close can tell an already-rotated credential
+    # from one still owed its rotation
+    opened_item_id = db.Column(db.Integer, nullable=True)
+    opened_secret_version = db.Column(db.Integer, nullable=True)
+
+    closed_by = db.Column(db.String(64), nullable=True)
+    closed_at = db.Column(db.DateTime, nullable=True)
+    review = db.Column(db.String(1000), nullable=False, default="")
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "id": self.id,
+            "request_ref": self.request_ref,
+            "created_at": self.created_at.isoformat(),
+            "reason": self.reason,
+            "severity": self.severity,
+            "target": self.target,
+            "protocol": self.protocol,
+            "status": self.status,
+            "requested_by": self.requested_by,
+            "requested_at": self.requested_at.isoformat(),
+            "mfa": self.mfa,
+            "denied_by": self.denied_by,
+            "denied_at": self.denied_at.isoformat() if self.denied_at else None,
+            "deny_note": self.deny_note,
+            "session_id": self.session_id,
+            "opened_by": self.opened_by,
+            "opened_at": self.opened_at.isoformat() if self.opened_at else None,
+            "opened_item_id": self.opened_item_id,
+            "closed_by": self.closed_by,
+            "closed_at": self.closed_at.isoformat() if self.closed_at else None,
+            "review": self.review,
+        }
+
+
+class BreakGlassApproval(db.Model):
+    """Append-only dual-approval snapshots for one request (architecture
+    section 17): two distinct approvers sign before the emergency credential
+    exists - no edits, no deletes (the other decision tables' posture)."""
+
+    __tablename__ = "break_glass_approvals"
+
+    id = db.Column(db.Integer, primary_key=True)
+    request_id = db.Column(db.Integer, nullable=False, index=True)
+    approver = db.Column(db.String(64), nullable=False)
+    decided_at = db.Column(db.DateTime, nullable=False, default=datetime.now)
+    note = db.Column(db.String(500), nullable=False, default="")
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "id": self.id,
+            "request_id": self.request_id,
+            "approver": self.approver,
+            "decided_at": self.decided_at.isoformat(),
+            "note": self.note,
+        }
+
+
+class BreakGlassEvent(db.Model):
+    """Module action log for section 17: requests, approval signatures,
+    denials, unseals and closes - folded into the section-19 ledger as the
+    tenth source (`break-glass`). Request rows stay evidence, not actions:
+    the ledger records what the product *did*."""
+
+    __tablename__ = "break_glass_events"
+
+    id = db.Column(db.Integer, primary_key=True)
+    created_at = db.Column(db.DateTime, nullable=False, default=datetime.now, index=True)
+    action = db.Column(db.String(32), nullable=False)
+    actor = db.Column(db.String(64), nullable=False, default="system")
+    subject = db.Column(db.String(160), nullable=False, default="")
+    detail = db.Column(db.JSON, nullable=False, default=dict)
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "id": self.id,
+            "action": self.action,
+            "actor": self.actor,
+            "subject": self.subject,
+            "detail": self.detail or {},
+            "created_at": self.created_at.isoformat(),
+        }

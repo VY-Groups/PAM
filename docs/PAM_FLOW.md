@@ -1,6 +1,6 @@
 # VY-PAM — PAM Flow (Application Flow)
 
-**Status:** as-built for Phase 4g
+**Status:** as-built for Phase 4h
 Maps navigation, user journeys, and state machines across the console.
 Screen files live in `frontend/screens/<slug>/code.html`; the canonical
 navigation is the 10-item sidebar rendered on every screen.
@@ -21,7 +21,7 @@ Sidebar order (slugs = `data-path`, labels = nav text, icons = Material Symbols)
 | 6 | `policy-zero-trust-rules-engine` | Policy & Zero Trust | `shield_lock` | ✅ `/command-control/*`, `/risk/*` |
 | 7 | `compliance-soc-2-audit-center` | Compliance & SOC2 | `policy` | ✅ `/audit/*`, `/events` |
 | 8 | `license-entitlement-center` | Licensing & Entitlements | `workspace_premium` | ✅ `/licenses/*` |
-| 9 | `break-glass-emergency-protocol` | Emergency Break-Glass | `emergency_home` (rendered in `text-error`) | ⛔ static (`data-kind="static"`) — §17 not built |
+| 9 | `break-glass-emergency-protocol` | Emergency Break-Glass | `emergency_home` (rendered in `text-error`) | ✅ `/break-glass/*` |
 | 10 | `platform-settings-center` | Settings | `tune` | ✅ `/settings/*` |
 
 Plus the **launcher** (`frontend/launcher.html`) — a link hub, and the static
@@ -123,8 +123,9 @@ Policy screen §7 section → Evaluate (advisory)
 Compliance screen
   Ledger digest (real totals, chain intact/first-break)
   Verify walk (recompute all hashes) → first break index or OK
-  Per-source chips (9): license, settings, vault, discovery, jit,
-                        session, command, risk, bypass  → filter trail
+  Per-source chips (10): license, settings, vault, discovery, jit,
+                        session, command, risk, bypass, break-glass
+                        → filter trail
   Export → NDJSON in chain order (SIEM seam)
   Record-inspect modal → one event's full payload
 ```
@@ -152,7 +153,27 @@ Command Center → bypass section → paste an auth-log bundle → Ingest
       failures recorded) · block source "not connected" (no connector yet)
   → analyst closes with a note (who + when)     GET /bypass/incidents…
   → every ingest/scan/detect/close fans into the ledger (source `bypass`)
-  → Compliance screen: `bypass` chip in the 9-source filter
+  → Compliance screen: `bypass` chip in the 10-source filter
+```
+
+### 2.9 Break-glass emergency (§17)
+
+```
+Break-Glass screen → Initiate emergency (target + reason + severity +
+  protocol) → request filed {bg-…}, status pending      GET /break-glass/requests
+  → DUAL APPROVAL: two distinct approvers sign
+      (requester cannot approve — 403; repeat signature — 400;
+       signatures = append-only snapshots)
+      → 2/2 → approved        → a refusal → denied
+  → Open (approved only): risk gate runs here first —
+      critical → 403 + details.risk, nothing released
+      → real vault checkout + RECORDED session        POST …/{id}/open (201)
+  → Close (review note required)                      POST …/{id}/close
+      → session ended, credential force-rotated (§5 pipeline,
+        trigger `break-glass`), cascade recorded on the request
+  → every request/approve/deny/open/close fans into the ledger
+      (source `break-glass`, ref `bg-…`)
+  → Compliance screen: `break-glass` chip in the 10-source filter
 ```
 
 ## 3. Cross-cutting interaction rules
@@ -188,6 +209,12 @@ DiscoveryScan.status: running → completed | failed
 Risk band:           low | medium | high | critical   (persisted per evaluation)
 
 Audit chain:         append-only; verify → intact | first_break:<seq>
+
+BreakGlassRequest.status:
+                     pending → approved | denied
+                     approved → used → closed
+                     (open: dual approval + risk gate → recorded session;
+                      close: review required + forced rotation)
 ```
 
 ## 5. Roles & separation of duties
@@ -198,25 +225,14 @@ Audit chain:         append-only; verify → intact | first_break:<seq>
 | Approve/deny held command | another actor resolves the append-only approval row |
 | Reveal secret | authenticated admin; actor recorded; plaintext never logged |
 | License import/revoke | authenticated admin; ledger `license` |
-| Break-glass emergency access | **not implemented** (§17) — screen static by design |
+| Break-glass emergency access | two distinct approvers sign (requester excluded, 403); the closer must file the review note |
 
 ## 6. Future flows (planned — see `IMPLEMENTATION_PLAN.md`)
 
 Flows below are **not implemented yet**; they show the target journeys the
 console will gain, quoted from the architecture doc.
 
-### 6.1 Break-glass emergency (§17 → phase 4h)
-```
-Break-Glass button / screen → New emergency request (reason + target)
-  → emergency authentication → MFA (honest "not configured" until 4i)
-  → DUAL APPROVAL (two distinct approvers, append-only snapshots)
-  → emergency credential released (real vault checkout)
-  → session RECORDED (record forced on) + automatic alert (ledger)
-  → close → forced credential rotation + post-incident review note
-  → every step auditable under ledger source `break-glass`
-```
-
-### 6.2 Integrations (§20 → phase 4i)
+### 6.1 Integrations (§20 → phase 4i)
 ```
 Settings → Integrations cards (mfa | itsm | siem | ldap)
   → MFA: TOTP enrol → medium-risk session start requires real code
@@ -225,7 +241,7 @@ Settings → Integrations cards (mfa | itsm | siem | ldap)
   → unconfigured → chip "not connected" (never simulated)
 ```
 
-### 6.3 Vendor / third-party access (§13 → phase 5a)
+### 6.2 Vendor / third-party access (§13 → phase 5a)
 ```
 Invite vendor → MFA → NDA/Agreement → ticket → approval
   → JIT access (scoped: allowed/denied targets + time window)
@@ -233,7 +249,7 @@ Invite vendor → MFA → NDA/Agreement → ticket → approval
   → vendor dashboard shows access ✓ / denied ✗ / validity window / recording
 ```
 
-### 6.4 DevSecOps & AI-agent access (§15/§16 → phases 5c/5d)
+### 6.3 DevSecOps & AI-agent access (§15/§16 → phases 5c/5d)
 ```
 Pipeline/Agent → request credential or task access
   → identity verification → risk evaluation → JIT token
@@ -241,7 +257,7 @@ Pipeline/Agent → request credential or task access
   → monitored session → token expiry (no static secrets left behind)
 ```
 
-### 6.5 UEBA anomaly response (§11 → phase 4j)
+### 6.4 UEBA anomaly response (§11 → phase 4j)
 ```
 Baseline per actor learned from real history (hours/device/IP/target/command)
   → deviation detected → reasons listed (+unusual time/device/IP/…)

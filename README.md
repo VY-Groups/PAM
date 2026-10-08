@@ -20,11 +20,11 @@ PAM/
 ├── license_ed25519_public.pem       # Ed25519 verification key  (ships to clients)
 ├── license_<UUID>.json / .lic       # licenses issued so far (envelope / token)
 ├── frontend/                        # Web console (product UI, served by Phase 2)
-│   ├── index.html               #   launcher: every screen, LIVE/STATIC/SPEC badges
+│   ├── index.html               #   launcher: every screen, LIVE/SPEC badges
 │   ├── screens/<name>/          #   one folder per screen: code.html + screen.png
 │   └── README.md                #   layout + how to add a screen (the contract)
 ├── apis/                            # HTTP contract for every backend service
-│   ├── openapi.yaml             #   OpenAPI 3.1: all 72 paths (synced by a test)
+│   ├── openapi.yaml             #   OpenAPI 3.1: all 79 paths (synced by a test)
 │   └── README.md                #   conventions + how to view
 ├── backend/
 │   ├── ipam_licensing/              # Phase 1: library + CLIs
@@ -48,6 +48,7 @@ PAM/
 │       ├── tests/test_audit.py       # immutable §19 audit ledger (19 tests)
 │       ├── tests/test_risk.py        # §7 risk-based access engine (19 tests)
 │       ├── tests/test_bypass.py      # §10 PAM bypass detection (19 tests)
+│       ├── tests/test_break_glass.py  # §17 break-glass emergency path (22 tests)
 │       ├── tests/test_openapi_contract.py # apis/openapi.yaml ↔ routes (5 tests)
 │       ├── Dockerfile + docker-compose.yml  # development/runtime testing only
 │       └── README.md                # full API reference
@@ -89,7 +90,7 @@ python -m pam_master.keygen                      # RSA + Ed25519 + registry PII 
 python -m pam_master                             # http://127.0.0.1:5400
 
 # Tests (shared core + shipped API contract + vendor tool)
-python -m pytest backend -q                      # 362 tests
+python -m pytest backend -q                      # 384 tests
 python -m pytest pam_master -q                   # 46 tests (vendor tool)
 ```
 
@@ -124,8 +125,8 @@ python -m pytest pam_master -q                   # 46 tests (vendor tool)
   scan guarantees no private key is ever part of the shipped repository.
 - The console lives in `frontend/` — a copy of the frozen design reference in
   `stitch_pam_suite_dashboard_ui/`. Every screen carries the same sidebar with
-  real links, `frontend/index.html` is the launcher. Served by Phase 2, nine
-  screens are **live**: licensing (`/`), platform settings (`/settings`,
+  real links, `frontend/index.html` is the launcher. Served by Phase 2, all
+  ten sidebar screens are **live**: licensing (`/`), platform settings (`/settings`,
   backed by `GET/PUT /api/v1/settings` with an audit changelog), the Command
   Center and Compliance screens (backed by `GET /api/v1/overview` and the
   unified `GET /api/v1/events` feed, plus the Command Center's §10 PAM
@@ -146,8 +147,12 @@ python -m pytest pam_master -q                   # 46 tests (vendor tool)
   and keeps its evidence — plus `GET/POST /api/v1/risk/*`, the §7 risk-based
   access engine: eight scored components whose visible sum picks the band, and
   a session-start gate that refuses a critical evaluation while keeping it as
-  audit-ledger evidence).
-  The rest are static pages under `/screens/`.
+  audit-ledger evidence), and the Emergency Break-Glass console
+  (`GET/POST /api/v1/break-glass/*` — emergency requests with dual approval
+  from two distinct approvers, a recorded session that releases a real vault
+  credential, and forced rotation plus a required review note at close).
+  The two remaining cards are `spec` design-reference pages under
+  `/screens/`.
 
 ## What a license carries
 

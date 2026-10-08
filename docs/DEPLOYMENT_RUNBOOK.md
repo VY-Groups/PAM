@@ -1,6 +1,6 @@
 # VY-PAM — Deployment & Operations Runbook
 
-**Status:** as-built for Phase 4g
+**Status:** as-built for Phase 4h
 Docker exists **only** for development and runtime testing (vendor tool +
 license server). The shipped product
 installs directly on a machine — no VM, no container.
@@ -115,7 +115,7 @@ across the restored history).
 → start. Schema changes are additive and applied at boot by
 `ensure_schema()`; the one-time chain backfill and rule seeding never repeat.
 Run the boundary suites before exposing it: `python -m pytest backend -q`
-(expect **362**) and `python -m pytest pam_master -q` (**46**).
+(expect **384**) and `python -m pytest pam_master -q` (**46**).
 
 ## 7. Monitoring
 

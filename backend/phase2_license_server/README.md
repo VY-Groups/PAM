@@ -25,8 +25,8 @@ Supported wire formats and algorithms:
 | `app.py` | Flask app factory, error handlers, `/health`, screen routes, `python app.py` entrypoint |
 | `config.py` | Environment-driven configuration (`.env` supported) |
 | `routes.py` | HTTP layer: parsing, auth, status codes |
-| `service.py` | Business logic: import, list, revoke, restore, validate, usage, checks, `meta`, platform settings, credential vault, dashboard overview + unified events, infrastructure discovery, JIT access grants, privileged sessions, zero-trust command-control policy engine, risk-based access engine (§7), PAM bypass detection (§10), immutable §19 audit ledger |
-| `models.py` | `LicenseRecord` (signed license + spec fields), `LicenseEvent`, `SettingGroup` + `SettingsEvent` (config changelog), `VaultItem` + `VaultEvent` + `VaultSecretVersion` (vault inventory + audit + immutable versions), `DiscoveredAsset`/`DiscoveredAccount`/`DiscoveryScan`/`DiscoveryEvent`, `JitRequest` + `JitEvent` (grants + trail), `PrivilegedSession` + `SessionEvent` (session recording, append-only), `CommandRule` + `CommandIncident` (zero-trust policy + escalations, append-only), `RiskEvent` (§7 scored access evaluations), `BypassSignal` + `BypassIncident` + `BypassEvent` (§10 direct-access evidence, incidents, action log), `AuditEvent` (immutable §19 hash chain) |
+| `service.py` | Business logic: import, list, revoke, restore, validate, usage, checks, `meta`, platform settings, credential vault, dashboard overview + unified events, infrastructure discovery, JIT access grants, privileged sessions, zero-trust command-control policy engine, risk-based access engine (§7), PAM bypass detection (§10), break-glass emergency path (§17), immutable §19 audit ledger |
+| `models.py` | `LicenseRecord` (signed license + spec fields), `LicenseEvent`, `SettingGroup` + `SettingsEvent` (config changelog), `VaultItem` + `VaultEvent` + `VaultSecretVersion` (vault inventory + audit + immutable versions), `DiscoveredAsset`/`DiscoveredAccount`/`DiscoveryScan`/`DiscoveryEvent`, `JitRequest` + `JitEvent` (grants + trail), `PrivilegedSession` + `SessionEvent` (session recording, append-only), `CommandRule` + `CommandIncident` (zero-trust policy + escalations, append-only), `RiskEvent` (§7 scored access evaluations), `BypassSignal` + `BypassIncident` + `BypassEvent` (§10 direct-access evidence, incidents, action log), `BreakGlassRequest` + `BreakGlassApproval` + `BreakGlassEvent` (§17 emergencies, dual-approval snapshots, action log), `AuditEvent` (immutable §19 hash chain) |
 | `audit.py` | The §19 ledger: flush listener fans every module trail into `audit_events`, sha256 chain (`prev_hash`/`event_hash`), boot backfill, append-only triggers, verify/stats/export |
 | `keys.py` | Startup key checks (fail fast, public/private must match, both algorithms) |
 | `licensing_bridge.py` | Path bootstrap + cached Phase 1 `LicenseGenerator`/`LicenseValidator` |
@@ -38,9 +38,10 @@ Supported wire formats and algorithms:
 | `tests/test_jit.py` | JIT access: deterministic risk bands, approvals, time-boxed grants, expiry rotation |
 | `tests/test_sessions.py` | Privileged sessions: start/attach, channel events, control gating, lifecycle + cascades |
 | `tests/test_command_control.py` | Zero-trust command policy: rule CRUD, dry-run decisions, approval queue, incident escalation |
-| `tests/test_audit.py` | Immutable §19 ledger: nine-source fan-in, hash chain, append-only triggers, backfill, verify/export, drift guard |
+| `tests/test_audit.py` | Immutable §19 ledger: ten-source fan-in, hash chain, append-only triggers, backfill, verify/export, drift guard |
 | `tests/test_risk.py` | §7 risk-based access engine: the eight scored components, bands/decisions, the session-start gate, ledger fan-in |
 | `tests/test_bypass.py` | §10 PAM bypass detection: log/JSON ingest, dedupe, correlation (candidate/covered/out_of_scope), incidents with forced rotation + honest `not_connected`, closure, stats, ledger fan-in |
+| `tests/test_break_glass.py` | §17 break-glass: request lifecycle, dual approval (self/second-signature rules), risk-gated open → recorded session → close with forced rotation + review, stats, ledger fan-in |
 | `tests/test_openapi_contract.py` | `apis/openapi.yaml` ↔ live route map (both directions) |
 
 ## Quick start
@@ -102,8 +103,8 @@ bundle, run the correlation scan, review/close incidents; the Compliance
 screen also reads
 `GET /api/v1/audit/stats` for the immutable digest, runs `GET /api/v1/audit/verify`
 on its **Verify Hash Chain** button, exports `GET /api/v1/audit/export`, and its
-per-trail filter fetches one of the nine sources — license, settings, vault,
-discovery, jit, session, command, risk, bypass — on click), the **Credential Vault**
+per-trail filter fetches one of the ten sources — license, settings, vault,
+discovery, jit, session, command, risk, bypass, break-glass — on click), the **Credential Vault**
 (`GET/POST /api/v1/vault/*` — onboarding via **Onboard New Credential**, rotation
 SLA, type/status filters, JIT checkouts and an audit trail), the
 **Infrastructure Discovery** screen (`GET/POST /api/v1/discovery/*` — register,
@@ -115,13 +116,17 @@ through the release-and-rotate cascade) and the **zero-trust policy console**
 (`GET/POST /api/v1/command-control/*` — the shipped §9 rules as editable cards,
 a dry-run simulator, the approval queue and the incident trail — plus
 `GET/POST /api/v1/risk/*` — the §7 scorer: score one request from eight
-components, the band legend, live stats and the recorded evaluations). Each fetches on load
+components, the band legend, live stats and the recorded evaluations), and the
+**Emergency Break-Glass console** (`GET/POST /api/v1/break-glass/*` — file an
+emergency, collect two distinct approval signatures, open the recorded
+session that releases a real vault credential, close with forced rotation
+and a required review note). Each fetches on load
 and keeps its honest placeholder content as the fallback, so it still renders
 when opened as `file://` or when the API is unreachable.
 
 The rest of the console is served read-only from `../frontend` by a
 catch-all route: open `GET /index.html` for the launcher (every screen with
-LIVE / STATIC / SPEC badges), then any `screens/<name>/code.html`. The
+LIVE / SPEC badges), then any `screens/<name>/code.html`. The
 catch-all never shadows `/health` or `/api/v1/*` and refuses any path
 resolving outside the frontend folder.
 
@@ -133,8 +138,8 @@ is no seed inventory: every credential enters through **Onboard New Credential**
 "not connected" states instead of sample rows.
 
 ```bash
-python -m pytest tests -q     # 280 tests (from backend/phase2_license_server)
-python -m pytest backend -q   # 362 tests from the repo root (+ shared crypto core)
+python -m pytest tests -q     # 302 tests (from backend/phase2_license_server)
+python -m pytest backend -q   # 384 tests from the repo root (+ shared crypto core)
 ```
 
 **Docker (development/runtime testing only — never a shipping instruction):**
@@ -195,7 +200,7 @@ cross-checked against these routes by `tests/test_openapi_contract.py`.
 | GET | `/settings/audit?limit=` | – | Configuration changelog, newest first |
 | PUT | `/settings/<group>` | admin | Merge-update one group, returns the per-field change diff |
 | GET | `/overview` | – | Dashboard aggregate: health, license posture, vault stats, settings, counters, computed control posture, recent activity |
-| GET | `/events?limit=&source=` | – | Unified audit feed across all nine trails (license, settings, vault, discovery, jit, session, command, risk, bypass), newest first |
+| GET | `/events?limit=&source=` | – | Unified audit feed across all ten trails (license, settings, vault, discovery, jit, session, command, risk, bypass, break-glass), newest first |
 | GET | `/vault/stats` | – | Inventory aggregates: totals by type/status, rotation compliance, `secrets` coverage (`managed`/`unmanaged`/`versions`), checkouts, today's events |
 | GET | `/vault/items?…` | – | List inventory (`q`, `type`, `status`, `limit`, `offset`) |
 | POST | `/vault/items` | admin | Onboard a credential (201, strictly validated; optional `secret`, else a real type-appropriate value is generated — sealed with AES-256-GCM either way) |
@@ -257,7 +262,15 @@ cross-checked against these routes by `tests/test_openapi_contract.py`.
 | GET | `/bypass/incidents/{incident_id}` | – | One incident with its verbatim `evidence.raw` log line |
 | POST | `/bypass/incidents/{incident_id}/close` | admin | Analyst closure (optional `note`; records who/when and fans into the ledger) |
 | GET | `/bypass/stats` | – | §10 aggregates: `signals` by status, `incidents` open/closed, `rotations_forced`, action counters, last ingest/scan timestamps |
-| GET | `/audit/stats` | – | Immutable ledger aggregates (§19): `total`, per-source counts for all nine trails, `last_seq`, `head_hash`, oldest/newest, `trigger_protection` |
+| POST | `/break-glass/requests` | admin | File an emergency request (201; `target` required, `reason`, optional `severity` `sev1`\|`sev2`\|`sev3` and `protocol`) — a `bg-` ref in `pending`; `mfa` recorded honestly as `not configured` until a factor exists |
+| GET | `/break-glass/requests?status=&severity=&limit=&offset=` | – | Emergency requests, newest first (status/severity filters, approval snapshots per row) |
+| GET | `/break-glass/requests/<id>` | – | One request with its append-only approval signatures and the recorded session (or `null` while unopened) |
+| POST | `/break-glass/requests/<id>/approve` | admin | Record one approval signature (200; optional `note`) — the requester cannot approve their own emergency (403), a repeat signature from the same approver is rejected (400), two distinct signatures flip the request to `approved` |
+| POST | `/break-glass/requests/<id>/deny` | admin | Refuse a pending request with a note (any actor may, including the requester — the refusal itself is always recorded with who/when; 400 once the request is decided) |
+| POST | `/break-glass/requests/<id>/open` | admin | Release the approved credential (201): dual approval checked first, then the §7 risk gate (critical → 403 with `details.risk`, nothing released); real vault checkout + mandatory recorded session (`session_id` stored on the request) |
+| POST | `/break-glass/requests/<id>/close` | admin | End the emergency (200): session stopped, credential force-rotated through the §5 pipeline (`trigger=break-glass`, outcome recorded), review note required |
+| GET | `/break-glass/stats` | – | §17 aggregates: requests by status + total, approval signatures recorded/outstanding, action counters, `last_request_at`/`last_opened_at`/`last_closed_at`, `open_emergencies` |
+| GET | `/audit/stats` | – | Immutable ledger aggregates (§19): `total`, per-source counts for all ten trails, `last_seq`, `head_hash`, oldest/newest, `trigger_protection` |
 | GET | `/audit/verify` | – | Walk the whole chain: recomputes every record's hash and reports `intact`, `checked`, `head_hash` plus the first `broken_at`/`reason` (sequence gap, content change, re-link) |
 | GET | `/audit/export` | – | The full ledger in chain order as NDJSON (`application/x-ndjson`, `vy-pam-audit.ndjson`) — one record per line for SIEM ingest |
 
@@ -385,8 +398,8 @@ curl -s "http://127.0.0.1:5000/api/v1/settings/audit?limit=20"
 # dashboard aggregate powering the Command Center / Compliance screens
 curl -s http://127.0.0.1:5000/api/v1/overview
 
-# unified audit feed (all nine trails: license, settings, vault, discovery,
-# jit, session, command, risk, bypass - newest first, each row chain-linked with seq + hash)
+# unified audit feed (all ten trails: license, settings, vault, discovery,
+# jit, session, command, risk, bypass, break-glass - newest first, each row chain-linked with seq + hash)
 curl -s "http://127.0.0.1:5000/api/v1/events?limit=10"
 
 # inventory aggregates: rotation compliance, checkouts, attention list
@@ -681,21 +694,68 @@ curl -s http://127.0.0.1:5000/api/v1/bypass/stats
   ingest/scan/detect/close fans into the §19 chain as the ninth source
   `bypass`. Re-scans never duplicate incidents.
 
+### Break-glass emergency path (§17)
+
+```bash
+# file an emergency request
+curl -s -X POST http://127.0.0.1:5000/api/v1/break-glass/requests \
+  -H "Authorization: Bearer $LICENSE_ADMIN_TOKEN" -H "X-Actor: oncall" \
+  -H "Content-Type: application/json" \
+  -d '{"target": "jump-edge.internal:22", "severity": "sev1",
+       "protocol": "ssh",
+       "reason": "PAM proxy tunnel down; recorded SSH needed to restore it."}'
+# -> {"request": {"request_ref": "bg-3740f3d5", "status": "pending",
+#     "approvals_required": 2, "mfa": "not configured", ...}}
+
+# two DISTINCT approvers sign (self-approval -> 403, repeat signature -> 400)
+curl -s -X POST http://127.0.0.1:5000/api/v1/break-glass/requests/1/approve \
+  -H "Authorization: Bearer $LICENSE_ADMIN_TOKEN" -H "X-Actor: incident-commander"
+curl -s -X POST http://127.0.0.1:5000/api/v1/break-glass/requests/1/approve \
+  -H "Authorization: Bearer $LICENSE_ADMIN_TOKEN" -H "X-Actor: security-duty"
+# -> {"request": {"status": "approved", ...}}
+
+# open: dual approval first, then the §7 risk gate (critical -> 403,
+# nothing released); approved -> real vault checkout + recorded session
+curl -s -X POST http://127.0.0.1:5000/api/v1/break-glass/requests/1/open \
+  -H "Authorization: Bearer $LICENSE_ADMIN_TOKEN" -H "X-Actor: incident-commander"
+# -> {"session": {"id": 4, "session_ref": "sess-ccdcc3b9", ...}, ...}  (201)
+
+# close: session stopped, credential force-rotated (trigger=break-glass),
+# review note required - the rotation outcome is recorded on the request
+curl -s -X POST http://127.0.0.1:5000/api/v1/break-glass/requests/1/close \
+  -H "Authorization: Bearer $LICENSE_ADMIN_TOKEN" -H "X-Actor: incident-commander" \
+  -H "Content-Type: application/json" \
+  -d '{"review": "Tunnel restored; session recorded end to end; credential rotated."}'
+
+# aggregates + the full list/detail
+curl -s http://127.0.0.1:5000/api/v1/break-glass/stats
+curl -s "http://127.0.0.1:5000/api/v1/break-glass/requests?limit=10"
+```
+
+- **Break-glass** (architecture module 17): `pending → approved → used →
+  closed` (or `denied`); the requester cannot approve or deny their own
+  emergency, both signatures come from distinct actors and are stored as
+  append-only snapshots, and the risk gate runs **at open** — a critical
+  evaluation refuses the release while staying committed as ledger
+  evidence. Close forces the §5 rotation with `trigger=break-glass` and
+  records the review; every request/approve/deny/open/close fans into the
+  §19 chain as the tenth source `break-glass`.
+
 ### Immutable audit ledger (§19)
 
 ```bash
 # aggregates: every module trail fanned into one append-only hash chain
 curl -s http://127.0.0.1:5000/api/v1/audit/stats
-# -> {"total": 46, "by_source": {"bypass": 7, "command": 7,
-#     "discovery": 4, "jit": 1, "license": 1, "risk": 8, "session": 5,
-#     "settings": 2, "vault": 11}, "last_seq": 46, "head_hash": "3e2b...",
-#     "trigger_protection": true, ...}
+# -> {"total": 65, "by_source": {"break-glass": 12, "bypass": 7,
+#     "command": 7, "discovery": 4, "jit": 1, "license": 1, "risk": 9,
+#     "session": 8, "settings": 2, "vault": 14}, "last_seq": 65,
+#     "head_hash": "c4e1...", "trigger_protection": true, ...}
 
 # walk every record and recompute every hash (what the console's
 # "Verify Hash Chain" button runs on click)
 curl -s http://127.0.0.1:5000/api/v1/audit/verify
-# -> {"intact": true, "checked": 46, "total": 46, "last_seq": 46,
-#     "head_hash": "3e2b...", "broken_at": null, "reason": null}
+# -> {"intact": true, "checked": 65, "total": 65, "last_seq": 65,
+#     "head_hash": "c4e1...", "broken_at": null, "reason": null}
 
 # the whole ledger as NDJSON in chain order, one record per line (SIEM ingest)
 curl -s http://127.0.0.1:5000/api/v1/audit/export

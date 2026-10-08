@@ -1118,3 +1118,131 @@ def close_bypass_incident(incident_id: int):
 def bypass_stats():
     """Real aggregates: signal states, open incidents, forced rotations."""
     return jsonify(service.bypass_stats())
+
+
+# ---------------------------------------------------------------------------
+# break glass (architecture section 17)
+# ---------------------------------------------------------------------------
+@api.post("/break-glass/requests")
+@require_admin
+def create_break_glass_request():
+    """File one emergency request: reason + severity + target, awaiting two
+    distinct approvals before any credential is released."""
+    req = service.create_break_glass_request(_json_body(), actor=_actor())
+    return (
+        jsonify(
+            {
+                "request": service.break_glass_view(req),
+                "message": (
+                    f"Emergency request {req.request_ref} filed "
+                    "(2 distinct approvals required)"
+                ),
+            }
+        ),
+        201,
+    )
+
+
+@api.get("/break-glass/requests")
+def list_break_glass_requests():
+    """Emergency requests, newest first (status filter + paging)."""
+    limit = min(_int_param("limit", 50), MAX_PAGE_SIZE)
+    offset = _int_param("offset", 0)
+    rows, total = service.list_break_glass_requests(
+        status=request.args.get("status"), limit=limit, offset=offset
+    )
+    return jsonify(
+        {
+            "requests": [service.break_glass_view(row) for row in rows],
+            "total": total,
+            "limit": limit,
+            "offset": offset,
+        }
+    )
+
+
+@api.get("/break-glass/requests/<int:request_id>")
+def get_break_glass_request(request_id: int):
+    """One request with its approval snapshots and its recorded session."""
+    return jsonify(service.get_break_glass_detail(request_id))
+
+
+@api.post("/break-glass/requests/<int:request_id>/approve")
+@require_admin
+def approve_break_glass_request(request_id: int):
+    """Record one approval signature (1/2, then 2/2 flips to approved)."""
+    view = service.approve_break_glass_request(
+        request_id, actor=_actor(), payload=_json_body(required=False)
+    )
+    signed = view["approvals_signed"]
+    message = (
+        f"Dual approval complete for {view['request_ref']} (2/2)"
+        if signed >= 2
+        else f"Approval {signed}/2 recorded for {view['request_ref']}"
+    )
+    return jsonify({"request": view, "message": message})
+
+
+@api.post("/break-glass/requests/<int:request_id>/deny")
+@require_admin
+def deny_break_glass_request(request_id: int):
+    """Turn the request down before anything was released."""
+    view = service.deny_break_glass_request(
+        request_id, actor=_actor(), payload=_json_body(required=False)
+    )
+    return jsonify(
+        {
+            "request": view,
+            "message": (
+                f"Request {view['request_ref']} denied by {view['denied_by']}"
+            ),
+        }
+    )
+
+
+@api.post("/break-glass/requests/<int:request_id>/open")
+@require_admin
+def open_break_glass_request(request_id: int):
+    """Release the emergency credential through the real vault checkout and
+    start the mandatory recorded session (record=true forced)."""
+    result = service.open_break_glass_request(
+        request_id, actor=_actor(), payload=_json_body(required=False)
+    )
+    return (
+        jsonify(
+            {
+                **result,
+                "message": (
+                    f"Emergency credential released; recorded session "
+                    f"{result['session']['session_ref']} is open"
+                ),
+            }
+        ),
+        201,
+    )
+
+
+@api.post("/break-glass/requests/<int:request_id>/close")
+@require_admin
+def close_break_glass_request(request_id: int):
+    """End the emergency: session stopped, credential rotated, post-incident
+    review note filed (the note is required)."""
+    result = service.close_break_glass_request(
+        request_id, actor=_actor(), payload=_json_body(required=False)
+    )
+    rotation = result["rotation"]
+    return jsonify(
+        {
+            **result,
+            "message": (
+                f"Emergency {result['request']['request_ref']} closed; "
+                f"rotation {rotation.get('status')}"
+            ),
+        }
+    )
+
+
+@api.get("/break-glass/stats")
+def break_glass_stats():
+    """Real aggregates: request states, approval signatures, ledger actions."""
+    return jsonify(service.break_glass_stats())

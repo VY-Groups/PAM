@@ -1,7 +1,7 @@
 # VY-PAM — API Reference
 
-**Status:** as-built for Phase 4g
-**Contract:** `apis/openapi.yaml` (OpenAPI 3.1) — **72 paths / 80
+**Status:** as-built for Phase 4h
+**Contract:** `apis/openapi.yaml` (OpenAPI 3.1) — **79 paths / 88
 operations**, enforced in both directions by
 `backend/phase2_license_server/tests/test_openapi_contract.py`. If this page
 and the YAML ever disagree, the YAML wins.
@@ -15,13 +15,13 @@ and the YAML ever disagree, the YAML wins.
 | Base URL (dev) | `http://127.0.0.1:5000` (`LICENSE_SERVER_HOST`/`LICENSE_SERVER_PORT`) |
 | Version | `/api/v1/…` (`/health`, `/api/v1/meta` unversioned) |
 | Content type | `application/json` (license import also accepts multipart upload / raw body) |
-| Auth | When `LICENSE_ADMIN_TOKEN` is set: `Authorization: Bearer <token>` **or** `X-Admin-Token: <token>` on the **40 admin operations**. When unset: open dev mode — responses carry `X-Auth-Mode: open` (explicit, never silent). |
+| Auth | When `LICENSE_ADMIN_TOKEN` is set: `Authorization: Bearer <token>` **or** `X-Admin-Token: <token>` on the **45 admin operations**. When unset: open dev mode — responses carry `X-Auth-Mode: open` (explicit, never silent). |
 | Actor | `X-Actor: <name>` recorded verbatim in the audit ledger on every audited write |
 | Errors | `{"error":{"code","message","details?"}}` — 400 validation · 401 auth · 403 policy refusal (risk gate) · 404 · 409 conflict/state · 422 unprocessable shape · 503 fail-closed dependency |
 | Pagination | `limit` (≤200) + `offset`, newest first |
 | Ordering | Ledger/session streams ascending `seq`; listings newest-first |
 
-## 2. Operations by tag (12 tags)
+## 2. Operations by tag (13 tags)
 
 ### `ops` — unversioned
 | Method | Path | Summary |
@@ -144,6 +144,18 @@ and the YAML ever disagree, the YAML wins.
 | POST | `/api/v1/bypass/incidents/{incident_id}/close` | analyst closure (note optional, recorded with who/when; admin) |
 | GET | `/api/v1/bypass/stats` | signal states, incident and forced-rotation aggregates |
 
+### `break-glass` — §17 emergency access (Phase 4h, 7 paths / 8 operations)
+| Method | Path | Summary |
+|---|---|---|
+| POST | `/api/v1/break-glass/requests` | file an emergency request (risk gate runs at open, not at filing) |
+| GET | `/api/v1/break-glass/requests` | list, newest first (status/severity filters) |
+| GET | `/api/v1/break-glass/requests/{request_id}` | detail with approval snapshots + recorded session |
+| POST | `/api/v1/break-glass/requests/{request_id}/approve` | record one signature — requester excluded, two distinct approvers required |
+| POST | `/api/v1/break-glass/requests/{request_id}/deny` | refuse a pending request with a note (any actor may; 400 once decided) |
+| POST | `/api/v1/break-glass/requests/{request_id}/open` | release the approved credential — dual approval + §7 risk gate enforced, 201 with the recorded session |
+| POST | `/api/v1/break-glass/requests/{request_id}/close` | end session, forced credential rotation, review note required |
+| GET | `/api/v1/break-glass/stats` | request statuses, approval signatures, action counts, last unseal |
+
 ### Ledger (Compliance feeds)
 | Method | Path | Summary |
 |---|---|---|
@@ -190,13 +202,12 @@ keys only via `python -m pam_master.keygen`.
 
 ## 5. Planned endpoints (NOT in the contract — see `IMPLEMENTATION_PLAN.md`)
 
-These do **not** exist today; the contract's **72 paths / 80 operations**
+These do **not** exist today; the contract's **79 paths / 88 operations**
 are the complete current surface. Each lands in `openapi.yaml` + ADMIN
 security + tests in the same commit when its phase starts (counts `—`):
 
 | Phase | Planned additions |
 |---|---|
-| 4h §17 | `POST|GET /api/v1/break-glass/requests`, `/{id}/approve` (×2 required), `/{id}/deny`, `/{id}/open`, `/{id}/close` |
 | 4i §20 | `POST /api/v1/mfa/enroll`, `POST /api/v1/mfa/verify`, ITSM ticket verify, SIEM/LDAP connector config + health endpoints |
 | 4j §11 | `GET /api/v1/risk/baselines`, anomaly detail additions on evaluations |
 | 4k §12 | watermark payload fields on `GET /sessions/{id}` + events (additive schema) |

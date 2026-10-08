@@ -1,6 +1,6 @@
 # VY-PAM — Technical Requirements & Design Document (TRD)
 
-**Status:** as-built for Phase 4f (`110909f`)
+**Status:** as-built for Phase 4h
 **Audience:** engineers extending or operating the system
 **Companion docs:** `PRD.md`, `PAM_FLOW.md`, `BACKEND_SCHEMA.md`, `API_REFERENCE.md`
 
@@ -51,7 +51,7 @@ repo.
 | Store | SQLite (`licenses.db`, git-ignored) | append-only enforced by triggers on `audit_events` |
 | Crypto | `cryptography` lib | RSA-PSS-SHA256 (default) / Ed25519 envelopes; AES-256-GCM secrets |
 | Frontend | Static HTML + Tailwind (CDN build) + vanilla JS | 10 sidebar screens, no bundler, works from `file://` |
-| Tests | pytest | 362 backend + 46 pam_master |
+| Tests | pytest | 384 backend + 46 pam_master |
 | UI verification | Node + `playwright-core` (`shots_tool/`) | viewport 1920×1600, never `fullPage` |
 | Vendor tool | Flask + raw `sqlite3` | `pam_master` package, `python -m pam_master` |
 
@@ -211,12 +211,30 @@ Rules enforced by tests/conventions:
   duplicate incidents; stats and the compliance feed stay fully generic
   (no hardcoded source lists).
 
+### 4.12 Break glass (§17) — Phase 4h
+- Lifecycle `pending → approved → used → closed` (or `denied`): filing is
+  cheap, the **risk gate runs at open** — dual approval is checked first,
+  then the §7 evaluation; `critical` refuses the open (403 `details.risk`),
+  nothing is released.
+- Dual approval is enforced in code: the requester cannot approve their own
+  emergency (403), a second signature from the same approver is rejected
+  (400), and the two distinct approver rows are append-only snapshots.
+- `open` performs a **real vault checkout** of the target's credential and
+  starts a mandatory recorded session (`session_id` stored on the request);
+  `close` ends the session, forces the credential rotation through the
+  shared `_force_target_rotation` helper with `trigger=break-glass`, and
+  requires a review note.
+- `BreakGlassEvent` actions (`requested`, `approved`, `denied`, `opened`,
+  `closed`) fan into the §19 chain as the **tenth** source `break-glass`;
+  `bg-` request refs, stats and the compliance feed stay generic. MFA on
+  the emergency path honestly reports `not configured` until 4i.
+
 ## 5. API conventions
 
 | Concern | Rule |
 |---|---|
 | Versioning | Everything under `/api/v1` (health/meta unversioned) |
-| Auth | `LICENSE_ADMIN_TOKEN` set → `Authorization: Bearer …` or `X-Admin-Token` on the 40 admin operations; unset → explicit open dev mode (`X-Auth-Mode: open` response header) |
+| Auth | `LICENSE_ADMIN_TOKEN` set → `Authorization: Bearer …` or `X-Admin-Token` on the 45 admin operations; unset → explicit open dev mode (`X-Auth-Mode: open` response header) |
 | Actor | `X-Actor` header recorded on every audited write |
 | Errors | `{"error": {"code", "message", "details?"}}`; 400 validation, 401 auth, 403 policy refusal, 404, 409 conflict/state, 422 shape, 503 fail-closed dependency |
 | Pagination | `limit` (max 200) + `offset`, newest first |
@@ -273,7 +291,6 @@ its phase starts (plan > code > docs, in that order).
 
 | Phase / section | Data additions | API additions | Runtime behavior |
 |---|---|---|---|
-| 4h §17 Break Glass | `break_glass_requests`, `break_glass_approvals` | `POST|GET /break-glass/requests`, `/{id}/approve|deny|open|close` | dual approval (2 distinct approvers) → real vault checkout → mandatory recorded session → forced rotation + review note; ledger source `break-glass`; MFA step honest until 4i |
 | 4i §20 Integrations | settings groups `mfa/itsm/siem/ldap`; `connector_health` | `POST|GET /mfa/enroll|verify`, ITSM verify, SIEM push config | RFC-6238 TOTP actually gates the `mfa` band; ITSM REST verifies tickets (§7 `ticket` gains verified flag); ledger batches POSTed as signed NDJSON when configured |
 | 4j §11 UEBA | `behavior_baselines` (rolling, per actor) | `GET /risk/baselines`, anomaly detail on evaluations | baselines learned from real `risk_events`/`session_events` rows; deviation joins §7 `behavior` component with per-reason breakdown → cascade/rotate/incident chain |
 | 4k §12 Watermark | (payload assembled from existing session rows) | watermark field on session detail/events | live overlay rendered from real session data in the hub pane; protocol-level overlays gated behind gateway work, labelled `not connected` |
@@ -282,7 +299,7 @@ its phase starts (plan > code > docs, in that order).
 | 5c §15 DevSecOps | broker policy rows | `POST /broker/credentials` | time-boxed pipeline credentials (JIT semantics), no static CI secrets |
 | 5d §16 AI-Agent | `agent_identities`, task scopes | agent request endpoints + task-scoped rule evaluation | identity → task → risk → JIT → restricted commands → expiry |
 | 6a §18 HA | replication/failover topology | health/failover endpoints | multi-node; storage engine decision = core design item |
-| 6b RBAC | `roles`, `role_bindings` | security schemes gain role requirements | attribute checks on the 40 admin ops + vault/target scoping |
+| 6b RBAC | `roles`, `role_bindings` | security schemes gain role requirements | attribute checks on the 45 admin ops + vault/target scoping |
 | 6c SSO/HSM | SSO/HSM config state | SAML/OIDC login path, PKCS#11/KMS key ops | settings schema becomes enforcement; posture counts flip honestly |
 
 Standing constraints that carry into all of these: ledger emission inside

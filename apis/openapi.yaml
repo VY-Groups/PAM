@@ -46,6 +46,8 @@ tags:
     description: Risk-Based Access Engine - eight-component scores, bands and policy decisions
   - name: bypass
     description: PAM Bypass Detection - log ingest, correlation scans and direct-access incidents
+  - name: break-glass
+    description: Break Glass - emergency requests, dual approval, recorded unseal, forced rotation (architecture 17)
 paths:
   /health:
     get:
@@ -2070,6 +2072,233 @@ paths:
             application/json:
               schema: {$ref: "#/components/schemas/BypassStats"}
 
+  /api/v1/break-glass/requests:
+    post:
+      tags: [break-glass]
+      summary: File an emergency break-glass request (architecture 17)
+      description: |
+        Records the operator's reason, severity, target and protocol
+        verbatim and opens the dual-approval process: two distinct
+        approvers must sign before any credential is released (the
+        requester cannot sign their own emergency). MFA is recorded
+        exactly as it stands - `not configured` until a factor exists
+        (section 20), never a fake challenge. Every step lands on the
+        `break-glass` trail of the ledger.
+      security:
+        - bearerAuth: []
+        - adminTokenHeader: []
+        - {}
+      parameters:
+        - name: X-Actor
+          in: header
+          description: Who is filing the emergency request.
+          schema: {type: string, maxLength: 64}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: "#/components/schemas/BreakGlassCreateRequest"}
+      responses:
+        "201":
+          description: Request filed, awaiting approvals
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/BreakGlassRequestResponse"}
+        "400": {$ref: "#/components/responses/BadRequest"}
+        "401": {$ref: "#/components/responses/Unauthorized"}
+    get:
+      tags: [break-glass]
+      summary: Emergency requests, newest first
+      parameters:
+        - name: status
+          in: query
+          schema: {type: string, enum: [pending, approved, denied, used, closed]}
+        - {$ref: "#/components/parameters/Limit"}
+        - {$ref: "#/components/parameters/Offset"}
+      responses:
+        "200":
+          description: Paged requests with their approval snapshots
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/BreakGlassRequestList"}
+        "400": {$ref: "#/components/responses/BadRequest"}
+
+  /api/v1/break-glass/requests/{request_id}:
+    get:
+      tags: [break-glass]
+      summary: One request with approvals and its recorded session
+      parameters:
+        - name: request_id
+          in: path
+          required: true
+          schema: {type: integer, minimum: 1}
+      responses:
+        "200":
+          description: Request detail (approval snapshots + opened session or null)
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/BreakGlassDetailResponse"}
+        "404": {$ref: "#/components/responses/NotFound"}
+
+  /api/v1/break-glass/requests/{request_id}/approve:
+    post:
+      tags: [break-glass]
+      summary: Record one approval signature (dual approval, architecture 17)
+      description: |
+        The requester cannot approve their own emergency (403) and the
+        second signature must come from a different approver (400). Two
+        distinct signatures flip the request to `approved`.
+      security:
+        - bearerAuth: []
+        - adminTokenHeader: []
+        - {}
+      parameters:
+        - name: request_id
+          in: path
+          required: true
+          schema: {type: integer, minimum: 1}
+        - name: X-Actor
+          in: header
+          description: The approver's identity - must differ from the requester and from the first approver.
+          schema: {type: string, maxLength: 64}
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema: {$ref: "#/components/schemas/BreakGlassApproveRequest"}
+      responses:
+        "200":
+          description: Signature recorded (message reports 1/2 or 2/2)
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/BreakGlassRequestResponse"}
+        "400": {$ref: "#/components/responses/BadRequest"}
+        "401": {$ref: "#/components/responses/Unauthorized"}
+        "403": {$ref: "#/components/responses/Forbidden"}
+        "404": {$ref: "#/components/responses/NotFound"}
+
+  /api/v1/break-glass/requests/{request_id}/deny:
+    post:
+      tags: [break-glass]
+      summary: Turn the request down before anything was released
+      security:
+        - bearerAuth: []
+        - adminTokenHeader: []
+        - {}
+      parameters:
+        - name: request_id
+          in: path
+          required: true
+          schema: {type: integer, minimum: 1}
+        - name: X-Actor
+          in: header
+          description: Who is denying the request.
+          schema: {type: string, maxLength: 64}
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema: {$ref: "#/components/schemas/BreakGlassDenyRequest"}
+      responses:
+        "200":
+          description: Request denied (recorded with who/when/note)
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/BreakGlassRequestResponse"}
+        "400": {$ref: "#/components/responses/BadRequest"}
+        "401": {$ref: "#/components/responses/Unauthorized"}
+        "404": {$ref: "#/components/responses/NotFound"}
+
+  /api/v1/break-glass/requests/{request_id}/open:
+    post:
+      tags: [break-glass]
+      summary: Release the emergency credential and start the recorded session
+      description: |
+        The approved request's credential is released through the real
+        vault checkout and a privileged session starts with `record=true`
+        forced - recording is not an operator preference here. The
+        section-7 risk gate still judges the start and its evaluation
+        commits either way: a refusal keeps the request `approved` and
+        releases nothing.
+      security:
+        - bearerAuth: []
+        - adminTokenHeader: []
+        - {}
+      parameters:
+        - name: request_id
+          in: path
+          required: true
+          schema: {type: integer, minimum: 1}
+        - name: X-Actor
+          in: header
+          description: Who is opening the emergency (recorded as the session actor).
+          schema: {type: string, maxLength: 64}
+      responses:
+        "201":
+          description: Credential released; recorded session open
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/BreakGlassOpenResponse"}
+        "400": {$ref: "#/components/responses/BadRequest"}
+        "401": {$ref: "#/components/responses/Unauthorized"}
+        "403":
+          description: Risk policy refused this session start (evaluation recorded; nothing released).
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/Error"}
+        "404": {$ref: "#/components/responses/NotFound"}
+        "409": {$ref: "#/components/responses/Conflict"}
+
+  /api/v1/break-glass/requests/{request_id}/close:
+    post:
+      tags: [break-glass]
+      summary: End the emergency - session stopped, credential rotated, review note filed
+      description: |
+        Closing ends the recorded session if it is still running (its
+        release-and-rotate cascade fires), guarantees the released
+        credential ends up rotated (forcing the rotation through the real
+        module-5 pipeline when the cascade has not covered it), and files
+        the post-incident review note - the note is required: an emergency
+        that is not reviewed is not closed.
+      security:
+        - bearerAuth: []
+        - adminTokenHeader: []
+        - {}
+      parameters:
+        - name: request_id
+          in: path
+          required: true
+          schema: {type: integer, minimum: 1}
+        - name: X-Actor
+          in: header
+          description: Who is closing the emergency.
+          schema: {type: string, maxLength: 64}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: "#/components/schemas/BreakGlassCloseRequest"}
+      responses:
+        "200":
+          description: Emergency closed; rotation outcome recorded
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/BreakGlassCloseResponse"}
+        "400": {$ref: "#/components/responses/BadRequest"}
+        "401": {$ref: "#/components/responses/Unauthorized"}
+        "404": {$ref: "#/components/responses/NotFound"}
+
+  /api/v1/break-glass/stats:
+    get:
+      tags: [break-glass]
+      summary: Request states, approval signatures and ledger actions
+      responses:
+        "200":
+          description: Real aggregates over requests, signatures and module actions
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/BreakGlassStats"}
+
 components:
   securitySchemes:
     bearerAuth:
@@ -3693,3 +3922,148 @@ components:
         actions: {type: object, additionalProperties: {type: integer}, description: "Ledger action counts: ingested / scanned / detected / closed."}
         last_ingest_at: {type: [string, "null"], format: date-time}
         last_scan_at: {type: [string, "null"], format: date-time}
+
+    BreakGlassRequest:
+      type: object
+      required: [id, request_ref, created_at, reason, severity, target, protocol, status,
+                 requested_by, requested_at, mfa, deny_note, session_id, review,
+                 approvals, approvals_required, approvals_signed]
+      properties:
+        id: {type: integer}
+        request_ref: {type: string, description: "Display reference (`bg-xxxxxxxx`)."}
+        created_at: {type: string, format: date-time}
+        reason: {type: string, maxLength: 1000, description: Why the emergency is needed - recorded verbatim.}
+        severity: {type: string, enum: [sev1, sev2, sev3]}
+        target: {type: string, maxLength: 255}
+        protocol: {type: string, description: Session protocol for the emergency session (session protocol enum).}
+        status: {type: string, enum: [pending, approved, denied, used, closed]}
+        requested_by: {type: string}
+        requested_at: {type: string, format: date-time}
+        mfa: {type: string, description: "Honest MFA state - `not configured` until a factor exists (section 20); never a fake challenge."}
+        denied_by: {type: [string, "null"]}
+        denied_at: {type: [string, "null"], format: date-time}
+        deny_note: {type: string}
+        session_id: {type: [integer, "null"], description: The recorded emergency session, once opened.}
+        opened_by: {type: [string, "null"]}
+        opened_at: {type: [string, "null"], format: date-time}
+        opened_item_id: {type: [integer, "null"], description: The vault credential released for the emergency.}
+        closed_by: {type: [string, "null"]}
+        closed_at: {type: [string, "null"], format: date-time}
+        review: {type: string, maxLength: 1000, description: Post-incident review note (required to close).}
+        approvals: {type: array, items: {$ref: "#/components/schemas/BreakGlassApproval"}}
+        approvals_required: {type: integer, enum: [2], description: "Dual approval: two distinct approvers."}
+        approvals_signed: {type: integer}
+
+    BreakGlassApproval:
+      type: object
+      required: [id, request_id, approver, decided_at, note]
+      properties:
+        id: {type: integer}
+        request_id: {type: integer}
+        approver: {type: string, maxLength: 64, description: Distinct approver identity, recorded verbatim from X-Actor.}
+        decided_at: {type: string, format: date-time}
+        note: {type: string, maxLength: 500}
+
+    BreakGlassCreateRequest:
+      type: object
+      required: [reason, target]
+      properties:
+        reason: {type: string, maxLength: 1000, description: Why the emergency is needed (recorded verbatim).}
+        target: {type: string, maxLength: 255, description: Host needing emergency access - it must carry a vault credential to open.}
+        severity: {type: string, enum: [sev1, sev2, sev3], default: sev1}
+        protocol: {type: string, default: ssh, description: Protocol for the emergency session.}
+
+    BreakGlassRequestResponse:
+      type: object
+      required: [request, message]
+      properties:
+        request: {$ref: "#/components/schemas/BreakGlassRequest"}
+        message: {type: string}
+
+    BreakGlassRequestList:
+      type: object
+      required: [requests, total, limit, offset]
+      properties:
+        requests: {type: array, items: {$ref: "#/components/schemas/BreakGlassRequest"}}
+        total: {type: integer}
+        limit: {type: integer}
+        offset: {type: integer}
+
+    BreakGlassDetailResponse:
+      type: object
+      required: [request, session]
+      properties:
+        request: {$ref: "#/components/schemas/BreakGlassRequest"}
+        session:
+          oneOf:
+            - {$ref: "#/components/schemas/Session"}
+            - type: "null"
+          description: The recorded emergency session (null until the credential is released).
+
+    BreakGlassApproveRequest:
+      type: object
+      properties:
+        note: {type: string, maxLength: 500, description: Optional sign-off note recorded with the signature.}
+
+    BreakGlassDenyRequest:
+      type: object
+      properties:
+        note: {type: string, maxLength: 500, description: Why the request was turned down.}
+
+    BreakGlassOpenResponse:
+      type: object
+      required: [request, session, risk, message]
+      properties:
+        request: {$ref: "#/components/schemas/BreakGlassRequest"}
+        session: {$ref: "#/components/schemas/Session"}
+        risk: {$ref: "#/components/schemas/RiskEvaluation"}
+        message: {type: string}
+
+    BreakGlassCloseRequest:
+      type: object
+      required: [review]
+      properties:
+        review: {type: string, maxLength: 1000, description: Post-incident review note - required; an emergency that is not reviewed is not closed.}
+
+    BreakGlassCloseResponse:
+      type: object
+      required: [request, session, rotation, message]
+      properties:
+        request: {$ref: "#/components/schemas/BreakGlassRequest"}
+        session:
+          oneOf:
+            - {$ref: "#/components/schemas/Session"}
+            - type: "null"
+        rotation: {$ref: "#/components/schemas/BreakGlassRotation"}
+        message: {type: string}
+
+    BreakGlassRotation:
+      type: object
+      required: [status]
+      description: >
+        Rotation outcome at close. `rotated` with `performed: at session end`
+        means the session-end cascade already covered it; otherwise the pass
+        was forced through the real module-5 pipeline now (per-credential
+        outcomes in `items` / `skipped` / `failed`). `not_applicable` when no
+        credential was released.
+      properties:
+        status: {type: string, enum: [rotated, failed, skipped, no_credential_on_file, not_applicable]}
+        performed: {type: string}
+        secret_version: {type: integer}
+        detail: {type: string}
+        items: {type: array, items: {type: object, additionalProperties: true}}
+        skipped: {type: array, items: {type: object, additionalProperties: true}}
+        failed: {type: array, items: {type: object, additionalProperties: true}}
+
+    BreakGlassStats:
+      type: object
+      required: [requests, approvals, open_emergencies, actions,
+                 last_request_at, last_opened_at, last_closed_at]
+      properties:
+        requests: {type: object, additionalProperties: {type: integer}, description: "Counts per lifecycle status plus the total."}
+        approvals: {type: object, additionalProperties: {type: integer}, description: "recorded signatures, and signatures still owed on pending requests."}
+        open_emergencies: {type: integer, description: Requests whose emergency session is running.}
+        actions: {type: object, additionalProperties: {type: integer}, description: "Ledger action counts: requested / approved / denied / opened / closed."}
+        last_request_at: {type: [string, "null"], format: date-time}
+        last_opened_at: {type: [string, "null"], format: date-time}
+        last_closed_at: {type: [string, "null"], format: date-time}
