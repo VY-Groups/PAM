@@ -171,3 +171,22 @@ Own `openapi.yaml` + contract test; **never shipped**. Highlights:
 
 Auth on the vendor side: local bind by default (`127.0.0.1:5400`);
 keys only via `python -m pam_master.keygen`.
+
+## 5. Planned endpoints (NOT in the contract — see `IMPLEMENTATION_PLAN.md`)
+
+These do **not** exist today; the contract's **65 paths / 73 operations**
+are the complete current surface. Each lands in `openapi.yaml` + ADMIN
+security + tests in the same commit when its phase starts (counts `—`):
+
+| Phase | Planned additions |
+|---|---|
+| 4g §10 | `POST /api/v1/bypass/scans`, `GET /api/v1/bypass/signals`, `GET /api/v1/bypass/incidents`, `POST /api/v1/bypass/incidents/{id}/close` |
+| 4h §17 | `POST|GET /api/v1/break-glass/requests`, `/{id}/approve` (×2 required), `/{id}/deny`, `/{id}/open`, `/{id}/close` |
+| 4i §20 | `POST /api/v1/mfa/enroll`, `POST /api/v1/mfa/verify`, ITSM ticket verify, SIEM/LDAP connector config + health endpoints |
+| 4j §11 | `GET /api/v1/risk/baselines`, anomaly detail additions on evaluations |
+| 4k §12 | watermark payload fields on `GET /sessions/{id}` + events (additive schema) |
+| 5a §13 | vendor account CRUD + vendor-scoped lifecycle endpoints |
+| 5b §14 | `POST|GET /api/v1/cloud/connectors`, cloud discovery extension |
+| 5c §15 | `POST /api/v1/broker/credentials` (+ list/revoke) |
+| 5d §16 | agent identity CRUD + task-scoped request endpoints |
+| 6b | security schemes gain role requirements across existing admin ops |

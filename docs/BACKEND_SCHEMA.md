@@ -296,3 +296,29 @@ Privacy notes:
    §19.
 5. **Backup = file copy** of `licenses.db` (+ `vault.key`, license PEMs);
    see `DEPLOYMENT_RUNBOOK.md`.
+
+---
+
+## 4. Planned tables (NOT yet created — see `IMPLEMENTATION_PLAN.md`)
+
+Design sketches only; they become normative when the phase starts. Final
+column sets land with the code + contract commit; counts are `—` until then.
+
+| Phase | Tables | Notes |
+|---|---|---|
+| 4g §10 | `bypass_signals`, `bypass_incidents` | evidence pointers into logs/sessions; new ledger source `bypass` |
+| 4h §17 | `break_glass_requests`, `break_glass_approvals` | approval snapshots append-only (same pattern as `manager_approval`); ledger source `break-glass` |
+| 4i §20 | settings groups `mfa`/`itsm`/`siem`/`ldap` (rows in `platform_settings`), `connector_health` (or computed) | reuse existing settings+events pattern; no new auth tables |
+| 4j §11 | `behavior_baselines` | rolling per-actor windows derived from real history rows |
+| 4k §12 | *(none — payload assembled from `privileged_sessions`/`session_events`)* | |
+| 5a §13 | `vendor_accounts`, vendor link columns on `jit_requests` | |
+| 5b §14 | `cloud_connectors` | credentials themselves in vault, not in the row |
+| 5c §15 | `broker_policies`, `broker_credentials` | JIT semantics; expiry enforced like grants |
+| 5d §16 | `agent_identities`, `agent_task_scopes` | command restrictions reference `command_rules` |
+| 6a §18 | replication topology (external store decision) | may replace SQLite — design item of the phase |
+| 6b | `roles`, `role_bindings` | attribute rules as JSON policy rows |
+| 6c | SSO/HSM state columns in existing settings groups | |
+
+All planned tables follow the standing rules: additive `ensure_schema()`,
+ledger emission in the same transaction, application-enforced references
+(runtime DB), and append-only treatment where the architecture demands it.

@@ -125,9 +125,28 @@ with per-event `seq` and custody watermarks.
 | Break-glass emergency workflow | ⛔ | §17 static screen |
 | SIEM streaming | ⚠️ seam only | NDJSON export (pull), no live webhook (§20) |
 
-## 8. Known gaps roadmap
+## 8. Gap closure plan (target posture — see `IMPLEMENTATION_PLAN.md`)
 
-Order matches the plan doc's 4g candidates and later sections:
-§10 bypass detection, §17 break-glass backend, §20 integrations (SIEM/ITSM/
-IdP), SSO/MFA enforcement behind the existing settings schema, TLS guidance
-in the runbook, §18 HA.
+Every ⛔/⚠️ in §7 has an assigned phase; until it lands, the control is
+reported as missing — never as partial-good.
+
+| Gap today | Closes in | Target state |
+|---|---|---|
+| No bypass detection (§10) | 4g | Direct-access signals ingested from real auth logs/telemetry; incidents + forced rotation; ledger source `bypass` |
+| Break-glass not implemented (§17) | 4h | Dual-approval emergency path, forced recording, forced rotation, auditable end-to-end (screen static → live) |
+| MFA not enforced (`mfa` band advisory only) | 4i | RFC-6238 TOTP verified for real; medium-risk starts require a valid code |
+| ITSM tickets shape-only (§7 `ticket`) | 4i | Real ServiceNow/Jira verification when configured; verified flag in the score |
+| SIEM = pull-only NDJSON seam (§20) | 4i | Outbound signed webhook push when configured; `not connected` otherwise |
+| No UEBA baselines (§11) | 4j | Per-actor baselines from real history; deviations drive block→rotate→incident |
+| Watermark = custody string only (§12) | 4k | Live contextual overlay from real session data; protocol-level overlays pending gateway work |
+| Single admin role (RBAC/ABAC claimed in matrix) | 6b | Roles + attribute bindings over all admin operations and vault/target scoping |
+| SSO/HSM schema-only | 6c | SAML/OIDC login enforced; HSM/KMS-backed keys where configured |
+| TLS not terminated by the app | runbook §5 (now) | Reverse-proxy TLS — documented and checklisted; app stays plain HTTP by design |
+| No HA/DR (§18) | 6a | Replicated multi-node deployment with failover drill + runbooks |
+| Geo-IP/UEBA-lite (`location` = `is_global`) | 4j/4i | Baseline device/IP context; a real geo feed only if one is ever configured — otherwise the honest label stays |
+
+**Target posture (after plan completion):** admin auth enforced (token/SSO),
+MFA on elevated paths, integrations verified or explicitly `not connected`,
+bypass + UEBA feeding the incident pipeline, break-glass auditable, evidence
+exportable to SIEM — with the posture checklist scoring honestly from
+measured controls at that time (no claimed score until measured).

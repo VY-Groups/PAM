@@ -74,24 +74,26 @@ never drift apart.
 | 12 | Product delivery | Console: 10-item sidebar, launcher, 9 screens live against real APIs, honest `file://` fallback | Built | `frontend/`, verifiers in `shots_tool/` |
 | 13 | Vendor side | VY-PAM MASTER: encrypted customer registry, signed issuance/renewal, delivery bundles, own audit + own OpenAPI contract | Built | `pam_master/` (46 tests) |
 
-## 5. Scope — explicitly NOT built yet
+## 5. Scope — explicitly NOT built yet (pending requirements)
 
 Marked `—`/static in the UI where a screen exists; absent from the API
-otherwise. Tracked in the phase plan for later modules:
+otherwise. Each row is a **planned requirement** — target behavior quoted
+from the architecture doc, phase assigned in `IMPLEMENTATION_PLAN.md`:
 
-| Architecture section | Topic | Current state |
-|---|---|---|
-| §10 PAM Bypass Detection | Detecting out-of-band access paths | Not started (candidate 4g) |
-| §11 AI Security / UEBA | Behavioral analytics | Not started |
-| §12 Dynamic Watermarking | Session watermark visuals | Not started (session watermark = custody string, §8) |
-| §13 Third-Party / Vendor PAM | Third-party connectors | Not started |
-| §14 Cloud PAM | Cloud provider integration | Not started |
-| §15 DevSecOps PAM | Pipeline/secret integration | Not started |
-| §16 AI-Agent PAM | Agent identity | Not started |
-| §17 Break Glass | Emergency protocol | **Static screen only** (`data-kind="static"`, honest placeholders) |
-| §18 HA / DC / DR | High availability | Not started (SQLite single-node today) |
-| §20 Enterprise Integrations | SIEM/ITSM/IdP wiring | Not started (NDJSON export is the SIEM seam) |
-| SSO / MFA / HSM | Settings **schema** exists; enforcement not implemented | Settings store only — the dashboard posture counts them honestly |
+| Arch. section | Pending requirement (target behavior) | Current state | Phase |
+|---|---|---|---|
+| §10 PAM Bypass Detection | Detect direct privileged access skipping PAM; respond: *Alert SOC · Block source · Create incident · Force credential rotation* | Not started | 4g |
+| §11 AI Security / UEBA | Learn per-principal baselines (hours/device/IP/target/command/privilege); on deviation: *block session → rotate credential → alert → incident → preserve evidence* | Not started (§7 `behavior` = local 24h counts only) | 4j |
+| §12 Dynamic Watermarking | Contextual overlay `USER/SESSION/TARGET/TIME/TICKET/SOURCE` on RDP/VNC/browser/DB/SSH/file-transfer, changing with session state | Not started (session custody string only) | 4k |
+| §13 Third-Party / Vendor PAM | Vendor lifecycle *invite → MFA → NDA → ticket → approval → JIT → recording → auto-expiry* + vendor access dashboard | Not started | 5a |
+| §14 Cloud PAM | AWS/Azure/GCP/Kubernetes connectors; K8s *RBAC → JIT → ephemeral privilege → audit* | Not started | 5b |
+| §15 DevSecOps PAM | CI/CD JIT credential broker (Jenkins/GitLab/GitHub/Terraform/Ansible/ArgoCD) — **no static secrets in pipelines** | Not started | 5c |
+| §16 AI-Agent PAM | Agent identity → task verification → risk → JIT credential → task-scoped command restrictions → monitoring → expiry | Not started | 5d |
+| §17 Break Glass | *emergency auth → MFA → dual approval → emergency credential → recorded session → alert → rotation → post-incident review*, itself auditable | **Static screen only** (`data-kind="static"`) | 4h |
+| §18 HA / DC / DR | Active-active/passive, load balancer, vault/audit/session replication, failover, health checks | Not started (SQLite single-node today) | 6a |
+| §20 Enterprise Integrations | IAM/MFA/ITSM/SIEM/SOAR/EDR connectors — real verification/push when configured, `not connected` otherwise | Not started (NDJSON export is the only seam) | 4i |
+| RBAC / ABAC | Multi-role model over the admin operations (single admin token today) | Not started | 6b |
+| SSO / MFA / HSM enforcement | Settings **schema** exists; enforcement not implemented | Settings store only — posture counts them honestly | 6c (SSO/HSM), 4i (MFA) |
 
 ## 6. Functional requirements detail (selected)
 
@@ -172,9 +174,32 @@ otherwise. Tracked in the phase plan for later modules:
    screens.
 5. Docs (root + per-folder READMEs + this set) state only real counts.
 
-## 9. Open roadmap candidates (from the plan doc)
+## 9. Roadmap
 
-`4g` candidates per architecture order: **§10 PAM Bypass Detection**,
-**§17 Break Glass** (screen exists, needs backend), **§20 Enterprise
-Integrations** (SIEM/ITSM webhook seams already implied by NDJSON export and
-`ticket` scoring input).
+The full phase-wise backlog (4g → 6c), scope, dependencies and
+definition-of-done per phase live in **`docs/IMPLEMENTATION_PLAN.md`**;
+execution checkpoints are logged in
+`VY-PAM_MASTER_and_PAM_Workflow.md`. Next phase: **4g — §10 PAM Bypass
+Detection**, then 4h §17 Break Glass, 4i §20 Integrations.
+
+## 10. Target end-state (final output after full development)
+
+When the plan completes, VY-PAM delivers — against the architecture doc's
+Final Vision (*"discovers every privileged identity, evaluates every access
+request, provides least-privilege JIT access, monitors every privileged
+session, detects bypass and anomalous behavior, protects secrets, and
+automatically responds to privileged threats across on-premises, cloud,
+DevOps and AI environments"*):
+
+| Dimension | Final output |
+|---|---|
+| **Modules** | All architecture sections §1–§21 built (the §4 table grows to full ✅; §5 table empties); §22 Feature Matrix matches reality line-for-line |
+| **Console** | All 10 sidebar screens live — **zero `data-kind="static"` surfaces** (Break-Glass included); every widget renders real API data or honest `—`; `file://` fallback preserved |
+| **Evidence** | One append-only hash-chained ledger covering every module source (9+), verified in CI, exported as NDJSON **and** pushed to a configured SIEM |
+| **Access model** | Standing privilege eliminated everywhere: JIT for humans, task-scoped grants for agents/pipelines, MFA and SSO enforced, multi-role RBAC/ABAC over all admin operations |
+| **Threat response** | Bypass detection, UEBA anomalies, and risk banding all drive the *real* response machinery — session cascade, forced rotation, incidents with preserved evidence |
+| **Integrations** | IAM, MFA, ITSM, SIEM, SOAR, EDR, cloud and DevSecOps connectors — each either verified working against a real endpoint or explicitly `not connected` |
+| **Scale** | §18 replicated deployment (load balancer, vault/audit replication, failover) with runbooks; single-node install remains Docker-free |
+| **Contracts** | `apis/openapi.yaml` (65 paths today, `—` at completion) enforced both-ways; vendor tool contract likewise; zero dark endpoints |
+| **Quality** | Backend suite (343 today) grows per phase with real counts recorded in READMEs; pam_master 46 stays green; smoke + both UI verifiers green at every boundary |
+| **Honesty invariant** | Unchanged and non-negotiable: every displayed number comes from an API at render time — the product never fabricates, complete or not |

@@ -181,3 +181,61 @@ Audit chain:         append-only; verify → intact | first_break:<seq>
 | Reveal secret | authenticated admin; actor recorded; plaintext never logged |
 | License import/revoke | authenticated admin; ledger `license` |
 | Break-glass emergency access | **not implemented** (§17) — screen static by design |
+
+## 6. Future flows (planned — see `IMPLEMENTATION_PLAN.md`)
+
+Flows below are **not implemented yet**; they show the target journeys the
+console will gain, quoted from the architecture doc.
+
+### 6.1 Break-glass emergency (§17 → phase 4h)
+```
+Break-Glass button / screen → New emergency request (reason + target)
+  → emergency authentication → MFA (honest "not configured" until 4i)
+  → DUAL APPROVAL (two distinct approvers, append-only snapshots)
+  → emergency credential released (real vault checkout)
+  → session RECORDED (record forced on) + automatic alert (ledger)
+  → close → forced credential rotation + post-incident review note
+  → every step auditable under ledger source `break-glass`
+```
+
+### 6.2 PAM bypass detection (§10 → phase 4g)
+```
+Log ingest (auth.log / Windows Event Log export / telemetry)
+  → correlate: known principal → managed target with NO active recorded session
+  → DIRECT ACCESS DETECTED {user, source, target, protocol, PAM: BYPASSED}
+  → Alert SOC · Block source (connector hook or honest "not connected")
+  → Create incident · Force credential rotation (real §5 pipeline)
+  → evidence preserved in ledger (source `bypass`)
+```
+
+### 6.3 Integrations (§20 → phase 4i)
+```
+Settings → Integrations cards (mfa | itsm | siem | ldap)
+  → MFA: TOTP enrol → medium-risk session start requires real code
+  → ITSM: ticket key verified against ServiceNow/Jira REST (when configured)
+  → SIEM: signed NDJSON batches pushed on ledger append (when configured)
+  → unconfigured → chip "not connected" (never simulated)
+```
+
+### 6.4 Vendor / third-party access (§13 → phase 5a)
+```
+Invite vendor → MFA → NDA/Agreement → ticket → approval
+  → JIT access (scoped: allowed/denied targets + time window)
+  → session recording ENABLED → automatic expiry
+  → vendor dashboard shows access ✓ / denied ✗ / validity window / recording
+```
+
+### 6.5 DevSecOps & AI-agent access (§15/§16 → phases 5c/5d)
+```
+Pipeline/Agent → request credential or task access
+  → identity verification → risk evaluation → JIT token
+  → task-scoped command restrictions (ALLOW restart / DROP → BLOCK)
+  → monitored session → token expiry (no static secrets left behind)
+```
+
+### 6.6 UEBA anomaly response (§11 → phase 4j)
+```
+Baseline per actor learned from real history (hours/device/IP/target/command)
+  → deviation detected → reasons listed (+unusual time/device/IP/…)
+  → BLOCK SESSION → ROTATE CREDENTIAL → SOC ALERT → INCIDENT → EVIDENCE
+```

@@ -134,3 +134,22 @@ Run the boundary suites before exposing it: `python -m pytest backend -q`
 Stop the process; delete the install directory **after** securely destroying
 `vault.key`, the PEMs, `licenses.db`, and `.env` (they contain secrets,
 credentials, and audit history).
+
+## 10. Target deployment (after planned work — see `IMPLEMENTATION_PLAN.md`)
+
+Not implemented today; recorded so operations planning isn't surprising:
+
+- **§18 HA/DC/DR (phase 6a):** load balancer → replicated PAM access nodes →
+  policy engine → vault cluster → audit/event store on immutable storage;
+  active-active or active-passive, automatic failover, health-checked
+  failover drills, vault/session/audit replication. The storage-engine
+  decision (today's single-file SQLite → replicated store) is the core
+  design item; backup steps in §6 extend to replication runbooks.
+- **Phase 4i connectors:** SIEM outbound push and LDAP/SSO auth paths add
+  egress/firewall expectations (outbound webhook + LDAP port) to this
+  checklist when configured.
+- **Kubernetes deployment (§31 item 22):** containerized deployment of the
+  *shipped* product remains optional and off the default path — the
+  install-directly guarantee stands for single-node editions.
+- Uninstall at scale: decommission order (drain nodes → final audit export →
+  destroy keys per §9 on every node).

@@ -122,3 +122,27 @@ same commit with **real** counts.
 - No coverage percentage is reported (not measured honestly today).
 - No browser-matrix or performance benchmarks are asserted — none exist.
 - Load/scalability: single-node SQLite by design; HA is §18, not built.
+
+## 8. Planned suites (see `IMPLEMENTATION_PLAN.md`)
+
+Each pending phase adds a test file and grows the contract — **counts are
+`—` until the phase lands and real collection is recorded**:
+
+| Phase | New suite | Contract impact |
+|---|---|---|
+| 4g §10 | `tests/test_bypass.py` | +bypass paths; `AUDIT_SOURCES` 8 → 9 |
+| 4h §17 | `tests/test_break_glass.py` | +break-glass paths; source +1 (order depends on 4g) |
+| 4i §20 | `tests/test_integrations.py` | +mfa/itsm/siem/ldap paths; external calls tested against local stub servers (real HTTP, never mocked domain logic) |
+| 4j §11 | `tests/test_ueba.py` | +baseline paths / evaluation schema additions |
+| 4k §12 | `tests/test_watermark.py` | additive session schema assertions |
+| 5a–5d | `test_vendor_pam.py`, `test_cloud.py`, `test_broker.py`, `test_agents.py` | per-phase path additions |
+| 6a §18 | replication/failover drill suite | health/failover paths |
+| 6b | `test_rbac.py` | security schemes gain role requirements across admin ops |
+| 6c | `test_sso_hsm.py` | SSO/HSM endpoints + settings enforcement |
+
+Standing expectations for every future phase: the 4-way lockstep
+(routes ⇄ openapi ⇄ ADMIN ⇄ tests), mapper-coverage test keeps all event
+models wired to a ledger source, UI verifiers extend to any new screen
+section, and the boundary checklist (§4) runs unchanged before each commit.
+Root README per-file counts update in the same commit as the suite that
+changes them.

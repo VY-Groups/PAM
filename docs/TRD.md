@@ -245,3 +245,28 @@ See `TESTING_QA_STRATEGY.md`. Design points that matter for implementation:
 tests use `admin_token="test-admin-token"` + `X-Actor: tester`; fixtures
 create real rows through service functions (no mocked domain data); contract
 tests import the app and enumerate Flask routes to diff against OpenAPI.
+
+## 9. Planned designs (pending modules — see `IMPLEMENTATION_PLAN.md`)
+
+Target designs for the unbuilt sections; each becomes normative only when
+its phase starts (plan > code > docs, in that order).
+
+| Phase / section | Data additions | API additions | Runtime behavior |
+|---|---|---|---|
+| 4g §10 Bypass | `bypass_signals`, `bypass_incidents` | `POST /bypass/scans`, `GET /bypass/signals`, `GET+POST /bypass/incidents…` | log/telemetry ingest → correlate against inventory + live sessions → incident; forced rotation reuses §5 pipeline; ledger source `bypass` |
+| 4h §17 Break Glass | `break_glass_requests`, `break_glass_approvals` | `POST|GET /break-glass/requests`, `/{id}/approve|deny|open|close` | dual approval (2 distinct approvers) → real vault checkout → mandatory recorded session → forced rotation + review note; ledger source `break-glass`; MFA step honest until 4i |
+| 4i §20 Integrations | settings groups `mfa/itsm/siem/ldap`; `connector_health` | `POST|GET /mfa/enroll|verify`, ITSM verify, SIEM push config | RFC-6238 TOTP actually gates the `mfa` band; ITSM REST verifies tickets (§7 `ticket` gains verified flag); ledger batches POSTed as signed NDJSON when configured |
+| 4j §11 UEBA | `behavior_baselines` (rolling, per actor) | `GET /risk/baselines`, anomaly detail on evaluations | baselines learned from real `risk_events`/`session_events` rows; deviation joins §7 `behavior` component with per-reason breakdown → cascade/rotate/incident chain |
+| 4k §12 Watermark | (payload assembled from existing session rows) | watermark field on session detail/events | live overlay rendered from real session data in the hub pane; protocol-level overlays gated behind gateway work, labelled `not connected` |
+| 5a §13 Vendor PAM | `vendor_accounts`, vendor scoping | vendor lifecycle endpoints over existing JIT | invite→MFA→NDA→ticket→approval→JIT→record→expiry |
+| 5b §14 Cloud | `cloud_connectors` | connector CRUD + cloud discovery extension | real inventory/cloud grants only when credentials configured |
+| 5c §15 DevSecOps | broker policy rows | `POST /broker/credentials` | time-boxed pipeline credentials (JIT semantics), no static CI secrets |
+| 5d §16 AI-Agent | `agent_identities`, task scopes | agent request endpoints + task-scoped rule evaluation | identity → task → risk → JIT → restricted commands → expiry |
+| 6a §18 HA | replication/failover topology | health/failover endpoints | multi-node; storage engine decision = core design item |
+| 6b RBAC | `roles`, `role_bindings` | security schemes gain role requirements | attribute checks on the 37 admin ops + vault/target scoping |
+| 6c SSO/HSM | SSO/HSM config state | SAML/OIDC login path, PKCS#11/KMS key ops | settings schema becomes enforcement; posture counts flip honestly |
+
+Standing constraints that carry into all of these: ledger emission inside
+the same transaction, contract lockstep in one commit, additive-only schema,
+`file://` honest fallback, and **configured-or-`not connected`** for every
+external dependency (no simulated integrations).
