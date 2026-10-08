@@ -1,0 +1,298 @@
+# VY-PAM — Backend Schema
+
+**Status:** as-built for Phase 4f (`110909f`)
+Two databases: the **shipped runtime DB** (`backend/phase2_license_server/
+licenses.db`, SQLAlchemy/Flask-SQLAlchemy) and the **vendor-tool DB**
+(`pam_master/master.db`, raw `sqlite3`). Both are SQLite, both git-ignored.
+
+Schema management: `db.create_all()` at first boot +
+`models.ensure_schema()` for **additive** column backfill on upgrade — no
+external migration tool.
+
+---
+
+## 1. Shipped runtime — 19 tables
+
+### ERD (logical)
+
+```
+licenses ─1:n─ license_events
+platform_settings ─1:n─ settings_events
+vault_items ─1:n─ vault_events
+vault_items ─1:n─ vault_secret_versions
+discovered_assets ─1:n─ discovered_accounts
+discovery_scans ─1:n─ discovery_events        discovery_assets links via asset_id
+jit_requests ─1:n─ jit_events
+privileged_sessions ─1:n─ session_events      (item_id → vault_items, jit_request_id → jit_requests)
+privileged_sessions ─1:n─ command_incidents   (event_seq → session_events.seq)
+command_rules                                  (referenced by rules/incidents, not FK)
+risk_events
+audit_events                                    (hash chain over all of the above)
+```
+
+Referential integrity in the runtime DB is **application-enforced** (indexed
+integer references, no `FOREIGN KEY` constraints) — deliberate for SQLite
+`create_all` simplicity; tests assert cascade behavior. The vendor DB does
+use real FKs (`PRAGMA foreign_keys = ON`).
+
+### 1.1 `licenses` — imported signed entitlements
+
+| Column | Type | Null | Default | Index/Notes |
+|---|---|---|---|---|
+| id | INTEGER PK | ✗ | | |
+| license_key | String(36) | ✗ | | unique |
+| license_type | String(32) | ✗ | | |
+| issued_to | String(255) | ✗ | | |
+| issued_date | DateTime | ✗ | | |
+| expires_on | DateTime | ✓ | | |
+| license_id | String(64) | ✓ | | |
+| tier | String(64) | ✓ | | |
+| plan | String(64) | ✓ | | |
+| subject_entity | String(255) | ✓ | | |
+| classification | String(128) | ✓ | | |
+| issuer | String(160) | ✓ | | |
+| enclave_binding | String(160) | ✓ | | |
+| features | JSON | ✗ | `[]` | |
+| usage_limits | JSON | ✗ | `{}` | |
+| metadata *(column name `metadata`)* | JSON | ✗ | `{}` | Python attr `license_metadata` |
+| quotas | JSON | ✗ | `{}` | |
+| modules | JSON | ✗ | `[]` | |
+| account | JSON | ✗ | `{}` | |
+| reported_usage | JSON | ✗ | `{}` | |
+| last_reported_at | DateTime | ✓ | | |
+| status | String(16) | ✗ | `active` | `active`/`revoked`, indexed |
+| signature | Text | ✗ | | envelope signature |
+| algorithm | String(32) | ✗ | `RSA-PSS-SHA256` | or Ed25519 |
+| signature_format | String(16) | ✗ | `json` | |
+| fingerprint | String(80) | ✓ | | |
+| created_at | DateTime | ✗ | `datetime.now` | |
+| revoked_at | DateTime | ✓ | | |
+| revoked_reason | String(255) | ✓ | | |
+
+### 1.2 `license_events` — per-license action log
+`id` PK · `license_key` String(36) indexed · `action` String(32) ·
+`detail` JSON · `created_at` DateTime.
+
+### 1.3 `platform_settings` — group store (one row per group)
+`id` PK · `group_name` String(32) **unique** indexed (`sso|hsm|zsp|worm`) ·
+`value` JSON · `updated_at` · `updated_by` String(64) default `admin`.
+
+### 1.4 `settings_events` — change log with diffs
+`id` PK · `group_name` String(32) indexed · `action` String(32) ·
+`changes` JSON (per-field before/after) · `actor` String(64) default `admin` ·
+`created_at`.
+
+### 1.5 `vault_items` — credential inventory
+| Column | Type | Null | Default |
+|---|---|---|---|
+| id | PK | ✗ | |
+| name | String(120) | ✗ | **unique** indexed |
+| secret_type | String(32) | ✗ | indexed (`password`/`ssh-key`/`api-token`/…) |
+| description | String(255) | ✗ | `""` |
+| target | String(255) | ✗ | |
+| target_detail | String(255) | ✗ | `""` |
+| principal | String(128) | ✗ | |
+| access_tier | String(16) | ✗ | `Tier-2` |
+| auth_method | String(32) | ✗ | `Password` |
+| rotation_interval_hours | Integer | ✗ | `24` |
+| last_rotated_at | DateTime | ✓ | |
+| secret_version | Integer | ✓ | current version pointer |
+| secret_updated_at | DateTime | ✓ | |
+| status | String(16) | ✗ | `available` (indexed) — `available`/`checked_out` |
+| checked_out_by | String(64) | ✓ | |
+| checked_out_at | DateTime | ✓ | |
+| created_at | DateTime | ✗ | `datetime.now` |
+
+### 1.6 `vault_events` — item actions
+`id` · `item_id` (indexed) · `item_name` · `action` · `actor` (default
+`system`) · `detail` JSON · `created_at`.
+
+### 1.7 `vault_secret_versions` — append-only ciphertext history
+`id` · `item_id` indexed · `version` Integer · `blob` JSON
+(**nonce + ciphertext + tag + AAD metadata**, AES-256-GCM) · `source`
+String(16) default `generated` · `trigger` String(32) default `onboarded` ·
+`created_by` · `created_at`.
+Plaintext **never** stored; only the current version decrypts via the
+vault key.
+
+### 1.8 `discovered_assets`
+`id` · `address` String(64) **unique** indexed · `hostname` · `asset_type`
+String(32) indexed default `unknown` · `risk` String(16) indexed default
+`LOW` (`CRITICAL|HIGH|MEDIUM|LOW`) · `pam_status` String(16) indexed default
+`unmanaged` (`unmanaged|managed|ignored`) · `detail` String(255) · `ports`
+JSON · `source` default `scan` · `method` default `probe` · `notes` ·
+`first_seen` / `last_seen` DateTime.
+
+### 1.9 `discovered_accounts`
+`id` · `asset_id` indexed · `asset_address` · `username` indexed · `kind`
+String(32) indexed default `other` · `source` default `manual` · `created_at`.
+
+### 1.10 `discovery_scans`
+`id` · `scope` String(64) · `method` default `probe` · `ports` JSON ·
+`status` String(16) indexed default `running` (`running|completed|failed`) ·
+`hosts_probed` / `hosts_open` / `services_found` / `findings` Integer ·
+`error` String(255) · `triggered_by` · `started_at` · `finished_at` ✓.
+
+### 1.11 `discovery_events`
+`id` · `action` · `subject` String(128) · `actor` · `detail` JSON ·
+`created_at`.
+
+### 1.12 `jit_requests` — access requests + approvals + grants
+| Column | Type | Null | Default |
+|---|---|---|---|
+| id | PK | ✗ | |
+| item_id | Integer | ✗ | indexed (vault item) |
+| requester | String(64) | ✗ | |
+| reason | String(255) | ✗ | |
+| ticket | String(64) | ✗ | |
+| minutes | Integer | ✗ | 15 |
+| risk_score | Integer | ✗ | 0 |
+| risk_level | String(16) | ✗ | `low` |
+| risk_factors | JSON | ✗ | `[]` (input snapshots) |
+| status | String(16) | ✗ | `pending`, indexed (`pending|approved|denied|consumed|expired|closed`) |
+| manager_approval | JSON | ✓ | `{actor, at, role?}` snapshot |
+| security_approval | JSON | ✓ | snapshot |
+| granted_at / expires_at / closed_at | DateTime | ✓ | |
+| session_ref | String(64) | ✓ | consumed session |
+| created_at | DateTime | ✗ | |
+
+### 1.13 `jit_events`
+`id` · `request_id` indexed · `action` · `actor` · `detail` JSON ·
+`created_at`.
+
+### 1.14 `privileged_sessions`
+| Column | Type | Null | Default |
+|---|---|---|---|
+| id | PK | ✗ | |
+| session_ref | String(64) | ✗ | **unique** indexed (`s-…`) |
+| protocol | String(16) | ✗ | 13 allowed values |
+| target | String(255) | ✗ | |
+| actor | String(64) | ✗ | `system` |
+| item_id | Integer | ✓ | indexed — vault credential link |
+| jit_request_id | Integer | ✓ | indexed — grant link |
+| status | String(16) | ✗ | `active`, indexed (`active|paused|locked|terminated|completed`) |
+| record / keystroke_log / watermark / clipboard_allowed / upload_allowed / download_allowed / screenshot_allowed | Boolean | ✗ | `True` |
+| started_at | DateTime | ✗ | |
+| ended_at | DateTime | ✓ | |
+| end_reason | String(32) | ✓ | |
+| created_at | DateTime | ✗ | |
+
+### 1.15 `session_events` — append-only recording (no update/delete API)
+`id` · `session_id` indexed · `seq` Integer · `type` String(16) ·
+`content` Text ✓ (null when `keystroke_log=false` → `withheld=true`) ·
+`allowed` Boolean default `True` · `blocked_reason` String(64) ✓ ·
+`withheld` Boolean default `False` · `decision` String(16) ✓ ·
+`rule_id` Integer ✓ · `ref_seq` Integer ✓ (approval reference) ·
+`watermark` String(160) ✓ (custody string) · `actor` · `created_at`.
+
+### 1.16 `command_rules` — §9 policy table (seeds 15 rows once)
+`id` · `name` String(120) · `pattern` String(160) indexed (substring match) ·
+`action` String(16) default `allow` (`block|approval|allow`) ·
+`target_pattern` String(120) default `""` (fnmatch glob) ·
+`terminate_on_match` Boolean default `False` · `description` ·
+`enabled` Boolean default `True` · `created_at` · `updated_at` ·
+`updated_by` default `admin`.
+
+### 1.17 `command_incidents` — preserved evidence
+`id` · `incident_ref` String(32) **unique** (`inc-<hex>`) · `session_id`
+indexed · `event_seq` Integer (evidence pointer) · `rule_id` ✓ ·
+`rule_name` · `rule_pattern` · `command` Text · `target` · `actor` ·
+`status` String(16) indexed default `open` (`open|resolved`) · `closed_by` /
+`closed_at` / `close_note` · `created_at`.
+
+### 1.18 `risk_events` — §7 evaluations (console + gate)
+`id` · `created_at` indexed · `actor` · `subject` String(160) indexed ·
+`context` String(32) indexed default `manual` (`manual|session_start`) ·
+`target` · `device` · `source_ip` · `ticket` · `command` String(1000) ·
+`score` Integer (0–100) · `band` String(16) indexed (`low|medium|high|critical`) ·
+`decision` String(16) (`allow|mfa|approval|block`) · `result` String(16)
+default `advisory` · `components` JSON — the 8-element
+`[{name, value, cap, detail}]` breakdown.
+
+### 1.19 `audit_events` — §19 hash chain (append-only, enforced by triggers)
+| Column | Type | Null | Notes |
+|---|---|---|---|
+| id | PK | ✗ | |
+| seq | Integer | ✗ | **unique**, indexed — chain position |
+| event_ref | String(64) | ✗ | **unique** indexed (`ev-…`) |
+| source | String(16) | ✗ | indexed — `license, settings, vault, discovery, jit, session, command, risk` |
+| action | String(32) | ✗ | |
+| actor | String(64) | ✗ | `system` default |
+| subject | String(160) | ✗ | |
+| detail | JSON | ✗ | `{}` |
+| created_at | DateTime | ✗ | indexed |
+| prev_hash | String(64) | ✗ | previous `event_hash`, genesis `0`×64 |
+| event_hash | String(64) | ✗ | sha256 over canonical record |
+
+Triggers (created in `audit.py`):
+
+```sql
+CREATE TRIGGER audit_events_no_update BEFORE UPDATE ON audit_events
+BEGIN SELECT RAISE(ABORT, 'audit_events is append-only (architecture 19)'); END;
+CREATE TRIGGER audit_events_no_delete BEFORE DELETE ON audit_events
+BEGIN SELECT RAISE(ABORT, 'audit_events is append-only (architecture 19)'); END;
+```
+
+---
+
+## 2. Vendor tool — `pam_master/master.db` (4 tables)
+
+Raw SQL (`pam_master/db.py`), `PRAGMA foreign_keys = ON`, ISO-8601 TEXT
+timestamps.
+
+```sql
+customers (
+  id INTEGER PK AUTOINCREMENT,
+  public_id TEXT NOT NULL UNIQUE,      -- 32-hex external id
+  data_ct TEXT NOT NULL,               -- AES-256-GCM ciphertext of PII blob
+  created_at / updated_at TEXT NOT NULL
+)
+licenses (
+  id INTEGER PK AUTOINCREMENT,
+  license_id TEXT NOT NULL UNIQUE,
+  license_key TEXT NOT NULL,
+  customer_public_id TEXT NOT NULL REFERENCES customers(public_id),
+  license_type TEXT NOT NULL, tier TEXT NOT NULL, plan TEXT,
+  algorithm TEXT NOT NULL, status TEXT NOT NULL,
+  issued_date TEXT NOT NULL, expires_on TEXT,
+  fingerprint TEXT NOT NULL,
+  superseded_by TEXT,                  -- renewal chain
+  archive_ct TEXT NOT NULL,            -- encrypted full archive (JSON payload)
+  created_at / updated_at TEXT NOT NULL
+)
+issuance_history (
+  id INTEGER PK AUTOINCREMENT,
+  customer_public_id TEXT NOT NULL REFERENCES customers(public_id),
+  license_id TEXT NOT NULL, action TEXT NOT NULL, detail TEXT,
+  created_at TEXT NOT NULL
+)
+master_audit (                          -- vendor-tool action log
+  id INTEGER PK AUTOINCREMENT,
+  action TEXT NOT NULL, subject TEXT NOT NULL, detail TEXT,
+  created_at TEXT NOT NULL
+)
++ indexes: idx_issuance_customer, idx_licenses_customer
+```
+
+Privacy notes:
+- Customer PII and license archives are **ciphertext at rest**; the key comes
+  from `MASTER_CUSTOMER_KEY_PATH` or `MASTER_CUSTOMER_KEY_B64`.
+- The full signed payload is regenerated from `archive_ct` when re-issuing or
+  renewing; the shipped server never sees this table.
+
+---
+
+## 3. Upgrade & integrity rules
+
+1. **Additive only.** New columns arrive via `ensure_schema()` (`ALTER TABLE
+   … ADD COLUMN` guarded); destructive changes are a versioned release, not a
+   boot step.
+2. **Chain first boot.** `ensure_audit_chain()` backfills pre-chain history
+   exactly once (guarded flag) so genesis is stable.
+3. **Seeds run once into empty tables** (`ensure_command_rules()` 15 rows) —
+   operator deletions are never resurrected.
+4. **Append-only semantics:** `audit_events` (DB triggers) and
+   `session_events` (no mutating endpoints + tests) — matches architecture
+   §19.
+5. **Backup = file copy** of `licenses.db` (+ `vault.key`, license PEMs);
+   see `DEPLOYMENT_RUNBOOK.md`.
