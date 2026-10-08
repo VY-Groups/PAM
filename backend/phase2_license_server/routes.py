@@ -550,9 +550,20 @@ def list_sessions():
 @api.post("/sessions")
 @require_admin
 def create_session():
-    """Start a session: protocol + target, optional checkout or JIT grant."""
-    session = service.create_session(_json_body(), actor=_actor())
-    return jsonify({"session": session.to_dict(), "message": "Session started"}), 201
+    """Start a session: protocol + target, optional checkout or JIT grant.
+    The request is scored first (architecture 7); CRITICAL/HIGH-without-
+    approval answers 403 with the evaluation that refused it."""
+    session, risk = service.create_session(_json_body(), actor=_actor())
+    return (
+        jsonify(
+            {
+                "session": session.to_dict(),
+                "risk": risk.to_dict(),
+                "message": "Session started",
+            }
+        ),
+        201,
+    )
 
 
 @api.get("/sessions/<int:session_id>")
@@ -941,3 +952,54 @@ def start_discovery_scan():
         ),
         201,
     )
+
+
+# ---------------------------------------------------------------------------
+# risk-based access engine (architecture section 7, Policy screen)
+# ---------------------------------------------------------------------------
+@api.post("/risk/evaluate")
+@require_admin
+def evaluate_risk():
+    """Score one access request over the eight components (user, device,
+    asset, time, location, behavior, ticket, command) - every point traces
+    to a measured input - and record the evaluation."""
+    evaluation = service.evaluate_risk(_json_body(), actor=_actor())
+    return (
+        jsonify(
+            {
+                "evaluation": evaluation.to_dict(),
+                "message": (
+                    f"Scored {evaluation.score}/100 - {evaluation.band} "
+                    f"({evaluation.decision})"
+                ),
+            }
+        ),
+        201,
+    )
+
+
+@api.get("/risk/evaluations")
+def list_risk_evaluations():
+    """The recorded evaluations, newest first (band/context filters)."""
+    limit = min(_int_param("limit", 20), MAX_PAGE_SIZE)
+    offset = _int_param("offset", 0)
+    rows, total = service.list_risk_evaluations(
+        band=request.args.get("band"),
+        context=request.args.get("context"),
+        limit=limit,
+        offset=offset,
+    )
+    return jsonify(
+        {
+            "evaluations": [row.to_dict() for row in rows],
+            "total": total,
+            "limit": limit,
+            "offset": offset,
+        }
+    )
+
+
+@api.get("/risk/stats")
+def risk_stats():
+    """Real aggregates over the evaluations: bands, decisions, refusals."""
+    return jsonify(service.risk_stats())

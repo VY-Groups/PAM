@@ -42,6 +42,8 @@ tags:
     description: Command Control - policy rules, dry-run decisions, approvals, incidents
   - name: discovery
     description: Discovery Engine - target assets, accounts and real scans
+  - name: risk
+    description: Risk-Based Access Engine - eight-component scores, bands and policy decisions
 paths:
   /health:
     get:
@@ -416,11 +418,11 @@ paths:
     get:
       tags: [ops]
       summary: Unified recent activity feed
-      description: Recent entries from the immutable audit ledger (architecture 19) across every trail - license, settings, vault, discovery, JIT, session lifecycle and command control - newest first. Each entry carries its chain position (seq) and content hash (event_hash).
+      description: Recent entries from the immutable audit ledger (architecture 19) across every trail - license, settings, vault, discovery, JIT, session lifecycle, command control and risk evaluation - newest first. Each entry carries its chain position (seq) and content hash (event_hash).
       parameters:
         - name: source
           in: query
-          schema: {type: string, enum: [license, settings, vault, discovery, jit, session, command]}
+          schema: {type: string, enum: [license, settings, vault, discovery, jit, session, command, risk]}
         - name: limit
           in: query
           schema: {type: integer, minimum: 0, maximum: 200, default: 20}
@@ -1033,8 +1035,11 @@ paths:
       description: |
         Protocol + target, optionally against a vault credential (checked out
         for the session under `session_ref = sess-<hex>`) or riding an active
-        JIT grant (attached, no second checkout). Control flags default on;
-        every lifecycle change is appended to the recording as a status event.
+        JIT grant (attached, no second checkout). The request is scored first
+        (architecture 7: eight-component risk evaluation, returned as `risk`);
+        CRITICAL is refused (403 with the evaluation), HIGH needs the approval
+        of an active JIT grant. Control flags default on; every lifecycle
+        change is appended to the recording as a status event.
       security:
         - bearerAuth: []
         - adminTokenHeader: []
@@ -1051,12 +1056,13 @@ paths:
             schema: {$ref: "#/components/schemas/SessionStartRequest"}
       responses:
         "201":
-          description: Session started
+          description: Session started (the response carries the risk evaluation)
           content:
             application/json:
               schema: {$ref: "#/components/schemas/SessionResponse"}
         "400": {$ref: "#/components/responses/BadRequest"}
         "401": {$ref: "#/components/responses/Unauthorized"}
+        "403": {$ref: "#/components/responses/Forbidden"}
         "404": {$ref: "#/components/responses/NotFound"}
         "409": {$ref: "#/components/responses/Conflict"}
 
@@ -1823,6 +1829,74 @@ paths:
         "400": {$ref: "#/components/responses/BadRequest"}
         "401": {$ref: "#/components/responses/Unauthorized"}
 
+  /api/v1/risk/evaluate:
+    post:
+      tags: [risk]
+      summary: Score one access request (architecture 7)
+      description: |
+        Eight components - user, device, asset, time, location, behavior,
+        ticket and command - each read from a measured input (the subject's
+        own 24h history, the discovered inventory, the live command policy,
+        the local clock, the source address via stdlib ipaddress, the ITSM
+        ticket shape) - sum to a score whose band drives the decision:
+        0-25 allow, 26-50 MFA, 51-75 approval, 76-100 block. Console
+        evaluations advise; session starts are gated on the same scores.
+        The evaluation is recorded on the risk trail of the ledger.
+      security:
+        - bearerAuth: []
+        - adminTokenHeader: []
+        - {}
+      parameters:
+        - name: X-Actor
+          in: header
+          description: Who requested the evaluation.
+          schema: {type: string, maxLength: 64}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: "#/components/schemas/RiskEvaluateRequest"}
+      responses:
+        "201":
+          description: Evaluation recorded
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/RiskEvaluateResponse"}
+        "400": {$ref: "#/components/responses/BadRequest"}
+        "401": {$ref: "#/components/responses/Unauthorized"}
+
+  /api/v1/risk/evaluations:
+    get:
+      tags: [risk]
+      summary: Recorded evaluations, newest first
+      parameters:
+        - name: band
+          in: query
+          schema: {type: string, enum: [low, medium, high, critical]}
+        - name: context
+          in: query
+          schema: {type: string, enum: [manual, session_start]}
+        - {$ref: "#/components/parameters/Limit"}
+        - {$ref: "#/components/parameters/Offset"}
+      responses:
+        "200":
+          description: Paged evaluations
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/RiskEvaluationList"}
+        "400": {$ref: "#/components/responses/BadRequest"}
+
+  /api/v1/risk/stats:
+    get:
+      tags: [risk]
+      summary: Evaluation aggregates (bands, decisions, refusals)
+      responses:
+        "200":
+          description: Real aggregates over the recorded evaluations
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/RiskStats"}
+
 components:
   securitySchemes:
     bearerAuth:
@@ -2243,9 +2317,9 @@ components:
       properties:
         id: {type: string, description: 'Source-prefixed id, e.g. "vault:12".'}
         seq: {type: integer, description: Position in the immutable hash chain.}
-        source: {type: string, enum: [license, settings, vault, discovery, jit, session, command]}
+        source: {type: string, enum: [license, settings, vault, discovery, jit, session, command, risk]}
         action: {type: string}
-        subject: {type: string, description: License key, settings group, vault item, JIT request, session ref or incident ref}
+        subject: {type: string, description: License key, settings group, vault item, JIT request, session ref, incident ref or risk subject}
         actor: {type: string}
         detail: {type: object, additionalProperties: true}
         created_at: {type: string}
@@ -2260,7 +2334,7 @@ components:
           items: {$ref: "#/components/schemas/UnifiedEvent"}
         total: {type: integer}
         limit: {type: integer}
-        source: {type: string, enum: [license, settings, vault, discovery, jit, session, command, all]}
+        source: {type: string, enum: [license, settings, vault, discovery, jit, session, command, risk, all]}
 
     AuditStats:
       type: object
@@ -2269,7 +2343,7 @@ components:
         total: {type: integer, description: Records in the ledger.}
         by_source:
           type: object
-          description: Record count per source (all seven keys, zero-filled).
+          description: Record count per source (all eight keys, zero-filled).
           additionalProperties: {type: integer}
         last_seq: {type: integer, description: Chain position of the newest record (0 when empty).}
         head_hash: {type: string, description: event_hash of the newest record ("" when empty).}
@@ -2289,6 +2363,74 @@ components:
         broken_at: {type: [integer, "null"], description: Chain position of the first break.}
         reason: {type: [string, "null"], description: Why the chain broke.}
 
+    RiskEvaluateRequest:
+      type: object
+      required: [subject]
+      properties:
+        subject: {type: string, maxLength: 160, description: Who the score is about (user, account, service id).}
+        target: {type: string, maxLength: 255, description: "Asset/host[:port] resolved against the discovered inventory."}
+        device: {type: string, maxLength: 128, description: Client device identifier (known or unknown to discovery).}
+        source_ip: {type: string, maxLength: 64, description: "Request source address, classified with stdlib ipaddress (no geo feed is claimed)."}
+        ticket: {type: string, maxLength: 64, description: Change/incident reference (ITSM shape check).}
+        command: {type: string, maxLength: 1000, description: Proposed command, judged by the live section-9 policy.}
+
+    RiskComponent:
+      type: object
+      required: [component, points, detail]
+      properties:
+        component: {type: string, enum: [user, device, asset, time, location, behavior, ticket, command]}
+        points: {type: integer, minimum: 0}
+        detail: {type: string, description: The measured input that produced these points (0 points still explains why).}
+
+    RiskEvaluation:
+      type: object
+      required: [id, created_at, actor, subject, context, target, device, source_ip,
+                 ticket, command, score, band, decision, result, components]
+      properties:
+        id: {type: integer}
+        created_at: {type: string, format: date-time}
+        actor: {type: string, description: Who asked for the evaluation.}
+        subject: {type: string}
+        context: {type: string, enum: [manual, session_start]}
+        target: {type: string}
+        device: {type: string}
+        source_ip: {type: string}
+        ticket: {type: string}
+        command: {type: string}
+        score: {type: integer, minimum: 0, maximum: 100, description: Sum of the component points (the caps add up to exactly 100).}
+        band: {type: string, enum: [low, medium, high, critical]}
+        decision: {type: string, enum: [allow, mfa, approval, block], description: Policy action the band prescribes.}
+        result: {type: string, enum: [advisory, allowed, refused], description: Console evaluations only advise; a session start was allowed or refused.}
+        components: {type: array, items: {$ref: "#/components/schemas/RiskComponent"}}
+
+    RiskEvaluateResponse:
+      type: object
+      required: [evaluation, message]
+      properties:
+        evaluation: {$ref: "#/components/schemas/RiskEvaluation"}
+        message: {type: string}
+
+    RiskEvaluationList:
+      type: object
+      required: [evaluations, total, limit, offset]
+      properties:
+        evaluations: {type: array, items: {$ref: "#/components/schemas/RiskEvaluation"}}
+        total: {type: integer}
+        limit: {type: integer}
+        offset: {type: integer}
+
+    RiskStats:
+      type: object
+      required: [total, by_band, by_decision, by_result, by_context, refused, avg_score, last_evaluated_at]
+      properties:
+        total: {type: integer}
+        by_band: {type: object, additionalProperties: {type: integer}}
+        by_decision: {type: object, additionalProperties: {type: integer}}
+        by_result: {type: object, additionalProperties: {type: integer}}
+        by_context: {type: object, additionalProperties: {type: integer}}
+        refused: {type: integer, description: Evaluations whose band refused a session start.}
+        avg_score: {type: [number, "null"], description: Mean score over all evaluations (null when there are none).}
+        last_evaluated_at: {type: [string, "null"], format: date-time}
 
     VaultStats:
       type: object
@@ -2783,6 +2925,8 @@ components:
       required: [session, message]
       properties:
         session: {$ref: "#/components/schemas/Session"}
+        risk:
+          {$ref: "#/components/schemas/RiskEvaluation"}
         message: {type: string}
 
     SessionEventResponse:
@@ -2815,6 +2959,10 @@ components:
         target: {type: string, maxLength: 255}
         item_id: {type: integer, minimum: 1, description: Vault credential to check out for the session.}
         jit_request_id: {type: integer, minimum: 1, description: Active JIT grant to attach to instead.}
+        device:
+          type: string
+          maxLength: 128
+          description: Client device identifier, scored by the risk engine at start (unknown devices cost points).
         record: {type: boolean, default: true}
         keystroke_log: {type: boolean, default: true}
         watermark: {type: boolean, default: true}

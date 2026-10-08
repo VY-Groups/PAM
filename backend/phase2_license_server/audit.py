@@ -37,13 +37,23 @@ from models import (
     JitEvent,
     LicenseEvent,
     PrivilegedSession,
+    RiskEvent,
     SessionEvent,
     SettingsEvent,
     VaultEvent,
 )
 
-# the seven trails folded into the ledger (the unified feed reads these)
-AUDIT_SOURCES = ("license", "settings", "vault", "discovery", "jit", "session", "command")
+# the eight trails folded into the ledger (the unified feed reads these)
+AUDIT_SOURCES = (
+    "license",
+    "settings",
+    "vault",
+    "discovery",
+    "jit",
+    "session",
+    "command",
+    "risk",
+)
 SOURCE_RANK = {name: index for index, name in enumerate(AUDIT_SOURCES)}
 
 # session recording rows the ledger takes (actions), versus channel content
@@ -272,6 +282,33 @@ def _map_incident(event: CommandIncident, db_session) -> Dict[str, Any]:
     )
 
 
+def _map_risk_evaluation(event: RiskEvent, db_session) -> Dict[str, Any]:
+    """The decision (allow/mfa/approval/block) and the points that produced
+    it, under the `risk` trail - refusals are SOC evidence."""
+    return _entry(
+        source="risk",
+        event_ref=f"risk:{event.id}",
+        action=_value(event, "decision"),
+        actor=_value(event, "actor"),
+        subject=_value(event, "subject"),
+        detail={
+            "score": _value(event, "score"),
+            "band": _value(event, "band"),
+            "decision": _value(event, "decision"),
+            "result": _value(event, "result"),
+            "context": _value(event, "context"),
+            "target": _value(event, "target"),
+            "device": _value(event, "device"),
+            "source_ip": _value(event, "source_ip"),
+            "ticket": _value(event, "ticket"),
+            "command": _value(event, "command"),
+            "components": _value(event, "components"),
+        },
+        created_at=event.created_at,
+        sort_id=event.id,
+    )
+
+
 # every event model that must reach the ledger, in a stable backfill order
 LEDGER_MODELS = (
     LicenseEvent,
@@ -281,6 +318,7 @@ LEDGER_MODELS = (
     JitEvent,
     SessionEvent,
     CommandIncident,
+    RiskEvent,
 )
 
 MAPPERS = {
@@ -291,6 +329,7 @@ MAPPERS = {
     JitEvent: _map_jit,
     SessionEvent: _map_session,
     CommandIncident: _map_incident,
+    RiskEvent: _map_risk_evaluation,
 }
 
 

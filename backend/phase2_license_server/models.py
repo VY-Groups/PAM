@@ -1150,6 +1150,79 @@ class CommandIncident(db.Model):
 
 
 # ---------------------------------------------------------------------------
+# risk-based access engine (architecture section 7)
+# ---------------------------------------------------------------------------
+RISK_CONTEXT_MANUAL = "manual"          # scored from the console (advisory)
+RISK_CONTEXT_SESSION_START = "session_start"  # scored when a session begins
+RISK_CONTEXTS = (RISK_CONTEXT_MANUAL, RISK_CONTEXT_SESSION_START)
+# band -> the policy the architecture prescribes for it
+RISK_DECISIONS = ("allow", "mfa", "approval", "block")
+RISK_DECISION_BY_BAND = {
+    "low": "allow",
+    "medium": "mfa",
+    "high": "approval",
+    "critical": "block",
+}
+# what happened to this request: a console evaluation only advises, a session
+# start is actually allowed through or refused by the gate
+RISK_RESULTS = ("advisory", "allowed", "refused")
+
+
+class RiskEvent(db.Model):
+    """One request scored by the risk engine (architecture section 7).
+
+    Eight components - user, device, asset, time, location, behavior, ticket
+    and command - each read from a measured input, sum to the score; the
+    band (0-25 low, 26-50 medium, 51-75 high, 76-100 critical) drives the
+    decision (allow / MFA / approval / block). Session starts are gated on
+    it: CRITICAL is refused outright, HIGH needs an active JIT grant (the
+    approval the band demands), everything else runs.
+    """
+
+    __tablename__ = "risk_events"
+
+    id = db.Column(db.Integer, primary_key=True)
+    created_at = db.Column(db.DateTime, nullable=False, default=datetime.now, index=True)
+    # who asked for the evaluation
+    actor = db.Column(db.String(64), nullable=False, default="system")
+    # who the score is about
+    subject = db.Column(db.String(160), nullable=False, default="", index=True)
+    context = db.Column(db.String(32), nullable=False, default=RISK_CONTEXT_MANUAL, index=True)
+    # the request's own inputs (scored, never guessed)
+    target = db.Column(db.String(255), nullable=False, default="")
+    device = db.Column(db.String(128), nullable=False, default="")
+    source_ip = db.Column(db.String(64), nullable=False, default="")
+    ticket = db.Column(db.String(64), nullable=False, default="")
+    command = db.Column(db.String(1000), nullable=False, default="")
+    # the evaluation
+    score = db.Column(db.Integer, nullable=False, default=0)
+    band = db.Column(db.String(16), nullable=False, default="low", index=True)
+    decision = db.Column(db.String(16), nullable=False, default="allow")
+    result = db.Column(db.String(16), nullable=False, default="advisory")
+    # every component with its points and the detail that produced them
+    components = db.Column(db.JSON, nullable=False, default=list)
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "id": self.id,
+            "created_at": self.created_at.isoformat(),
+            "actor": self.actor,
+            "subject": self.subject,
+            "context": self.context,
+            "target": self.target,
+            "device": self.device,
+            "source_ip": self.source_ip,
+            "ticket": self.ticket,
+            "command": self.command,
+            "score": self.score,
+            "band": self.band,
+            "decision": self.decision,
+            "result": self.result,
+            "components": self.components or [],
+        }
+
+
+# ---------------------------------------------------------------------------
 # immutable audit ledger (architecture 19)
 # ---------------------------------------------------------------------------
 # sha256 of the zero hash: the chain every record links back to.
@@ -1160,11 +1233,11 @@ class AuditEvent(db.Model):
     """One record of the append-only, hash-chained audit ledger (§19).
 
     Every module event row (license, settings, vault, discovery, JIT,
-    session lifecycle and command control) is copied here at flush time:
-    `seq` is the chain position, `event_hash` = sha256(prev_hash + canonical
-    payload), and SQLite BEFORE UPDATE/DELETE triggers make the rows
-    immutable at the storage layer - there is no API path that writes or
-    removes them either.
+    session lifecycle, command control and risk evaluation) is copied here
+    at flush time: `seq` is the chain position, `event_hash` =
+    sha256(prev_hash + canonical payload), and SQLite BEFORE UPDATE/DELETE
+    triggers make the rows immutable at the storage layer - there is no API
+    path that writes or removes them either.
     """
 
     __tablename__ = "audit_events"

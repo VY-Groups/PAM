@@ -25,8 +25,8 @@ Supported wire formats and algorithms:
 | `app.py` | Flask app factory, error handlers, `/health`, screen routes, `python app.py` entrypoint |
 | `config.py` | Environment-driven configuration (`.env` supported) |
 | `routes.py` | HTTP layer: parsing, auth, status codes |
-| `service.py` | Business logic: import, list, revoke, restore, validate, usage, checks, `meta`, platform settings, credential vault, dashboard overview + unified events, infrastructure discovery, JIT access grants, privileged sessions, zero-trust command-control policy engine, immutable §19 audit ledger |
-| `models.py` | `LicenseRecord` (signed license + spec fields), `LicenseEvent`, `SettingGroup` + `SettingsEvent` (config changelog), `VaultItem` + `VaultEvent` + `VaultSecretVersion` (vault inventory + audit + immutable versions), `DiscoveredAsset`/`DiscoveredAccount`/`DiscoveryScan`/`DiscoveryEvent`, `JitRequest` + `JitEvent` (grants + trail), `PrivilegedSession` + `SessionEvent` (session recording, append-only), `CommandRule` + `CommandIncident` (zero-trust policy + escalations, append-only), `AuditEvent` (immutable §19 hash chain) |
+| `service.py` | Business logic: import, list, revoke, restore, validate, usage, checks, `meta`, platform settings, credential vault, dashboard overview + unified events, infrastructure discovery, JIT access grants, privileged sessions, zero-trust command-control policy engine, risk-based access engine (§7), immutable §19 audit ledger |
+| `models.py` | `LicenseRecord` (signed license + spec fields), `LicenseEvent`, `SettingGroup` + `SettingsEvent` (config changelog), `VaultItem` + `VaultEvent` + `VaultSecretVersion` (vault inventory + audit + immutable versions), `DiscoveredAsset`/`DiscoveredAccount`/`DiscoveryScan`/`DiscoveryEvent`, `JitRequest` + `JitEvent` (grants + trail), `PrivilegedSession` + `SessionEvent` (session recording, append-only), `CommandRule` + `CommandIncident` (zero-trust policy + escalations, append-only), `RiskEvent` (§7 scored access evaluations), `AuditEvent` (immutable §19 hash chain) |
 | `audit.py` | The §19 ledger: flush listener fans every module trail into `audit_events`, sha256 chain (`prev_hash`/`event_hash`), boot backfill, append-only triggers, verify/stats/export |
 | `keys.py` | Startup key checks (fail fast, public/private must match, both algorithms) |
 | `licensing_bridge.py` | Path bootstrap + cached Phase 1 `LicenseGenerator`/`LicenseValidator` |
@@ -38,7 +38,8 @@ Supported wire formats and algorithms:
 | `tests/test_jit.py` | JIT access: deterministic risk bands, approvals, time-boxed grants, expiry rotation |
 | `tests/test_sessions.py` | Privileged sessions: start/attach, channel events, control gating, lifecycle + cascades |
 | `tests/test_command_control.py` | Zero-trust command policy: rule CRUD, dry-run decisions, approval queue, incident escalation |
-| `tests/test_audit.py` | Immutable §19 ledger: seven-source fan-in, hash chain, append-only triggers, backfill, verify/export, drift guard |
+| `tests/test_audit.py` | Immutable §19 ledger: eight-source fan-in, hash chain, append-only triggers, backfill, verify/export, drift guard |
+| `tests/test_risk.py` | §7 risk-based access engine: the eight scored components, bands/decisions, the session-start gate, ledger fan-in |
 | `tests/test_openapi_contract.py` | `apis/openapi.yaml` ↔ live route map (both directions) |
 
 ## Quick start
@@ -96,7 +97,9 @@ More screens render from their own APIs: the **Command Center** and
 `GET /api/v1/events` feed — health, license posture, vault stats, computed
 control posture, recent activity; the Compliance screen also reads
 `GET /api/v1/audit/stats` for the immutable digest, runs `GET /api/v1/audit/verify`
-on its **Verify Hash Chain** button and exports `GET /api/v1/audit/export`), the **Credential Vault**
+on its **Verify Hash Chain** button, exports `GET /api/v1/audit/export`, and its
+per-trail filter fetches one of the eight sources — license, settings, vault,
+discovery, jit, session, command, risk — on click), the **Credential Vault**
 (`GET/POST /api/v1/vault/*` — onboarding via **Onboard New Credential**, rotation
 SLA, type/status filters, JIT checkouts and an audit trail), the
 **Infrastructure Discovery** screen (`GET/POST /api/v1/discovery/*` — register,
@@ -106,7 +109,9 @@ requests, risk, approvals, time-boxed grants), the **live session hub**
 an active grant, replay its append-only recording, gate controls, and end it
 through the release-and-rotate cascade) and the **zero-trust policy console**
 (`GET/POST /api/v1/command-control/*` — the shipped §9 rules as editable cards,
-a dry-run simulator, the approval queue and the incident trail). Each fetches on load
+a dry-run simulator, the approval queue and the incident trail — plus
+`GET/POST /api/v1/risk/*` — the §7 scorer: score one request from eight
+components, the band legend, live stats and the recorded evaluations). Each fetches on load
 and keeps its honest placeholder content as the fallback, so it still renders
 when opened as `file://` or when the API is unreachable.
 
@@ -124,8 +129,8 @@ is no seed inventory: every credential enters through **Onboard New Credential**
 "not connected" states instead of sample rows.
 
 ```bash
-python -m pytest tests -q     # 242 tests (from backend/phase2_license_server)
-python -m pytest backend -q   # 324 tests from the repo root (+ shared crypto core)
+python -m pytest tests -q     # 261 tests (from backend/phase2_license_server)
+python -m pytest backend -q   # 343 tests from the repo root (+ shared crypto core)
 ```
 
 ## Configuration
@@ -178,7 +183,7 @@ cross-checked against these routes by `tests/test_openapi_contract.py`.
 | GET | `/settings/audit?limit=` | – | Configuration changelog, newest first |
 | PUT | `/settings/<group>` | admin | Merge-update one group, returns the per-field change diff |
 | GET | `/overview` | – | Dashboard aggregate: health, license posture, vault stats, settings, counters, computed control posture, recent activity |
-| GET | `/events?limit=&source=` | – | Unified audit feed across the license / settings / vault / discovery trails, newest first |
+| GET | `/events?limit=&source=` | – | Unified audit feed across all eight trails (license, settings, vault, discovery, jit, session, command, risk), newest first |
 | GET | `/vault/stats` | – | Inventory aggregates: totals by type/status, rotation compliance, `secrets` coverage (`managed`/`unmanaged`/`versions`), checkouts, today's events |
 | GET | `/vault/items?…` | – | List inventory (`q`, `type`, `status`, `limit`, `offset`) |
 | POST | `/vault/items` | admin | Onboard a credential (201, strictly validated; optional `secret`, else a real type-appropriate value is generated — sealed with AES-256-GCM either way) |
@@ -199,7 +204,7 @@ cross-checked against these routes by `tests/test_openapi_contract.py`.
 | POST | `/jit/requests/<id>/close` | admin | End a grant early: release the checkout and rotate the credential (audited) |
 | GET | `/sessions/stats` | – | Session aggregates: per-status counts, event and blocked totals |
 | GET | `/sessions?status=&protocol=&q=&limit=&offset=` | – | Sessions, newest first (live and archived; `status`/`protocol`/search filters) |
-| POST | `/sessions` | admin | Start a privileged session (201; `protocol` (13), `target`, optional `item_id` — checks the credential out — or `jit_request_id` that must be an active grant, plus the 7 control flags). One live session per grant → 409 |
+| POST | `/sessions` | admin | Start a privileged session (201; `protocol` (13), `target`, optional `device` (scored at start), `item_id` — checks the credential out — or `jit_request_id` that must be an active grant, plus the 7 control flags). The response carries the §7 `risk` evaluation; a band the gate refuses (critical, or high without an active grant) → 403 with `details.risk` — the evaluation is already committed as ledger evidence. One live session per grant → 409 |
 | GET | `/sessions/<id>` | – | One session plus stats and its latest events (evaluates linked grant expiry) |
 | GET | `/sessions/<id>/events?order=&type=&limit=&offset=` | – | The append-only recording: `seq`, type, content, `allowed`/`blocked_reason`, `withheld`, `watermark`, actor |
 | POST | `/sessions/<id>/events` | admin | Record a channel event. Not-live → 409; typed content while `record=false` → 403; gated channels store `allowed=false` + reason (blocked evidence); `keystroke_log=false` stores content `null` + `withheld=true` |
@@ -230,7 +235,10 @@ cross-checked against these routes by `tests/test_openapi_contract.py`.
 | GET | `/discovery/accounts?…` | – | Recorded privileged accounts (`q`, `kind`, `limit`, `offset`) |
 | GET | `/discovery/scans?limit=` | – | Scan history, newest first |
 | POST | `/discovery/scans` | admin | Run a real TCP-connect scan (201; IPv4/CIDR/hostname, ≤256 hosts, ≤24 ports) |
-| GET | `/audit/stats` | – | Immutable ledger aggregates (§19): `total`, per-source counts for all seven trails, `last_seq`, `head_hash`, oldest/newest, `trigger_protection` |
+| GET | `/risk/stats` | – | §7 aggregates: `total`, `by_band`, `by_decision`, `by_result`, `by_context`, `refused`, `avg_score`, `last_evaluated_at` |
+| GET | `/risk/evaluations?band=&context=&limit=&offset=` | – | Every evaluation, newest first: score, band, decision, result, context and all 8 scored components with their measured-input details |
+| POST | `/risk/evaluate` | admin | Score one access request (201; `subject` required ≤160, optional `target`, `device`, `source_ip`, `ticket`, `command`) — always `result=advisory`; the same scorer gates `POST /sessions` |
+| GET | `/audit/stats` | – | Immutable ledger aggregates (§19): `total`, per-source counts for all eight trails, `last_seq`, `head_hash`, oldest/newest, `trigger_protection` |
 | GET | `/audit/verify` | – | Walk the whole chain: recomputes every record's hash and reports `intact`, `checked`, `head_hash` plus the first `broken_at`/`reason` (sequence gap, content change, re-link) |
 | GET | `/audit/export` | – | The full ledger in chain order as NDJSON (`application/x-ndjson`, `vy-pam-audit.ndjson`) — one record per line for SIEM ingest |
 
@@ -358,8 +366,8 @@ curl -s "http://127.0.0.1:5000/api/v1/settings/audit?limit=20"
 # dashboard aggregate powering the Command Center / Compliance screens
 curl -s http://127.0.0.1:5000/api/v1/overview
 
-# unified audit feed (all seven trails: license, settings, vault, discovery,
-# jit, session, command - newest first, each row chain-linked with seq + hash)
+# unified audit feed (all eight trails: license, settings, vault, discovery,
+# jit, session, command, risk - newest first, each row chain-linked with seq + hash)
 curl -s "http://127.0.0.1:5000/api/v1/events?limit=10"
 
 # inventory aggregates: rotation compliance, checkouts, attention list
@@ -506,7 +514,8 @@ curl -s -X POST http://127.0.0.1:5000/api/v1/sessions/1/terminate \
   response). Ending a session whose grant expired in a detail read does the
   same through the lazy path (`end_reason=grant_expired`).
 - Reads are public; the write routes (settings, vault, discovery, rotation,
-  jit, sessions, command-control rule/incident/approval writes)
+  jit, sessions, command-control rule/incident/approval writes, risk
+  evaluation)
   require the admin token in token mode (open mode stays open) and record who
   acted via `X-Actor`. The secret reveal (`GET /vault/items/<id>/secret`) is
   gated like a write route — it is never one of the public reads.
@@ -555,6 +564,45 @@ curl -s -X POST http://127.0.0.1:5000/api/v1/command-control/incidents/1/close \
   screen. `session_events` grows `decision`/`rule_id`/`ref_seq` and
   `evaluate` is a pure dry-run: it never writes an event.
 
+### Risk-based access (§7)
+
+```bash
+# score one access request (advisory - writes an evaluation, never a session)
+curl -s -X POST http://127.0.0.1:5000/api/v1/risk/evaluate \
+  -H "Authorization: Bearer $LICENSE_ADMIN_TOKEN" -H "X-Actor: alice" \
+  -H "Content-Type: application/json" \
+  -d '{"subject": "alice", "target": "10.77.0.9:5432",
+       "device": "unmanaged-laptop", "source_ip": "8.8.8.8",
+       "ticket": "fix-now", "command": "rm -rf /opt"}'
+# -> {"evaluation": {"score": 70, "band": "high", "decision": "approval",
+#     "result": "advisory", "context": "manual", "components": [ ...8... ]},
+#     "message": "Scored 70/100 - high (approval)"}
+
+# aggregates and the recorded evaluations
+curl -s http://127.0.0.1:5000/api/v1/risk/stats
+curl -s "http://127.0.0.1:5000/api/v1/risk/evaluations?band=critical&limit=5"
+```
+
+- **Risk-based access** (architecture module 7) scores every request over eight
+  components that always come back with their measured-input detail, and the
+  caps sum to exactly 100 so the score is the visible sum of its parts:
+  `user` (≤10, 5 per prior critical evaluation in 24h), `device` (≤15, unknown
+  to the discovered inventory), `asset` (≤30: `CRITICAL` 25 / `HIGH` 20 /
+  `MEDIUM` 10 / `LOW` 0, +5 when the target is `unmanaged`), `time` (≤10 from
+  the real local clock — off-hours or weekend), `location` (≤5 when the source
+  address is global, via `ipaddress` — no geo feed is claimed), `behavior`
+  (≤15: 10 for blocked commands + 5 for denied JIT requests in 24h),
+  `ticket` (≤5 for a non-ITSM shape) and `command` (≤10 for a live
+  `block` / ≤5 for `approval` under the §9 policy). Bands → decisions:
+  ≤25 `allow`, ≤50 `mfa`, ≤75 `approval`, above that `block`.
+- The console endpoint always advises (`result=advisory`); the **session-start
+  gate** in `POST /sessions` runs the same scorer with `context=session_start`
+  and commits its `RiskEvent` **before** it decides, so a refused start keeps
+  its evaluation as SOC evidence in the ledger (`403` + `details.risk`):
+  critical refuses outright, high proceeds only under an active JIT grant
+  (approved by someone other than the requester), medium prescribes MFA, low
+  allows.
+
 ### Discovery
 
 ```bash
@@ -587,15 +635,15 @@ curl -s -X POST http://127.0.0.1:5000/api/v1/discovery/assets \
 
 # aggregates: every module trail fanned into one append-only hash chain
 curl -s http://127.0.0.1:5000/api/v1/audit/stats
-# -> {"total": 23, "by_source": {"command": 6, "discovery": 2, "jit": 1,
-#     "license": 1, "session": 4, "settings": 2, "vault": 7}, "last_seq": 23,
-#     "head_hash": "2f91...", "trigger_protection": true, ...}
+# -> {"total": 35, "by_source": {"command": 7, "discovery": 3, "jit": 1,
+#     "license": 1, "risk": 8, "session": 5, "settings": 2, "vault": 8},
+#     "last_seq": 35, "head_hash": "79c4...", "trigger_protection": true, ...}
 
 # walk every record and recompute every hash (what the console's
 # "Verify Hash Chain" button runs on click)
 curl -s http://127.0.0.1:5000/api/v1/audit/verify
-# -> {"intact": true, "checked": 23, "total": 23, "last_seq": 23,
-#     "head_hash": "2f91...", "broken_at": null, "reason": null}
+# -> {"intact": true, "checked": 35, "total": 35, "last_seq": 35,
+#     "head_hash": "79c4...", "broken_at": null, "reason": null}
 
 # the whole ledger as NDJSON in chain order, one record per line (SIEM ingest)
 curl -s http://127.0.0.1:5000/api/v1/audit/export
@@ -610,8 +658,9 @@ curl -s http://127.0.0.1:5000/api/v1/audit/export
 - **Audit trail.** Every import/revoke/restore/usage report writes a
   `LicenseEvent` row, returned with `GET /licenses/<key>`.
 - **The ledger is immutable (§19).** A `before_flush` listener fans every
-  module trail — license, settings, vault, discovery, JIT, session lifecycle
-  and command control (incidents and their closure included) — into one
+  module trail — license, settings, vault, discovery, JIT, session lifecycle,
+  command control (incidents and their closure included) and risk (every §7
+  evaluation, refusals included) — into one
   `audit_events` chain: `seq` + `prev_hash` link each record to a sha256 over
   its canonical content, SQLite triggers refuse `UPDATE`/`DELETE` outright
   (`audit_events is append-only (architecture 19)`), first boot backfills any
@@ -627,4 +676,4 @@ curl -s http://127.0.0.1:5000/api/v1/audit/export
   into `SettingsEvent` for the changelog.
 - **Naive local datetimes.** Expiry is compared in Python, not SQL, so results do
   not depend on the database's timezone handling.
-- **Errors are JSON**: `{"error": "...", "details": {...}}` with 400/401/404/405/500.
+- **Errors are JSON**: `{"error": "...", "details": {...}}` with 400/401/403/404/405/500.

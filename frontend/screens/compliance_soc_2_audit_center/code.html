@@ -733,17 +733,21 @@
         'command:approval': 'Command decision',
         'command:escalated': 'Incident escalated',
         'command:closed': 'Incident closed',
+        'risk:allow': 'Risk evaluation (allow)',
+        'risk:mfa': 'Risk evaluation (MFA)',
+        'risk:approval': 'Risk evaluation (approval)',
+        'risk:block': 'Risk evaluation (block)',
       };
       const SOURCE_ICONS = {
         license: 'workspace_premium', settings: 'tune', vault: 'key',
         discovery: 'travel_explore', jit: 'bolt', session: 'present_to_all',
-        command: 'gpp_maybe',
+        command: 'gpp_maybe', risk: 'speed',
       };
       const SOURCE_LABELS = {
         license: 'License audit trail', settings: 'Settings audit trail',
         vault: 'Vault audit trail', discovery: 'Discovery audit trail',
         jit: 'JIT audit trail', session: 'Session audit trail',
-        command: 'Command audit trail',
+        command: 'Command audit trail', risk: 'Risk audit trail',
       };
 
       // headline-xl spans: [overall posture, SOC-2 pass, evidence, next cycle]
@@ -816,9 +820,9 @@
         }
       }
 
-      // ---- 7-source filter: click-to-fetch per trail (reveal on click) ---
+      // ---- 8-source filter: click-to-fetch per trail (reveal on click) ---
       const SOURCES = ['all', 'license', 'settings', 'vault', 'discovery',
-        'jit', 'session', 'command'];
+        'jit', 'session', 'command', 'risk'];
       let activeSource = 'all';
       const filterWrap = document.createElement('div');
       filterWrap.className = 'flex flex-wrap gap-1.5 pb-1';

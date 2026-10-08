@@ -61,6 +61,13 @@ from models import (
     EVENT_USAGE_REPORTED,
     JIT_ROLES,
     JIT_STATUSES,
+    RISK_CONTEXT_MANUAL,
+    RISK_CONTEXT_SESSION_START,
+    RISK_CONTEXTS,
+    RISK_DECISIONS,
+    RISK_DECISION_BY_BAND,
+    RISK_LEVELS,
+    RISK_RESULTS,
     SESSION_EVENT_TYPES,
     SESSION_PROTOCOLS,
     SESSION_STATUSES,
@@ -90,6 +97,7 @@ from models import (
     LicenseEvent,
     LicenseRecord,
     PrivilegedSession,
+    RiskEvent,
     SessionEvent,
     SettingGroup,
     SettingsEvent,
@@ -2277,10 +2285,17 @@ def _append_session_status(
     return event
 
 
-def create_session(payload: Any, *, actor: str) -> PrivilegedSession:
+def create_session(
+    payload: Any, *, actor: str
+) -> Tuple[PrivilegedSession, RiskEvent]:
     """Start a privileged session: protocol + target, optionally against a
     vault credential (checked out for the session) or riding an active JIT
-    grant (attached, no second checkout)."""
+    grant (attached, no second checkout).
+
+    The request is scored first (architecture section 7): CRITICAL is
+    refused, HIGH needs the approval an active JIT grant represents, and
+    the evaluation is recorded either way.
+    """
     if not isinstance(payload, dict):
         raise ValidationFailed("Request body must be a JSON object")
 
@@ -2363,6 +2378,27 @@ def create_session(payload: Any, *, actor: str) -> PrivilegedSession:
                 )
             own_checkout = True
 
+    # architecture section 7: score this request before it runs. The band
+    # drives policy - CRITICAL is refused outright, HIGH needs the approval
+    # of an active JIT grant - and the evaluation commits on its own so a
+    # refusal is still recorded (SOC evidence in the audit ledger).
+    risk = evaluate_risk(
+        {
+            "subject": actor,
+            "target": target,
+            "device": payload.get("device"),
+        },
+        actor=actor,
+        context=RISK_CONTEXT_SESSION_START,
+        approved_grant=grant,
+    )
+    if risk.result == "refused":
+        raise APIError(
+            403,
+            "Risk policy refuses this session start",
+            {"risk": risk.to_dict()},
+        )
+
     session = PrivilegedSession(
         session_ref=f"sess-{secrets.token_hex(4)}",
         protocol=protocol,
@@ -2386,7 +2422,7 @@ def create_session(payload: Any, *, actor: str) -> PrivilegedSession:
     except APIError:
         db.session.rollback()
         raise
-    return session
+    return session, risk
 
 
 def list_sessions(
@@ -3368,15 +3404,16 @@ def _escalate_blocked_command(
 # ---------------------------------------------------------------------------
 # dashboard (Command Center + Compliance screens)
 # ---------------------------------------------------------------------------
-_AUDIT_SOURCES = audit.AUDIT_SOURCES  # the seven trails folded into section 19's ledger
+_AUDIT_SOURCES = audit.AUDIT_SOURCES  # the eight trails folded into section 19's ledger
 
 
 def unified_events(
     *, source: Optional[str] = None, limit: int = 20
 ) -> Dict[str, Any]:
     """Recent entries from the immutable audit ledger (architecture 19):
-    license, settings, vault, discovery, JIT, session lifecycle and command
-    control, newest first. Each row carries its chain seq and hash."""
+    license, settings, vault, discovery, JIT, session lifecycle, command
+    control and risk, newest first. Each row carries its chain seq and
+    hash."""
     if source and source not in _AUDIT_SOURCES:
         raise ValidationFailed(
             f"Unknown event source '{source}'",
@@ -4427,4 +4464,388 @@ def discovery_stats() -> Dict[str, Any]:
             "total": DiscoveryScan.query.count(),
             "last": last_scan.to_dict() if last_scan else None,
         },
+    }
+
+
+# ---------------------------------------------------------------------------
+# risk-based access engine (architecture section 7)
+# ---------------------------------------------------------------------------
+# RBAC + ABAC + risk: every request is scored over the eight components the
+# architecture names, the total picks the band, and the band drives policy -
+#
+#     0-25    LOW      -> allow
+#     26-50   MEDIUM   -> MFA
+#     51-75   HIGH     -> approval
+#     76-100  CRITICAL -> block (the refusal is kept as SOC evidence)
+#
+# Nothing is assigned: user, device, asset, time, location, behavior,
+# ticket and command each read a measured input - the subject's own 24h
+# history, the discovered inventory, the live command policy, the local
+# clock, the source address (stdlib ipaddress, no geo feed is claimed),
+# the ticket's shape - and every component returns its points with the
+# detail that produced them. The caps add up to exactly 100, so the score
+# is always the visible sum of its parts.
+RISK_ASSET_POINTS = {"CRITICAL": 25, "HIGH": 20, "MEDIUM": 10, "LOW": 0}
+RISK_UNMANAGED_POINTS = 5  # an asset outside PAM control is exposure (section 10)
+RISK_DEVICE_UNKNOWN = 15
+RISK_OFF_HOURS = 10
+RISK_PUBLIC_SOURCE = 5
+RISK_BEHAVIOR_BLOCKED = 10  # blocked commands by this subject in the last 24h
+RISK_BEHAVIOR_DENIED = 5    # denied JIT requests by this subject in the last 24h
+RISK_TICKET_SHAPE = 5
+RISK_COMMAND_POINTS = {"block": 10, "approval": 5}
+
+
+def _risk_band(score: int) -> str:
+    """The architecture's bands (mirrors the thresholds _jit_level uses)."""
+    if score <= 25:
+        return "low"
+    if score <= 50:
+        return "medium"
+    if score <= 75:
+        return "high"
+    return "critical"
+
+
+def _risk_text(
+    payload: Dict[str, Any], field: str, *, max_length: int, required: bool = False
+) -> str:
+    raw = payload.get(field)
+    if raw is None:
+        raw = ""
+    if not isinstance(raw, str):
+        raise ValidationFailed(f"'{field}' must be a string", {"field": field})
+    value = raw.strip()
+    if required and not value:
+        raise ValidationFailed(f"'{field}' is required", {"field": field})
+    if len(value) > max_length:
+        raise ValidationFailed(
+            f"'{field}' must be at most {max_length} characters",
+            {"field": field, "max_length": max_length},
+        )
+    return value
+
+
+def _target_host(target: str) -> str:
+    """`web-01.prod:22` -> `web-01.prod` (bracketed IPv6 kept intact)."""
+    raw = (target or "").strip()
+    if raw.startswith("["):
+        end = raw.find("]")
+        if end != -1:
+            return raw[1:end]
+    head, _, tail = raw.rpartition(":")
+    if head and tail.isdigit() and raw.count(":") == 1:
+        return head
+    return raw
+
+
+def _risk_asset(host: str) -> Optional[DiscoveredAsset]:
+    if not host:
+        return None
+    needle = host.lower()
+    return (
+        DiscoveredAsset.query.filter(
+            db.func.lower(DiscoveredAsset.address) == needle
+        ).first()
+        or DiscoveredAsset.query.filter(
+            db.func.lower(DiscoveredAsset.hostname) == needle
+        ).first()
+    )
+
+
+def _score_risk(
+    *,
+    subject: str,
+    target: str,
+    device: str,
+    source_ip: str,
+    ticket: str,
+    command: str,
+    now: datetime,
+) -> Tuple[int, List[Dict[str, Any]]]:
+    """Score one request: eight measured components, honest details, total."""
+    components: List[Dict[str, Any]] = []
+    total = 0
+
+    def add(name: str, points: int, detail: str) -> None:
+        nonlocal total
+        components.append(
+            {"component": name, "points": int(points), "detail": detail}
+        )
+        total += int(points)
+
+    # user: the subject's own critical history (real evaluations, last 24h)
+    prior_critical = (
+        RiskEvent.query.filter(
+            RiskEvent.subject == subject,
+            RiskEvent.band == "critical",
+            RiskEvent.created_at >= now - timedelta(hours=24),
+        )
+        .count()
+    )
+    add(
+        "user",
+        min(10, 5 * prior_critical),
+        (
+            f"{prior_critical} critical evaluation(s) for this subject in the last 24h"
+            if prior_critical
+            else "no critical history for this subject in the last 24h"
+        ),
+    )
+
+    # device: known to discovery or not (no device reported scores nothing)
+    if not device:
+        add("device", 0, "no device reported for this request")
+    else:
+        known = _risk_asset(device) is not None
+        add(
+            "device",
+            0 if known else RISK_DEVICE_UNKNOWN,
+            (
+                f"device '{device}' is in the discovered inventory"
+                if known
+                else f"device '{device}' is not in the discovered inventory"
+            ),
+        )
+
+    # asset: the target resolved against the real inventory record
+    host = _target_host(target)
+    if not target:
+        add("asset", 0, "no target supplied")
+    else:
+        asset = _risk_asset(host)
+        if asset is None:
+            add(
+                "asset",
+                0,
+                f"target host '{host}' is not in the discovered inventory",
+            )
+        else:
+            points = RISK_ASSET_POINTS.get(asset.risk, 0) + (
+                RISK_UNMANAGED_POINTS if asset.pam_status == "unmanaged" else 0
+            )
+            add(
+                "asset",
+                points,
+                (
+                    f"{asset.asset_type} asset {asset.address} - risk "
+                    f"{asset.risk}, {asset.pam_status}"
+                ),
+            )
+
+    # time: the local clock (real - no simulated business hours)
+    if now.weekday() >= 5 or now.hour < 8 or now.hour >= 18:
+        add(
+            "time",
+            RISK_OFF_HOURS,
+            f"{now.strftime('%A %H:%M')} local - outside business hours",
+        )
+    else:
+        add("time", 0, f"{now.strftime('%A %H:%M')} local - business hours")
+
+    # location: source address classification only (no geo feed is claimed)
+    if not source_ip:
+        add("location", 0, "no source address on this request")
+    else:
+        try:
+            address = ipaddress.ip_address(source_ip)
+        except ValueError:
+            add("location", 0, f"'{source_ip}' is not a valid IP address")
+        else:
+            add(
+                "location",
+                RISK_PUBLIC_SOURCE if address.is_global else 0,
+                (
+                    f"{source_ip} is outside the private ranges "
+                    "(no geo feed configured)"
+                    if address.is_global
+                    else f"{source_ip} is in a private range"
+                ),
+            )
+
+    # behavior: what this subject has actually done in the last 24h
+    blocked = (
+        SessionEvent.query.filter(
+            SessionEvent.actor == subject,
+            SessionEvent.decision == "block",
+            SessionEvent.created_at >= now - timedelta(hours=24),
+        )
+        .count()
+    )
+    denied = (
+        JitRequest.query.filter(
+            JitRequest.requester == subject,
+            JitRequest.status == "denied",
+            JitRequest.created_at >= now - timedelta(hours=24),
+        )
+        .count()
+    )
+    add(
+        "behavior",
+        (RISK_BEHAVIOR_BLOCKED if blocked else 0)
+        + (RISK_BEHAVIOR_DENIED if denied else 0),
+        (
+            f"{blocked} blocked command(s) and {denied} denied request(s) "
+            "by this subject in the last 24h"
+        ),
+    )
+
+    # ticket: shape only (same ITSM reference pattern the JIT module scores)
+    if not ticket:
+        add("ticket", 0, "no ticket supplied")
+    elif _JIT_TICKET_RE.match(ticket):
+        add("ticket", 0, f"'{ticket}' matches the ITSM reference shape")
+    else:
+        add("ticket", RISK_TICKET_SHAPE, "ticket is not an ITSM-style reference")
+
+    # command: the live command policy (the same engine judging session
+    # commands) - a block is the strongest signal this component carries
+    if not command:
+        add("command", 0, "no command supplied")
+    else:
+        verdict = evaluate_command(command, target)
+        rule = verdict.get("rule") or {}
+        add(
+            "command",
+            RISK_COMMAND_POINTS.get(verdict["decision"], 0),
+            (
+                f"'{rule.get('name')}' returns {verdict['decision']} "
+                "for this command"
+                if verdict["matched"]
+                else "no rule matches this command (default allow)"
+            ),
+        )
+
+    return total, components
+
+
+def evaluate_risk(
+    payload: Any,
+    *,
+    actor: str,
+    context: str = RISK_CONTEXT_MANUAL,
+    approved_grant: Optional[JitRequest] = None,
+) -> RiskEvent:
+    """Score one access request for real and record the evaluation.
+
+    The row commits on its own: a refused session start keeps its
+    evaluation (SOC evidence in the audit ledger) even though no session
+    follows. Console evaluations (context `manual`) only advise; a session
+    start is allowed or refused by its band.
+    """
+    if not isinstance(payload, dict):
+        raise ValidationFailed("Request body must be a JSON object")
+
+    subject = _risk_text(payload, "subject", required=True, max_length=160)
+    target = _risk_text(payload, "target", max_length=255)
+    device = _risk_text(payload, "device", max_length=128)
+    source_ip = _risk_text(payload, "source_ip", max_length=64)
+    ticket = _risk_text(payload, "ticket", max_length=64)
+    command = _risk_text(payload, "command", max_length=1000)
+
+    now = datetime.now()
+    score, components = _score_risk(
+        subject=subject,
+        target=target,
+        device=device,
+        source_ip=source_ip,
+        ticket=ticket,
+        command=command,
+        now=now,
+    )
+    band = _risk_band(score)
+    decision = RISK_DECISION_BY_BAND[band]
+
+    if context == RISK_CONTEXT_SESSION_START:
+        if band == "critical":
+            result = "refused"  # CRITICAL: block, no exceptions
+        elif band == "high":
+            # HIGH: approval - an active JIT grant (signed off by someone
+            # other than the requester) is the approval this gate accepts
+            result = (
+                "allowed"
+                if approved_grant is not None and approved_grant.status == "active"
+                else "refused"
+            )
+        else:
+            result = "allowed"
+    else:
+        result = "advisory"
+
+    evaluation = RiskEvent(
+        actor=actor,
+        subject=subject,
+        context=context,
+        target=target,
+        device=device,
+        source_ip=source_ip,
+        ticket=ticket,
+        command=command,
+        score=score,
+        band=band,
+        decision=decision,
+        result=result,
+        components=components,
+    )
+    db.session.add(evaluation)
+    db.session.commit()
+    return evaluation
+
+
+def list_risk_evaluations(
+    *,
+    band: Optional[str] = None,
+    context: Optional[str] = None,
+    limit: int = 20,
+    offset: int = 0,
+) -> Tuple[List[RiskEvent], int]:
+    query = RiskEvent.query
+    if band is not None and band not in RISK_LEVELS:
+        raise ValidationFailed(
+            f"Unknown risk band '{band}'",
+            {"field": "band", "allowed": list(RISK_LEVELS)},
+        )
+    if context is not None and context not in RISK_CONTEXTS:
+        raise ValidationFailed(
+            f"Unknown risk context '{context}'",
+            {"field": "context", "allowed": list(RISK_CONTEXTS)},
+        )
+    if band:
+        query = query.filter_by(band=band)
+    if context:
+        query = query.filter_by(context=context)
+    total = query.count()
+    rows = (
+        query.order_by(RiskEvent.created_at.desc(), RiskEvent.id.desc())
+        .offset(offset)
+        .limit(limit)
+        .all()
+    )
+    return rows, total
+
+
+def risk_stats() -> Dict[str, Any]:
+    """Real aggregates over the evaluations (the screen's risk cards)."""
+    rows = RiskEvent.query.all()
+    by_band = {name: 0 for name in RISK_LEVELS}
+    by_decision = {name: 0 for name in RISK_DECISIONS}
+    by_result = {name: 0 for name in RISK_RESULTS}
+    by_context = {name: 0 for name in RISK_CONTEXTS}
+    for row in rows:
+        by_band[row.band] = by_band.get(row.band, 0) + 1
+        by_decision[row.decision] = by_decision.get(row.decision, 0) + 1
+        by_result[row.result] = by_result.get(row.result, 0) + 1
+        by_context[row.context] = by_context.get(row.context, 0) + 1
+    newest = RiskEvent.query.order_by(RiskEvent.id.desc()).first()
+    return {
+        "total": len(rows),
+        "by_band": by_band,
+        "by_decision": by_decision,
+        "by_result": by_result,
+        "by_context": by_context,
+        "refused": by_result.get("refused", 0),
+        "avg_score": (
+            round(sum(row.score for row in rows) / len(rows), 1) if rows else None
+        ),
+        "last_evaluated_at": newest.created_at.isoformat() if newest else None,
     }
