@@ -1,6 +1,6 @@
 # VY-PAM — Backend Schema
 
-**Status:** as-built for Phase 5a
+**Status:** as-built for Phase 5b
 Two databases: the **shipped runtime DB** (`backend/phase2_license_server/
 licenses.db`, SQLAlchemy/Flask-SQLAlchemy) and the **vendor-tool DB**
 (`pam_master/master.db`, raw `sqlite3`). Both are SQLite, both git-ignored.
@@ -11,7 +11,7 @@ external migration tool.
 
 ---
 
-## 1. Shipped runtime - 30 tables
+## 1. Shipped runtime - 32 tables
 
 ### ERD (logical)
 
@@ -22,7 +22,7 @@ vault_items ─1:n─ vault_events
 vault_items ─1:n─ vault_secret_versions
 discovered_assets ─1:n─ discovered_accounts
 discovery_scans ─1:n─ discovery_events        discovery_assets links via asset_id
-jit_requests ─1:n─ jit_events                (item_id → vault_items, vendor_account_id → vendor_accounts)
+jit_requests ─1:n─ jit_events                (item_id → vault_items, vendor_account_id → vendor_accounts, cloud_connector_id → cloud_connectors)
 privileged_sessions ─1:n─ session_events      (item_id → vault_items, jit_request_id → jit_requests)
 privileged_sessions ─1:n─ command_incidents   (event_seq → session_events.seq)
 command_rules                                  (referenced by rules/incidents, not FK)
@@ -35,6 +35,7 @@ break_glass_requests ─1:n─ break_glass_approvals (request_id → break_glass
 break_glass_events                             (emergency actions → ledger source `break-glass`)
 integration_events                             (connector actions → ledger source `integration`)
 vendor_accounts ─1:n─ vendor_events           (vendor_id → vendor_accounts; lifecycle actions → ledger source `vendor`)
+cloud_connectors ─1:n─ cloud_events           (connector_id → cloud_connectors; §14 actions → ledger source `cloud`)
 audit_events                                    (hash chain over all of the above)
 ```
 
@@ -163,6 +164,8 @@ String(32) indexed default `other` · `source` default `manual` · `created_at`.
 | granted_at / expires_at / closed_at | DateTime | ✓ | |
 | session_ref | String(64) | ✓ | consumed session |
 | vendor_account_id | Integer | ✓ | indexed (§13 vendor link — set when the request was filed through a vendor account) |
+| cloud_connector_id | Integer | ✓ | indexed (§14 link — set when the request was filed through a cloud connector's RBAC path) |
+| cloud_binding | JSON | ✓ | `{namespace, role, binding}` at filing; the grant adds `applied_at`/`expires_at`/`http_status`, a successful removal adds `removed_at` — the real RoleBinding this grant applies/removes (§14) |
 | created_at | DateTime | ✗ | |
 
 ### 1.13 `jit_events`
@@ -335,8 +338,8 @@ DateTime indexed
   Preserved evidence, never rewritten. Folded into the §19 ledger by
   `_map_anomaly` under the existing `risk` source (`action:
   anomaly-incident`, ref `anom:<id>`), so the anomaly rows added no new
-  ledger source (11 sources at 4j; **12** today — the §13 `vendor` source
-  joined in 5a).
+  ledger source (11 sources at 4j; **13** today — the §13 `vendor` source
+  joined in 5a and the §14 `cloud` source in 5b).
   The model class is named `AnomalyEvent` deliberately: the audit drift
   guard requires every `*Event` table to join the ledger.
 
@@ -372,7 +375,34 @@ name captured at the time — renames never rewrite history) · `detail` JSON.
   `approved` · `denied` · `revoked` · `access-requested` · `access-refused` ·
   `session-refused` · `expired`. The TOTP seed and any submitted code never
   appear in `detail`. Folded into the §19 ledger by `_map_vendor` (ref
-  `vendor:<id>`) as the **twelfth** source.
+  `vendor:<id>`) as the twelfth source.
+
+### 1.31 `cloud_connectors` — §14 cloud account / cluster connector
+| Column | Type | Null | Default |
+|---|---|---|---|
+| id | PK | ✗ | |
+| name | String(64) | ✗ | unique indexed |
+| provider | String(16) | ✗ | indexed (`aws\|azure\|gcp\|kubernetes`) |
+| account_ref | String(128) | ✗ | `""` account / subscription / project reference |
+| endpoint | String(255) | ✗ | `""` — `https` required (`http` loopback-only); empty = `not connected` |
+| regions / services | JSON | ✗ | `[]` in-scope regions / services from the §14 surface |
+| credential_item_id | Integer | ✓ | the vault item holding this cloud's credential — secret material never lives in this row |
+| status | String(16) | ✗ | `not connected`, indexed (`not connected\|configured\|connected\|error`) — honest state; only a real probe moves it |
+| last_test_at | DateTime | ✓ | last real probe |
+| last_test_detail | String(255) | ✗ | `""` — the probe's honest verdict (`HTTP 200 (12ms)` / `connection failed …`), also the `error` reason |
+| created_at | DateTime | ✗ | indexed |
+| created_by | String(64) | ✗ | `system` |
+
+### 1.32 `cloud_events` — §14 module action log (ledger source `cloud`)
+`id` PK · `connector_id` Integer indexed · `created_at` DateTime indexed ·
+`action` String(32) · `actor` String(64) · `subject` String(64) (display
+name captured at the time — renames never rewrite history) · `detail` JSON.
+- actions: `connector-added` · `connector-updated` · `connector-removed` ·
+  `probe-succeeded` · `probe-failed` · `inventory-ran` · `inventory-failed` ·
+  `rbac-requested` · `rbac-granted` · `rbac-binding-failed` · `rbac-closed` ·
+  `rbac-expired` · `rbac-aborted`. The credential used for a call never
+  appears in `detail`; the outcome does. Folded into the §19 ledger by
+  `_map_cloud` (ref `cloud:<id>`) as the **thirteenth** source.
 
 ---
 
@@ -447,7 +477,6 @@ column sets land with the code + contract commit; counts are `—` until then.
 
 | Phase | Tables | Notes |
 |---|---|---|
-| 5b §14 | `cloud_connectors` | credentials themselves in vault, not in the row |
 | 5c §15 | `broker_policies`, `broker_credentials` | JIT semantics; expiry enforced like grants |
 | 5d §16 | `agent_identities`, `agent_task_scopes` | command restrictions reference `command_rules` |
 | 6a §18 | replication topology (external store decision) | may replace SQLite — design item of the phase |

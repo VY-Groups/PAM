@@ -39,6 +39,7 @@ from models import (
     AuditEvent,
     BreakGlassEvent,
     BypassEvent,
+    CloudEvent,
     CommandIncident,
     DiscoveryEvent,
     IntegrationEvent,
@@ -53,7 +54,7 @@ from models import (
     VendorEvent,
 )
 
-# the twelve trails folded into the ledger (the unified feed reads these)
+# the thirteen trails folded into the ledger (the unified feed reads these)
 AUDIT_SOURCES = (
     "license",
     "settings",
@@ -67,6 +68,7 @@ AUDIT_SOURCES = (
     "break-glass",
     "integration",
     "vendor",
+    "cloud",
 )
 SOURCE_RANK = {name: index for index, name in enumerate(AUDIT_SOURCES)}
 
@@ -413,6 +415,24 @@ def _map_vendor(event: VendorEvent, db_session) -> Dict[str, Any]:
     )
 
 
+def _map_cloud(event: CloudEvent, db_session) -> Dict[str, Any]:
+    """Connector lifecycle, real probe outcomes, inventory runs, Kubernetes
+    RBAC grant requests and applied/removed ephemeral bindings under the
+    thirteenth trail `cloud` (architecture section 14) - the auditable
+    trail of the cloud PAM lifecycle itself, never the credential used for
+    a call, only its outcome."""
+    return _entry(
+        source="cloud",
+        event_ref=f"cloud:{event.id}",
+        action=_value(event, "action"),
+        actor=_value(event, "actor"),
+        subject=_value(event, "subject"),
+        detail=_value(event, "detail") or {},
+        created_at=event.created_at,
+        sort_id=event.id,
+    )
+
+
 # every event model that must reach the ledger, in a stable backfill order
 LEDGER_MODELS = (
     LicenseEvent,
@@ -428,6 +448,7 @@ LEDGER_MODELS = (
     IntegrationEvent,
     AnomalyEvent,
     VendorEvent,
+    CloudEvent,
 )
 
 MAPPERS = {
@@ -444,6 +465,7 @@ MAPPERS = {
     IntegrationEvent: _map_integration,
     AnomalyEvent: _map_anomaly,
     VendorEvent: _map_vendor,
+    CloudEvent: _map_cloud,
 }
 
 

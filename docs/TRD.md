@@ -1,6 +1,6 @@
 # VY-PAM — Technical Requirements & Design Document (TRD)
 
-**Status:** as-built for Phase 5a
+**Status:** as-built for Phase 5b
 **Audience:** engineers extending or operating the system
 **Companion docs:** `PRD.md`, `PAM_FLOW.md`, `BACKEND_SCHEMA.md`, `API_REFERENCE.md`
 
@@ -50,8 +50,8 @@ repo.
 | ORM | SQLAlchemy (Flask-SQLAlchemy) | declarative models, `db.create_all()` + additive `ensure_schema()` |
 | Store | SQLite (`licenses.db`, git-ignored) | append-only enforced by triggers on `audit_events` |
 | Crypto | `cryptography` lib | RSA-PSS-SHA256 (default) / Ed25519 envelopes; AES-256-GCM secrets |
-| Frontend | Static HTML + Tailwind (CDN build) + vanilla JS | 10 sidebar screens, no bundler, works from `file://` |
-| Tests | pytest | 461 backend + 46 pam_master |
+| Frontend | Static HTML + Tailwind (CDN build) + vanilla JS | 11 sidebar screens, no bundler, works from `file://` |
+| Tests | pytest | 488 backend + 46 pam_master |
 | UI verification | Node + `playwright-core` (`shots_tool/`) | viewport 1920×1600, never `fullPage` |
 | Vendor tool | Flask + raw `sqlite3` | `pam_master` package, `python -m pam_master` |
 
@@ -229,7 +229,8 @@ Rules enforced by tests/conventions:
   requires a review note.
 - `BreakGlassEvent` actions (`requested`, `approved`, `denied`, `opened`,
   `closed`) fan into the §19 chain as the **tenth** source `break-glass`
-  (eleven since 4i added `integration`); `bg-` request refs, stats and the
+  (eleven with 4i's `integration`, twelve with 5a's `vendor`, thirteen with
+  5b's `cloud`); `bg-` request refs, stats and the
   compliance feed stay generic. The emergency path runs the §20 MFA gate at
   open: a factor enrolled demands a `mfa_code` (401 `details.mfa`), no
   factor says so honestly.
@@ -344,12 +345,54 @@ Rules enforced by tests/conventions:
   modal with the one-time seed reveal, the vendor's JIT requests and
   lifecycle trail; Compliance gains the 13th chip (source `vendor`).
 
+### 4.17 Cloud PAM (§14) — Phase 5b
+- **Data**: `cloud_connectors` (unique `name`, provider
+  `aws|azure|gcp|kubernetes`, `account_ref`/`endpoint`/`regions`/`services`,
+  nullable `credential_item_id` pointing at the vault item — secret material
+  never in the row, honest `status`, `last_test_at`/`last_test_detail`) +
+  `cloud_events` (module log folded into the ledger as source `cloud`, the
+  thirteenth); `jit_requests` gains an indexed nullable
+  `cloud_connector_id` and a `cloud_binding` JSON column, both added through
+  `ensure_schema`.
+- **Chain**: connector status is honest state — `not connected` (no
+  endpoint), `configured` (endpoint, never probed), `connected` (a real
+  probe answered 2xx), `error` (probe failed, reason in
+  `last_test_detail`); the endpoint must be `https` (`http` loopback-only
+  for local development). The probe is a real GET carrying the vault
+  credential (revealed per call, audited; the plaintext never appears in a
+  response or event) and proves reachability plus the HTTP verdict only —
+  never "credentials validated". Inventory requires endpoint + credential
+  (409 honest refusal otherwise): the cloud's own API answers (`GET /` →
+  `resources[]` for the clouds, `GET /api/v1/nodes` → `items[]` for
+  Kubernetes), assets land as real `DiscoveryScan` rows under
+  `source=cloud` with `method=CLOUD_METHODS[provider]`, and a failed or
+  unrecognized answer records the honest reason and invents nothing.
+- **Access**: the architecture's Kubernetes path *Kubernetes → RBAC → JIT →
+  ephemeral privilege → audit* — `POST /cloud/connectors/{id}/rbac/requests`
+  (kubernetes-only 409; role/namespace must be Kubernetes names; ticket
+  required) delegates to the section-6 `create_jit_request` with risk
+  scoring verbatim and tags `cloud_binding={namespace, role, binding:
+  vypam-jit-<id>}`. Consuming the grant applies a real RoleBinding first
+  (annotations `vypam.io/session-ref` / `vypam.io/expires-at`); a cluster
+  refusal is 502 `Kubernetes refused the RBAC binding` + a
+  `rbac-binding-failed` event with the request left `approved`; a checkout
+  failure after the apply removes the binding again (`rbac-aborted`); close
+  and lazy expiry remove the binding before ending the grant
+  (`rbac-closed` / `rbac-expired`) and a failed removal is recorded, never
+  hidden. Connectors refuse deletion (409) while open grants ride them; the
+  trail stays after removal.
+- **Console**: the Target Infrastructure screen gains the live Cloud PAM
+  Connectors section (provider cards AWS/Azure/GCP/Kubernetes with honest
+  states, connector table with probe / inventory / RBAC / add actions,
+  `file://` falls back to dashes); Compliance gains the 14th chip (source
+  `cloud`).
+
 ## 5. API conventions
 
 | Concern | Rule |
 |---|---|
 | Versioning | Everything under `/api/v1` (health/meta unversioned) |
-| Auth | `LICENSE_ADMIN_TOKEN` set → `Authorization: Bearer …` or `X-Admin-Token: …` on the 58 admin operations; unset → explicit open dev mode (`X-Auth-Mode: open` response header) |
+| Auth | `LICENSE_ADMIN_TOKEN` set → `Authorization: Bearer …` or `X-Admin-Token: …` on the 64 admin operations; unset → explicit open dev mode (`X-Auth-Mode: open` response header) |
 | Actor | `X-Actor` header recorded on every audited write |
 | Errors | `{"error": {"code", "message", "details?"}}`; 400 validation, 401 auth, 403 policy refusal, 404, 409 conflict/state, 422 shape, 503 fail-closed dependency |
 | Pagination | `limit` (max 200) + `offset`, newest first |
@@ -406,11 +449,10 @@ its phase starts (plan > code > docs, in that order).
 
 | Phase / section | Data additions | API additions | Runtime behavior |
 |---|---|---|---|
-| 5b §14 Cloud | `cloud_connectors` | connector CRUD + cloud discovery extension | real inventory/cloud grants only when credentials configured |
 | 5c §15 DevSecOps | broker policy rows | `POST /broker/credentials` | time-boxed pipeline credentials (JIT semantics), no static CI secrets |
 | 5d §16 AI-Agent | `agent_identities`, task scopes | agent request endpoints + task-scoped rule evaluation | identity → task → risk → JIT → restricted commands → expiry |
 | 6a §18 HA | replication/failover topology | health/failover endpoints | multi-node; storage engine decision = core design item |
-| 6b RBAC | `roles`, `role_bindings` | security schemes gain role requirements | attribute checks on the 58 admin ops + vault/target scoping |
+| 6b RBAC | `roles`, `role_bindings` | security schemes gain role requirements | attribute checks on the 64 admin ops + vault/target scoping |
 | 6c SSO/HSM | SSO/HSM config state | SAML/OIDC login path, PKCS#11/KMS key ops | settings schema becomes enforcement; posture counts flip honestly |
 
 Standing constraints that carry into all of these: ledger emission inside

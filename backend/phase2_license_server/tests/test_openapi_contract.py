@@ -84,6 +84,12 @@ ADMIN_OPERATIONS = [
     ("post", "/api/v1/vendors/{vendor_id}/deny"),
     ("post", "/api/v1/vendors/{vendor_id}/revoke"),
     ("post", "/api/v1/vendors/{vendor_id}/requests"),
+    ("post", "/api/v1/cloud/connectors"),
+    ("patch", "/api/v1/cloud/connectors/{connector_id}"),
+    ("delete", "/api/v1/cloud/connectors/{connector_id}"),
+    ("post", "/api/v1/cloud/connectors/{connector_id}/test"),
+    ("post", "/api/v1/cloud/connectors/{connector_id}/discover"),
+    ("post", "/api/v1/cloud/connectors/{connector_id}/rbac/requests"),
 ]
 
 

@@ -39,7 +39,7 @@ Supported wire formats and algorithms:
 | `tests/test_jit.py` | JIT access: deterministic risk bands, approvals, time-boxed grants, expiry rotation |
 | `tests/test_sessions.py` | Privileged sessions: start/attach, channel events, control gating, lifecycle + cascades |
 | `tests/test_command_control.py` | Zero-trust command policy: rule CRUD, dry-run decisions, approval queue, incident escalation |
-| `tests/test_audit.py` | Immutable §19 ledger: twelve-source fan-in, hash chain, append-only triggers, backfill, verify/export, drift guard |
+| `tests/test_audit.py` | Immutable §19 ledger: thirteen-source fan-in, hash chain, append-only triggers, backfill, verify/export, drift guard |
 | `tests/test_risk.py` | §7 risk-based access engine: the eight scored components, bands/decisions, the session-start gate, ledger fan-in |
 | `tests/test_bypass.py` | §10 PAM bypass detection: log/JSON ingest, dedupe, correlation (candidate/covered/out_of_scope), incidents with forced rotation + honest `not_connected`, closure, stats, ledger fan-in |
 | `tests/test_break_glass.py` | §17 break-glass: request lifecycle, dual approval (self/second-signature rules), risk-gated open → recorded session → close with forced rotation + review, stats, ledger fan-in |
@@ -47,6 +47,7 @@ Supported wire formats and algorithms:
 | `tests/test_ueba.py` | §11 UEBA behavior baselines: explicit training, deviation reasons, incident chain fan-in |
 | `tests/test_watermark.py` | §12 dynamic watermark: six fields from the session's own row, pause/resume/terminate movement, control gating |
 | `tests/test_vendor_pam.py` | §13 third-party PAM: invite → one-time seed → MFA → NDA → real ITSM ticket → approval gate → scoped JIT; refusals + §13 dashboard |
+| `tests/test_cloud.py` | §14 cloud PAM: connector lifecycle + honest states, endpoint rules, real probes, inventory upsert/refusals, K8s RBAC → JIT → real RoleBinding apply/remove, delete guard, stats, ledger fan-in |
 | `tests/test_openapi_contract.py` | `apis/openapi.yaml` ↔ live route map (both directions) |
 
 ## Quick start
@@ -111,13 +112,17 @@ bundle, run the correlation scan, review/close incidents; the Compliance
 screen also reads
 `GET /api/v1/audit/stats` for the immutable digest, runs `GET /api/v1/audit/verify`
 on its **Verify Hash Chain** button, exports `GET /api/v1/audit/export`, and its
-per-trail filter fetches one of the eleven sources — license, settings, vault,
-discovery, jit, session, command, risk, bypass, break-glass, integration — on
+per-trail filter fetches one of the thirteen sources — license, settings, vault,
+discovery, jit, session, command, risk, bypass, break-glass, integration,
+vendor, cloud — on
 click, and its header chip reads the §20 SIEM push state), the **Credential Vault**
 (`GET/POST /api/v1/vault/*` — onboarding via **Onboard New Credential**, rotation
 SLA, type/status filters, JIT checkouts and an audit trail), the
 **Infrastructure Discovery** screen (`GET/POST /api/v1/discovery/*` — register,
-scan, adopt, ignore), the **JIT access** console (`GET/POST /api/v1/jit/*` —
+scan, adopt, ignore, plus the §14 cloud connectors over
+`GET/POST /api/v1/cloud/*`: honest connector states from real probes,
+inventory from the cloud's own API under the `cloud` trail, and Kubernetes
+RBAC → JIT grants that apply and remove a real RoleBinding), the **JIT access** console (`GET/POST /api/v1/jit/*` —
 requests, risk, approvals, time-boxed grants), the **live session hub**
 (`GET/POST /api/v1/sessions/*` — start a session against a vault credential or
 an active grant, replay its append-only recording, gate controls, and end it
@@ -129,7 +134,11 @@ components, the band legend, live stats and the recorded evaluations - plus the 
 **Emergency Break-Glass console** (`GET/POST /api/v1/break-glass/*` — file an
 emergency, collect two distinct approval signatures, open the recorded
 session that releases a real vault credential, close with forced rotation
-and a required review note). Each fetches on load
+and a required review note), and the **Vendor Access** console
+(`GET/POST /api/v1/vendors/*` — the §13 chain: invite with a one-time
+per-vendor MFA seed, NDA, real ITSM ticket check, approval gate naming any
+missing step, scope- and window-checked JIT requests, deny/revoke with the
+grant-close cascade). Each fetches on load
 and keeps its honest placeholder content as the fallback, so it still renders
 when opened as `file://` or when the API is unreachable.
 
@@ -147,8 +156,8 @@ is no seed inventory: every credential enters through **Onboard New Credential**
 "not connected" states instead of sample rows.
 
 ```bash
-python -m pytest tests -q     # 379 tests (from backend/phase2_license_server)
-python -m pytest backend -q   # 461 tests from the repo root (+ shared crypto core)
+python -m pytest tests -q     # 406 tests (from backend/phase2_license_server)
+python -m pytest backend -q   # 488 tests from the repo root (+ shared crypto core)
 ```
 
 **Docker (development/runtime testing only — never a shipping instruction):**
@@ -214,7 +223,7 @@ cross-checked against these routes by `tests/test_openapi_contract.py`.
 | GET | `/settings/audit?limit=` | – | Configuration changelog, newest first |
 | PUT | `/settings/<group>` | admin | Merge-update one group, returns the per-field change diff (secrets seal AES-256-GCM → changelog `<set>`/`<cleared>`; readonly `mfa.*` factor fields → 400 with `details.fields` + the `POST /mfa/enroll` hint; URL fields must be `https` unless flagged `allow_http` — `itsm.base_url`/`siem.webhook_url` accept plain http for internal instances — bad shape → 400 with `details.field`/`details.scheme`) |
 | GET | `/overview` | – | Dashboard aggregate: health, license posture, vault stats, settings, counters, computed control posture, recent activity |
-| GET | `/events?limit=&source=` | - | Unified audit feed across all eleven trails (license, settings, vault, discovery, jit, session, command, risk, bypass, break-glass, integration), newest first |
+| GET | `/events?limit=&source=` | - | Unified audit feed across all thirteen trails (license, settings, vault, discovery, jit, session, command, risk, bypass, break-glass, integration, vendor, cloud), newest first |
 | GET | `/vault/stats` | – | Inventory aggregates: totals by type/status, rotation compliance, `secrets` coverage (`managed`/`unmanaged`/`versions`), checkouts, today's events |
 | GET | `/vault/items?…` | – | List inventory (`q`, `type`, `status`, `limit`, `offset`) |
 | POST | `/vault/items` | admin | Onboard a credential (201, strictly validated; optional `secret`, else a real type-appropriate value is generated — sealed with AES-256-GCM either way) |
@@ -287,7 +296,27 @@ cross-checked against these routes by `tests/test_openapi_contract.py`.
 | POST | `/break-glass/requests/<id>/open` | admin | Release the approved credential (201): dual approval checked first, then the §7 risk gate (critical → 403 with `details.risk`, nothing released) and the §20 MFA gate (factor enrolled → `mfa_code` required; refusal → 401 with `details.mfa`); real vault checkout + mandatory recorded session (`session_id` stored on the request) |
 | POST | `/break-glass/requests/<id>/close` | admin | End the emergency (200): session stopped, credential force-rotated through the §5 pipeline (`trigger=break-glass`, outcome recorded), review note required |
 | GET | `/break-glass/stats` | – | §17 aggregates: requests by status + total, approval signatures recorded/outstanding, action counters, `last_request_at`/`last_opened_at`/`last_closed_at`, `open_emergencies` |
-| GET | `/audit/stats` | - | Immutable ledger aggregates (§19): `total`, per-source counts for all eleven trails, `last_seq`, `head_hash`, oldest/newest, `trigger_protection` |
+| POST | `/vendors` | admin | Invite a vendor (201): seals a fresh per-vendor TOTP seed, `qr_png` + `otpauth_uri` returned exactly once (409 same name) |
+| GET | `/vendors?status=&q=&limit=&offset=` | – | Vendor accounts, newest first (§13 dashboard source) |
+| GET | `/vendors/<id>` | – | §13 dashboard payload: 8-step chain (done_at/due_at + `missing`), access/denied lists, validity window, recording flag, vendor requests, lifecycle trail |
+| PATCH | `/vendors/<id>` | admin | Edit contact + access scope (`allowed_targets`/`denied_targets`), window, recording, expiry |
+| POST | `/vendors/<id>/mfa` | admin | Step 1 — vendor MFA verification: real RFC-6238 over the sealed per-vendor seed (wrong code → 401, recorded) |
+| POST | `/vendors/<id>/nda` | admin | Step 2 — record NDA acceptance (reference optional, timestamp not) |
+| POST | `/vendors/<id>/ticket` | admin | Step 3 — real ITSM check (unconfigured ITSM → 409 honest refusal) |
+| POST | `/vendors/<id>/approve` | admin | Step 4 — approve (409 `details.missing` while a step is outstanding; already-approved → 409) |
+| POST | `/vendors/<id>/deny` | admin | Refuse the invite (reason recorded; the name may be re-invited) |
+| POST | `/vendors/<id>/revoke` | admin | Withdraw an approved vendor (denied → 409); active grants close through the JIT path |
+| POST | `/vendors/<id>/requests` | admin | Vendor-scoped JIT request (approved account only; allow/deny lists + window checked pre-creation → 403 `Vendor access refused` evidence; ticket defaults to the verified one) |
+| POST | `/cloud/connectors` | admin | Register a cloud account/cluster (201; provider `aws`/`azure`/`gcp`/`kubernetes`, `https` endpoint (`http` loopback-only), credential federated into the vault — row starts honest `not connected`/`configured`) |
+| GET | `/cloud/connectors?provider=&status=&q=&limit=&offset=` | – | Cloud connectors, newest first (§14) |
+| GET | `/cloud/connectors/<id>` | – | Console payload: connector, recent §14 trail, RBAC grants raised through it, last inventory run |
+| PATCH | `/cloud/connectors/<id>` | admin | Edit config: endpoint change drops the row back to `configured`, clearing it → `not connected` |
+| DELETE | `/cloud/connectors/<id>` | admin | Remove the connector (409 while open RBAC grants ride it; the trail stays) |
+| POST | `/cloud/connectors/<id>/test` | admin | Real reachability probe (vault credential revealed per call, audited; 2xx → `connected`, failure → `error` + reason; no endpoint → 409) |
+| POST | `/cloud/connectors/<id>/discover` | admin | Real inventory from the cloud's own API (assets under `source=cloud`, method = provider API; failed/unrecognized answer records the honest reason and invents nothing) |
+| POST | `/cloud/connectors/<id>/rbac/requests` | admin | K8s path (201): section-6 JIT request with `cloud_binding`; the grant applies a real RoleBinding `vypam-jit-<id>`, close/expiry removes it |
+| GET | `/cloud/stats` | – | §14 aggregates: connectors by provider/state, trail size, RBAC grants, cloud-discovered assets |
+| GET | `/audit/stats` | - | Immutable ledger aggregates (§19): `total`, per-source counts for all thirteen trails, `last_seq`, `head_hash`, oldest/newest, `trigger_protection` |
 | GET | `/audit/verify` | – | Walk the whole chain: recomputes every record's hash and reports `intact`, `checked`, `head_hash` plus the first `broken_at`/`reason` (sequence gap, content change, re-link) |
 | GET | `/audit/export` | – | The full ledger in chain order as NDJSON (`application/x-ndjson`, `vy-pam-audit.ndjson`) — one record per line for SIEM ingest |
 
@@ -425,8 +454,8 @@ curl -s "http://127.0.0.1:5000/api/v1/settings/audit?limit=20"
 # dashboard aggregate powering the Command Center / Compliance screens
 curl -s http://127.0.0.1:5000/api/v1/overview
 
-# unified audit feed (all eleven trails: license, settings, vault, discovery,
-# jit, session, command, risk, bypass, break-glass, integration - newest first, each row chain-linked with seq + hash)
+# unified audit feed (all thirteen trails: license, settings, vault, discovery,
+# jit, session, command, risk, bypass, break-glass, integration, vendor, cloud - newest first, each row chain-linked with seq + hash)
 curl -s "http://127.0.0.1:5000/api/v1/events?limit=10"
 
 # inventory aggregates: rotation compliance, checkouts, attention list
@@ -850,7 +879,7 @@ curl -s http://127.0.0.1:5000/api/v1/integrations/status
   `vypam-ldap1.<b64url>.<hmac>` tickets on `config.secret_key` in token
   mode. All four connectors report honestly through
   `GET /integrations/status`; every gate decision, enrollment, verification
-  and login fans into the §19 chain as source eleven `integration`.
+  and login fans into the §19 chain as the `integration` source.
 
 ## Design notes
 

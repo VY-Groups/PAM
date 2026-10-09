@@ -58,6 +58,8 @@ SCHEMA_COLUMNS: Dict[str, Dict[str, str]] = {
     # vendor's access scope carry the vendor they were raised for.
     "jit_requests": {
         "vendor_account_id": "INTEGER",
+        "cloud_connector_id": "INTEGER",
+        "cloud_binding": "JSON",
     },
 }
 
@@ -691,6 +693,46 @@ DISCOVERY_SCAN_RUNNING = "running"
 DISCOVERY_SCAN_COMPLETED = "completed"
 DISCOVERY_SCAN_FAILED = "failed"
 
+# section 14: cloud PAM - the clouds a connector may represent, the service
+# surface each one carries (architecture section 14), the discovery method
+# recorded against assets found through that cloud, and the honest connector
+# states: `not connected` (no endpoint), `configured` (endpoint set, never
+# successfully probed), `connected` (last probe answered 2xx), `error` (last
+# probe failed).
+DISCOVERY_SOURCE_CLOUD = "cloud"
+CLOUD_PROVIDERS = ("aws", "azure", "gcp", "kubernetes")
+CLOUD_CONNECTOR_STATUSES = ("not connected", "configured", "connected", "error")
+CLOUD_SERVICES = {
+    "aws": (
+        "iam",
+        "ec2",
+        "rds",
+        "eks",
+        "s3",
+        "secrets-manager",
+        "cloudtrail",
+        "systems-manager",
+    ),
+    "azure": ("entra-id", "vm", "aks", "key-vault", "azure-sql"),
+    "gcp": ("iam", "compute", "gke", "secret-manager"),
+    "kubernetes": ("kubernetes",),
+}
+CLOUD_METHODS = {
+    "aws": "aws_api",
+    "azure": "azure_api",
+    "gcp": "gcp_api",
+    "kubernetes": "kubernetes_api",
+}
+# default inventory surface per provider: Kubernetes really lists its nodes
+# at /api/v1/nodes; the cloud connectors expect the operator-fronted
+# inventory endpoint (a broker/gateway) to answer with a resources list.
+CLOUD_INVENTORY_PATHS = {
+    "aws": "/",
+    "azure": "/",
+    "gcp": "/",
+    "kubernetes": "/api/v1/nodes",
+}
+
 # Username pattern -> account kind (reference taxonomy: root, administrator,
 # postgres/oracle/sa/mysql, svc_*, backup_*). Group-derived kinds (domain
 # admins, local admins) require directory enumeration, which no module
@@ -887,6 +929,13 @@ class JitRequest(db.Model):
     # section 13: set when this request was raised through a third-party
     # vendor account's access scope (nullable - internal requests carry none).
     vendor_account_id = db.Column(db.Integer, nullable=True, index=True)
+    # section 14: set when this request is a Kubernetes ephemeral RBAC grant
+    # through a cloud connector (nullable - internal requests carry none).
+    # `cloud_binding` snapshots the RoleBinding applied at grant time
+    # ({namespace, role, binding, applied_at}) so expiry can remove exactly
+    # what was created.
+    cloud_connector_id = db.Column(db.Integer, nullable=True, index=True)
+    cloud_binding = db.Column(db.JSON, nullable=True)
     created_at = db.Column(db.DateTime, nullable=False, default=datetime.now)
 
     def to_dict(self) -> Dict[str, Any]:
@@ -917,6 +966,8 @@ class JitRequest(db.Model):
             "closed_at": self.closed_at.isoformat() if self.closed_at else None,
             "session_ref": self.session_ref,
             "vendor_account_id": self.vendor_account_id,
+            "cloud_connector_id": self.cloud_connector_id,
+            "cloud_binding": self.cloud_binding,
             "created_at": self.created_at.isoformat(),
         }
 
@@ -1822,6 +1873,94 @@ class VendorEvent(db.Model):
     action = db.Column(db.String(32), nullable=False)
     actor = db.Column(db.String(64), nullable=False, default="system")
     subject = db.Column(db.String(160), nullable=False, default="")
+    detail = db.Column(db.JSON, nullable=False, default=dict)
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "id": self.id,
+            "action": self.action,
+            "actor": self.actor,
+            "subject": self.subject,
+            "detail": self.detail or {},
+            "created_at": self.created_at.isoformat(),
+        }
+
+
+class CloudConnector(db.Model):
+    """One cloud account/cluster connector (architecture section 14):
+    AWS, Azure, GCP or Kubernetes. The row stores the *configuration* -
+    provider, account/subscription/project reference, API endpoint, regions
+    and in-scope services from the section-14 surface - and points at the
+    credential held in the vault; secret material never lives here.
+
+    Status is honest state, not a decoration: `not connected` (no endpoint
+    yet), `configured` (endpoint set, no successful probe), `connected`
+    (last real probe answered 2xx), `error` (last probe failed, with the
+    reason in `last_test_detail`). Inventory (section 3 discovery methods:
+    AWS/Azure/GCP/Kubernetes APIs) only runs against a configured
+    connector with its vault credential - an unconfigured cloud refuses."""
+
+    __tablename__ = "cloud_connectors"
+
+    id = db.Column(db.Integer, primary_key=True)
+    name = db.Column(db.String(64), nullable=False, unique=True, index=True)
+    provider = db.Column(db.String(16), nullable=False, index=True)
+    account_ref = db.Column(db.String(128), nullable=False, default="")
+    endpoint = db.Column(db.String(255), nullable=False, default="")
+    regions = db.Column(db.JSON, nullable=False, default=list)
+    services = db.Column(db.JSON, nullable=False, default=list)
+    # the vault item holding this cloud's credential (nullable: a connector
+    # may be registered before its credential is onboarded).
+    credential_item_id = db.Column(db.Integer, nullable=True)
+    status = db.Column(
+        db.String(16), nullable=False, default="not connected", index=True
+    )
+    last_test_at = db.Column(db.DateTime, nullable=True)
+    last_test_detail = db.Column(db.String(255), nullable=False, default="")
+    created_at = db.Column(
+        db.DateTime, nullable=False, default=datetime.now, index=True
+    )
+    created_by = db.Column(db.String(64), nullable=False, default="system")
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "id": self.id,
+            "name": self.name,
+            "provider": self.provider,
+            "account_ref": self.account_ref,
+            "endpoint": self.endpoint,
+            "regions": list(self.regions or []),
+            "services": list(self.services or []),
+            "credential_item_id": self.credential_item_id,
+            "status": self.status,
+            "last_test_at": (
+                self.last_test_at.isoformat() if self.last_test_at else None
+            ),
+            "last_test_detail": self.last_test_detail,
+            "created_at": self.created_at.isoformat(),
+            "created_by": self.created_by,
+        }
+
+
+class CloudEvent(db.Model):
+    """Module action log for section 14: connector lifecycle, real probes,
+    inventory runs, Kubernetes RBAC grant requests, applied/removed
+    ephemeral bindings and every refusal - folded into the section-19
+    ledger as the thirteenth source (`cloud`). The credential used for a
+    call never appears in `detail`; the outcome does."""
+
+    __tablename__ = "cloud_events"
+
+    id = db.Column(db.Integer, primary_key=True)
+    # the connector this action belongs to (indexed; subject stays the
+    # display name captured at the time, so renames never rewrite history).
+    connector_id = db.Column(db.Integer, nullable=False, index=True)
+    created_at = db.Column(
+        db.DateTime, nullable=False, default=datetime.now, index=True
+    )
+    action = db.Column(db.String(32), nullable=False)
+    actor = db.Column(db.String(64), nullable=False, default="system")
+    subject = db.Column(db.String(64), nullable=False, default="")
     detail = db.Column(db.JSON, nullable=False, default=dict)
 
     def to_dict(self) -> Dict[str, Any]:

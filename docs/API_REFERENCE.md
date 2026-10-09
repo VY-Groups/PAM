@@ -1,7 +1,7 @@
 # VY-PAM — API Reference
 
-**Status:** as-built for Phase 5a
-**Contract:** `apis/openapi.yaml` (OpenAPI 3.1) - **96 paths / 107
+**Status:** as-built for Phase 5b
+**Contract:** `apis/openapi.yaml` (OpenAPI 3.1) - **102 paths / 116
 operations**, enforced in both directions by
 `backend/phase2_license_server/tests/test_openapi_contract.py`. If this page
 and the YAML ever disagree, the YAML wins.
@@ -15,13 +15,13 @@ and the YAML ever disagree, the YAML wins.
 | Base URL (dev) | `http://127.0.0.1:5000` (`LICENSE_SERVER_HOST`/`LICENSE_SERVER_PORT`) |
 | Version | `/api/v1/…` (`/health`, `/api/v1/meta` unversioned) |
 | Content type | `application/json` (license import also accepts multipart upload / raw body) |
-| Auth | When `LICENSE_ADMIN_TOKEN` is set: `Authorization: Bearer <token>` **or** `X-Admin-Token: <token>` on the **58 admin operations**. When unset: open dev mode - responses carry `X-Auth-Mode: open` (explicit, never silent). |
+| Auth | When `LICENSE_ADMIN_TOKEN` is set: `Authorization: Bearer <token>` **or** `X-Admin-Token: <token>` on the **64 admin operations**. When unset: open dev mode - responses carry `X-Auth-Mode: open` (explicit, never silent). |
 | Actor | `X-Actor: <name>` recorded verbatim in the audit ledger on every audited write |
-| Errors | `{"error":{"code","message","details?"}}` — 400 validation · 401 auth · 403 policy refusal (risk gate) · 404 · 409 conflict/state · 422 unprocessable shape · 503 fail-closed dependency |
+| Errors | `{"error": "<message>", "details"?: {…}}` — 400 validation · 401 auth · 403 policy refusal (risk gate) · 404 · 409 conflict/state · 422 unprocessable shape · 503 fail-closed dependency |
 | Pagination | `limit` (≤200) + `offset`, newest first |
 | Ordering | Ledger/session streams ascending `seq`; listings newest-first |
 
-## 2. Operations by tag (15 tags)
+## 2. Operations by tag (16 tags)
 
 ### `ops` — unversioned
 | Method | Path | Summary |
@@ -183,6 +183,19 @@ and the YAML ever disagree, the YAML wins.
 | POST | `/api/v1/vendors/{vendor_id}/revoke` | withdraw an approved vendor: active grants close through the JIT path (rotate + end sessions), account turns `revoked` |
 | POST | `/api/v1/vendors/{vendor_id}/requests` | the vendor files a scoped JIT request — status must be `approved`, scope + window checked pre-creation (403 `Vendor access refused` is evidence on the trail), ticket defaults to the verified one |
 
+### `cloud` — §14 cloud PAM (Phase 5b, 6 paths / 9 operations)
+| Method | Path | Summary |
+|---|---|---|
+| POST | `/api/v1/cloud/connectors` | register AWS/Azure/GCP/Kubernetes (201): credential stays in the vault, row starts honest (`not connected` without endpoint, `configured` with one) |
+| GET | `/api/v1/cloud/connectors` | list, newest first (`provider`/`status` filters, `q` search, paging) |
+| GET | `/api/v1/cloud/connectors/{connector_id}` | console payload: connector, recent §14 trail, RBAC grants raised through it, last inventory run |
+| PATCH | `/api/v1/cloud/connectors/{connector_id}` | edit config; changing the endpoint drops the row back to `configured` (the old probe described the old endpoint), clearing it → `not connected` |
+| DELETE | `/api/v1/cloud/connectors/{connector_id}` | remove the connector (409 while open RBAC grants ride it; the trail stays) |
+| POST | `/api/v1/cloud/connectors/{connector_id}/test` | real reachability probe (GET with the vault credential; 2xx → `connected`, failure → `error` + reason; no endpoint → 409) |
+| POST | `/api/v1/cloud/connectors/{connector_id}/discover` | real inventory (cloud API answers; assets land under `source=cloud`; failed/unrecognized answer records the honest reason and invents nothing) |
+| POST | `/api/v1/cloud/connectors/{connector_id}/rbac/requests` | Kubernetes path (201): files a section-6 JIT request with `cloud_binding`; the grant applies a real RoleBinding `vypam-jit-<id>`, close/expiry removes it |
+| GET | `/api/v1/cloud/stats` | aggregates: connectors by provider/state, §14 trail size, RBAC grants, cloud-discovered assets |
+
 ### Ledger (Compliance feeds)
 | Method | Path | Summary |
 |---|---|---|
@@ -229,13 +242,12 @@ keys only via `python -m pam_master.keygen`.
 
 ## 5. Planned endpoints (NOT in the contract — see `IMPLEMENTATION_PLAN.md`)
 
-These do **not** exist today; the contract's **96 paths / 107 operations**
+These do **not** exist today; the contract's **102 paths / 116 operations**
 are the complete current surface. Each lands in `openapi.yaml` + ADMIN
 security + tests in the same commit when its phase starts (counts `—`):
 
 | Phase | Planned additions |
 |---|---|
-| 5b §14 | `POST|GET /api/v1/cloud/connectors`, cloud discovery extension |
 | 5c §15 | `POST /api/v1/broker/credentials` (+ list/revoke) |
 | 5d §16 | agent identity CRUD + task-scoped request endpoints |
 | 6b | security schemes gain role requirements across existing admin ops |

@@ -1,6 +1,6 @@
 # VY-PAM — PAM Flow (Application Flow)
 
-**Status:** as-built for Phase 5a
+**Status:** as-built for Phase 5b
 Maps navigation, user journeys, and state machines across the console.
 Screen files live in `frontend/screens/<slug>/code.html`; the canonical
 navigation is the 11-item sidebar rendered on every screen.
@@ -17,7 +17,7 @@ Sidebar order (slugs = `data-path`, labels = nav text, icons = Material Symbols)
 | 2 | `credential-vault-secrets-inventory` | Credential Vault | `vpn_key` | ✅ `/vault/*` |
 | 3 | `jit-access-ephemeral-approvals` | JIT Access & Approvals | `hourglass_top` | ✅ `/jit/*` |
 | 4 | `live-session-recording-inspection-hub` | Live Session Hub | `terminal` | ✅ `/sessions/*` |
-| 5 | `target-infrastructure-connectors` | Target Infrastructure | `dns` | ✅ `/discovery/*` |
+| 5 | `target-infrastructure-connectors` | Target Infrastructure | `dns` | ✅ `/discovery/*`, `/cloud/*` |
 | 6 | `policy-zero-trust-rules-engine` | Policy & Zero Trust | `shield_lock` | ✅ `/command-control/*`, `/risk/*` |
 | 7 | `compliance-soc-2-audit-center` | Compliance & SOC2 | `policy` | ✅ `/audit/*`, `/events` |
 | 8 | `license-entitlement-center` | Licensing & Entitlements | `workspace_premium` | ✅ `/licenses/*` |
@@ -124,9 +124,9 @@ Policy screen §7 section → Evaluate (advisory)
 Compliance screen
   Ledger digest (real totals, chain intact/first-break)
   Verify walk (recompute all hashes) → first break index or OK
-  Per-source chips (11): license, settings, vault, discovery, jit,
+  Per-source chips (13): license, settings, vault, discovery, jit,
                         session, command, risk, bypass, break-glass,
-                        integration
+                        integration, vendor, cloud
                         → filter trail
   Export → NDJSON in chain order (SIEM seam)
   Record-inspect modal → one event's full payload
@@ -155,7 +155,7 @@ Command Center → bypass section → paste an auth-log bundle → Ingest
       failures recorded) · block source "not connected" (no connector yet)
   → analyst closes with a note (who + when)     GET /bypass/incidents…
   → every ingest/scan/detect/close fans into the ledger (source `bypass`)
-  → Compliance screen: `bypass` chip in the 12-source filter
+  → Compliance screen: `bypass` chip in the 13-source filter
 ```
 
 ### 2.9 Break-glass emergency (§17)
@@ -177,7 +177,7 @@ Break-Glass screen → Initiate emergency (target + reason + severity +
         trigger `break-glass`), cascade recorded on the request
   → every request/approve/deny/open/close fans into the ledger
       (source `break-glass`, ref `bg-…`)
-  → Compliance screen: `break-glass` chip in the 12-source filter
+  → Compliance screen: `break-glass` chip in the 13-source filter
 ```
 
 ### 2.10 Enterprise integrations (§20)
@@ -238,6 +238,31 @@ Invite (seed shown once) → MFA (real TOTP over the sealed seed)
   → vendor dashboard shows access ✓ / denied ✗ / validity window / recording
 ```
 
+### Cloud PAM (§14 — built in 5b)
+
+```
+Register connector (aws/azure/gcp/kubernetes): endpoint https (http
+  loopback-only), credential federated into the vault — row starts honest
+  `not connected` (no endpoint) / `configured` (endpoint, unprobed)
+  → Probe: real GET to the endpoint (vault credential revealed per call,
+    audited; never returned) — 2xx = `connected`, anything else = `error`
+    with the real reason; probe proves reachability, never credentials
+  → Inventory: requires endpoint + credential (409 honest refusal otherwise)
+    → the cloud's own API answers (GET / resources; k8s GET /api/v1/nodes)
+    → assets land under source `cloud`, method = provider API,
+      DiscoveryScan completed (failed/unrecognized answer = honest
+      failure, nothing invented)
+  → Kubernetes RBAC path: role/namespace/ticket/minutes → section-6 JIT
+    request (risk scoring verbatim) with cloud_binding
+    → approve + consume applies a real RoleBinding `vypam-jit-<id>`
+      (cluster refusal → 502 + rbac-binding-failed, request stays approved)
+    → close / lazy expiry removes the binding first, then ends the grant
+      (rbac-closed / rbac-expired; a failed removal is recorded)
+  → connector deletion refused while grants are open; the trail stays
+  → every action folds into the ledger as source `cloud`
+    (13th source); Compliance gains the 14th chip
+```
+
 ## 3. Cross-cutting interaction rules
 
 1. **Reveal-on-click only.** Secrets, audit payloads, and other sensitive
@@ -277,6 +302,13 @@ BreakGlassRequest.status:
                      approved → used → closed
                      (open: dual approval + risk gate → recorded session;
                       close: review required + forced rotation)
+
+CloudConnector.status: not connected → configured (endpoint set)
+                     configured → connected | error   (real probe only)
+                     connected → error                (failed re-probe)
+                     error → connected                (successful re-probe)
+                     (endpoint cleared → not connected; status is honest
+                      state, never a decoration)
 ```
 
 ## 5. Roles & separation of duties

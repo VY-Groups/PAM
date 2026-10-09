@@ -318,6 +318,144 @@ def siem_push(
 
 
 # ---------------------------------------------------------------------------
+# Cloud / Kubernetes API calls (architecture section 14)
+# ---------------------------------------------------------------------------
+# One honest HTTP layer for every section-14 call: a real request against
+# the connector's endpoint, the outcome recorded verbatim (status, body
+# verdict, connection error). Nothing is simulated, nothing is guessed -
+# an unreachable cloud is an unreachable cloud.
+CLOUD_HTTP_CAP = 262144  # 256 KiB: enough for inventory pages, not a dump
+
+
+def cloud_http(
+    url: str,
+    *,
+    token: str = "",
+    method: str = "GET",
+    body: Optional[Dict[str, Any]] = None,
+    timeout: float = 5.0,
+) -> Dict[str, Any]:
+    """One real HTTP call to a cloud or Kubernetes API endpoint.
+
+    Returns `{ok, http_status?, detail, json?, elapsed_ms}` - never raises:
+    a refused connection, a 401 from the cluster, an unparseable body are
+    all honest outcomes the caller records. `json` carries the parsed body
+    when the answer was JSON (used by inventory); `ok` is strictly the
+    2xx-ness of the transport answer, so a reachability probe never
+    overclaims what it proved."""
+    headers = {"Accept": "application/json", "User-Agent": "VY-PAM/1"}
+    if token:
+        headers["Authorization"] = f"Bearer {token}"
+    data = None
+    if body is not None:
+        data = json.dumps(body).encode("utf-8")
+        headers["Content-Type"] = "application/json"
+    request = urllib.request.Request(url, headers=headers, data=data, method=method)
+    started = time.monotonic()
+
+    def _finish(status: Optional[int], raw: bytes, ok: bool, detail: str) -> Dict[str, Any]:
+        parsed: Any = None
+        if raw:
+            try:
+                parsed = json.loads(raw.decode("utf-8", errors="replace"))
+            except ValueError:
+                parsed = None
+        return {
+            "ok": ok,
+            "http_status": int(status) if status is not None else None,
+            "detail": detail,
+            "json": parsed,
+            "elapsed_ms": int((time.monotonic() - started) * 1000),
+        }
+
+    try:
+        with urllib.request.urlopen(request, timeout=timeout) as response:
+            status = getattr(response, "status", 200)
+            raw = response.read(CLOUD_HTTP_CAP)
+    except urllib.error.HTTPError as exc:
+        status = exc.code
+        try:
+            raw = exc.read(CLOUD_HTTP_CAP)
+        except Exception:  # pragma: no cover - defensive, still honest
+            raw = b""
+        return _finish(status, raw, False, f"HTTP {status}")
+    except urllib.error.URLError as exc:
+        reason = getattr(exc, "reason", exc)
+        return _finish(None, b"", False, f"connection failed: {reason}")
+    except (TimeoutError, socket.timeout):
+        return _finish(
+            None, b"", False, f"request timed out after {timeout:g}s"
+        )
+    except Exception as exc:  # pragma: no cover - defensive, still honest
+        return _finish(None, b"", False, f"{type(exc).__name__}: {exc}")
+
+    ok = 200 <= int(status) < 300
+    return _finish(status, raw, ok, f"HTTP {status}")
+
+
+def k8s_apply_binding(
+    endpoint: str,
+    namespace: str,
+    binding: str,
+    role: str,
+    subject: str,
+    *,
+    session_ref: str,
+    expires_at: str,
+    token: str = "",
+    timeout: float = 5.0,
+) -> Dict[str, Any]:
+    """Create an ephemeral RoleBinding (architecture section 14's
+    *Kubernetes -> RBAC -> JIT -> ephemeral privilege* step): a real POST
+    to the cluster's RBAC API. The annotations record who the grant is
+    for and when it must end; the enforcement of that ending is the
+    removal this code also performs - Kubernetes has no TTL on bindings."""
+    url = (
+        endpoint.rstrip("/")
+        + f"/apis/rbac.authorization.k8s.io/v1/namespaces/{namespace}/rolebindings"
+    )
+    manifest = {
+        "apiVersion": "rbac.authorization.k8s.io/v1",
+        "kind": "RoleBinding",
+        "metadata": {
+            "name": binding,
+            "namespace": namespace,
+            "annotations": {
+                "vypam.io/session-ref": session_ref,
+                "vypam.io/expires-at": expires_at,
+            },
+        },
+        "roleRef": {
+            "apiGroup": "rbac.authorization.k8s.io",
+            "kind": "Role",
+            "name": role,
+        },
+        "subjects": [{"kind": "User", "name": subject}],
+    }
+    return cloud_http(
+        url, token=token, method="POST", body=manifest, timeout=timeout
+    )
+
+
+def k8s_remove_binding(
+    endpoint: str,
+    namespace: str,
+    binding: str,
+    *,
+    token: str = "",
+    timeout: float = 5.0,
+) -> Dict[str, Any]:
+    """Delete the ephemeral RoleBinding - the real DELETE that ends the
+    privilege (close, expiry, or a grant that failed after applying)."""
+    url = (
+        endpoint.rstrip("/")
+        + f"/apis/rbac.authorization.k8s.io/v1/namespaces/{namespace}"
+        + f"/rolebindings/{binding}"
+    )
+    return cloud_http(url, token=token, method="DELETE", timeout=timeout)
+
+
+# ---------------------------------------------------------------------------
 # LDAP bind (RFC 4511 over TCP/TLS - minimal, real, stdlib only)
 # ---------------------------------------------------------------------------
 # BER: a BindRequest is [APPLICATION 0] SEQUENCE { version, name,

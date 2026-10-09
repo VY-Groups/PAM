@@ -18,6 +18,7 @@ import secrets
 import socket
 import threading
 import time
+import urllib.parse
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta
 from typing import Any, Dict, List, Optional, Tuple
@@ -52,6 +53,11 @@ from models import (
     BYPASS_SIGNAL_OUT_OF_SCOPE,
     BYPASS_SIGNAL_STATUSES,
     COMMAND_ACTIONS,
+    CLOUD_CONNECTOR_STATUSES,
+    CLOUD_INVENTORY_PATHS,
+    CLOUD_METHODS,
+    CLOUD_PROVIDERS,
+    CLOUD_SERVICES,
     DISCOVERY_ACTION_ASSET_DISCOVERED,
     DISCOVERY_ACTION_ASSET_ONBOARDED,
     DISCOVERY_ACTION_ASSET_UPDATED,
@@ -63,6 +69,7 @@ from models import (
     DISCOVERY_SCAN_COMPLETED,
     DISCOVERY_SCAN_FAILED,
     DISCOVERY_SCAN_RUNNING,
+    DISCOVERY_SOURCE_CLOUD,
     DISCOVERY_SOURCE_MANUAL,
     DISCOVERY_SOURCE_SCAN,
     EVENT_IMPORTED,
@@ -128,6 +135,8 @@ from models import (
     BypassIncident,
     BypassSignal,
     classify_account_kind,
+    CloudConnector,
+    CloudEvent,
     CommandIncident,
     CommandRule,
     log_event,
@@ -2726,11 +2735,23 @@ def consume_jit_request(request_id: int, *, actor: str) -> JitRequest:
             f"Request is {request.status}; only an approved request can be granted",
             {"field": "status", "status": request.status},
         )
-    checkout_vault_item(
-        request.item_id,
-        actor=request.requester,
-        reason=f"JIT request #{request.id} ({request.ticket})",
-    )
+    if request.cloud_connector_id is not None:
+        # section 14: the ephemeral privilege is applied first - if the
+        # cluster refuses the binding, nothing was granted and nothing was
+        # checked out (the request stays approved for a retry).
+        _apply_cloud_rbac_binding(request, actor=actor)
+    try:
+        checkout_vault_item(
+            request.item_id,
+            actor=request.requester,
+            reason=f"JIT request #{request.id} ({request.ticket})",
+        )
+    except Exception:
+        if request.cloud_connector_id is not None:
+            # the binding was applied but the checkout failed: take the
+            # privilege back before the error surfaces (no dangling grant).
+            _remove_cloud_rbac_binding(request, actor=actor, action="aborted")
+        raise
     now = datetime.now()
     request.status = "active"
     request.granted_at = now
@@ -2752,9 +2773,15 @@ def consume_jit_request(request_id: int, *, actor: str) -> JitRequest:
 
 def _end_jit_grant(request: JitRequest, *, actor: str, action: str) -> JitRequest:
     """Shared close/expiry path: release our checkout, then rotate the
-    credential (architecture: session ends -> rotate -> audit)."""
+    credential (architecture: session ends -> rotate -> audit). A cloud
+    grant also has its ephemeral RBAC binding removed first - the
+    privilege ends with the grant, exactly as requested."""
     item = get_vault_item(request.item_id)
     detail: Dict[str, Any] = {"session_ref": request.session_ref}
+    if request.cloud_connector_id is not None:
+        detail["binding"] = _remove_cloud_rbac_binding(
+            request, actor=actor, action=action
+        )
     try:
         if item.status == VAULT_STATUS_CHECKED_OUT and item.checked_out_by == request.requester:
             _, rotation = rotation_session_end(
@@ -4138,7 +4165,7 @@ def _escalate_blocked_command(
 # ---------------------------------------------------------------------------
 # dashboard (Command Center + Compliance screens)
 # ---------------------------------------------------------------------------
-_AUDIT_SOURCES = audit.AUDIT_SOURCES  # the eight trails folded into section 19's ledger
+_AUDIT_SOURCES = audit.AUDIT_SOURCES  # the thirteen trails folded into section 19's ledger
 
 
 def unified_events(
@@ -7987,3 +8014,955 @@ def _vendor_session_gate(
         )
     _vendor_scope_check(vendor, target, item=item, action="session-refused", actor=actor)
     _vendor_window_check(vendor, action="session-refused", actor=actor)
+
+
+# ---------------------------------------------------------------------------
+# Section 14: cloud PAM (AWS / Azure / GCP / Kubernetes)
+# ---------------------------------------------------------------------------
+# A connector registers one cloud account or cluster; its credential lives
+# in the vault (federation, never a copy in the row) and is unsealed
+# server-side only, for one call at a time, each unseal an audited vault
+# event. Every cloud call is real HTTP through the section-20 integration
+# layer: a probe measures the endpoint, inventory feeds the section-3
+# discovery tables from the cloud's own answer, and the Kubernetes path
+# (Kubernetes -> RBAC -> JIT -> ephemeral privilege -> audit) raises a
+# section-6 JIT request whose grant applies a real RoleBinding for exactly
+# the requested window; close/expiry removes it. An unconfigured cloud
+# refuses (409 with the missing piece named); nothing is simulated.
+
+_CLOUD_NAME_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9 ._-]{1,63}$")
+_K8S_NAME_RE = re.compile(r"^[a-z0-9]([a-z0-9.-]{0,61}[a-z0-9])?$")
+_CLOUD_TIMEOUT = 5.0
+_CLOUD_GRANT_OPEN = ("pending", "approved", "active")
+
+# how an inventory resource's own `type` string maps to a PAM asset
+# classification (the rules-v1 family keys); anything else lands in the
+# `cloud` family the architecture scores CRITICAL - never guessed finer.
+_CLOUD_RESOURCE_TYPES = {
+    "vm": "cloud",
+    "instance": "cloud",
+    "compute": "cloud",
+    "server": "cloud",
+    "bucket": "cloud",
+    "storage": "cloud",
+    "iam": "cloud",
+    "secret": "cloud",
+    "database": "database",
+    "db": "database",
+    "sql": "database",
+    "network": "network",
+    "vpc": "network",
+    "subnet": "network",
+    "loadbalancer": "loadbalancer",
+    "lb": "loadbalancer",
+    "firewall": "firewall",
+    "node": "kubernetes",
+    "cluster": "kubernetes",
+    "kubernetes": "kubernetes",
+}
+
+
+def _cloud_event(
+    action: str, connector: CloudConnector, actor: str, detail: Dict[str, Any]
+) -> CloudEvent:
+    """Queue one section-14 action record; the flush listener folds it into
+    the audit ledger under the thirteenth source `cloud` in the same
+    commit. The credential itself never enters `detail` - the outcome
+    does."""
+    event = CloudEvent(
+        connector_id=connector.id,
+        action=action,
+        actor=actor,
+        subject=connector.name,
+        detail=detail or {},
+    )
+    db.session.add(event)
+    return event
+
+
+def get_cloud_connector(connector_id: int) -> CloudConnector:
+    connector = CloudConnector.query.filter_by(id=connector_id).first()
+    if connector is None:
+        raise NotFound("Cloud connector not found")
+    return connector
+
+
+def _cloud_endpoint(value: Any, *, field: str = "endpoint") -> str:
+    """Validate the connector's API endpoint: https, or http for loopback
+    only (dev/testing against a local stub - the production posture is
+    TLS). An empty value clears the endpoint (back to `not connected`)."""
+    if value is None or (isinstance(value, str) and not value.strip()):
+        return ""
+    if not isinstance(value, str):
+        raise ValidationFailed(
+            f"'{field}' must be a URL string", {"field": field}
+        )
+    endpoint = value.strip()
+    parsed = urllib.parse.urlsplit(endpoint)
+    if parsed.scheme not in ("http", "https") or not parsed.netloc:
+        raise ValidationFailed(
+            f"'{field}' must be an absolute http(s) URL", {"field": field}
+        )
+    if parsed.query or parsed.fragment:
+        raise ValidationFailed(
+            f"'{field}' must not carry a query string or fragment",
+            {"field": field},
+        )
+    if parsed.scheme == "http":
+        host = (parsed.hostname or "").lower()
+        if host not in ("127.0.0.1", "localhost", "::1"):
+            raise ValidationFailed(
+                f"'{field}' must use https (http is accepted for loopback "
+                "endpoints only - dev/testing)",
+                {"field": field},
+            )
+    return endpoint.rstrip("/")
+
+
+def _cloud_services(value: Any, provider: str) -> List[str]:
+    if value is None:
+        return []
+    if not isinstance(value, list):
+        raise ValidationFailed("'services' must be a list", {"field": "services"})
+    allowed = CLOUD_SERVICES.get(provider, ())
+    services: List[str] = []
+    for entry in value:
+        if not isinstance(entry, str) or entry.strip() not in allowed:
+            raise ValidationFailed(
+                f"'{entry}' is not a {provider} service (section 14 surface)",
+                {"field": "services", "allowed": list(allowed)},
+            )
+        service = entry.strip()
+        if service not in services:
+            services.append(service)
+    return services
+
+
+def _cloud_regions(value: Any) -> List[str]:
+    if value is None:
+        return []
+    if not isinstance(value, list):
+        raise ValidationFailed("'regions' must be a list", {"field": "regions"})
+    regions: List[str] = []
+    for entry in value:
+        if not isinstance(entry, str) or not entry.strip():
+            raise ValidationFailed(
+                "'regions' entries must be non-empty strings",
+                {"field": "regions"},
+            )
+        region = entry.strip()[:32]
+        if region not in regions:
+            regions.append(region)
+    return regions
+
+
+def _cloud_credential_token(connector: CloudConnector, *, actor: str) -> str:
+    """The connector's credential, unsealed server-side for one call (the
+    section-20 vault reveal, audited). Never leaves the service layer."""
+    if connector.credential_item_id is None:
+        raise Conflict(
+            "Cloud connector credential is not configured",
+            {"field": "credential", "configured": False},
+        )
+    try:
+        revealed = reveal_vault_secret(connector.credential_item_id, actor=actor)
+    except NotFound as exc:
+        raise Conflict(
+            "Cloud connector credential is not configured",
+            {"field": "credential", "configured": False, "detail": exc.message},
+        )
+    return revealed["secret"]
+
+
+def create_cloud_connector(payload: Any, *, actor: str) -> Dict[str, Any]:
+    """Register a cloud account/cluster (201). The credential stays in the
+    vault - only its id is stored here - and the row starts honest: `not
+    connected` without an endpoint, `configured` with one; never
+    `connected` before a real probe says so."""
+    if not isinstance(payload, dict):
+        raise ValidationFailed("Request body must be a JSON object")
+    name = payload.get("name")
+    if not isinstance(name, str) or not _CLOUD_NAME_RE.match(name.strip()):
+        raise ValidationFailed(
+            "'name' is required (2-64 letters, digits, spaces, '.', '_', '-')",
+            {"field": "name"},
+        )
+    name = name.strip()
+    if CloudConnector.query.filter_by(name=name).first() is not None:
+        raise Conflict(f"A cloud connector named '{name}' already exists")
+    provider = payload.get("provider")
+    if provider not in CLOUD_PROVIDERS:
+        raise ValidationFailed(
+            "'provider' must be one of aws, azure, gcp, kubernetes",
+            {"field": "provider", "allowed": list(CLOUD_PROVIDERS)},
+        )
+    endpoint = _cloud_endpoint(payload.get("endpoint"))
+    account_ref = str(payload.get("account_ref") or "").strip()[:128]
+    credential_item_id = payload.get("credential_item_id")
+    if credential_item_id is not None:
+        if isinstance(credential_item_id, bool) or not isinstance(
+            credential_item_id, int
+        ):
+            raise ValidationFailed(
+                "'credential_item_id' must be a vault item id",
+                {"field": "credential_item_id"},
+            )
+        get_vault_item(credential_item_id)
+    connector = CloudConnector(
+        name=name,
+        provider=provider,
+        account_ref=account_ref,
+        endpoint=endpoint,
+        regions=_cloud_regions(payload.get("regions")),
+        services=_cloud_services(payload.get("services"), provider),
+        credential_item_id=credential_item_id,
+        status="configured" if endpoint else "not connected",
+        created_by=actor,
+    )
+    db.session.add(connector)
+    db.session.flush()
+    _cloud_event(
+        "connector-added",
+        connector,
+        actor,
+        {
+            "provider": provider,
+            "endpoint": endpoint,
+            "account_ref": account_ref,
+            "regions": list(connector.regions or []),
+            "services": list(connector.services or []),
+            "credential_item_id": credential_item_id,
+            "status": connector.status,
+        },
+    )
+    db.session.commit()
+    return connector.to_dict()
+
+
+def list_cloud_connectors(
+    *,
+    provider: Optional[str] = None,
+    status: Optional[str] = None,
+    q: Optional[str] = None,
+    limit: int = 50,
+    offset: int = 0,
+) -> Tuple[List[CloudConnector], int]:
+    if provider is not None and provider not in CLOUD_PROVIDERS:
+        raise ValidationFailed(
+            f"Unknown cloud provider '{provider}'",
+            {"field": "provider", "allowed": list(CLOUD_PROVIDERS)},
+        )
+    if status is not None and status not in CLOUD_CONNECTOR_STATUSES:
+        raise ValidationFailed(
+            f"Unknown connector status '{status}'",
+            {"field": "status", "allowed": list(CLOUD_CONNECTOR_STATUSES)},
+        )
+    query = CloudConnector.query
+    if provider:
+        query = query.filter(CloudConnector.provider == provider)
+    if status:
+        query = query.filter(CloudConnector.status == status)
+    if q:
+        query = query.filter(
+            db.or_(
+                CloudConnector.name.ilike(f"%{q}%"),
+                CloudConnector.account_ref.ilike(f"%{q}%"),
+            )
+        )
+    total = query.count()
+    rows = (
+        query.order_by(CloudConnector.id.desc()).limit(limit).offset(offset).all()
+    )
+    return rows, total
+
+
+def cloud_connector_detail(connector_id: int) -> Dict[str, Any]:
+    """The cloud console payload: the connector, its recent section-14
+    trail, the RBAC grants raised through it and the last inventory run."""
+    connector = get_cloud_connector(connector_id)
+    events = (
+        CloudEvent.query.filter_by(connector_id=connector.id)
+        .order_by(CloudEvent.id.desc())
+        .limit(20)
+        .all()
+    )
+    requests = (
+        JitRequest.query.filter_by(cloud_connector_id=connector.id)
+        .order_by(JitRequest.id.desc())
+        .limit(20)
+        .all()
+    )
+    scan = (
+        DiscoveryScan.query.filter_by(scope=connector.name)
+        .order_by(DiscoveryScan.id.desc())
+        .first()
+    )
+    return {
+        "connector": connector.to_dict(),
+        "events": [event.to_dict() for event in events],
+        "requests": [request.to_dict() for request in requests],
+        "last_scan": scan.to_dict() if scan else None,
+    }
+
+
+def update_cloud_connector(
+    connector_id: int, payload: Any, *, actor: str
+) -> Dict[str, Any]:
+    """Edit the configuration. Changing the endpoint drops the connector
+    back to `configured`: the last probe described the old endpoint."""
+    connector = get_cloud_connector(connector_id)
+    if not isinstance(payload, dict):
+        raise ValidationFailed("Request body must be a JSON object")
+    changed: List[str] = []
+    if "name" in payload:
+        name = payload.get("name")
+        if not isinstance(name, str) or not _CLOUD_NAME_RE.match(name.strip()):
+            raise ValidationFailed(
+                "'name' must be 2-64 letters, digits, spaces, '.', '_', '-'",
+                {"field": "name"},
+            )
+        name = name.strip()
+        clash = CloudConnector.query.filter_by(name=name).first()
+        if clash is not None and clash.id != connector.id:
+            raise Conflict(f"A cloud connector named '{name}' already exists")
+        if name != connector.name:
+            connector.name = name
+            changed.append("name")
+    if "provider" in payload:
+        provider = payload.get("provider")
+        if provider not in CLOUD_PROVIDERS:
+            raise ValidationFailed(
+                "'provider' must be one of aws, azure, gcp, kubernetes",
+                {"field": "provider", "allowed": list(CLOUD_PROVIDERS)},
+            )
+        if provider != connector.provider:
+            connector.provider = provider
+            # the service surface belongs to the old cloud - re-pick it.
+            connector.services = _cloud_services(
+                payload.get("services") if "services" in payload else [],
+                provider,
+            )
+            if "services" in payload:
+                changed.append("services")
+            changed.append("provider")
+    if "account_ref" in payload:
+        connector.account_ref = str(payload.get("account_ref") or "").strip()[:128]
+        changed.append("account_ref")
+    if "endpoint" in payload:
+        endpoint = _cloud_endpoint(payload.get("endpoint"))
+        if endpoint != connector.endpoint:
+            connector.endpoint = endpoint
+            if not endpoint:
+                connector.status = "not connected"
+                connector.last_test_at = None
+                connector.last_test_detail = ""
+            else:
+                connector.status = "configured"
+                connector.last_test_detail = "endpoint changed - re-probe required"
+            changed.append("endpoint")
+    if "regions" in payload:
+        connector.regions = _cloud_regions(payload.get("regions"))
+        changed.append("regions")
+    if "services" in payload and "provider" not in changed:
+        connector.services = _cloud_services(
+            payload.get("services"), connector.provider
+        )
+        changed.append("services")
+    if "credential_item_id" in payload:
+        credential_item_id = payload.get("credential_item_id")
+        if credential_item_id is None:
+            connector.credential_item_id = None
+        else:
+            if isinstance(credential_item_id, bool) or not isinstance(
+                credential_item_id, int
+            ):
+                raise ValidationFailed(
+                    "'credential_item_id' must be a vault item id or null",
+                    {"field": "credential_item_id"},
+                )
+            get_vault_item(credential_item_id)
+            connector.credential_item_id = credential_item_id
+        changed.append("credential_item_id")
+    if not changed:
+        raise ValidationFailed("Nothing to update", {"field": "payload"})
+    _cloud_event(
+        "connector-updated",
+        connector,
+        actor,
+        {"changed": changed, "status": connector.status},
+    )
+    db.session.commit()
+    return connector.to_dict()
+
+
+def delete_cloud_connector(connector_id: int, *, actor: str) -> Dict[str, Any]:
+    """Remove a connector - refused (409) while open RBAC grants still ride
+    it. The trail (cloud events, the JIT requests themselves) stays: the
+    ledger records what happened, whatever is deleted afterwards."""
+    connector = get_cloud_connector(connector_id)
+    open_count = JitRequest.query.filter(
+        JitRequest.cloud_connector_id == connector.id,
+        JitRequest.status.in_(_CLOUD_GRANT_OPEN),
+    ).count()
+    if open_count:
+        raise Conflict(
+            "Cloud connector has open RBAC grants",
+            {"field": "grants", "open": open_count},
+        )
+    snapshot = connector.to_dict()
+    _cloud_event(
+        "connector-removed",
+        connector,
+        actor,
+        {"provider": connector.provider, "endpoint": connector.endpoint},
+    )
+    db.session.delete(connector)
+    db.session.commit()
+    return {
+        "deleted": True,
+        "id": connector_id,
+        "connector": snapshot,
+        "message": f"Cloud connector {snapshot['name']} removed",
+    }
+
+
+def test_cloud_connector(connector_id: int, *, actor: str) -> Dict[str, Any]:
+    """A real reachability probe against the connector's endpoint (GET,
+    carrying the vault credential when one is bound). 2xx -> `connected`;
+    anything else -> `error` with the real reason. What it proves is
+    reachability and the HTTP verdict - never 'credentials validated'.
+    No endpoint -> 409: not connected."""
+    connector = get_cloud_connector(connector_id)
+    if not connector.endpoint:
+        raise Conflict(
+            "Cloud connector is not connected",
+            {"field": "endpoint", "configured": False},
+        )
+    token = ""
+    if connector.credential_item_id is not None:
+        token = _cloud_credential_token(connector, actor=actor)
+    outcome = integrations.cloud_http(
+        connector.endpoint + "/", token=token, timeout=_CLOUD_TIMEOUT
+    )
+    ok = bool(outcome.get("ok"))
+    detail = outcome.get("detail") or ("HTTP 2xx" if ok else "probe failed")
+    connector.last_test_at = datetime.now()
+    connector.last_test_detail = f"{detail} ({outcome.get('elapsed_ms')} ms)"[:255]
+    connector.status = "connected" if ok else "error"
+    _cloud_event(
+        "probe-succeeded" if ok else "probe-failed",
+        connector,
+        actor,
+        {
+            "endpoint": connector.endpoint,
+            "http_status": outcome.get("http_status"),
+            "elapsed_ms": outcome.get("elapsed_ms"),
+            "detail": detail,
+        },
+    )
+    db.session.commit()
+    return {
+        "connector": connector.to_dict(),
+        "probe": {
+            "ok": ok,
+            "http_status": outcome.get("http_status"),
+            "elapsed_ms": outcome.get("elapsed_ms"),
+            "detail": detail,
+            "checked_at": connector.last_test_at.isoformat(),
+        },
+        "message": (
+            f"{connector.name} answered {detail}"
+            if ok
+            else f"{connector.name} probe failed: {detail}"
+        ),
+    }
+
+
+def _cloud_resources(
+    outcome: Dict[str, Any], provider: str
+) -> Optional[List[Dict[str, Any]]]:
+    """The inventory payload, normalized. Kubernetes answers `items` (its
+    node list); the cloud connectors answer `resources` from the
+    operator-fronted inventory endpoint. Anything else is not an inventory
+    we understand - None, honestly, rather than a guess."""
+    payload = outcome.get("json")
+    if not isinstance(payload, dict):
+        return None
+    if provider == "kubernetes":
+        items = payload.get("items")
+        if not isinstance(items, list):
+            return None
+        resources: List[Dict[str, Any]] = []
+        for item in items:
+            if not isinstance(item, dict):
+                continue
+            metadata = item.get("metadata")
+            metadata = metadata if isinstance(metadata, dict) else {}
+            name = str(metadata.get("name") or item.get("name") or "").strip()
+            if not name:
+                continue
+            resources.append({"id": name, "name": name, "type": "node"})
+        return resources
+    entries = payload.get("resources")
+    if not isinstance(entries, list):
+        return None
+    resources = []
+    for entry in entries:
+        if not isinstance(entry, dict):
+            continue
+        ident = str(entry.get("id") or entry.get("name") or "").strip()
+        if not ident:
+            continue
+        resources.append(
+            {
+                "id": ident,
+                "name": str(entry.get("name") or ident)[:128],
+                "type": str(entry.get("type") or ""),
+            }
+        )
+    return resources
+
+
+def _cloud_resource_address(
+    connector: CloudConnector, resource: Dict[str, Any]
+) -> str:
+    """Unique, connector-scoped identity for a discovered cloud resource:
+    `provider/connector-id/resource-id` - two clusters never collide."""
+    return f"{connector.provider}/{connector.id}/{resource.get('id')}"
+
+
+def discover_cloud_connector(connector_id: int, *, actor: str) -> Dict[str, Any]:
+    """Inventory the cloud for real (section-3 discovery methods: the
+    cloud's own API) - Kubernetes really lists its nodes, the cloud
+    connectors really read the resources list from their inventory
+    endpoint. New assets land `unmanaged` under the `cloud` source with
+    the method that found them; a failed run records the honest reason,
+    a run that understands nothing invents nothing."""
+    connector = get_cloud_connector(connector_id)
+    if not connector.endpoint:
+        raise Conflict(
+            "Cloud connector is not connected",
+            {"field": "endpoint", "configured": False},
+        )
+    token = _cloud_credential_token(connector, actor=actor)
+    path = CLOUD_INVENTORY_PATHS.get(connector.provider, "/")
+    url = connector.endpoint + ("" if path == "/" else path)
+    outcome = integrations.cloud_http(url, token=token, timeout=_CLOUD_TIMEOUT)
+    http_status = outcome.get("http_status")
+    detail = outcome.get("detail") or ""
+
+    scan = DiscoveryScan(
+        scope=connector.name[:64],
+        method=CLOUD_METHODS.get(connector.provider, "cloud_api"),
+        ports=[],
+        status=DISCOVERY_SCAN_RUNNING,
+        triggered_by=actor,
+    )
+    db.session.add(scan)
+    db.session.flush()
+
+    resources = _cloud_resources(outcome, connector.provider)
+    if not outcome.get("ok") or resources is None:
+        if outcome.get("ok") and resources is None:
+            reason = f"inventory response not understood ({detail})"
+        else:
+            reason = detail or "inventory request failed"
+        scan.status = DISCOVERY_SCAN_FAILED
+        scan.error = reason[:255]
+        scan.finished_at = datetime.now()
+        _log_discovery_event(
+            DISCOVERY_ACTION_SCAN_FAILED,
+            scan.scope,
+            actor,
+            {
+                "connector": connector.name,
+                "http_status": http_status,
+                "detail": reason,
+            },
+        )
+        _cloud_event(
+            "inventory-failed",
+            connector,
+            actor,
+            {
+                "http_status": http_status,
+                "elapsed_ms": outcome.get("elapsed_ms"),
+                "detail": reason,
+            },
+        )
+        db.session.commit()
+        return {
+            "ok": False,
+            "scan": scan.to_dict(),
+            "assets": [],
+            "new": 0,
+            "updated": 0,
+            "detail": reason,
+            "message": f"{connector.name} inventory failed: {reason}",
+        }
+
+    now = datetime.now()
+    method = CLOUD_METHODS.get(connector.provider, "cloud_api")
+    new = 0
+    updated = 0
+    assets: List[Dict[str, Any]] = []
+    for resource in resources:
+        address = _cloud_resource_address(connector, resource)[:64]
+        label = str(resource.get("name") or resource.get("id") or address)[:128]
+        raw_type = str(resource.get("type") or "").strip().lower()[:32]
+        asset_type = _CLOUD_RESOURCE_TYPES.get(raw_type, "cloud")
+        text = (
+            f"{connector.provider} resource via cloud connector "
+            f"{connector.name}" + (f" ({raw_type})" if raw_type else "")
+        )[:255]
+        asset = DiscoveredAsset.query.filter_by(address=address).first()
+        if asset is None:
+            asset = DiscoveredAsset(
+                address=address,
+                hostname=label,
+                asset_type=asset_type,
+                risk=BASE_RISK.get(asset_type, "LOW"),
+                pam_status="unmanaged",
+                detail=text,
+                source=DISCOVERY_SOURCE_CLOUD,
+                method=method,
+                last_seen=now,
+            )
+            db.session.add(asset)
+            db.session.flush()
+            new += 1
+            _log_discovery_event(
+                DISCOVERY_ACTION_ASSET_DISCOVERED,
+                address,
+                actor,
+                {
+                    "asset_type": asset_type,
+                    "risk": asset.risk,
+                    "connector": connector.name,
+                },
+            )
+        else:
+            asset.last_seen = now
+            updated += 1
+            if asset.pam_status != "managed":
+                # machine-owned rows follow the cloud; operator-classified
+                # (managed) rows keep the human's classification.
+                asset.asset_type = asset_type
+                asset.detail = text
+                asset.risk = BASE_RISK.get(asset_type, "LOW")
+                asset.source = DISCOVERY_SOURCE_CLOUD
+                asset.method = method
+            _log_discovery_event(
+                DISCOVERY_ACTION_ASSET_UPDATED,
+                address,
+                actor,
+                {"connector": connector.name},
+            )
+        assets.append(asset.to_dict())
+
+    scan.hosts_probed = len(resources)
+    scan.hosts_open = len(resources)
+    scan.services_found = 0
+    scan.findings = new
+    scan.status = DISCOVERY_SCAN_COMPLETED
+    scan.finished_at = datetime.now()
+    _log_discovery_event(
+        DISCOVERY_ACTION_SCAN_COMPLETED,
+        scan.scope,
+        actor,
+        {
+            "resources": len(resources),
+            "new": new,
+            "updated": updated,
+            "http_status": http_status,
+        },
+    )
+    _cloud_event(
+        "inventory-ran",
+        connector,
+        actor,
+        {
+            "resources": len(resources),
+            "new": new,
+            "updated": updated,
+            "http_status": http_status,
+            "elapsed_ms": outcome.get("elapsed_ms"),
+        },
+    )
+    db.session.commit()
+    return {
+        "ok": True,
+        "scan": scan.to_dict(),
+        "assets": assets,
+        "new": new,
+        "updated": updated,
+        "detail": detail,
+        "message": (
+            f"{connector.name}: {len(resources)} resources "
+            f"({new} new, {updated} refreshed)"
+        ),
+    }
+
+
+def create_cloud_rbac_request(
+    connector_id: int, payload: Any, *, actor: str
+) -> Dict[str, Any]:
+    """The section-14 Kubernetes path: Kubernetes -> RBAC -> JIT ->
+    ephemeral privilege -> audit. Raises a section-6 JIT request against
+    the connector's vault credential; risk scoring and approvals are the
+    section-6 machinery verbatim; the grant (consume) applies a real
+    RoleBinding named `vypam-jit-<id>` for exactly the requested window,
+    and close/expiry removes it."""
+    connector = get_cloud_connector(connector_id)
+    if connector.provider != "kubernetes":
+        raise Conflict(
+            "RBAC grants are the Kubernetes path",
+            {"field": "provider", "provider": connector.provider},
+        )
+    if not connector.endpoint:
+        raise Conflict(
+            "Cloud connector is not connected",
+            {"field": "endpoint", "configured": False},
+        )
+    if connector.credential_item_id is None:
+        raise Conflict(
+            "Cloud connector credential is not configured",
+            {"field": "credential", "configured": False},
+        )
+    if not isinstance(payload, dict):
+        raise ValidationFailed("Request body must be a JSON object")
+    namespace = str(payload.get("namespace") or "default").strip()
+    role = payload.get("role")
+    if not isinstance(role, str) or not _K8S_NAME_RE.match(role.strip()):
+        raise ValidationFailed(
+            "'role' is required (a Kubernetes Role name: lowercase "
+            "alphanumerics, '-' and '.')",
+            {"field": "role"},
+        )
+    role = role.strip()
+    if not _K8S_NAME_RE.match(namespace):
+        raise ValidationFailed(
+            "'namespace' must be a Kubernetes namespace name",
+            {"field": "namespace"},
+        )
+    reason = payload.get("reason")
+    if not isinstance(reason, str) or len(reason.strip()) < 8:
+        raise ValidationFailed(
+            "'reason' must be at least 8 characters", {"field": "reason"}
+        )
+    jit_payload: Dict[str, Any] = {
+        "item_id": connector.credential_item_id,
+        "reason": f"K8s RBAC {role} in {namespace}: {reason.strip()}"[:255],
+        "ticket": payload.get("ticket"),
+        "minutes": payload.get("minutes", 60),
+    }
+    if payload.get("requester"):
+        jit_payload["requester"] = payload["requester"]
+    request = create_jit_request(jit_payload, actor=actor)
+    request.cloud_connector_id = connector.id
+    request.cloud_binding = {
+        "namespace": namespace,
+        "role": role,
+        "binding": f"vypam-jit-{request.id}",
+    }
+    _cloud_event(
+        "rbac-requested",
+        connector,
+        actor,
+        {
+            "request_id": request.id,
+            "namespace": namespace,
+            "role": role,
+            "minutes": request.minutes,
+            "risk_level": request.risk_level,
+            "status": request.status,
+        },
+    )
+    db.session.commit()
+    return {
+        "request": request.to_dict(),
+        "connector": connector.to_dict(),
+        "message": (
+            f"RBAC grant requested: {role} in {namespace} "
+            f"(request #{request.id}, {request.status})"
+        ),
+    }
+
+
+def _apply_cloud_rbac_binding(request: JitRequest, *, actor: str) -> None:
+    """Ephemeral privilege (section 14): the grant is a real Kubernetes
+    RoleBinding applied through the connector's API with its vault
+    credential. A refusal from the cluster leaves the request `approved`
+    (nothing was granted) and is recorded on the `cloud` trail."""
+    connector = get_cloud_connector(request.cloud_connector_id)
+    binding = dict(request.cloud_binding or {})
+    namespace = binding.get("namespace") or "default"
+    role = binding.get("role") or ""
+    name = binding.get("binding") or f"vypam-jit-{request.id}"
+    if connector.provider != "kubernetes" or not connector.endpoint:
+        detail = {
+            "request_id": request.id,
+            "detail": "connector is not connected",
+        }
+        _cloud_event("rbac-binding-failed", connector, actor, detail)
+        db.session.commit()
+        raise Conflict(
+            "Cloud connector is not connected",
+            {"field": "endpoint", "configured": False},
+        )
+    token = _cloud_credential_token(connector, actor=actor)
+    expires_at = datetime.now() + timedelta(minutes=request.minutes)
+    outcome = integrations.k8s_apply_binding(
+        connector.endpoint,
+        namespace,
+        name,
+        role,
+        request.requester,
+        session_ref=f"jit-{request.id}",
+        expires_at=expires_at.isoformat(),
+        token=token,
+        timeout=_CLOUD_TIMEOUT,
+    )
+    if not outcome.get("ok"):
+        _cloud_event(
+            "rbac-binding-failed",
+            connector,
+            actor,
+            {
+                "request_id": request.id,
+                "namespace": namespace,
+                "role": role,
+                "http_status": outcome.get("http_status"),
+                "detail": outcome.get("detail"),
+            },
+        )
+        db.session.commit()
+        raise APIError(
+            502,
+            "Kubernetes refused the RBAC binding",
+            {
+                "request_id": request.id,
+                "http_status": outcome.get("http_status"),
+                "detail": outcome.get("detail"),
+            },
+        )
+    binding["applied_at"] = datetime.now().isoformat()
+    binding["expires_at"] = expires_at.isoformat()
+    binding["http_status"] = outcome.get("http_status")
+    request.cloud_binding = binding
+    _cloud_event(
+        "rbac-granted",
+        connector,
+        actor,
+        {
+            "request_id": request.id,
+            "namespace": namespace,
+            "role": role,
+            "binding": name,
+            "http_status": outcome.get("http_status"),
+        },
+    )
+
+
+def _remove_cloud_rbac_binding(
+    request: JitRequest, *, actor: str, action: str
+) -> Dict[str, Any]:
+    """Take the ephemeral binding back (close, expiry, or a grant that
+    failed after applying). A cluster refusal is recorded, never hidden -
+    the grant still ends; the honest outcome rides both trails."""
+    binding = dict(request.cloud_binding or {})
+    name = binding.get("binding") or f"vypam-jit-{request.id}"
+    detail: Dict[str, Any] = {"request_id": request.id, "binding": name}
+    if not binding.get("applied_at") or binding.get("removed_at"):
+        detail["removed"] = False
+        detail["detail"] = "no applied binding to remove"
+        return detail
+    connector = CloudConnector.query.filter_by(
+        id=request.cloud_connector_id
+    ).first()
+    if connector is None or not connector.endpoint:
+        detail["removed"] = False
+        detail["detail"] = "connector unavailable - binding removal not possible"
+        if connector is not None:
+            _cloud_event(f"rbac-{action}", connector, actor, detail)
+            db.session.commit()
+        return detail
+    try:
+        token = _cloud_credential_token(connector, actor=actor)
+        outcome = integrations.k8s_remove_binding(
+            connector.endpoint,
+            binding.get("namespace") or "default",
+            name,
+            token=token,
+            timeout=_CLOUD_TIMEOUT,
+        )
+    except APIError as exc:
+        outcome = {"ok": False, "http_status": None, "detail": exc.message}
+    removed = bool(outcome.get("ok"))
+    detail.update(
+        {
+            "removed": removed,
+            "http_status": outcome.get("http_status"),
+            "detail": outcome.get("detail"),
+        }
+    )
+    if removed:
+        binding["removed_at"] = datetime.now().isoformat()
+        request.cloud_binding = binding
+    _cloud_event(f"rbac-{action}", connector, actor, detail)
+    # commit here: the privilege state changed for real (or its removal was
+    # refused for real) - that fact survives whatever the caller does next,
+    # including the error a failed grant is about to re-raise.
+    db.session.commit()
+    return detail
+
+
+def cloud_stats() -> Dict[str, Any]:
+    """Real aggregates for the cloud cards: connectors by provider and
+    state, the section-14 trail's size, the RBAC grants riding it, and
+    what inventory has found so far."""
+    connectors = CloudConnector.query.all()
+    by_provider: Dict[str, Dict[str, int]] = {
+        provider: {
+            "total": 0,
+            "not connected": 0,
+            "configured": 0,
+            "connected": 0,
+            "error": 0,
+        }
+        for provider in CLOUD_PROVIDERS
+    }
+    by_status: Dict[str, int] = {
+        "not connected": 0,
+        "configured": 0,
+        "connected": 0,
+        "error": 0,
+    }
+    for connector in connectors:
+        bucket = by_provider.setdefault(
+            connector.provider,
+            {"total": 0, "not connected": 0, "configured": 0,
+             "connected": 0, "error": 0},
+        )
+        bucket["total"] += 1
+        bucket[connector.status] = bucket.get(connector.status, 0) + 1
+        by_status[connector.status] = by_status.get(connector.status, 0) + 1
+    requests = JitRequest.query.filter(
+        JitRequest.cloud_connector_id.isnot(None)
+    ).all()
+    grants: Dict[str, Any] = {"total": len(requests), "open": 0}
+    for state in JIT_STATUSES:
+        count = sum(1 for request in requests if request.status == state)
+        grants[state] = count
+        if state in _CLOUD_GRANT_OPEN:
+            grants["open"] += count
+    return {
+        "connectors": len(connectors),
+        "by_provider": by_provider,
+        "by_status": by_status,
+        "events": CloudEvent.query.count(),
+        "rbac_grants": grants,
+        "discovered_assets": DiscoveredAsset.query.filter_by(
+            source=DISCOVERY_SOURCE_CLOUD
+        ).count(),
+    }

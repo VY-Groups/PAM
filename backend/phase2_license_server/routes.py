@@ -1536,3 +1536,122 @@ def create_vendor_jit_request(vendor_id: int):
         ),
         201,
     )
+
+
+# ---------------------------------------------------------------------------
+# cloud PAM (architecture section 14: AWS / Azure / GCP / Kubernetes)
+# ---------------------------------------------------------------------------
+@api.post("/cloud/connectors")
+@require_admin
+def create_cloud_connector():
+    """Register a cloud account/cluster (201): the credential stays in the
+    vault and the row starts honest - `not connected`/`configured`, never
+    `connected` before a real probe."""
+    view = service.create_cloud_connector(_json_body(), actor=_actor())
+    return (
+        jsonify(
+            {
+                "connector": view,
+                "message": (
+                    f"Cloud connector {view['name']} registered "
+                    f"({view['provider']}, {view['status']})"
+                ),
+            }
+        ),
+        201,
+    )
+
+
+@api.get("/cloud/connectors")
+def list_cloud_connectors():
+    """Cloud connectors, newest first (provider/status filters + search)."""
+    limit = min(_int_param("limit", 50), MAX_PAGE_SIZE)
+    offset = _int_param("offset", 0)
+    rows, total = service.list_cloud_connectors(
+        provider=request.args.get("provider"),
+        status=request.args.get("status"),
+        q=request.args.get("q"),
+        limit=limit,
+        offset=offset,
+    )
+    return jsonify(
+        {
+            "connectors": [row.to_dict() for row in rows],
+            "total": total,
+            "limit": limit,
+            "offset": offset,
+        }
+    )
+
+
+@api.get("/cloud/connectors/<int:connector_id>")
+def get_cloud_connector(connector_id: int):
+    """The cloud console payload: connector, recent section-14 trail, RBAC
+    grants raised through it, last inventory run."""
+    return jsonify(service.cloud_connector_detail(connector_id))
+
+
+@api.patch("/cloud/connectors/<int:connector_id>")
+@require_admin
+def update_cloud_connector(connector_id: int):
+    """Edit the configuration; changing the endpoint drops the connector
+    back to `configured` (the old probe described the old endpoint)."""
+    view = service.update_cloud_connector(
+        connector_id, _json_body(), actor=_actor()
+    )
+    return jsonify(
+        {"connector": view, "message": f"Cloud connector {view['name']} updated"}
+    )
+
+
+@api.delete("/cloud/connectors/<int:connector_id>")
+@require_admin
+def delete_cloud_connector(connector_id: int):
+    """Remove a connector (409 while open RBAC grants still ride it)."""
+    return jsonify(service.delete_cloud_connector(connector_id, actor=_actor()))
+
+
+@api.post("/cloud/connectors/<int:connector_id>/test")
+@require_admin
+def test_cloud_connector(connector_id: int):
+    """A real reachability probe: GET the endpoint (with the vault
+    credential when one is bound) and record what happened - 2xx makes it
+    `connected`, anything else `error` with the honest reason."""
+    return jsonify(service.test_cloud_connector(connector_id, actor=_actor()))
+
+
+@api.post("/cloud/connectors/<int:connector_id>/discover")
+@require_admin
+def discover_cloud_connector(connector_id: int):
+    """Inventory the cloud for real: the cloud's own API answers, new
+    assets land under the `cloud` discovery source, and a failed run
+    records the honest reason instead of inventing anything."""
+    return jsonify(service.discover_cloud_connector(connector_id, actor=_actor()))
+
+
+@api.post("/cloud/connectors/<int:connector_id>/rbac/requests")
+@require_admin
+def create_cloud_rbac_request(connector_id: int):
+    """Kubernetes -> RBAC -> JIT -> ephemeral privilege -> audit (201):
+    raise a section-6 JIT request whose grant applies a real RoleBinding
+    for exactly the requested window; close/expiry removes it."""
+    view = service.create_cloud_rbac_request(
+        connector_id, _json_body(), actor=_actor()
+    )
+    return (
+        jsonify(
+            {
+                "request": view["request"],
+                "connector": view["connector"],
+                "message": view["message"],
+            }
+        ),
+        201,
+    )
+
+
+@api.get("/cloud/stats")
+def cloud_stats():
+    """Real aggregates: connectors by provider and state, the section-14
+    trail's size, RBAC grants, cloud-discovered assets."""
+    return jsonify(service.cloud_stats())

@@ -123,6 +123,77 @@
 </div>
 </div>
 </div>
+<div class="bg-surface-container-lowest p-space-lg rounded-xl shadow-sm flex flex-col gap-space-md" data-role="cloud-section">
+<div class="flex items-start justify-between gap-space-sm flex-wrap">
+<div class="flex items-center gap-space-xs">
+<span class="material-symbols-outlined text-primary text-[20px]">cloud</span>
+<h2 class="font-headline-sm text-headline-sm text-on-surface">Cloud PAM Connectors</h2>
+<span class="font-label-badge text-label-badge text-on-surface-variant bg-surface-container px-2 py-0.5 rounded font-semibold">AWS · AZURE · GCP · KUBERNETES</span>
+</div>
+<div class="flex items-center gap-space-sm flex-wrap">
+<span class="font-code-sm text-code-sm text-on-surface-variant" data-role="cloud-summary">— connectors · — connected · — RBAC grants</span>
+<button class="flex items-center gap-1.5 px-space-md py-2 rounded-lg bg-primary-container text-on-primary font-label-md text-label-md font-semibold hover:bg-primary transition-all shadow-sm" data-role="btn-cloud-add">
+<span class="material-symbols-outlined text-[18px]">add_circle</span>
+<span>Add Cloud Connector</span>
+</button>
+</div>
+</div>
+<div class="grid grid-cols-2 xl:grid-cols-4 gap-space-sm" data-role="cloud-providers">
+<div class="p-space-sm rounded-lg bg-surface-container-low flex flex-col gap-1" data-provider="aws">
+<div class="flex items-center justify-between">
+<span class="font-code-sm text-code-sm text-outline">AWS</span>
+<span class="cloud-status font-label-badge text-label-badge text-on-surface-variant font-semibold">not connected</span>
+</div>
+<span class="cloud-count font-headline-sm text-headline-sm text-on-surface font-bold">—</span>
+<span class="cloud-sub font-code-sm text-code-sm text-on-surface-variant">— connected</span>
+</div>
+<div class="p-space-sm rounded-lg bg-surface-container-low flex flex-col gap-1" data-provider="azure">
+<div class="flex items-center justify-between">
+<span class="font-code-sm text-code-sm text-outline">AZURE</span>
+<span class="cloud-status font-label-badge text-label-badge text-on-surface-variant font-semibold">not connected</span>
+</div>
+<span class="cloud-count font-headline-sm text-headline-sm text-on-surface font-bold">—</span>
+<span class="cloud-sub font-code-sm text-code-sm text-on-surface-variant">— connected</span>
+</div>
+<div class="p-space-sm rounded-lg bg-surface-container-low flex flex-col gap-1" data-provider="gcp">
+<div class="flex items-center justify-between">
+<span class="font-code-sm text-code-sm text-outline">GOOGLE CLOUD</span>
+<span class="cloud-status font-label-badge text-label-badge text-on-surface-variant font-semibold">not connected</span>
+</div>
+<span class="cloud-count font-headline-sm text-headline-sm text-on-surface font-bold">—</span>
+<span class="cloud-sub font-code-sm text-code-sm text-on-surface-variant">— connected</span>
+</div>
+<div class="p-space-sm rounded-lg bg-surface-container-low flex flex-col gap-1" data-provider="kubernetes">
+<div class="flex items-center justify-between">
+<span class="font-code-sm text-code-sm text-outline">KUBERNETES</span>
+<span class="cloud-status font-label-badge text-label-badge text-on-surface-variant font-semibold">not connected</span>
+</div>
+<span class="cloud-count font-headline-sm text-headline-sm text-on-surface font-bold">—</span>
+<span class="cloud-sub font-code-sm text-code-sm text-on-surface-variant">— connected</span>
+</div>
+</div>
+<div class="overflow-x-auto rounded-lg border border-outline-variant/40">
+<table class="w-full text-left">
+<thead>
+<tr class="bg-surface-container-low text-on-surface-variant font-code-sm text-code-sm uppercase tracking-wider">
+<th class="py-2.5 px-4">Cloud Connector</th>
+<th class="py-2.5 px-4">Provider / Account</th>
+<th class="py-2.5 px-4">API Endpoint</th>
+<th class="py-2.5 px-4">State</th>
+<th class="py-2.5 px-4">Last Probe</th>
+<th class="py-2.5 px-4 text-right">Actions</th>
+</tr>
+</thead>
+<tbody data-role="cloud-rows" class="divide-y divide-outline-variant/30 text-body-sm font-body-sm text-on-surface">
+<tr><td class="py-5 px-4 text-center text-on-surface-variant font-body-sm" colspan="6">No cloud connectors registered — register AWS, Azure, GCP or Kubernetes, then probe its API endpoint and run inventory.</td></tr>
+</tbody>
+</table>
+</div>
+<div class="flex items-start gap-space-sm p-space-sm rounded-lg bg-surface-container-low/60">
+<span class="material-symbols-outlined text-outline text-[16px]">key</span>
+<span class="font-code-sm text-code-sm text-on-surface-variant">Credentials live in the vault and are revealed per call (audited) — a probe proves reachability and the HTTP verdict, never that credentials are valid; the API never returns secret material.</span>
+</div>
+</div>
 <div class="grid grid-cols-1 xl:grid-cols-12 gap-space-lg items-start">
 <div class="xl:col-span-8 flex flex-col gap-space-md">
 <div class="bg-surface-container-lowest p-space-md rounded-xl shadow-sm flex flex-col gap-space-md">
@@ -1017,6 +1088,304 @@
       });
     }
 
+    // ------------------------------------------------------ cloud PAM (14) --
+    const CLOUD_PROVIDERS = [
+      { id: 'aws', label: 'AWS' },
+      { id: 'azure', label: 'Azure' },
+      { id: 'gcp', label: 'Google Cloud' },
+      { id: 'kubernetes', label: 'Kubernetes' }
+    ];
+    let cloudList = [];
+    let cloudVaultItems = [];
+
+    const providerLabel = (id) => {
+      const found = CLOUD_PROVIDERS.find((p) => p.id === id);
+      return found ? found.label : id;
+    };
+    const statusPill = (status) => {
+      const tone = {
+        connected: 'bg-tertiary-container/20 text-tertiary',
+        error: 'bg-error-container/50 text-error',
+        configured: 'bg-primary-container/15 text-primary'
+      }[status] || 'bg-surface-container text-on-surface-variant';
+      return '<span class="px-2 py-0.5 rounded font-label-badge text-label-badge '
+        + 'font-semibold ' + tone + '">' + esc(status) + '</span>';
+    };
+
+    function renderCloud(stats) {
+      const summary = document.querySelector('[data-role="cloud-summary"]');
+      const connected = cloudList.filter((c) => c.status === 'connected').length;
+      if (summary) {
+        summary.textContent = cloudList.length + ' connectors · ' + connected
+          + ' connected · '
+          + (stats ? stats.rbac_grants.total : DASH) + ' RBAC grants';
+      }
+      document.querySelectorAll(
+        '[data-role="cloud-providers"] [data-provider]'
+      ).forEach((card) => {
+        const provider = card.dataset.provider;
+        const bucket = stats && stats.by_provider
+          ? stats.by_provider[provider] : null;
+        const mine = cloudList.filter((c) => c.provider === provider);
+        const total = bucket ? bucket.total : mine.length;
+        const conn = bucket
+          ? bucket.connected
+          : mine.filter((c) => c.status === 'connected').length;
+        const errs = bucket
+          ? bucket.error
+          : mine.filter((c) => c.status === 'error').length;
+        const unset = bucket
+          ? bucket['not connected']
+          : mine.filter((c) => c.status === 'not connected').length;
+        let state = 'not connected';
+        if (total > 0) {
+          if (errs > 0) state = 'error';
+          else if (conn > 0) state = 'connected';
+          else if (total > unset) state = 'configured';
+        }
+        card.querySelector('.cloud-count').textContent =
+          total === 0 ? DASH : String(total);
+        card.querySelector('.cloud-status').textContent = state;
+        card.querySelector('.cloud-sub').textContent =
+          (total === 0 ? DASH : conn) + ' connected';
+      });
+      const tbody = document.querySelector('[data-role="cloud-rows"]');
+      if (!tbody) return;
+      if (!cloudList.length) {
+        tbody.innerHTML = '<tr><td class="py-5 px-4 text-center '
+          + 'text-on-surface-variant font-body-sm" colspan="6">'
+          + 'No cloud connectors registered — register AWS, Azure, GCP or '
+          + 'Kubernetes, then probe its API endpoint and run inventory.'
+          + '</td></tr>';
+        return;
+      }
+      tbody.innerHTML = cloudList.map((c) => {
+        const cred = c.credential_item_id
+          ? 'vault item #' + c.credential_item_id : 'no credential bound';
+        const detail = c.last_test_detail
+          ? '<div class="font-code-sm text-code-sm text-outline truncate '
+            + 'max-w-[240px]" title="' + esc(c.last_test_detail) + '">'
+            + esc(c.last_test_detail) + '</div>' : '';
+        const idle = 'px-2 py-1 rounded bg-surface-container '
+          + 'hover:bg-surface-container-high font-label-md text-label-md';
+        let actions = '<button class="' + idle + '" data-act="probe">Probe</button> '
+          + '<button class="' + idle + '" data-act="discover">Inventory</button> ';
+        if (c.provider === 'kubernetes') {
+          actions += '<button class="' + idle + '" data-act="rbac">RBAC</button> ';
+        }
+        actions += '<button class="px-2 py-1 rounded bg-error-container/50 '
+          + 'text-error hover:bg-error hover:text-on-error font-label-md '
+          + 'text-label-md" data-act="delete">Remove</button>';
+        return '<tr data-cloud-id="' + c.id + '" class="hover:bg-surface-container-low/40">'
+          + '<td class="py-2.5 px-4"><div class="flex flex-col">'
+          + '<span class="font-semibold">' + esc(c.name) + '</span>'
+          + '<span class="font-code-sm text-code-sm text-outline">' + esc(cred)
+          + '</span></div></td>'
+          + '<td class="py-2.5 px-4">' + esc(providerLabel(c.provider))
+          + (c.account_ref
+            ? '<div class="font-code-sm text-code-sm text-outline">'
+              + esc(c.account_ref) + '</div>' : '')
+          + '</td>'
+          + '<td class="py-2.5 px-4 font-code-sm text-code-sm">'
+          + (c.endpoint ? esc(c.endpoint) : DASH) + '</td>'
+          + '<td class="py-2.5 px-4">' + statusPill(c.status) + detail + '</td>'
+          + '<td class="py-2.5 px-4 font-code-sm text-code-sm">'
+          + (c.last_test_at ? rel(c.last_test_at) : DASH) + '</td>'
+          + '<td class="py-2.5 px-4 text-right whitespace-nowrap">' + actions
+          + '</td></tr>';
+      }).join('');
+    }
+
+    async function loadCloud() {
+      const [listRes, statsRes, vaultRes] = await Promise.all([
+        api('/api/v1/cloud/connectors?limit=50'),
+        api('/api/v1/cloud/stats'),
+        api('/api/v1/vault/items?limit=100')
+      ]);
+      if (!listRes || !listRes.ok) return; // file:// / down -> honest static
+      cloudList = listRes.body.connectors || [];
+      if (vaultRes && vaultRes.ok) cloudVaultItems = vaultRes.body.items || [];
+      renderCloud(statsRes && statsRes.ok ? statsRes.body : null);
+    }
+
+    function openCloudAddModal() {
+      const providerOptions = CLOUD_PROVIDERS.map((p) =>
+        '<option value="' + p.id + '">' + p.label + '</option>').join('');
+      const credOptions = '<option value="">none (bind a vault credential later)</option>'
+        + cloudVaultItems.map((i) =>
+          '<option value="' + i.id + '">' + esc(i.name) + ' (#' + i.id + ')</option>'
+        ).join('');
+      modal({
+        title: 'Add Cloud Connector',
+        bodyHtml:
+          '<label class="font-code-sm text-code-sm text-outline">NAME</label>'
+          + '<input class="cl-name w-full px-3 py-2 rounded-lg bg-surface '
+          + 'font-body-sm text-body-sm" maxlength="64" placeholder="prod-account">'
+          + '<label class="font-code-sm text-code-sm text-outline">PROVIDER</label>'
+          + '<select class="cl-provider w-full px-3 py-2 rounded-lg bg-surface '
+          + 'font-body-sm text-body-sm">' + providerOptions + '</select>'
+          + '<label class="font-code-sm text-code-sm text-outline">API ENDPOINT '
+          + '(https; http only for local development)</label>'
+          + '<input class="cl-endpoint w-full px-3 py-2 rounded-lg bg-surface '
+          + 'font-body-sm text-body-sm" maxlength="255" placeholder="https://...">'
+          + '<label class="font-code-sm text-code-sm text-outline">ACCOUNT / '
+          + 'SUBSCRIPTION / PROJECT (optional)</label>'
+          + '<input class="cl-account w-full px-3 py-2 rounded-lg bg-surface '
+          + 'font-body-sm text-body-sm" maxlength="128">'
+          + '<label class="font-code-sm text-code-sm text-outline">VAULT '
+          + 'CREDENTIAL (optional)</label>'
+          + '<select class="cl-cred w-full px-3 py-2 rounded-lg bg-surface '
+          + 'font-body-sm text-body-sm">' + credOptions + '</select>',
+        submitLabel: 'Register connector',
+        onSubmit: (panel, close) => {
+          const name = panel.querySelector('.cl-name').value.trim();
+          if (!name) { toast('Connector name is required.'); return; }
+          const credId = panel.querySelector('.cl-cred').value;
+          const payload = {
+            name: name,
+            provider: panel.querySelector('.cl-provider').value,
+            endpoint: panel.querySelector('.cl-endpoint').value.trim(),
+            account_ref: panel.querySelector('.cl-account').value.trim()
+          };
+          if (credId) payload.credential_item_id = parseInt(credId, 10);
+          api('/api/v1/cloud/connectors',
+            { method: 'POST', body: JSON.stringify(payload) }
+          ).then((res) => {
+            if (!res) { toast('Cloud API unreachable — server not running.'); return; }
+            if (!res.ok) { toast(errText(res)); return; }
+            close();
+            toast(res.body.message || 'Cloud connector registered');
+            loadCloud();
+          });
+        }
+      });
+    }
+
+    function openCloudRbacModal(connector) {
+      modal({
+        title: 'Kubernetes RBAC grant',
+        bodyHtml:
+          '<div class="font-code-sm text-code-sm text-outline">CONNECTOR '
+          + esc(connector.name) + '</div>'
+          + '<div class="grid grid-cols-2 gap-2">'
+          + '<label class="flex flex-col gap-1 font-code-sm text-code-sm '
+          + 'text-outline">ROLE<input class="rb-role w-full px-3 py-2 rounded-lg '
+          + 'bg-surface font-body-sm text-body-sm" value="view" maxlength="63">'
+          + '</label>'
+          + '<label class="flex flex-col gap-1 font-code-sm text-code-sm '
+          + 'text-outline">NAMESPACE<input class="rb-ns w-full px-3 py-2 '
+          + 'rounded-lg bg-surface font-body-sm text-body-sm" value="default" '
+          + 'maxlength="63"></label></div>'
+          + '<label class="font-code-sm text-code-sm text-outline">REASON</label>'
+          + '<input class="rb-reason w-full px-3 py-2 rounded-lg bg-surface '
+          + 'font-body-sm text-body-sm" maxlength="255" '
+          + 'placeholder="Investigate the payment pod crash loop">'
+          + '<div class="grid grid-cols-2 gap-2">'
+          + '<label class="flex flex-col gap-1 font-code-sm text-code-sm '
+          + 'text-outline">TICKET<input class="rb-ticket w-full px-3 py-2 '
+          + 'rounded-lg bg-surface font-body-sm text-body-sm" placeholder="INC-12345" '
+          + 'maxlength="32"></label>'
+          + '<label class="flex flex-col gap-1 font-code-sm text-code-sm '
+          + 'text-outline">MINUTES (1-480)<input class="rb-minutes w-full px-3 '
+          + 'py-2 rounded-lg bg-surface font-body-sm text-body-sm" type="number" '
+          + 'min="1" max="480" value="60"></label></div>'
+          + '<div class="p-2 rounded bg-surface-container-low font-code-sm '
+          + 'text-code-sm text-on-surface-variant">Files a section-6 JIT request; '
+          + 'the grant applies a real RoleBinding via the cluster API for exactly '
+          + 'the requested window, and close or expiry removes it.</div>',
+        submitLabel: 'File RBAC request',
+        onSubmit: (panel, close) => {
+          const role = panel.querySelector('.rb-role').value.trim();
+          const namespace = panel.querySelector('.rb-ns').value.trim();
+          const reason = panel.querySelector('.rb-reason').value.trim();
+          const ticket = panel.querySelector('.rb-ticket').value.trim();
+          if (!role || !namespace) { toast('Role and namespace are required.'); return; }
+          if (reason.length < 8) { toast('Reason must be at least 8 characters.'); return; }
+          if (!ticket) { toast('Ticket is required.'); return; }
+          const payload = {
+            role: role,
+            namespace: namespace,
+            reason: reason,
+            ticket: ticket,
+            minutes: parseInt(panel.querySelector('.rb-minutes').value, 10) || 60
+          };
+          api('/api/v1/cloud/connectors/' + connector.id + '/rbac/requests',
+            { method: 'POST', body: JSON.stringify(payload) }
+          ).then((res) => {
+            if (!res) { toast('Cloud API unreachable — server not running.'); return; }
+            if (!res.ok) { toast(errText(res)); return; }
+            close();
+            const view = res.body.request;
+            toast('JIT request #' + view.id + ' filed ('
+              + view.risk.level + ' risk, score ' + view.risk.score
+              + ') — approve and consume it in JIT Access to apply the '
+              + 'RoleBinding.');
+            loadCloud();
+          });
+        }
+      });
+    }
+
+    function confirmCloudDelete(connector) {
+      modal({
+        title: 'Remove cloud connector',
+        bodyHtml: '<div class="font-body-sm text-body-sm">Remove <b>'
+          + esc(connector.name) + '</b> (' + esc(providerLabel(connector.provider))
+          + ')? The section-14 audit trail stays as evidence; open RBAC grants '
+          + 'block removal.</div>',
+        submitLabel: 'Remove connector',
+        onSubmit: (panel, close) => {
+          api('/api/v1/cloud/connectors/' + connector.id, { method: 'DELETE' }
+          ).then((res) => {
+            if (!res) { toast('Cloud API unreachable — server not running.'); return; }
+            if (!res.ok) { toast(errText(res)); return; }
+            close();
+            toast(res.body.message || 'Cloud connector removed');
+            loadCloud();
+          });
+        }
+      });
+    }
+
+    const cloudTbody = document.querySelector('[data-role="cloud-rows"]');
+    if (cloudTbody) {
+      cloudTbody.addEventListener('click', (e) => {
+        const btn = e.target.closest('button[data-act]');
+        if (!btn) return;
+        const tr = btn.closest('tr[data-cloud-id]');
+        const connector = tr
+          ? cloudList.find((c) => c.id === parseInt(tr.dataset.cloudId, 10))
+          : null;
+        if (!connector) return;
+        const act = btn.dataset.act;
+        if (act === 'rbac') { openCloudRbacModal(connector); return; }
+        if (act === 'delete') { confirmCloudDelete(connector); return; }
+        const path = '/api/v1/cloud/connectors/' + connector.id;
+        btn.disabled = true;
+        api(path + (act === 'probe' ? '/test' : '/discover'),
+          { method: 'POST' }
+        ).then((res) => {
+          btn.disabled = false;
+          if (!res) { toast('Cloud API unreachable — server not running.'); loadCloud(); return; }
+          if (!res.ok) { toast(errText(res)); loadCloud(); return; }
+          if (act === 'probe') {
+            toast(res.body.message);
+          } else {
+            const body = res.body;
+            toast(body.ok
+              ? 'Inventory complete: ' + body.new + ' new, ' + body.updated
+                + ' updated (' + body.scan.method + ')'
+              : 'Inventory failed: ' + body.detail);
+          }
+          loadCloud();
+        });
+      });
+    }
+    const cloudAddBtn = document.querySelector('[data-role="btn-cloud-add"]');
+    if (cloudAddBtn) {
+      cloudAddBtn.addEventListener('click', openCloudAddModal);
+    }
+
     // ---------------------------------------------------------------- load --
     async function load() {
       const qs = new URLSearchParams();
@@ -1049,6 +1418,7 @@
     }
 
     load();
+    loadCloud();
   });
 
 </script></main><footer class="fixed bottom-0 left-64 right-0 h-10 bg-surface-container-lowest/95 backdrop-blur-sm border-t border-outline-variant/30 z-30 flex items-center justify-between px-space-xl text-on-surface-variant font-code-sm text-code-sm shadow-[0_-1px_4px_rgba(0,0,0,0.02)]"><div class="flex items-center gap-space-md"><div class="flex items-center gap-1.5"><span class="w-2 h-2 rounded-full bg-tertiary"></span><span class="text-on-surface font-medium">License server: —</span><span class="text-outline">(— auth)</span></div><span class="text-outline-variant">•</span><span class="text-on-surface-variant font-semibold">— assets unmanaged</span></div><div class="flex items-center gap-space-lg text-outline"><span>Auth: —</span><span>Accounts: —</span><span>Audit: — events</span></div></footer></div></body></html>

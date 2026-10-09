@@ -52,6 +52,8 @@ tags:
     description: Enterprise Integrations - TOTP MFA, ITSM ticket verification, SIEM status, LDAP bind login (architecture 20)
   - name: vendors
     description: Third-Party / Vendor PAM - invite lifecycle (MFA/NDA/ticket/approval), scoped JIT access, vendor dashboard (architecture 13)
+  - name: cloud
+    description: Cloud PAM - AWS/Azure/GCP/Kubernetes connectors, real probes and inventory, K8s ephemeral RBAC grants through JIT (architecture 14)
 paths:
   /health:
     get:
@@ -2893,6 +2895,258 @@ paths:
         "403": {$ref: "#/components/responses/Forbidden"}
         "404": {$ref: "#/components/responses/NotFound"}
 
+  /api/v1/cloud/connectors:
+    get:
+      tags: [cloud]
+      summary: Cloud connectors, newest first
+      description: Paged AWS/Azure/GCP/Kubernetes connectors with their honest state (`not connected`, `configured`, `connected`, `error` - only a real probe changes it); `q` searches name/account reference.
+      parameters:
+        - name: provider
+          in: query
+          schema: {type: string, enum: [aws, azure, gcp, kubernetes]}
+        - name: status
+          in: query
+          schema: {type: string, enum: ["not connected", configured, connected, error]}
+        - name: q
+          in: query
+          description: Substring match on name or account reference.
+          schema: {type: string}
+        - {$ref: "#/components/parameters/Limit"}
+        - {$ref: "#/components/parameters/Offset"}
+      responses:
+        "200":
+          description: Paged cloud connectors
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/CloudConnectorList"}
+        "400": {$ref: "#/components/responses/BadRequest"}
+    post:
+      tags: [cloud]
+      summary: Register a cloud account/cluster connector (architecture 14)
+      description: |
+        Registers one AWS/Azure/GCP/Kubernetes account or cluster. The
+        credential never enters this row - `credential_item_id` points at
+        the vault item that holds it (federation into the vault). The
+        connector starts `not connected` (no endpoint) or `configured`
+        (endpoint set); only a real probe can make it `connected`. The
+        endpoint must be https (http is accepted for loopback only -
+        dev/testing against a local stub).
+      security:
+        - bearerAuth: []
+        - adminTokenHeader: []
+        - {}
+      parameters:
+        - name: X-Actor
+          in: header
+          schema: {type: string, maxLength: 64}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: "#/components/schemas/CloudConnectorCreate"}
+      responses:
+        "201":
+          description: Connector registered
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/CloudConnectorResponse"}
+        "400": {$ref: "#/components/responses/BadRequest"}
+        "401": {$ref: "#/components/responses/Unauthorized"}
+        "404": {$ref: "#/components/responses/NotFound"}
+        "409": {$ref: "#/components/responses/Conflict"}
+
+  /api/v1/cloud/connectors/{connector_id}:
+    get:
+      tags: [cloud]
+      summary: Cloud console payload (architecture 14)
+      description: The connector, its recent `cloud` trail, the RBAC grants raised through it and the last inventory run.
+      parameters:
+        - name: connector_id
+          in: path
+          required: true
+          schema: {type: integer, minimum: 1}
+      responses:
+        "200":
+          description: Connector detail
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/CloudConnectorDetailResponse"}
+        "404": {$ref: "#/components/responses/NotFound"}
+    patch:
+      tags: [cloud]
+      summary: Edit a cloud connector's configuration
+      description: Changing the endpoint drops the connector back to `configured` (the old probe described the old endpoint); clearing it returns the row to `not connected`.
+      security:
+        - bearerAuth: []
+        - adminTokenHeader: []
+        - {}
+      parameters:
+        - name: connector_id
+          in: path
+          required: true
+          schema: {type: integer, minimum: 1}
+        - name: X-Actor
+          in: header
+          schema: {type: string, maxLength: 64}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: "#/components/schemas/CloudConnectorUpdate"}
+      responses:
+        "200":
+          description: Connector updated
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/CloudConnectorResponse"}
+        "400": {$ref: "#/components/responses/BadRequest"}
+        "401": {$ref: "#/components/responses/Unauthorized"}
+        "404": {$ref: "#/components/responses/NotFound"}
+        "409": {$ref: "#/components/responses/Conflict"}
+    delete:
+      tags: [cloud]
+      summary: Remove a cloud connector
+      description: Refused (409) while open RBAC grants still ride the connector; the `cloud` trail and the JIT requests themselves stay in the ledger.
+      security:
+        - bearerAuth: []
+        - adminTokenHeader: []
+        - {}
+      parameters:
+        - name: connector_id
+          in: path
+          required: true
+          schema: {type: integer, minimum: 1}
+        - name: X-Actor
+          in: header
+          schema: {type: string, maxLength: 64}
+      responses:
+        "200":
+          description: Connector removed (snapshot echoed)
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/CloudConnectorDeleteResponse"}
+        "401": {$ref: "#/components/responses/Unauthorized"}
+        "404": {$ref: "#/components/responses/NotFound"}
+        "409": {$ref: "#/components/responses/Conflict"}
+
+  /api/v1/cloud/connectors/{connector_id}/test:
+    post:
+      tags: [cloud]
+      summary: Real reachability probe against the connector's endpoint
+      description: |
+        GET the endpoint (carrying the vault credential when one is
+        bound). A 2xx answer makes the connector `connected`; anything
+        else makes it `error` with the real reason in `last_test_detail`.
+        What the probe proves is reachability and the HTTP verdict -
+        never "credentials validated". No endpoint -> 409 not connected.
+      security:
+        - bearerAuth: []
+        - adminTokenHeader: []
+        - {}
+      parameters:
+        - name: connector_id
+          in: path
+          required: true
+          schema: {type: integer, minimum: 1}
+        - name: X-Actor
+          in: header
+          schema: {type: string, maxLength: 64}
+      responses:
+        "200":
+          description: Probe outcome (ok true or false - both honest)
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/CloudProbeResponse"}
+        "401": {$ref: "#/components/responses/Unauthorized"}
+        "404": {$ref: "#/components/responses/NotFound"}
+        "409": {$ref: "#/components/responses/Conflict"}
+
+  /api/v1/cloud/connectors/{connector_id}/discover:
+    post:
+      tags: [cloud]
+      summary: Inventory the cloud through its own API (architecture 3 + 14)
+      description: |
+        A real inventory call: Kubernetes lists its nodes at
+        `/api/v1/nodes`; the cloud connectors read a `resources` list
+        from the operator-fronted inventory endpoint. New assets land
+        `unmanaged` under the `cloud` discovery source with the provider's
+        method (`aws_api` etc.); a failed run records the honest reason
+        and invents nothing. Requires the endpoint and the vault
+        credential (409 otherwise).
+      security:
+        - bearerAuth: []
+        - adminTokenHeader: []
+        - {}
+      parameters:
+        - name: connector_id
+          in: path
+          required: true
+          schema: {type: integer, minimum: 1}
+        - name: X-Actor
+          in: header
+          schema: {type: string, maxLength: 64}
+      responses:
+        "200":
+          description: Inventory outcome (ok true or false - both honest)
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/CloudInventoryResponse"}
+        "401": {$ref: "#/components/responses/Unauthorized"}
+        "404": {$ref: "#/components/responses/NotFound"}
+        "409": {$ref: "#/components/responses/Conflict"}
+
+  /api/v1/cloud/connectors/{connector_id}/rbac/requests:
+    post:
+      tags: [cloud]
+      summary: Kubernetes ephemeral RBAC grant through JIT (architecture 14)
+      description: |
+        The section-14 chain *Kubernetes -> RBAC -> JIT -> ephemeral
+        privilege -> audit*: raises a section-6 JIT request against the
+        connector's vault credential (risk scoring and approvals are the
+        JIT machinery verbatim, linked through `cloud_connector_id`). The
+        grant (consume) applies a real RoleBinding `vypam-jit-<id>` for
+        exactly the requested window; close/expiry removes it. Kubernetes
+        connectors only (409 otherwise), endpoint and credential required.
+      security:
+        - bearerAuth: []
+        - adminTokenHeader: []
+        - {}
+      parameters:
+        - name: connector_id
+          in: path
+          required: true
+          schema: {type: integer, minimum: 1}
+        - name: X-Actor
+          in: header
+          schema: {type: string, maxLength: 64}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: "#/components/schemas/CloudRbacRequestCreate"}
+      responses:
+        "201":
+          description: RBAC grant request filed (status depends on its risk band)
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/CloudRbacRequestResponse"}
+        "400": {$ref: "#/components/responses/BadRequest"}
+        "401": {$ref: "#/components/responses/Unauthorized"}
+        "404": {$ref: "#/components/responses/NotFound"}
+        "409": {$ref: "#/components/responses/Conflict"}
+
+  /api/v1/cloud/stats:
+    get:
+      tags: [cloud]
+      summary: Real cloud aggregates
+      description: Connectors by provider and state, the `cloud` trail's size, the RBAC grants riding it and what inventory has found so far.
+      responses:
+        "200":
+          description: Cloud aggregates
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/CloudStats"}
+
 components:
   securitySchemes:
     bearerAuth:
@@ -3852,6 +4106,16 @@ components:
         expires_at: {type: [string, "null"]}
         closed_at: {type: [string, "null"]}
         session_ref: {type: [string, "null"], description: "jit-<id> while granted."}
+        vendor_account_id:
+          type: [integer, "null"]
+          description: Set when raised through a third-party vendor account's scope (architecture 13).
+        cloud_connector_id:
+          type: [integer, "null"]
+          description: Set when raised as a Kubernetes ephemeral RBAC grant through a cloud connector (architecture 14).
+        cloud_binding:
+          type: [object, "null"]
+          description: The RoleBinding snapshot applied at grant time (namespace, role, binding name, applied/removed timestamps).
+          additionalProperties: true
         created_at: {type: string}
 
     JitEvent:
@@ -5147,3 +5411,183 @@ components:
           type: string
           maxLength: 64
           description: Defaults to the vendor's verified ITSM reference when omitted.
+
+    CloudConnector:
+      type: object
+      required: [id, name, provider, status, created_at]
+      properties:
+        id: {type: integer}
+        name: {type: string, maxLength: 64}
+        provider: {type: string, enum: [aws, azure, gcp, kubernetes]}
+        account_ref: {type: string, description: "Account / subscription / project / cluster reference."}
+        endpoint:
+          type: string
+          description: API endpoint (Kubernetes API server, or the operator-fronted inventory endpoint for the clouds). https; http for loopback only.
+        regions: {type: array, items: {type: string}}
+        services:
+          type: array
+          items: {type: string}
+          description: In-scope services from the section-14 surface per provider.
+        credential_item_id:
+          type: [integer, "null"]
+          description: The vault item holding this cloud's credential - the secret itself never lives in the connector row.
+        status:
+          type: string
+          enum: ["not connected", configured, connected, error]
+          description: "`connected` only after a real probe answered 2xx; `error` after a failed one."
+        last_test_at: {type: [string, "null"]}
+        last_test_detail: {type: string, description: "The honest probe outcome (HTTP 200 in 12ms, connection failed, ...)."}
+        created_at: {type: string}
+        created_by: {type: string}
+
+    CloudEvent:
+      type: object
+      required: [id, action, actor, subject, detail, created_at]
+      properties:
+        id: {type: integer}
+        action:
+          type: string
+          enum: [connector-added, connector-updated, connector-removed, probe-succeeded, probe-failed, inventory-ran, inventory-failed, rbac-requested, rbac-granted, rbac-binding-failed, rbac-closed, rbac-expired, rbac-aborted]
+        actor: {type: string}
+        subject: {type: string}
+        detail: {type: object, additionalProperties: true}
+        created_at: {type: string}
+
+    CloudConnectorCreate:
+      type: object
+      required: [name, provider]
+      properties:
+        name: {type: string, minLength: 2, maxLength: 64}
+        provider: {type: string, enum: [aws, azure, gcp, kubernetes]}
+        account_ref: {type: string, maxLength: 128}
+        endpoint: {type: string, maxLength: 255}
+        regions: {type: array, items: {type: string, maxLength: 32}}
+        services: {type: array, items: {type: string}}
+        credential_item_id: {type: [integer, "null"], minimum: 1}
+
+    CloudConnectorUpdate:
+      type: object
+      properties:
+        name: {type: string, minLength: 2, maxLength: 64}
+        provider: {type: string, enum: [aws, azure, gcp, kubernetes]}
+        account_ref: {type: string, maxLength: 128}
+        endpoint: {type: string, maxLength: 255, description: Empty string clears the endpoint (back to `not connected`).}
+        regions: {type: array, items: {type: string, maxLength: 32}}
+        services: {type: array, items: {type: string}}
+        credential_item_id: {type: [integer, "null"], minimum: 1}
+
+    CloudConnectorList:
+      type: object
+      required: [connectors, total, limit, offset]
+      properties:
+        connectors:
+          type: array
+          items: {$ref: "#/components/schemas/CloudConnector"}
+        total: {type: integer}
+        limit: {type: integer}
+        offset: {type: integer}
+
+    CloudConnectorResponse:
+      type: object
+      required: [connector, message]
+      properties:
+        connector: {$ref: "#/components/schemas/CloudConnector"}
+        message: {type: string}
+
+    CloudConnectorDetailResponse:
+      type: object
+      required: [connector, events, requests]
+      properties:
+        connector: {$ref: "#/components/schemas/CloudConnector"}
+        events:
+          type: array
+          items: {$ref: "#/components/schemas/CloudEvent"}
+        requests:
+          type: array
+          items: {$ref: "#/components/schemas/JitRequest"}
+        last_scan:
+          type: [object, "null"]
+          additionalProperties: true
+          description: The most recent discovery run against this connector's scope.
+
+    CloudConnectorDeleteResponse:
+      type: object
+      required: [deleted, id, connector]
+      properties:
+        deleted: {type: boolean, enum: [true]}
+        id: {type: integer}
+        connector: {$ref: "#/components/schemas/CloudConnector"}
+        message: {type: string}
+
+    CloudProbeResponse:
+      type: object
+      required: [connector, probe, message]
+      properties:
+        connector: {$ref: "#/components/schemas/CloudConnector"}
+        probe:
+          type: object
+          required: [ok, detail]
+          properties:
+            ok: {type: boolean}
+            http_status: {type: [integer, "null"]}
+            elapsed_ms: {type: [integer, "null"]}
+            detail: {type: string}
+            checked_at: {type: string}
+        message: {type: string}
+
+    CloudInventoryResponse:
+      type: object
+      required: [ok, scan, assets, new, updated, message]
+      properties:
+        ok: {type: boolean}
+        scan: {$ref: "#/components/schemas/DiscoveryScan"}
+        assets:
+          type: array
+          items: {$ref: "#/components/schemas/DiscoveredAsset"}
+        new: {type: integer}
+        updated: {type: integer}
+        detail: {type: string}
+        message: {type: string}
+
+    CloudRbacRequestCreate:
+      type: object
+      required: [role, reason, ticket]
+      properties:
+        role: {type: string, maxLength: 63, pattern: "^[a-z0-9]([a-z0-9.-]*[a-z0-9])?$", description: Kubernetes Role name granted ephemerally.}
+        namespace: {type: string, maxLength: 63, default: default, description: Namespace for the RoleBinding.}
+        reason: {type: string, minLength: 8, maxLength: 255}
+        ticket: {type: string, maxLength: 64, description: "ITSM reference such as INC-23891."}
+        minutes: {type: integer, minimum: 1, maximum: 480, default: 60, description: Grant window - the RoleBinding lives exactly this long.}
+        requester: {type: string, maxLength: 64, description: The principal the binding is granted to (defaults to the actor).}
+
+    CloudRbacRequestResponse:
+      type: object
+      required: [request, connector, message]
+      properties:
+        request: {$ref: "#/components/schemas/JitRequest"}
+        connector: {$ref: "#/components/schemas/CloudConnector"}
+        message: {type: string}
+
+    CloudStats:
+      type: object
+      required: [connectors, by_provider, by_status, events, rbac_grants]
+      properties:
+        connectors: {type: integer}
+        by_provider:
+          type: object
+          additionalProperties:
+            type: object
+            properties:
+              total: {type: integer}
+              "not connected": {type: integer}
+              configured: {type: integer}
+              connected: {type: integer}
+              error: {type: integer}
+        by_status:
+          type: object
+          additionalProperties: {type: integer}
+        events: {type: integer}
+        rbac_grants:
+          type: object
+          additionalProperties: {type: integer}
+        discovered_assets: {type: integer}

@@ -1,6 +1,6 @@
 # VY-PAM — Implementation Plan (remaining architecture coverage)
 
-**Status:** maintained through Phase 4h — remaining backlog starts at 4i
+**Status:** maintained through Phase 5b — remaining backlog starts at 5c
 **Authoritative spec:** `VY-PAM_Enterprise_PAM_Architecture.md`
 **Execution log:** `VY-PAM_MASTER_and_PAM_Workflow.md` (checkpoint rows — the
 resumable source of truth while working)
@@ -26,14 +26,14 @@ resumable source of truth while working)
 | §7 Risk-Based Access | 8-component engine + session gate | ✅ built | 4f |
 | §8 Privileged Sessions | recording, controls, cascade | ✅ built | 4c |
 | §9 Command Control | default-allow rules, holds, incidents | ✅ built | 4d |
-| §19 Immutable Audit | hash chain, 12 sources, verify/export | ✅ built | 4e |
+| §19 Immutable Audit | hash chain, 13 sources, verify/export | ✅ built | 4e |
 | §10 PAM Bypass Detection | direct-access detection | ✅ built | **4g** |
 | §17 Break Glass | emergency protocol (dual approval → recorded session → rotation) | ✅ built | **4h** |
 | §20 Enterprise Integrations | TOTP MFA gate, ITSM verify, SIEM push, LDAP bind | ✅ built | **4i** |
 | §11 AI Security / UEBA | behavior baselines, anomaly response | ✅ built | **4j** |
 | §12 Dynamic Watermarking | contextual session overlay | ✅ built | **4k** |
 | §13 Third-Party / Vendor PAM | vendor invite → JIT flow, §13 dashboard | ✅ built | **5a** |
-| §14 Cloud PAM | AWS/Azure/GCP/K8s connectors | ⛔ pending | **5b** |
+| §14 Cloud PAM | AWS/Azure/GCP/K8s connectors, K8s RBAC → JIT grants | ✅ built | **5b** |
 | §15 DevSecOps PAM | CI/CD JIT credential broker | ⛔ pending | **5c** |
 | §16 AI-Agent PAM | agent identity + task-scoped access | ⛔ pending | **5d** |
 | §18 HA / DC / DR | multi-node, replication, failover | ⛔ pending | **6a** |
@@ -340,6 +340,32 @@ real when credentials are configured; K8s path issues ephemeral RBAC grants
 through the existing JIT (spec: *Kubernetes → RBAC → JIT → ephemeral
 privilege → audit*). Unconfigured clouds render `not connected`.
 
+**As built (5b):** `cloud_connectors` + `cloud_events` (tables **30→32**)
+and indexed `jit_requests.cloud_connector_id` + `cloud_binding` JSON (both
+added through `ensure_schema`). Connector status is honest state —
+`not connected` / `configured` / `connected` / `error` — and only a real
+probe moves it: endpoint must be `https` (`http` loopback-only for local
+dev), the probe is a real GET (vault credential revealed per call, audited;
+2xx → `connected`, failure → `error` + reason, never "credentials
+validated"). Inventory requires endpoint + vault credential (409 honest
+otherwise); the cloud's own API answers (`GET /` → `resources[]` for the
+clouds, `GET /api/v1/nodes` → `items[]` for Kubernetes), assets land under
+`source=cloud` with `method=CLOUD_METHODS[provider]` as real
+`DiscoveryScan` rows, and an unrecognized/failed response records an honest
+failure and invents nothing. The architecture's Kubernetes path
+*Kubernetes → RBAC → JIT → ephemeral privilege → audit* files a section-6
+JIT request (`risk` scoring verbatim) with `cloud_binding`; consuming the
+grant applies a real RoleBinding `vypam-jit-<id>` (refusal → 502 +
+`rbac-binding-failed`, request stays approved), close/expiry removes it
+first (`rbac-closed`/`rbac-expired`), a failed checkout after apply removes
+the binding again (`rbac-aborted`), and connectors refuse deletion (409)
+while grants ride them. Ledger source `cloud` (**12→13**, 13th mapper
+`_map_cloud`), Compliance chips **13→14**, Target Infrastructure screen
+gains the live Cloud PAM Connectors section (provider cards, table,
+probe/inventory/RBAC/add actions; `file://` → dashes). Contract
+**102 paths / 116 ops / 16 tags / 64 admin / 178 schemas**;
+`test_cloud.py` **27** + full backend **488** (in-container **406**).
+
 ### 5c — DevSecOps PAM (§15)
 JIT credential broker for pipelines: CI systems (Jenkins/GitLab/GitHub/
 Azure DevOps) request short-lived credentials via API token + approval policy;
@@ -368,7 +394,7 @@ procedures in `docs/DEPLOYMENT_RUNBOOK.md` extend to replication runbooks.
 ### 6b — RBAC / ABAC
 Multi-role model (today: single admin token + open dev mode): roles
 (admin / approver / operator / auditor / auditor-read-only), policy bindings
-on the 58 admin operations, attribute rules on vault items and targets.
+on the 64 admin operations, attribute rules on vault items and targets.
 Contract lockstep: security schemes gain role requirements.
 
 ### 6c — SSO + HSM enforcement
@@ -399,15 +425,15 @@ real numbers collected at that time, `—` until then**:
 1. **Every architecture section §1–§21 has a built, tested implementation**
    (the §1 status table above fully ✅), and §22 Feature Matrix rows match
    reality line-for-line.
-2. **Console:** all 10 sidebar screens live (including Break-Glass), zero
+2. **Console:** all 11 sidebar screens live (including Break-Glass), zero
    `data-kind="static"` surfaces, zero FORBIDDEN strings, `file://` fallback
    intact.
-3. **Evidence:** one append-only ledger covering every module source (12+
+3. **Evidence:** one append-only ledger covering every module source (13+
    sources), chain verified in CI, NDJSON + webhook export flowing to a real
    SIEM when configured.
 4. **Contracts:** `apis/openapi.yaml` (path count `—`, today 96) and the
    vendor tool contract both enforced both-ways; zero dark endpoints.
-5. **Quality gates:** backend suite (today **461**) grows per phase with real
+5. **Quality gates:** backend suite (today **488**) grows per phase with real
    counts recorded in the READMEs; pam_master stays green (**46**); smoke,
    both UI verifiers, leak check all green at every boundary.
 6. **Operations:** single-node install stays Docker-free; §18 adds replicated

@@ -1,6 +1,6 @@
 # VY-PAM — Testing & QA Strategy
 
-**Status:** as-built for Phase 5a
+**Status:** as-built for Phase 5b
 Every number below was collected from the real suite at this commit.
 
 ---
@@ -9,7 +9,7 @@ Every number below was collected from the real suite at this commit.
 
 | Suite | File | Tests |
 |---|---|---|
-| **Backend total** | `python -m pytest backend -q` | **461** |
+| **Backend total** | `python -m pytest backend -q` | **488** |
 | ├ licensing core | `backend/ipam_licensing/test_license_core.py` | 46 |
 | ├ licensing spec | `backend/ipam_licensing/test_license_spec.py` | 35 |
 | ├ licensing bridge | `backend/ipam_licensing/test_licensing.py` | 1 |
@@ -29,6 +29,7 @@ Every number below was collected from the real suite at this commit.
 | ├ UEBA (4j) | `…/tests/test_ueba.py` | 9 |
 | ├ watermark (4k) | `…/tests/test_watermark.py` | 6 |
 | ├ vendor PAM (5a) | `…/tests/test_vendor_pam.py` | 21 |
+| ├ cloud PAM (5b) | `…/tests/test_cloud.py` | 27 |
 | └ OpenAPI contract | `…/tests/test_openapi_contract.py` | 5 |
 | **Vendor tool total** | `python -m pytest pam_master -q` | **46** |
 | ├ registry (encrypted PII) | `pam_master/tests/test_registry.py` | 15 |
@@ -37,9 +38,9 @@ Every number below was collected from the real suite at this commit.
 | └ vendor OpenAPI contract | `pam_master/tests/test_openapi_contract.py` | 6 |
 
 Contract test asserts (5): documented ⇄ implemented routes both directions,
-security schemes on **58** admin operations, enums ⇄ code constants,
-required `info`/tags (15), and live response shapes ⇄ schemas — currently
-**96 paths / 107 operations**.
+security schemes on **64** admin operations, enums ⇄ code constants,
+required `info`/tags (16), and live response shapes ⇄ schemas — currently
+**102 paths / 116 operations**.
 
 ## 2. Test design rules
 
@@ -98,7 +99,7 @@ a fullPage path.
 ## 4. Boundary regression (run before every commit)
 
 ```powershell
-python -X utf8 -m pytest backend -q          # 461
+python -X utf8 -m pytest backend -q          # 488
 python -X utf8 -m pytest pam_master -q       # 46
 python -X utf8 -m pytest backend\phase2_license_server\tests\test_openapi_contract.py -q   # 5
 # boundary smoke (Temp\opencode\smoke_restructure.py): 17/17
