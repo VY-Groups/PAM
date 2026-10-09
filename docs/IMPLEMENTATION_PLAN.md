@@ -30,7 +30,7 @@ resumable source of truth while working)
 | §10 PAM Bypass Detection | direct-access detection | ✅ built | **4g** |
 | §17 Break Glass | emergency protocol (dual approval → recorded session → rotation) | ✅ built | **4h** |
 | §20 Enterprise Integrations | TOTP MFA gate, ITSM verify, SIEM push, LDAP bind | ✅ built | **4i** |
-| §11 AI Security / UEBA | behavior baselines, anomaly response | ⛔ pending | **4j** |
+| §11 AI Security / UEBA | behavior baselines, anomaly response | ✅ built | **4j** |
 | §12 Dynamic Watermarking | contextual session overlay | ⛔ pending (custody string only) | **4k** |
 | §13 Third-Party / Vendor PAM | vendor invite → JIT flow | ⛔ pending | **5a** |
 | §14 Cloud PAM | AWS/Azure/GCP/K8s connectors | ⛔ pending | **5b** |
@@ -232,10 +232,38 @@ CREDENTIAL → SOC ALERT → CREATE INCIDENT → PRESERVE EVIDENCE.*
 
 **Depends on:** 4f (risk), 4c/4d (session/command history depth), 4i (MFA
 for step-up).
-**Tests:** `test_ueba.py` — `—`.
+**Tests:** `test_ueba.py` — **9**.
 **Done when:** an actor deviating from their own recorded baseline produces a
 critical evaluation with named reasons, a real block/cascade, and preserved
 evidence — all from real history rows.
+
+**As built (4j):** 2 models (`behavior_baselines`, `anomaly_incidents`) /
+**28** tables; 3 endpoints across 3 path keys (`risk/baselines` GET public,
+`risk/baselines/train` POST admin, `risk/anomalies` GET public) under the
+existing `risk` tag. Baselines learn a 30-day rolling profile (hours,
+devices, source IPs, targets, command/privilege verbs, protocols, cadence)
+**only from real rows** (`risk_events`, `privileged_sessions`,
+`session_events` type `command`, `command_incidents`) — trained explicitly
+(endpoint / Policy-screen button), an unseen principal gets no baseline, and
+a truncated dimension (>128 distinct values) stops claiming deviation. The
+§7 `behavior` component keeps its local 24h counts and gains **5 points per
+named deviation** (unusual time/device/IP/target/command/privilege, listed
+verbatim in `reasons`; behavior ≤45, total **clamps at 100** with the
+measured sum named in the detail); with no stored baseline the component
+stays byte-identical. A CRITICAL refusal carrying deviations runs the chain
+inside `create_session`: refuse the start (403 `details.risk`) → end every
+other active session of that principal through the release-and-rotate
+cascade → rotate the credential the request sought (`item_id` →
+`rotate_vault_item`, else `_force_target_rotation` on the target's items) →
+commit the `AnomalyEvent` with reasons + actions (failures reported, never
+hidden) → `details.anomaly` back to the caller; the incident fans into the
+ledger under the existing `risk` source (`anomaly-incident`, ref
+`anom:<id>`) so sources stay **11**/chips 12. Console evaluations stay
+advisory. Drift guard auto-covers `AnomalyEvent` (class named `*Event` on
+purpose). Policy screen §7 gains the Anomalies subsection (baselines list,
+per-reason chips, Train button, honest empty states); caps legend now reads
+"score clamps at 100". Contract **87 paths / 96 ops / 14 tags / 49 admin**;
+`test_ueba.py` **9** + full backend **434**.
 
 ## 7. Phase 4k — Dynamic Watermarking (§12)
 
@@ -305,7 +333,7 @@ procedures in `docs/DEPLOYMENT_RUNBOOK.md` extend to replication runbooks.
 ### 6b — RBAC / ABAC
 Multi-role model (today: single admin token + open dev mode): roles
 (admin / approver / operator / auditor / auditor-read-only), policy bindings
-on the 48 admin operations, attribute rules on vault items and targets.
+on the 49 admin operations, attribute rules on vault items and targets.
 Contract lockstep: security schemes gain role requirements.
 
 ### 6c — SSO + HSM enforcement
@@ -318,7 +346,7 @@ keys where configured. Posture widget then counts them honestly as active.
 ## 10. Suggested execution order & rationale
 
 ```
-4i §20 → 4j §11 → 4k §12                                (Phase 4 completion)
+4j §11 ✓ → 4k §12                                (Phase 4 completion)
         → 5a §13 → 5b §14 → 5c §15 → 5d §16     (expansion)
         → 6a §18 → 6b RBAC → 6c SSO/HSM          (scale)
 ```
@@ -342,9 +370,9 @@ real numbers collected at that time, `—` until then**:
 3. **Evidence:** one append-only ledger covering every module source (11+
    sources), chain verified in CI, NDJSON + webhook export flowing to a real
    SIEM when configured.
-4. **Contracts:** `apis/openapi.yaml` (path count `—`, today 84) and the
+4. **Contracts:** `apis/openapi.yaml` (path count `—`, today 87) and the
    vendor tool contract both enforced both-ways; zero dark endpoints.
-5. **Quality gates:** backend suite (today **425**) grows per phase with real
+5. **Quality gates:** backend suite (today **434**) grows per phase with real
    counts recorded in the READMEs; pam_master stays green (**46**); smoke,
    both UI verifiers, leak check all green at every boundary.
 6. **Operations:** single-node install stays Docker-free; §18 adds replicated

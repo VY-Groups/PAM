@@ -51,7 +51,7 @@ repo.
 | Store | SQLite (`licenses.db`, git-ignored) | append-only enforced by triggers on `audit_events` |
 | Crypto | `cryptography` lib | RSA-PSS-SHA256 (default) / Ed25519 envelopes; AES-256-GCM secrets |
 | Frontend | Static HTML + Tailwind (CDN build) + vanilla JS | 10 sidebar screens, no bundler, works from `file://` |
-| Tests | pytest | 425 backend + 46 pam_master |
+| Tests | pytest | 434 backend + 46 pam_master |
 | UI verification | Node + `playwright-core` (`shots_tool/`) | viewport 1920×1600, never `fullPage` |
 | Vendor tool | Flask + raw `sqlite3` | `pam_master` package, `python -m pam_master` |
 
@@ -259,12 +259,41 @@ Rules enforced by tests/conventions:
   `integration`; connector state aggregates at `GET /integrations/status`
   (Settings cards, Compliance SIEM chip, Break-Glass MFA field all read it).
 
+### 4.14 UEBA behavior baselines + anomaly chain (§11) - Phase 4j
+- **Baselines** (`behavior_baselines`) are learned only from real history
+  rows - `risk_events`, `privileged_sessions`, `session_events` (type
+  `command`) and `command_incidents` inside a 30-day rolling window - and
+  store the principal's hours, devices, source IPs, targets, command and
+  privilege verbs, protocols and session cadence with the sample counts
+  behind them. Training is explicit (`POST /risk/baselines/train`, the
+  Policy screen's Train button); an unseen principal gets no baseline, a
+  truncated dimension (>128 distinct values) stops claiming deviation, and
+  evaluations only ever diff against the stored profile.
+- **Scoring**: the §7 `behavior` component keeps its local 24h counts and
+  gains `RISK_ANOMALY_POINTS` (5) per named deviation - unusual
+  time/device/IP/target/command/privilege, listed verbatim in the
+  component's `reasons` - so behavior can reach 45 and the total clamps
+  at 100 (the detail names the measured sum when it does). With no stored
+  baseline nothing changes: byte-identical component details.
+- **Response chain**: a CRITICAL refusal whose behavior component carries
+  deviations runs block → rotate → alert → incident for real inside
+  `create_session` - the start is refused (403, `details.risk`), every
+  other active session of that principal ends through the
+  release-and-rotate cascade, the credential the request sought is
+  rotated through the §5 pipeline (`item_id`) or the target's items
+  (`_force_target_rotation`), and an `AnomalyEvent` row commits with the
+  reasons + actions (`details.anomaly`). It folds into the §19 ledger
+  under the existing `risk` source (`anomaly-incident`, ref `anom:<id>`),
+  so the source count stays 11; console evaluations stay advisory and
+  never chain. Endpoints: `GET /risk/baselines`, `POST
+  /risk/baselines/train` (admin), `GET /risk/anomalies`.
+
 ## 5. API conventions
 
 | Concern | Rule |
 |---|---|
 | Versioning | Everything under `/api/v1` (health/meta unversioned) |
-| Auth | `LICENSE_ADMIN_TOKEN` set → `Authorization: Bearer …` or `X-Admin-Token` on the 48 admin operations; unset → explicit open dev mode (`X-Auth-Mode: open` response header) |
+| Auth | `LICENSE_ADMIN_TOKEN` set → `Authorization: Bearer …` or `X-Admin-Token` on the 49 admin operations; unset → explicit open dev mode (`X-Auth-Mode: open` response header) |
 | Actor | `X-Actor` header recorded on every audited write |
 | Errors | `{"error": {"code", "message", "details?"}}`; 400 validation, 401 auth, 403 policy refusal, 404, 409 conflict/state, 422 shape, 503 fail-closed dependency |
 | Pagination | `limit` (max 200) + `offset`, newest first |
@@ -321,14 +350,13 @@ its phase starts (plan > code > docs, in that order).
 
 | Phase / section | Data additions | API additions | Runtime behavior |
 |---|---|---|---|
-| 4j §11 UEBA | `behavior_baselines` (rolling, per actor) | `GET /risk/baselines`, anomaly detail on evaluations | baselines learned from real `risk_events`/`session_events` rows; deviation joins §7 `behavior` component with per-reason breakdown → cascade/rotate/incident chain |
 | 4k §12 Watermark | (payload assembled from existing session rows) | watermark field on session detail/events | live overlay rendered from real session data in the hub pane; protocol-level overlays gated behind gateway work, labelled `not connected` |
 | 5a §13 Vendor PAM | `vendor_accounts`, vendor scoping | vendor lifecycle endpoints over existing JIT | invite→MFA→NDA→ticket→approval→JIT→record→expiry |
 | 5b §14 Cloud | `cloud_connectors` | connector CRUD + cloud discovery extension | real inventory/cloud grants only when credentials configured |
 | 5c §15 DevSecOps | broker policy rows | `POST /broker/credentials` | time-boxed pipeline credentials (JIT semantics), no static CI secrets |
 | 5d §16 AI-Agent | `agent_identities`, task scopes | agent request endpoints + task-scoped rule evaluation | identity → task → risk → JIT → restricted commands → expiry |
 | 6a §18 HA | replication/failover topology | health/failover endpoints | multi-node; storage engine decision = core design item |
-| 6b RBAC | `roles`, `role_bindings` | security schemes gain role requirements | attribute checks on the 48 admin ops + vault/target scoping |
+| 6b RBAC | `roles`, `role_bindings` | security schemes gain role requirements | attribute checks on the 49 admin ops + vault/target scoping |
 | 6c SSO/HSM | SSO/HSM config state | SAML/OIDC login path, PKCS#11/KMS key ops | settings schema becomes enforcement; posture counts flip honestly |
 
 Standing constraints that carry into all of these: ledger emission inside

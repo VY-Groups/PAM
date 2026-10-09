@@ -107,7 +107,7 @@ loaded from Google Fonts; Material Symbols Outlined for icons.
 | JIT Access | request list, score breakdown, approvals, grants | 4b |
 | Live Session Hub | active sessions, controls, event stream, terminate cascade | 4c |
 | Target Infrastructure | scans, discovered assets/accounts, register/ignore | 2d/3c |
-| Policy & Zero Trust | command rules table, evaluate, approval queue, incidents, **§7 risk section** | 4d/4f |
+| Policy & Zero Trust | command rules table, evaluate, approval queue, incidents, **§7 risk section** + **§11 Anomalies** (trained baselines, per-reason deviation chips, incident chain) | 4d/4f/4j |
 | Compliance & SOC2 | ledger digest, verify walk, 11-source chips, export, record modal, SIEM header chip | 4e/4f/4g/4h/4i |
 | Licensing | entitlements, quota usage, import/validate/revoke | 3a |
 | Break-Glass | request filing, dual-approval signatures, recorded emergency session, close + review — **§17 live** | 4h |
@@ -136,7 +136,6 @@ loaded from Google Fonts; Material Symbols Outlined for icons.
 
 | Screen / surface | Pending work | Phase |
 |---|---|---|
-| Policy & Zero Trust (§7 section) | "Anomalies" subsection — baseline deviations with per-reason chips (UEBA) | 4j |
 | Live Session Hub | Dynamic watermark overlay pane (USER/SESSION/TARGET/TIME/TICKET/SOURCE) that reacts to pause/resume/terminate; protocol-level overlays remain `not connected` until gateway work | 4k |
 | Target Infrastructure | Cloud connector cards (AWS/Azure/GCP/K8s) — `not connected` until configured | 5b |
 | New nav entries | Vendor/agent surfaces (5a/5d) require sidebar growth — **decision point**: extend the canonical 10-item nav (and the nav-consistency test) or nest under existing screens; decided at phase start, not earlier | 5a/5d |

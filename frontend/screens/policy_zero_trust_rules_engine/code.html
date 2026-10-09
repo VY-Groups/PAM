@@ -456,7 +456,7 @@
 <td class="py-1.5 text-on-surface-variant" data-role="det">—</td>
 </tr>
 <tr data-component="behavior" class="border-t border-outline-variant/20">
-<td class="py-1.5 text-on-surface">Behavior <span class="text-outline">max 15</span></td>
+<td class="py-1.5 text-on-surface">Behavior <span class="text-outline">max 15 + 5/deviation</span></td>
 <td class="py-1.5 text-right text-on-surface font-semibold" data-role="pts">—</td>
 <td class="py-1.5 text-on-surface-variant" data-role="det">—</td>
 </tr>
@@ -477,7 +477,7 @@
 <div class="rounded-xl bg-surface-container-high/40 p-space-md flex flex-col gap-1">
 <div class="flex items-center justify-between pb-1">
 <span class="font-label-badge text-label-badge text-outline uppercase tracking-wider">Band legend · spec</span>
-<span class="font-code-sm text-code-sm text-outline">caps sum to 100</span>
+<span class="font-code-sm text-code-sm text-outline">behavior grows with deviations; score clamps at 100</span>
 </div>
 <div class="flex items-center justify-between font-code-sm text-code-sm">
 <span class="text-tertiary font-semibold">low 0-25</span>
@@ -518,6 +518,58 @@
 <p class="font-body-sm text-body-sm text-on-surface-variant leading-relaxed">
               Session starts run this same scorer with the operator's device and target: a CRITICAL band refuses the start outright, HIGH proceeds only under an active JIT grant (signed off by someone other than the requester), MEDIUM prescribes MFA, LOW allows. Console evaluations only advise - every evaluation, allowed or refused, is written to the risk trail of the immutable audit ledger.
             </p>
+</div>
+</div>
+</div>
+</div>
+<!-- Section 11 UEBA: behavior baselines and the anomaly response chain -->
+<div class="mt-space-xl pt-space-lg border-t border-outline-variant/30" data-role="anomaly-panel">
+<div class="flex flex-col xl:flex-row xl:items-start justify-between gap-space-lg mb-space-md">
+<div class="flex flex-col max-w-3xl">
+<div class="flex items-center gap-space-sm mb-space-xs flex-wrap">
+<span class="px-space-sm py-0.5 rounded bg-surface-container-high text-primary font-code-sm text-code-sm font-semibold uppercase tracking-wider">
+            ANOMALIES · ARCH11
+          </span>
+<span class="inline-flex items-center gap-1 font-code-sm text-code-sm text-outline">
+<span>BASELINES TRAINED:</span>
+<span class="text-on-surface font-semibold" data-role="baseline-total">—</span>
+</span>
+<span class="inline-flex items-center gap-1 font-code-sm text-code-sm text-outline">
+<span>INCIDENTS:</span>
+<span class="text-on-surface font-semibold" data-role="anomaly-total">—</span>
+</span>
+</div>
+<h3 class="font-headline-lg text-headline-lg text-on-surface tracking-tight leading-tight">
+          Anomalies
+        </h3>
+<p class="font-body-sm text-body-sm text-on-surface-variant mt-1.5 leading-relaxed">
+          Baselines are learned from this platform's own history - recorded evaluations, sessions, commands and incidents over a rolling window, never synthetic users - and describe how each principal actually works: their hours, devices, source IPs, targets, command verbs and privilege verbs. Every request from a trained principal is diffed against that profile; the deviations are named on the behavior component (5 points each). A CRITICAL deviation refuses the session start, ends the principal's standing sessions through the release-and-rotate cascade, rotates the credential the request sought through the real rotation pipeline, and records the incident below and on the risk trail of the audit ledger.
+        </p>
+</div>
+<div class="flex flex-col gap-space-xs shrink-0">
+<button data-role="train-baselines" class="px-space-md py-2 rounded-lg bg-primary text-on-primary font-label-badge text-label-badge uppercase tracking-wider hover:bg-primary/90 transition-colors">
+          Train baselines
+        </button>
+<span class="font-code-sm text-code-sm text-outline text-right" data-role="train-status">learns from real history</span>
+</div>
+</div>
+<div class="grid grid-cols-1 lg:grid-cols-2 gap-space-md">
+<div class="bg-surface-container-lowest rounded-xl p-space-lg shadow-sm flex flex-col gap-space-sm">
+<div class="flex items-center justify-between pb-space-xs border-b border-outline-variant/30">
+<span class="font-headline-sm text-headline-sm text-on-surface font-semibold">Trained baselines</span>
+<span class="font-code-sm text-code-sm text-outline">rolling window · real rows only</span>
+</div>
+<div data-role="baselines">
+<div class="font-body-sm text-body-sm text-on-surface-variant">—</div>
+</div>
+</div>
+<div class="bg-surface-container-lowest rounded-xl p-space-lg shadow-sm flex flex-col gap-space-sm">
+<div class="flex items-center justify-between pb-space-xs border-b border-outline-variant/30">
+<span class="font-headline-sm text-headline-sm text-on-surface font-semibold">Anomaly incidents</span>
+<span class="font-code-sm text-code-sm text-outline">newest first</span>
+</div>
+<div data-role="anomalies">
+<div class="font-body-sm text-body-sm text-on-surface-variant">—</div>
 </div>
 </div>
 </div>
@@ -573,6 +625,8 @@
 
       let stats = null;
       let recent = [];
+      let baselines = [];
+      let anomalies = [];
 
       function headers() {
         const h = { 'Content-Type': 'application/json' };
@@ -641,6 +695,85 @@
         }).join('');
       }
 
+      function renderBaselines() {
+        const box = f('baselines');
+        put(f('baseline-total'), baselines.length ? String(baselines.length) : '0');
+        if (!box) return;
+        if (!baselines.length) {
+          box.innerHTML = '<div class="font-body-sm text-body-sm text-on-surface-variant">'
+            + (FILE_MODE
+              ? 'file:// preview - start the license server to train baselines.'
+              : 'No baselines trained yet - train from the real history above.')
+            + '</div>';
+          return;
+        }
+        box.innerHTML = baselines.map(function (row) {
+          return '<div class="py-1.5 border-b border-outline-variant/20 last:border-0">'
+            + '<div class="flex items-center justify-between gap-space-sm">'
+            + '<span class="font-code-sm text-code-sm text-on-surface font-semibold truncate">'
+            + esc(row.subject) + '</span>'
+            + '<span class="font-code-sm text-code-sm text-outline shrink-0">'
+            + esc(row.samples) + ' samples · ' + esc(row.sessions_per_day) + ' sess/day</span>'
+            + '</div>'
+            + '<div class="font-code-sm text-code-sm text-on-surface-variant pt-0.5">'
+            + 'hours ' + esc((row.hours || []).join(',') || DASH)
+            + ' · devices ' + esc((row.devices || []).length)
+            + ' · ips ' + esc((row.source_ips || []).length)
+            + ' · targets ' + esc((row.targets || []).length)
+            + ' · verbs ' + esc((row.command_verbs || []).length)
+            + (row.privilege_verbs && row.privilege_verbs.length
+              ? ' · priv ' + esc(row.privilege_verbs.join(','))
+              : '')
+            + ' · trained ' + esc(relTime(row.updated_at))
+            + '</div></div>';
+        }).join('');
+      }
+
+      function renderAnomalies() {
+        const box = f('anomalies');
+        put(f('anomaly-total'), anomalies.length ? String(anomalies.length) : '0');
+        if (!box) return;
+        if (!anomalies.length) {
+          box.innerHTML = '<div class="font-body-sm text-body-sm text-on-surface-variant">'
+            + (FILE_MODE
+              ? 'file:// preview - start the license server to record incidents.'
+              : 'No anomaly incidents recorded.')
+            + '</div>';
+          return;
+        }
+        box.innerHTML = anomalies.map(function (inc) {
+          const acts = inc.actions || {};
+          return '<div class="py-1.5 border-b border-outline-variant/20 last:border-0">'
+            + '<div class="flex items-center justify-between gap-space-sm">'
+            + '<div class="flex items-center gap-2 min-w-0">'
+            + '<span class="shrink-0 px-1.5 py-0.5 rounded font-code-sm text-code-sm font-semibold '
+            + (BAND_CLASS[inc.band] || 'bg-error text-on-error') + '">' + esc(inc.band) + '</span>'
+            + '<span class="font-code-sm text-code-sm text-on-surface truncate">'
+            + esc(inc.subject) + ' → ' + esc(inc.target || DASH) + '</span>'
+            + '</div>'
+            + '<div class="flex items-center gap-space-sm font-code-sm text-code-sm text-on-surface-variant shrink-0">'
+            + '<span class="text-on-surface font-semibold">' + esc(inc.score) + '</span>'
+            + '<span class="text-outline">' + esc(relTime(inc.created_at)) + '</span>'
+            + '</div>'
+            + '</div>'
+            + '<div class="flex flex-wrap gap-1 pt-1">'
+            + (inc.reasons || []).map(function (reason) {
+              return '<span class="px-1.5 py-0.5 rounded bg-error-container text-on-error-container font-code-sm text-code-sm">'
+                + '+ ' + esc(reason) + '</span>';
+            }).join('')
+            + '</div>'
+            + '<div class="font-code-sm text-code-sm text-on-surface-variant pt-1">'
+            + (acts.blocked ? 'blocked' : 'not blocked')
+            + ' · sessions ended ' + esc((acts.sessions_ended || []).length)
+            + ' · rotations ' + esc((acts.rotations || []).length)
+            + ((acts.notes || []).length
+              ? ' · <span class="text-error">' + esc((acts.notes || []).join('; ')) + '</span>'
+              : '')
+            + ' · ' + esc(inc.incident_ref)
+            + '</div></div>';
+        }).join('');
+      }
+
       function renderComponents(ev) {
         COMPONENTS.forEach(function (name) {
           const row = section.querySelector('[data-component="' + name + '"]');
@@ -684,6 +817,45 @@
         renderRecent();
       }
 
+      async function loadAnomalies() {
+        if (FILE_MODE) {
+          baselines = [];
+          anomalies = [];
+        } else {
+          try {
+            const page = await call('/risk/baselines');
+            baselines = page.baselines || [];
+          } catch (err) { baselines = []; }
+          try {
+            const page = await call('/risk/anomalies?limit=8');
+            anomalies = page.anomalies || [];
+          } catch (err) { anomalies = []; }
+        }
+        renderBaselines();
+        renderAnomalies();
+      }
+
+      function bindTrain() {
+        const btn = f('train-baselines');
+        const status = f('train-status');
+        if (!btn) return;
+        if (FILE_MODE) {
+          btn.disabled = true;
+          btn.classList.add('opacity-50', 'cursor-not-allowed');
+        }
+        btn.addEventListener('click', async function () {
+          if (FILE_MODE) return;
+          if (status) status.textContent = 'training…';
+          try {
+            const out = await call('/risk/baselines/train', 'POST', {});
+            if (status) status.textContent = out.message || ('trained ' + out.trained);
+            await loadAnomalies();
+          } catch (err) {
+            if (status) status.textContent = err.message;
+          }
+        });
+      }
+
       function bindEvaluate() {
         const btn = f('evaluate');
         const errLine = f('form-error');
@@ -718,8 +890,12 @@
       function boot() {
         renderStats();
         renderRecent();
+        renderBaselines();
+        renderAnomalies();
         bindEvaluate();
+        bindTrain();
         loadAggregates();
+        loadAnomalies();
       }
       if (document.readyState === 'loading') {
         document.addEventListener('DOMContentLoaded', boot);

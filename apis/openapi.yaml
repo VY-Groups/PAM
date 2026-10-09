@@ -1909,6 +1909,71 @@ paths:
             application/json:
               schema: {$ref: "#/components/schemas/RiskStats"}
 
+  /api/v1/risk/baselines:
+    get:
+      tags: [risk]
+      summary: Trained UEBA behavior baselines (architecture 11)
+      description: >
+        Every principal's learned profile - hours, devices, source IPs,
+        targets, command verbs, privilege verbs, session cadence - taken
+        only from real history rows inside the rolling window. Empty until
+        a baseline is trained; normality is never invented.
+      responses:
+        "200":
+          description: The stored baselines
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/BehaviorBaselineList"}
+
+  /api/v1/risk/baselines/train:
+    post:
+      tags: [risk]
+      summary: Learn or refresh baselines from real history (architecture 11)
+      description: >
+        Trains every principal with history in the rolling window, or just
+        `subject` when the body names one. Primarily an operator action
+        (the Policy screen's Train button); evaluations only ever diff
+        against a stored profile.
+      security:
+        - bearerAuth: []
+        - adminTokenHeader: []
+        - {}
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema: {$ref: "#/components/schemas/TrainBaselinesRequest"}
+      responses:
+        "200":
+          description: Baselines learned or refreshed
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/TrainBaselinesResponse"}
+        "400": {$ref: "#/components/responses/BadRequest"}
+        "401": {$ref: "#/components/responses/Unauthorized"}
+
+  /api/v1/risk/anomalies:
+    get:
+      tags: [risk]
+      summary: UEBA incidents, newest first (architecture 11)
+      description: >
+        Recorded incidents: the refused critical evaluation, the named
+        deviations and the response chain it ran. Each incident also fans
+        into the ledger's risk trail (action `anomaly-incident`).
+      parameters:
+        - name: subject
+          in: query
+          schema: {type: string, maxLength: 160}
+        - {$ref: "#/components/parameters/Limit"}
+        - {$ref: "#/components/parameters/Offset"}
+      responses:
+        "200":
+          description: Paged incidents
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/AnomalyList"}
+        "400": {$ref: "#/components/responses/BadRequest"}
+
   /api/v1/bypass/ingest:
     post:
       tags: [bypass]
@@ -2971,6 +3036,15 @@ components:
             a real verification was attempted: true when the instance
             confirmed the ticket, false when it did not (or errored).
             Unconfigured ITSM stays shape-only and omits the flag.
+        reasons:
+          type: array
+          items: {type: string}
+          description: >
+            Present only on `behavior` when the subject has a trained
+            baseline (section 11) and this request deviates from it: the
+            named deviations ("unusual time", "unusual device",
+            "unusual IP", "unusual target", "unusual command",
+            "unusual privilege"), each worth 5 points on the component.
 
     RiskEvaluation:
       type: object
@@ -3008,6 +3082,99 @@ components:
         total: {type: integer}
         limit: {type: integer}
         offset: {type: integer}
+
+    BehaviorBaseline:
+      type: object
+      description: >
+        One principal's learned behavior baseline (section 11): the hours,
+        devices, source IPs, targets, command verbs, privilege verbs and
+        session cadence taken from real history rows inside the rolling
+        window. Trained explicitly; never invented for an unseen principal.
+      required: [id, subject, window_days, samples, sessions, evaluations,
+                 incidents, hours, devices, source_ips, targets, protocols,
+                 command_verbs, privilege_verbs, sessions_per_day, trained_by,
+                 updated_at]
+      properties:
+        id: {type: integer}
+        subject: {type: string, maxLength: 160}
+        window_days: {type: integer, description: Rolling window the profile learned from.}
+        samples: {type: integer, description: Real history rows the profile used.}
+        sessions: {type: integer}
+        evaluations: {type: integer}
+        incidents: {type: integer}
+        hours: {type: array, items: {type: integer}, description: Hours of day the principal was active (0-23).}
+        devices: {type: array, items: {type: string}}
+        source_ips: {type: array, items: {type: string}}
+        targets: {type: array, items: {type: string}, description: Distinct target hosts.}
+        protocols: {type: array, items: {type: string}}
+        command_verbs: {type: array, items: {type: string}, description: Distinct command verbs (classes) seen.}
+        privilege_verbs: {type: array, items: {type: string}, description: Privilege-raising verbs among them (sudo, su, ...).}
+        sessions_per_day: {type: number, description: Session cadence over the window.}
+        first_at: {type: string, format: date-time, nullable: true}
+        last_at: {type: string, format: date-time, nullable: true}
+        trained_by: {type: string}
+        updated_at: {type: string, format: date-time}
+
+    BehaviorBaselineList:
+      type: object
+      required: [total, window_days, baselines]
+      properties:
+        total: {type: integer}
+        window_days: {type: integer}
+        baselines: {type: array, items: {$ref: "#/components/schemas/BehaviorBaseline"}}
+
+    TrainBaselinesRequest:
+      type: object
+      properties:
+        subject:
+          type: string
+          maxLength: 160
+          description: Train just this principal; omit to train every principal with history in the window.
+
+    TrainBaselinesResponse:
+      type: object
+      required: [trained, baselines, message]
+      properties:
+        trained: {type: integer, description: Baselines learned or refreshed by this call.}
+        baselines: {type: array, items: {$ref: "#/components/schemas/BehaviorBaseline"}}
+        message: {type: string}
+
+    AnomalyIncident:
+      type: object
+      description: >
+        One UEBA incident (section 11): a critical evaluation whose behavior
+        component named baseline deviations, plus the response chain it
+        triggered (sessions ended through the release-and-rotate cascade,
+        credentials rotated). Preserved evidence; it lands on the risk
+        trail of the ledger and is never rewritten.
+      required: [id, incident_ref, evaluation_id, actor, subject, target,
+                 score, band, reasons, actions, created_at]
+      properties:
+        id: {type: integer}
+        incident_ref: {type: string, example: "anom-9f2c41ab"}
+        evaluation_id: {type: integer, description: The refused evaluation this incident preserves.}
+        actor: {type: string}
+        subject: {type: string, maxLength: 160}
+        target: {type: string}
+        score: {type: integer}
+        band: {type: string, enum: [critical]}
+        reasons: {type: array, items: {type: string}, description: The named deviations, verbatim from the component.}
+        actions:
+          type: object
+          description: What the response chain did for this incident.
+          properties:
+            blocked: {type: boolean, description: The session start was refused.}
+            sessions_ended: {type: array, items: {type: string}, description: Session refs ended by the cascade.}
+            rotations: {type: array, items: {type: object}, description: Credentials rotated through the module-5 pipeline.}
+            notes: {type: array, items: {type: string}, description: Steps that could not complete, reported honestly.}
+        created_at: {type: string, format: date-time}
+
+    AnomalyList:
+      type: object
+      required: [total, anomalies]
+      properties:
+        total: {type: integer}
+        anomalies: {type: array, items: {$ref: "#/components/schemas/AnomalyIncident"}}
 
     RiskStats:
       type: object
@@ -3553,6 +3720,10 @@ components:
           type: string
           maxLength: 128
           description: Client device identifier, scored by the risk engine at start (unknown devices cost points).
+        source_ip:
+          type: string
+          maxLength: 64
+          description: Source address of the access request, scored by the risk engine (classified with stdlib ipaddress).
         record: {type: boolean, default: true}
         keystroke_log: {type: boolean, default: true}
         watermark: {type: boolean, default: true}

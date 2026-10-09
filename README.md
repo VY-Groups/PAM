@@ -24,7 +24,7 @@ PAM/
 │   ├── screens/<name>/          #   one folder per screen: code.html + screen.png
 │   └── README.md                #   layout + how to add a screen (the contract)
 ├── apis/                            # HTTP contract for every backend service
-│   ├── openapi.yaml             #   OpenAPI 3.1: all 84 paths (synced by a test)
+│   ├── openapi.yaml             #   OpenAPI 3.1: all 87 paths (synced by a test)
 │   └── README.md                #   conventions + how to view
 ├── backend/
 │   ├── ipam_licensing/              # Phase 1: library + CLIs
@@ -50,6 +50,7 @@ PAM/
 │       ├── tests/test_bypass.py      # §10 PAM bypass detection (19 tests)
 │       ├── tests/test_break_glass.py  # §17 break-glass emergency path (22 tests)
 │       ├── tests/test_integrations.py # §20 MFA/ITSM/SIEM/LDAP integrations (41 tests)
+│       ├── tests/test_ueba.py         # §11 UEBA baselines & anomaly chain (9 tests)
 │       ├── tests/test_openapi_contract.py # apis/openapi.yaml ↔ routes (5 tests)
 │       ├── Dockerfile + docker-compose.yml  # development/runtime testing only
 │       └── README.md                # full API reference
@@ -91,7 +92,7 @@ python -m pam_master.keygen                      # RSA + Ed25519 + registry PII 
 python -m pam_master                             # http://127.0.0.1:5400
 
 # Tests (shared core + shipped API contract + vendor tool)
-python -m pytest backend -q                      # 425 tests
+python -m pytest backend -q                      # 434 tests
 python -m pytest pam_master -q                   # 46 tests (vendor tool)
 ```
 
@@ -151,7 +152,12 @@ python -m pytest pam_master -q                   # 46 tests (vendor tool)
   and keeps its evidence — plus `GET/POST /api/v1/risk/*`, the §7 risk-based
   access engine: eight scored components whose visible sum picks the band, and
   a session-start gate that refuses a critical evaluation while keeping it as
-  audit-ledger evidence), and the Emergency Break-Glass console
+  audit-ledger evidence - plus the §11 UEBA layer: behavior baselines learned
+  from the platform's own history, named deviations on the behavior component
+  ("unusual time/device/IP/target/command/privilege") and the incident chain a
+  critical deviation runs: refuse the start, end the principal's standing
+  sessions through the release-and-rotate cascade, rotate the sought
+  credential, and record the incident on the risk trail), and the Emergency Break-Glass console
   (`GET/POST /api/v1/break-glass/*` — emergency requests with dual approval
   from two distinct approvers, a recorded session that releases a real vault
   credential, and forced rotation plus a required review note at close —

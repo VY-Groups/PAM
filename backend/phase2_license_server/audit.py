@@ -35,6 +35,7 @@ from sqlalchemy.orm import Session, sessionmaker
 from extensions import db
 from models import (
     AUDIT_GENESIS_HASH,
+    AnomalyEvent,
     AuditEvent,
     BreakGlassEvent,
     BypassEvent,
@@ -320,6 +321,30 @@ def _map_risk_evaluation(event: RiskEvent, db_session) -> Dict[str, Any]:
     )
 
 
+def _map_anomaly(event: AnomalyEvent, db_session) -> Dict[str, Any]:
+    """A section-11 UEBA incident: the named deviations, the response the
+    chain executed (sessions ended, rotations) and the evaluation it came
+    from - under the `risk` trail, right next to that evaluation."""
+    return _entry(
+        source="risk",
+        event_ref=f"anom:{event.id}",
+        action="anomaly-incident",
+        actor=_value(event, "actor"),
+        subject=_value(event, "subject"),
+        detail={
+            "incident_ref": _value(event, "incident_ref"),
+            "evaluation_id": _value(event, "evaluation_id"),
+            "target": _value(event, "target"),
+            "score": _value(event, "score"),
+            "band": _value(event, "band"),
+            "reasons": _value(event, "reasons"),
+            "actions": _value(event, "actions"),
+        },
+        created_at=event.created_at,
+        sort_id=event.id,
+    )
+
+
 def _map_bypass(event: BypassEvent, db_session) -> Dict[str, Any]:
     """Ingestions, correlation scans, detections and closes under the ninth
     trail `bypass` (architecture section 10) - the SOC evidence trail for
@@ -382,6 +407,7 @@ LEDGER_MODELS = (
     BypassEvent,
     BreakGlassEvent,
     IntegrationEvent,
+    AnomalyEvent,
 )
 
 MAPPERS = {
@@ -396,6 +422,7 @@ MAPPERS = {
     BypassEvent: _map_bypass,
     BreakGlassEvent: _map_break_glass,
     IntegrationEvent: _map_integration,
+    AnomalyEvent: _map_anomaly,
 }
 
 

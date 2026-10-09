@@ -1075,6 +1075,56 @@ def risk_stats():
 
 
 # ---------------------------------------------------------------------------
+# UEBA behavior baselines and anomaly incidents (architecture section 11)
+# ---------------------------------------------------------------------------
+
+
+@api.get("/risk/baselines")
+def list_risk_baselines():
+    """Trained per-principal behavior baselines (hours, devices, source
+    IPs, targets, command verbs, privilege verbs, cadence) - learned only
+    from real history rows inside the rolling window."""
+    return jsonify(service.list_behavior_baselines())
+
+
+@api.post("/risk/baselines/train")
+@require_admin
+def train_risk_baselines():
+    """Learn or refresh baselines from the product's own history: every
+    principal in the window, or just `subject` when the body names one.
+    No history, no baseline - normality is never invented."""
+    payload = _json_body(required=False)
+    rows = service.train_behavior_baselines(
+        subject=payload.get("subject"), actor=_actor()
+    )
+    return (
+        jsonify(
+            {
+                "trained": len(rows),
+                "baselines": [row.to_dict() for row in rows],
+                "message": (
+                    f"Trained {len(rows)} baseline(s) from real history"
+                ),
+            }
+        ),
+        200,
+    )
+
+
+@api.get("/risk/anomalies")
+def list_risk_anomalies():
+    """Recorded UEBA incidents (architecture section 11), newest first:
+    the evaluation, the named deviations and the response chain it ran."""
+    limit = min(_int_param("limit", 50), MAX_PAGE_SIZE)
+    offset = _int_param("offset", 0)
+    return jsonify(
+        service.list_anomaly_events(
+            subject=request.args.get("subject"), limit=limit, offset=offset
+        )
+    )
+
+
+# ---------------------------------------------------------------------------
 # PAM bypass detection (architecture section 10, Command Center screen)
 # ---------------------------------------------------------------------------
 @api.post("/bypass/ingest")

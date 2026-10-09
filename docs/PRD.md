@@ -66,7 +66,7 @@ never drift apart.
 | 4 | §4 Enterprise Vault | Credential inventory, per-type secret generation, AES-256-GCM at rest, admin reveal that never logs plaintext, checkouts | Built | `GET/POST /vault/*` (8 paths), `test_vault_dashboard.py` (19) |
 | 5 | §5 Password Rotation Engine | Pipeline mint → seal → dependents → decrypt round-trip → audit; triggers manual/bulk/session-end/scheduler; failed → retry; version history | Built | `POST /rotation/run`, `test_rotation.py` (30) |
 | 6 | §6 JIT / JEA Access | Requests scored from measured inputs, band-driven approvals (manager/security), time-boxed grants, real checkout, expiry → release + rotate | Built | `POST /jit/requests` (6 paths), `test_jit.py` (18) |
-| 7 | §7 Risk-Based Access Engine | Eight-component scoring (caps sum to 100), bands → allow/mfa/approval/block, console evaluation + session-start gate with 403 evidence | Built | `POST /risk/evaluate` (3 paths), `test_risk.py` (19) |
+| 7 | §7 Risk-Based Access Engine | Eight-component scoring (visible sum, clamps at 100), bands → allow/mfa/approval/block, console evaluation + session-start gate with 403 evidence | Built | `POST /risk/evaluate` (3 paths), `test_risk.py` (19) |
 | 8 | §8 Privileged Session Management | Start against credential or grant, append-only recorded events with custody watermarks, 7 control flags, pause/lock/resume, release-and-rotate cascade on end | Built | 12 session paths, `test_sessions.py` (23) |
 | 9 | §9 Command Control | Default-allow engine, shipped §9 rules (15, seeded once), block → approval → allow, dry-run, approval queue, incidents with preserved evidence | Built | 8 command-control paths, `test_command_control.py` (18) |
 | 10 | §10 PAM Bypass Detection | Real auth-log/JSON ingest → verbatim observations, correlation against managed inventory + recorded sessions, incidents with alert + forced rotation (real §5 pipeline) + honest `block_source` | Built | 7 bypass paths, `test_bypass.py` (19) |
@@ -76,6 +76,7 @@ never drift apart.
 | 14 | Product delivery | Console: 10-item sidebar, launcher, 10 screens live against real APIs, honest `file://` fallback | Built | `frontend/`, verifiers in `shots_tool/` |
 | 15 | Vendor side | VY-PAM MASTER: encrypted customer registry, signed issuance/renewal, delivery bundles, own audit + own OpenAPI contract | Built | `pam_master/` (46 tests) |
 | 16 | §20 Enterprise Integrations | RFC-6238 TOTP factor enrolling + enforced at session start / break-glass open, ITSM ticket verification over real HTTP, SIEM signed-NDJSON push after commit, LDAP bind login with HMAC tickets, connector status aggregate | Built | 5 integration paths / 5 ops, `test_integrations.py` (41) |
+| 17 | §11 AI Security / UEBA | Per-principal behavior baselines learned from real history (hours/device/IP/target/verbs/cadence); named deviations on the behavior component (5 pts each); critical deviation → refuse start → release-and-rotate cascade → rotate sought credential → incident preserved on the `risk` ledger trail | Built | `GET/POST /risk/baselines*`, `GET /risk/anomalies` (3 paths / 3 ops), `test_ueba.py` (9) |
 
 ## 5. Scope — explicitly NOT built yet (pending requirements)
 
@@ -85,7 +86,6 @@ from the architecture doc, phase assigned in `IMPLEMENTATION_PLAN.md`:
 
 | Arch. section | Pending requirement (target behavior) | Current state | Phase |
 |---|---|---|---|
-| §11 AI Security / UEBA | Learn per-principal baselines (hours/device/IP/target/command/privilege); on deviation: *block session → rotate credential → alert → incident → preserve evidence* | Not started (§7 `behavior` = local 24h counts only) | 4j |
 | §12 Dynamic Watermarking | Contextual overlay `USER/SESSION/TARGET/TIME/TICKET/SOURCE` on RDP/VNC/browser/DB/SSH/file-transfer, changing with session state | Not started (session custody string only) | 4k |
 | §13 Third-Party / Vendor PAM | Vendor lifecycle *invite → MFA → NDA → ticket → approval → JIT → recording → auto-expiry* + vendor access dashboard | Not started | 5a |
 | §14 Cloud PAM | AWS/Azure/GCP/Kubernetes connectors; K8s *RBAC → JIT → ephemeral privilege → audit* | Not started | 5b |
@@ -103,10 +103,11 @@ from the architecture doc, phase assigned in `IMPLEMENTATION_PLAN.md`:
   critical in 24h), `device` ≤15 (unknown to inventory), `asset` ≤30
   (CRITICAL 25 / HIGH 20 / MEDIUM 10 / LOW 0, +5 `unmanaged`), `time` ≤10
   (real clock, off-hours/weekend), `location` ≤5 (`ipaddress.is_global`; no
-  geo feed claimed), `behavior` ≤15 (10 blocked commands + 5 denied JITs /
-  24h), `ticket` ≤5 (non-ITSM shape), `command` ≤10 (`block`) / ≤5
-  (`approval`) from the live §9 policy. Caps sum to exactly 100; the score is
-  the visible sum of the parts.
+  geo feed claimed), `behavior` ≤15 local (10 blocked commands + 5 denied
+  JITs / 24h) + 5 per named §11 baseline deviation (unusual time/device/
+  IP/target/command/privilege, ≤45 with all six), `ticket` ≤5 (non-ITSM
+  shape), `command` ≤10 (`block`) / ≤5 (`approval`) from the live §9
+  policy. The measured sum is visible; the score clamps at 100.
 - R1.2 Bands: `≤25 low → allow`, `≤50 medium → mfa`, `≤75 high → approval`,
   `>75 critical → block`.
 - R1.3 Console evaluations are always advisory (`result=advisory`) and always
@@ -169,17 +170,17 @@ from the architecture doc, phase assigned in `IMPLEMENTATION_PLAN.md`:
 | Data honesty | No fabricated values anywhere in the product | Live-data wiring + FORBIDDEN-string sweep (`shots_tool/__verify_live.mjs`, 8 screens × HTTP/file) |
 | Portability | Installs directly on a machine | Pure Python deps; SQLite files; Docker only under `pam_master/` and `backend/phase2_license_server/` for development |
 | Tamper evidence | Audit trail provable | sha256 chain + append-only triggers + `/audit/verify` |
-| Least privilege | Admin actions authenticated | 48 admin operations require `Bearer`/`X-Admin-Token` when `LICENSE_ADMIN_TOKEN` is set; open dev mode is explicit (`X-Auth-Mode: open`) |
+| Least privilege | Admin actions authenticated | 49 admin operations require `Bearer`/`X-Admin-Token` when `LICENSE_ADMIN_TOKEN` is set; open dev mode is explicit (`X-Auth-Mode: open`) |
 | Bounded resource use | Scans and lists bounded | Scan ≤256 hosts × ≤24 ports, single-flight; pagination `limit` max 200 |
 | Contract stability | API evolution controlled | OpenAPI 3.1, both-direction contract test, `/api/v1` version segment |
-| Testability | Every phase ships tests | 425 backend + 46 vendor-tool tests; UI verifiers; 17-step smoke |
+| Testability | Every phase ships tests | 434 backend + 46 vendor-tool tests; UI verifiers; 17-step smoke |
 | Offline crypto | Verification without network | Phase 1 validator verifies envelope/JWS offline (signature → structure → expiry) |
 
 ## 8. Success criteria (per release)
 
-1. `python -m pytest backend -q` green (currently **425**) and
+1. `python -m pytest backend -q` green (currently **434**) and
    `python -m pytest pam_master -q` green (**46**).
-2. Contract test green: **84** documented paths both directions, **48**
+2. Contract test green: **87** documented paths both directions, **49**
    admin operations carrying security schemes.
 3. Boundary verifiers green: smoke 17/17, `__verify_live.mjs`,
    `__verify_discovery.mjs`.
@@ -192,8 +193,8 @@ from the architecture doc, phase assigned in `IMPLEMENTATION_PLAN.md`:
 The full phase-wise backlog (4i → 6c), scope, dependencies and
 definition-of-done per phase live in **`docs/IMPLEMENTATION_PLAN.md`**;
 execution checkpoints are logged in
-`VY-PAM_MASTER_and_PAM_Workflow.md`. Next phase: **4i — §20
-Integrations**, then 4j §11 UEBA.
+`VY-PAM_MASTER_and_PAM_Workflow.md`. Next phase: **4k — §12
+Dynamic Watermarking**.
 
 ## 10. Target end-state (final output after full development)
 
@@ -213,6 +214,6 @@ DevOps and AI environments"*):
 | **Threat response** | Bypass detection, UEBA anomalies, and risk banding all drive the *real* response machinery — session cascade, forced rotation, incidents with preserved evidence |
 | **Integrations** | IAM, MFA, ITSM, SIEM, SOAR, EDR, cloud and DevSecOps connectors — each either verified working against a real endpoint or explicitly `not connected` |
 | **Scale** | §18 replicated deployment (load balancer, vault/audit replication, failover) with runbooks; single-node install remains Docker-free |
-| **Contracts** | `apis/openapi.yaml` (84 paths today, `—` at completion) enforced both-ways; vendor tool contract likewise; zero dark endpoints |
-| **Quality** | Backend suite (425 today) grows per phase with real counts recorded in READMEs; pam_master 46 stays green; smoke + both UI verifiers green at every boundary |
+| **Contracts** | `apis/openapi.yaml` (87 paths today, `—` at completion) enforced both-ways; vendor tool contract likewise; zero dark endpoints |
+| **Quality** | Backend suite (434 today) grows per phase with real counts recorded in READMEs; pam_master 46 stays green; smoke + both UI verifiers green at every boundary |
 | **Honesty invariant** | Unchanged and non-negotiable: every displayed number comes from an API at render time — the product never fabricates, complete or not |

@@ -196,6 +196,34 @@ Settings → Enterprise Integrations cards (mfa | itsm | siem | ldap)
   → Compliance screen: `integration` chip (11th) + header SIEM chip
 ```
 
+### 2.11 UEBA behavior baselines + anomaly chain (§11)
+
+```
+Policy screen · Anomalies (ARCH11)          POST /risk/baselines/train (admin)
+  → learn every principal's profile from real rows in the 30-day window:
+    risk_events · privileged_sessions · session_events · command_incidents
+  → profile = hours · devices · source IPs · targets · command/privilege
+    verbs · protocols · cadence + sample counts (unseen principal = no row)
+
+Any request scored (POST /risk/evaluate, or the POST /sessions gate)
+  → baseline stored? diff the request against it, 5 pts per deviation on
+    the §7 `behavior` component, named in `reasons`:
+    + unusual time/device/IP/target/command/privilege (behavior ≤45,
+    total clamps at 100, detail names the measured sum when it does)
+  → no stored baseline → byte-identical local behavior (nothing changes)
+
+CRITICAL refusal at session start with named deviations (the §11 chain)
+  → BLOCK: 403 details.risk (the evaluation is already ledger evidence)
+  → ROTATE: every other active session of that principal ends through the
+    release-and-rotate cascade; the credential the request sought is
+    rotated through the §5 pipeline (item_id, or the target's items)
+  → INCIDENT: AnomalyEvent row (reasons + actions) commits → details.anomaly
+  → SOC ALERT / EVIDENCE: the incident fans into the ledger under the
+    existing `risk` trail (action `anomaly-incident`) → GET /risk/anomalies
+  → console evaluations stay advisory: scored with the same reasons,
+    never chained
+```
+
 ## 3. Cross-cutting interaction rules
 
 1. **Reveal-on-click only.** Secrets, audit payloads, and other sensitive
@@ -266,11 +294,4 @@ Pipeline/Agent → request credential or task access
   → identity verification → risk evaluation → JIT token
   → task-scoped command restrictions (ALLOW restart / DROP → BLOCK)
   → monitored session → token expiry (no static secrets left behind)
-```
-
-### 6.3 UEBA anomaly response (§11 → phase 4j)
-```
-Baseline per actor learned from real history (hours/device/IP/target/command)
-  → deviation detected → reasons listed (+unusual time/device/IP/…)
-  → BLOCK SESSION → ROTATE CREDENTIAL → SOC ALERT → INCIDENT → EVIDENCE
 ```

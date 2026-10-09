@@ -66,7 +66,7 @@ token or explicit open dev mode), (c) runtime↔disk (encrypted secrets),
 
 ## 4. Authentication & accountability
 
-- **48 admin operations** carry security schemes in `openapi.yaml`
+- **49 admin operations** carry security schemes in `openapi.yaml`
   (contract-tested) — they require `Bearer`/`X-Admin-Token` whenever
   `LICENSE_ADMIN_TOKEN` is set.
 - **Open dev mode is loud, never silent:** responses carry
@@ -120,7 +120,7 @@ with per-event `seq` and custody watermarks.
 | Incident response evidence | ✅ | incidents + preserved session events |
 | PAM bypass detection (§10) | ✅ | verbatim auth-log evidence → correlation vs inventory + sessions → incident with forced rotation; ledger `bypass` |
 | SSO / MFA / HSM integration | ⚠️ MFA enforced when enrolled | §20 RFC-6238 gate at session start + break-glass open (no factor → honest `not configured`, never simulated); SSO/HSM stay settings-store only — posture counts them honestly |
-| Geo-IP / UEBA behavioral analytics | ⛔ | `location` = `is_global` only; `behavior` = local events only |
+| Geo-IP / UEBA behavioral analytics | ⚠️ UEBA built, no geo feed | §11 baselines from real history + named deviations (unusual time/device/IP/target/command/privilege) driving the block→rotate→incident chain; `location` stays `is_global` (no geo feed claimed) |
 | TLS in transit | ⛔ at app layer | terminate at reverse proxy (see runbook) |
 | HA / DR | ⛔ | single-node SQLite |
 | Break-glass emergency workflow (§17) | ✅ | dual approval (requester excluded) → recorded session → forced rotation at close; ledger `break-glass` |
@@ -133,13 +133,12 @@ reported as missing — never as partial-good.
 
 | Gap today | Closes in | Target state |
 |---|---|---|
-| No UEBA baselines (§11) | 4j | Per-actor baselines from real history; deviations drive block→rotate→incident |
 | Watermark = custody string only (§12) | 4k | Live contextual overlay from real session data; protocol-level overlays pending gateway work |
 | Single admin role (RBAC/ABAC claimed in matrix) | 6b | Roles + attribute bindings over all admin operations and vault/target scoping |
 | SSO/HSM schema-only | 6c | SAML/OIDC login enforced; HSM/KMS-backed keys where configured |
 | TLS not terminated by the app | runbook §5 (now) | Reverse-proxy TLS — documented and checklisted; app stays plain HTTP by design |
 | No HA/DR (§18) | 6a | Replicated multi-node deployment with failover drill + runbooks |
-| Geo-IP/UEBA-lite (`location` = `is_global`) | 4j/4i | Baseline device/IP context; a real geo feed only if one is ever configured — otherwise the honest label stays |
+| Geo-IP feed (`location` = `is_global`) | 4i | Device/IP context now sits in the trained §11 baselines; a real geo feed only if one is ever configured — otherwise the honest label stays |
 
 **Target posture (after plan completion):** admin auth enforced (token/SSO),
 MFA on elevated paths, integrations verified or explicitly `not connected`,

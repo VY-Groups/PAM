@@ -115,7 +115,9 @@ from models import (
     VaultEvent,
     VaultItem,
     VaultSecretVersion,
+    AnomalyEvent,
     AuditEvent,
+    BehaviorBaseline,
     BreakGlassApproval,
     BreakGlassEvent,
     BreakGlassRequest,
@@ -3013,6 +3015,7 @@ def create_session(
             "subject": actor,
             "target": target,
             "device": payload.get("device"),
+            "source_ip": payload.get("source_ip"),
             "mfa_code": payload.get("mfa_code"),
         },
         actor=actor,
@@ -3026,6 +3029,13 @@ def create_session(
             # (same pure check the evaluator ran, moments ago)
             _passed, _outcome, reason = _mfa_gate(payload.get("mfa_code"))
             details["mfa"] = reason
+        if risk.band == "critical" and _evaluation_reasons(risk):
+            # section 11: a critical *deviation* runs the response chain -
+            # end the principal's other active sessions (release-and-rotate),
+            # rotate the credential this request sought, record the incident
+            details["anomaly"] = _anomaly_response(
+                risk, actor=actor, item_id=item_id
+            )
         raise APIError(
             403,
             "Risk policy refuses this session start",
@@ -5127,6 +5137,24 @@ RISK_BEHAVIOR_BLOCKED = 10  # blocked commands by this subject in the last 24h
 RISK_BEHAVIOR_DENIED = 5    # denied JIT requests by this subject in the last 24h
 RISK_TICKET_SHAPE = 5
 RISK_COMMAND_POINTS = {"block": 10, "approval": 5}
+# section 11 (UEBA): one point block per named baseline deviation, five
+# points each - six reasons ("unusual time" ... "unusual privilege") add 30
+# to the behavior component, which is what turns an otherwise-normal request
+# critical when the principal deviates from their own recorded profile.
+RISK_ANOMALY_POINTS = 5
+UEBA_WINDOW_DAYS = 30      # rolling window a baseline learns from
+UEBA_MAX_DISTINCT = 128    # per-dimension cap; a truncated list skips its check
+UEBA_PRIVILEGE_VERBS = {   # commands that raise privilege: "attempted sudo"
+    "chown",
+    "doas",
+    "passwd",
+    "pkexec",
+    "su",
+    "sudo",
+    "useradd",
+    "usermod",
+    "visudo",
+}
 
 
 def _risk_band(score: int) -> str:
@@ -5186,6 +5214,398 @@ def _risk_asset(host: str) -> Optional[DiscoveredAsset]:
     )
 
 
+# ---------------------------------------------------------------------------
+# behavior baselines and anomaly response (architecture section 11 / UEBA)
+# ---------------------------------------------------------------------------
+
+
+def _command_verb(command: Optional[str]) -> str:
+    """`sudo systemctl restart nginx` -> `sudo` (the command class)."""
+    raw = (command or "").strip()
+    if not raw:
+        return ""
+    token = raw.split()[0].strip('"\'();&|')
+    return token.rsplit("/", 1)[-1].lower()
+
+
+def _distinct(values: Any) -> Tuple[List[str], bool]:
+    """Deduplicated, sorted, capped list - the bool says it was truncated
+    (past the cap the deviation check for that dimension stands down)."""
+    uniq = sorted({str(v).strip() for v in values if v and str(v).strip()})
+    return uniq[:UEBA_MAX_DISTINCT], len(uniq) > UEBA_MAX_DISTINCT
+
+
+def _learn_behavior_profile(
+    subject: str, *, now: datetime, window_days: int = UEBA_WINDOW_DAYS
+) -> Dict[str, Any]:
+    """One principal's rolling profile, learned only from real history rows:
+    risk evaluations, privileged sessions, posted command events and command
+    incidents inside the window. No rows, no profile - normality is never
+    invented for a principal the product has not seen."""
+    since = now - timedelta(days=window_days)
+    risks = (
+        RiskEvent.query.filter(
+            RiskEvent.subject == subject, RiskEvent.created_at >= since
+        ).all()
+    )
+    sessions = (
+        PrivilegedSession.query.filter(
+            PrivilegedSession.actor == subject,
+            PrivilegedSession.started_at >= since,
+        ).all()
+    )
+    commands = (
+        SessionEvent.query.filter(
+            SessionEvent.actor == subject,
+            SessionEvent.type == "command",
+            SessionEvent.created_at >= since,
+        ).all()
+    )
+    incidents = (
+        CommandIncident.query.filter(
+            CommandIncident.actor == subject, CommandIncident.created_at >= since
+        ).all()
+    )
+    samples = len(risks) + len(sessions) + len(commands) + len(incidents)
+    if not samples:
+        return {}
+
+    hours = sorted(
+        {row.created_at.hour for row in risks}
+        | {row.started_at.hour for row in sessions}
+        | {row.created_at.hour for row in commands}
+        | {row.created_at.hour for row in incidents}
+    )
+    devices, devices_truncated = _distinct(row.device for row in risks)
+    source_ips, ips_truncated = _distinct(row.source_ip for row in risks)
+    targets, targets_truncated = _distinct(
+        [_target_host(row.target) for row in risks]
+        + [_target_host(row.target) for row in sessions]
+    )
+    protocols = sorted({row.protocol for row in sessions})
+    verbs = {
+        _command_verb(row.content) for row in commands
+    } | {
+        _command_verb(row.command) for row in risks
+    } | {
+        _command_verb(row.command) for row in incidents
+    }
+    verbs.discard("")
+    command_verbs, verbs_truncated = _distinct(sorted(verbs))
+    privilege_verbs = [v for v in command_verbs if v in UEBA_PRIVILEGE_VERBS]
+    stamps = (
+        [row.created_at for row in risks]
+        + [row.started_at for row in sessions]
+        + [row.created_at for row in commands]
+        + [row.created_at for row in incidents]
+    )
+    first, last = min(stamps), max(stamps)
+    days_span = max(1, min(window_days, (now - first).days + 1))
+    return {
+        "hours": hours,
+        "devices": devices,
+        "source_ips": source_ips,
+        "targets": targets,
+        "protocols": protocols,
+        "command_verbs": command_verbs,
+        "privilege_verbs": privilege_verbs,
+        "devices_truncated": devices_truncated,
+        "source_ips_truncated": ips_truncated,
+        "targets_truncated": targets_truncated,
+        "command_verbs_truncated": verbs_truncated,
+        "sessions": len(sessions),
+        "evaluations": len(risks),
+        "incidents": len(incidents),
+        "samples": samples,
+        "sessions_per_day": round(len(sessions) / days_span, 2),
+        "first_at": first.isoformat(),
+        "last_at": last.isoformat(),
+    }
+
+
+def train_behavior_baselines(
+    *, subject: Optional[str] = None, actor: str = "system"
+) -> List[BehaviorBaseline]:
+    """Learn (or refresh) behavior baselines from real history.
+
+    Explicitly triggered - the endpoint and the tests - so evaluations stay
+    deterministic: a principal's profile is what was recorded, not what the
+    moment of scoring happens to look like. With no `subject`, every
+    principal with history in the window is trained; principals whose rows
+    all aged out lose their baseline rather than keep a stale claim."""
+    now = datetime.now()
+    since = now - timedelta(days=UEBA_WINDOW_DAYS)
+    if subject is not None:
+        if (
+            not isinstance(subject, str)
+            or not subject.strip()
+            or len(subject) > 160
+        ):
+            raise ValidationFailed(
+                "'subject' must be a non-empty string (max 160 characters)",
+                {"field": "subject"},
+            )
+        subjects = {subject.strip()}
+    else:
+        subjects = set(
+            row[0]
+            for row in db.session.query(RiskEvent.subject).filter(
+                RiskEvent.created_at >= since
+            )
+        )
+        subjects |= set(
+            row[0]
+            for row in db.session.query(PrivilegedSession.actor).filter(
+                PrivilegedSession.started_at >= since
+            )
+        )
+        subjects |= set(
+            row[0]
+            for row in db.session.query(SessionEvent.actor).filter(
+                SessionEvent.created_at >= since, SessionEvent.type == "command"
+            )
+        )
+        subjects |= set(
+            row[0]
+            for row in db.session.query(CommandIncident.actor).filter(
+                CommandIncident.created_at >= since
+            )
+        )
+        subjects = {name for name in subjects if name and name.strip()}
+
+    trained: List[BehaviorBaseline] = []
+    for name in sorted(subjects):
+        profile = _learn_behavior_profile(name, now=now)
+        row = BehaviorBaseline.query.filter_by(subject=name).first()
+        if not profile:
+            if row is not None:  # every learned row aged out of the window
+                db.session.delete(row)
+            continue
+        if row is None:
+            row = BehaviorBaseline(subject=name, created_at=now)
+            db.session.add(row)
+        row.window_days = UEBA_WINDOW_DAYS
+        row.samples = int(profile["samples"])
+        row.profile = profile
+        row.trained_by = actor
+        row.updated_at = now
+        trained.append(row)
+    db.session.commit()
+    return trained
+
+
+def list_behavior_baselines() -> Dict[str, Any]:
+    """Every trained baseline, newest profile state first by subject."""
+    rows = BehaviorBaseline.query.order_by(BehaviorBaseline.subject).all()
+    return {
+        "total": len(rows),
+        "window_days": UEBA_WINDOW_DAYS,
+        "baselines": [row.to_dict() for row in rows],
+    }
+
+
+def list_anomaly_events(
+    *,
+    subject: Optional[str] = None,
+    limit: int = 50,
+    offset: int = 0,
+) -> Dict[str, Any]:
+    """Recorded UEBA incidents (architecture section 11), newest first."""
+    if not isinstance(limit, int) or not 1 <= limit <= 200:
+        raise ValidationFailed(
+            "'limit' must be between 1 and 200", {"field": "limit"}
+        )
+    if not isinstance(offset, int) or offset < 0:
+        raise ValidationFailed("'offset' must be >= 0", {"field": "offset"})
+    query = AnomalyEvent.query
+    if subject is not None:
+        if not isinstance(subject, str) or not subject.strip():
+            raise ValidationFailed(
+                "'subject' must be a non-empty string", {"field": "subject"}
+            )
+        query = query.filter(AnomalyEvent.subject == subject.strip())
+    total = query.count()
+    rows = (
+        query.order_by(AnomalyEvent.created_at.desc(), AnomalyEvent.id.desc())
+        .offset(offset)
+        .limit(limit)
+        .all()
+    )
+    return {"total": total, "anomalies": [row.to_dict() for row in rows]}
+
+
+def _behavior_deviations(
+    profile: Dict[str, Any],
+    *,
+    now: datetime,
+    device: str,
+    source_ip: str,
+    target_host: str,
+    command: str,
+) -> List[str]:
+    """The section-11 "Reasons:" list: every dimension a trained profile
+    knows is checked against the request; a dimension with no recorded data
+    (or a truncated list) is skipped - no baseline data, no claim."""
+    reasons: List[str] = []
+    if profile.get("hours") and now.hour not in profile["hours"]:
+        reasons.append("unusual time")
+    if (
+        device
+        and profile.get("devices")
+        and not profile.get("devices_truncated")
+        and device.strip().lower() not in {d.lower() for d in profile["devices"]}
+    ):
+        reasons.append("unusual device")
+    if (
+        source_ip
+        and profile.get("source_ips")
+        and not profile.get("source_ips_truncated")
+        and source_ip.strip() not in set(profile["source_ips"])
+    ):
+        reasons.append("unusual IP")
+    if (
+        target_host
+        and profile.get("targets")
+        and not profile.get("targets_truncated")
+        and target_host.strip().lower() not in set(profile["targets"])
+    ):
+        reasons.append("unusual target")
+    verb = _command_verb(command)
+    if (
+        verb
+        and profile.get("command_verbs")
+        and not profile.get("command_verbs_truncated")
+        and verb not in set(profile["command_verbs"])
+    ):
+        reasons.append("unusual command")
+    if (
+        verb in UEBA_PRIVILEGE_VERBS
+        and not profile.get("privilege_verbs")
+        and not profile.get("command_verbs_truncated")
+    ):
+        reasons.append("unusual privilege")
+    return reasons
+
+
+def _evaluation_reasons(risk: RiskEvent) -> List[str]:
+    """The named deviations recorded on an evaluation's behavior component."""
+    for component in risk.components or []:
+        if isinstance(component, dict) and component.get("component") == "behavior":
+            return [str(reason) for reason in component.get("reasons") or []]
+    return []
+
+
+def _anomaly_response(
+    risk: RiskEvent, *, actor: str, item_id: Optional[int] = None
+) -> Dict[str, Any]:
+    """The section-11 chain for a critical deviation evaluation. The start
+    is already refused (BLOCK SESSION); the principal's other active
+    sessions now end through the release-and-rotate cascade (ROTATE
+    CREDENTIAL), the credential this request sought is rotated through the
+    real module-5 pipeline, and the incident row is committed as evidence -
+    its ledger fan-in (source `risk`, action `anomaly-incident`) is the SOC
+    ALERT, reaching SIEM when section 20 is configured. Every failure is
+    reported on the incident, never hidden."""
+    reasons = _evaluation_reasons(risk)
+    ref = f"anom-{secrets.token_hex(4)}"
+    actions: Dict[str, Any] = {
+        "blocked": True,
+        "sessions_ended": [],
+        "rotations": [],
+        "notes": [],
+    }
+    others = (
+        PrivilegedSession.query.filter(
+            PrivilegedSession.actor == risk.subject,
+            PrivilegedSession.status.notin_(SESSION_TERMINAL_STATUSES),
+        )
+        .order_by(PrivilegedSession.id)
+        .all()
+    )
+    for other in others:
+        try:
+            _ended, cascade = end_session(
+                other.id,
+                actor=actor,
+                outcome="terminated",
+                payload={"reason": f"behavior anomaly {ref}"},
+            )
+            actions["sessions_ended"].append(other.session_ref)
+            if cascade.get("rotated"):
+                actions["rotations"].append(
+                    {
+                        "item_id": other.item_id,
+                        "secret_version": cascade.get("secret_version"),
+                        "via": f"session {other.session_ref}",
+                    }
+                )
+        except APIError as exc:
+            actions["notes"].append(
+                f"session {other.session_ref} not ended: {exc.message}"
+            )
+    if item_id is not None:
+        try:
+            _item, rotation = rotate_vault_item(
+                item_id,
+                actor=actor,
+                trigger="anomaly",
+                extra_detail={"reason": f"behavior anomaly {ref}"},
+            )
+            actions["rotations"].append(
+                {
+                    "item_id": item_id,
+                    "secret_version": rotation.get("secret_version"),
+                    "via": "requested credential",
+                }
+            )
+        except Exception as exc:  # noqa: BLE001 - a failed rotation is reported
+            actions["notes"].append(f"credential {item_id} not rotated: {exc}")
+    else:
+        host = _target_host(risk.target)
+        if host:
+            forced = _force_target_rotation(
+                host, actor=actor, trigger="anomaly", reason=f"behavior anomaly {ref}"
+            )
+            # `_force_target_rotation` reports its successes under `items`
+            # (id/name/version); the incident records them beside the
+            # cascade entries in the same `item_id`/`secret_version` shape,
+            # so every rotation the chain actually performed is listed.
+            actions["rotations"].extend(
+                {
+                    "item_id": entry.get("id"),
+                    "secret_version": entry.get("version"),
+                    "via": f"target {host}",
+                }
+                for entry in forced.get("items", [])
+            )
+            for skipped in forced.get("skipped", []):
+                actions["notes"].append(
+                    f"credential {skipped.get('id')} not rotated: "
+                    f"{skipped.get('reason')}"
+                )
+            for failed in forced.get("failed", []):
+                actions["notes"].append(
+                    f"credential {failed.get('id')} not rotated: {failed.get('error')}"
+                )
+        else:
+            actions["notes"].append("no credential linked to this request to rotate")
+    incident = AnomalyEvent(
+        incident_ref=ref,
+        evaluation_id=risk.id,
+        actor=actor,
+        subject=risk.subject,
+        target=risk.target or "",
+        score=risk.score,
+        band=risk.band,
+        reasons=reasons,
+        actions=actions,
+        created_at=datetime.now(),
+    )
+    db.session.add(incident)
+    db.session.commit()
+    return incident.to_dict()
+
+
 def _score_risk(
     *,
     subject: str,
@@ -5195,8 +5615,14 @@ def _score_risk(
     ticket: str,
     command: str,
     now: datetime,
+    baseline: Optional[Dict[str, Any]] = None,
 ) -> Tuple[int, List[Dict[str, Any]]]:
-    """Score one request: eight measured components, honest details, total."""
+    """Score one request: eight measured components, honest details, total.
+
+    The behavior component carries the section-11 anomaly factor: when the
+    subject has a trained baseline, every dimension the request deviates on
+    (unusual time/device/IP/target/command/privilege) adds
+    `RISK_ANOMALY_POINTS` and is named on the component's `reasons`."""
     components: List[Dict[str, Any]] = []
     total = 0
 
@@ -5296,7 +5722,8 @@ def _score_risk(
                 ),
             )
 
-    # behavior: what this subject has actually done in the last 24h
+    # behavior: what this subject has actually done in the last 24h, plus
+    # (section 11) how far this request deviates from their trained baseline
     blocked = (
         SessionEvent.query.filter(
             SessionEvent.actor == subject,
@@ -5313,15 +5740,37 @@ def _score_risk(
         )
         .count()
     )
-    add(
-        "behavior",
-        (RISK_BEHAVIOR_BLOCKED if blocked else 0)
-        + (RISK_BEHAVIOR_DENIED if denied else 0),
-        (
-            f"{blocked} blocked command(s) and {denied} denied request(s) "
-            "by this subject in the last 24h"
-        ),
+    points = (RISK_BEHAVIOR_BLOCKED if blocked else 0) + (
+        RISK_BEHAVIOR_DENIED if denied else 0
     )
+    summary = (
+        f"{blocked} blocked command(s) and {denied} denied request(s) "
+        "by this subject in the last 24h"
+    )
+    # each named deviation against the baseline is worth RISK_ANOMALY_POINTS
+    # and is listed verbatim on the component's `reasons`
+    deviations = (
+        _behavior_deviations(
+            baseline,
+            now=now,
+            device=device,
+            source_ip=source_ip,
+            target_host=_target_host(target),
+            command=command,
+        )
+        if baseline
+        else []
+    )
+    if deviations:
+        points += RISK_ANOMALY_POINTS * len(deviations)
+        summary += (
+            " · baseline deviation: "
+            + ", ".join(f"+ {reason}" for reason in deviations)
+            + f" ({RISK_ANOMALY_POINTS} points each)"
+        )
+    add("behavior", points, summary)
+    if deviations:
+        components[-1]["reasons"] = deviations
 
     # ticket: shape first, then - when an ITSM instance is configured (section
     # 20) - a real verification against it: the component gains a `verified`
@@ -5378,6 +5827,17 @@ def _score_risk(
             ),
         )
 
+    # section 11: the behavior component can now carry baseline deviations
+    # (up to 45 points), so the measured sum can exceed 100 - the score
+    # clamps there (bands and the /100 display hold) and says so.
+    if total > 100:
+        measured = total
+        total = 100
+        for component in components:
+            if component["component"] == "behavior":
+                component["detail"] += (
+                    f" · measured sum {measured}; score clamps at 100"
+                )
     return total, components
 
 
@@ -5410,6 +5870,9 @@ def evaluate_risk(
     mfa_code = _risk_text(payload, "mfa_code", max_length=32)
 
     now = datetime.now()
+    # section 11: the subject's trained baseline, if one exists - evaluations
+    # only ever diff against a stored profile, never a fresh guess
+    baseline_row = BehaviorBaseline.query.filter_by(subject=subject).first()
     score, components = _score_risk(
         subject=subject,
         target=target,
@@ -5418,6 +5881,7 @@ def evaluate_risk(
         ticket=ticket,
         command=command,
         now=now,
+        baseline=(baseline_row.profile or {}) if baseline_row is not None else None,
     )
     band = _risk_band(score)
     decision = RISK_DECISION_BY_BAND[band]

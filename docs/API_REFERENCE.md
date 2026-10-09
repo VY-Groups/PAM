@@ -1,7 +1,7 @@
 # VY-PAM — API Reference
 
 **Status:** as-built for Phase 4i
-**Contract:** `apis/openapi.yaml` (OpenAPI 3.1) — **84 paths / 93
+**Contract:** `apis/openapi.yaml` (OpenAPI 3.1) - **87 paths / 96
 operations**, enforced in both directions by
 `backend/phase2_license_server/tests/test_openapi_contract.py`. If this page
 and the YAML ever disagree, the YAML wins.
@@ -15,7 +15,7 @@ and the YAML ever disagree, the YAML wins.
 | Base URL (dev) | `http://127.0.0.1:5000` (`LICENSE_SERVER_HOST`/`LICENSE_SERVER_PORT`) |
 | Version | `/api/v1/…` (`/health`, `/api/v1/meta` unversioned) |
 | Content type | `application/json` (license import also accepts multipart upload / raw body) |
-| Auth | When `LICENSE_ADMIN_TOKEN` is set: `Authorization: Bearer <token>` **or** `X-Admin-Token: <token>` on the **48 admin operations**. When unset: open dev mode — responses carry `X-Auth-Mode: open` (explicit, never silent). |
+| Auth | When `LICENSE_ADMIN_TOKEN` is set: `Authorization: Bearer <token>` **or** `X-Admin-Token: <token>` on the **49 admin operations**. When unset: open dev mode - responses carry `X-Auth-Mode: open` (explicit, never silent). |
 | Actor | `X-Actor: <name>` recorded verbatim in the audit ledger on every audited write |
 | Errors | `{"error":{"code","message","details?"}}` — 400 validation · 401 auth · 403 policy refusal (risk gate) · 404 · 409 conflict/state · 422 unprocessable shape · 503 fail-closed dependency |
 | Pagination | `limit` (≤200) + `offset`, newest first |
@@ -138,9 +138,12 @@ and the YAML ever disagree, the YAML wins.
 ### `risk` — §7 engine (Phase 4f)
 | Method | Path | Summary |
 |---|---|---|
-| POST | `/api/v1/risk/evaluate` | advisory evaluation (8 components → band/decision; always persisted) |
+| POST | `/api/v1/risk/evaluate` | advisory evaluation (8 components → band/decision; always persisted; with a trained baseline the behavior component carries named `reasons`) |
 | GET | `/api/v1/risk/evaluations` | history (band/context filters) |
 | GET | `/api/v1/risk/stats` | band distribution + averages (real) |
+| GET | `/api/v1/risk/baselines` | UEBA baselines (§11): hours/devices/IPs/targets/verbs/cadence per principal, learned from real history rows |
+| POST | `/api/v1/risk/baselines/train` | **admin** - learn or refresh baselines (optional `subject`; no history, no baseline) |
+| GET | `/api/v1/risk/anomalies` | UEBA incidents (§11), newest first: the refused evaluation, named deviations, response chain; also on the ledger `risk` trail |
 
 ### `bypass` — §10 detection (Phase 4g)
 | Method | Path | Summary |
@@ -211,13 +214,12 @@ keys only via `python -m pam_master.keygen`.
 
 ## 5. Planned endpoints (NOT in the contract — see `IMPLEMENTATION_PLAN.md`)
 
-These do **not** exist today; the contract's **84 paths / 93 operations**
+These do **not** exist today; the contract's **87 paths / 96 operations**
 are the complete current surface. Each lands in `openapi.yaml` + ADMIN
 security + tests in the same commit when its phase starts (counts `—`):
 
 | Phase | Planned additions |
 |---|---|
-| 4j §11 | `GET /api/v1/risk/baselines`, anomaly detail additions on evaluations |
 | 4k §12 | watermark payload fields on `GET /sessions/{id}` + events (additive schema) |
 | 5a §13 | vendor account CRUD + vendor-scoped lifecycle endpoints |
 | 5b §14 | `POST|GET /api/v1/cloud/connectors`, cloud discovery extension |

@@ -11,7 +11,7 @@ external migration tool.
 
 ---
 
-## 1. Shipped runtime — 26 tables
+## 1. Shipped runtime - 28 tables
 
 ### ERD (logical)
 
@@ -27,6 +27,8 @@ privileged_sessions ─1:n─ session_events      (item_id → vault_items, jit_
 privileged_sessions ─1:n─ command_incidents   (event_seq → session_events.seq)
 command_rules                                  (referenced by rules/incidents, not FK)
 risk_events
+behavior_baselines                          (per-principal UEBA profile, §11)
+anomaly_incidents                           (UEBA incidents → ledger source `risk`)
 bypass_signals ─1:n─ bypass_incidents         (signal_id → bypass_signals)
 bypass_events                                  (module actions → ledger source `bypass`)
 break_glass_requests ─1:n─ break_glass_approvals (request_id → break_glass_requests)
@@ -303,7 +305,39 @@ product did against an external system.
 
 ---
 
-## 2. Vendor tool — `pam_master/master.db` (4 tables)
+### 1.27 `behavior_baselines` - §11 per-principal UEBA profiles
+`id` PK → `subject` String(160) unique indexed → `window_days` Integer
+default 30 → `samples` Integer → `profile` JSON → `trained_by` String(64)
+default `system` → `created_at` / `updated_at` DateTime
+- one row per principal (evaluation subject / session actor). The profile
+  holds the hours, devices, source IPs, targets, command verbs, privilege
+  verbs, protocols, session cadence and sample counts learned from real
+  history rows (`risk_events`, `privileged_sessions`, `session_events`,
+  `command_incidents`) inside the rolling window. Trained only via
+  `POST /risk/baselines/train`, never invented for an unseen principal.
+  Derived state, not a ledger model - the evaluations and incidents it
+  produces are already on the ledger.
+
+---
+
+### 1.28 `anomaly_incidents` - §11 incident record (ledger source `risk`)
+`id` PK → `incident_ref` String(64) unique indexed (`anom-<hex>`) →
+`evaluation_id` Integer unique indexed (the refused evaluation) → `actor`
+String(64) → `subject` String(160) indexed → `target` String(255) → `score`
+Integer → `band` String(16) → `reasons` JSON → `actions` JSON → `created_at`
+DateTime indexed
+- one row per critical *deviation* refusal: the named deviations verbatim
+  from the behavior component and the response chain it ran (sessions ended
+  by the release-and-rotate cascade, rotations, honest failure notes).
+  Preserved evidence, never rewritten. Folded into the §19 ledger by
+  `_map_anomaly` under the existing `risk` source (`action:
+  anomaly-incident`, ref `anom:<id>`), so the ledger source count stays 11.
+  The model class is named `AnomalyEvent` deliberately: the audit drift
+  guard requires every `*Event` table to join the ledger.
+
+---
+
+## 2. Vendor tool - `pam_master/master.db` (4 tables)
 
 Raw SQL (`pam_master/db.py`), `PRAGMA foreign_keys = ON`, ISO-8601 TEXT
 timestamps.
@@ -374,8 +408,7 @@ column sets land with the code + contract commit; counts are `—` until then.
 
 | Phase | Tables | Notes |
 |---|---|---|
-| 4j §11 | `behavior_baselines` | rolling per-actor windows derived from real history rows |
-| 4k §12 | *(none — payload assembled from `privileged_sessions`/`session_events`)* | |
+| 4k §12 | *(none - payload assembled from `privileged_sessions`/`session_events`)* | |
 | 5a §13 | `vendor_accounts`, vendor link columns on `jit_requests` | |
 | 5b §14 | `cloud_connectors` | credentials themselves in vault, not in the row |
 | 5c §15 | `broker_policies`, `broker_credentials` | JIT semantics; expiry enforced like grants |

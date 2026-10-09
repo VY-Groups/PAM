@@ -122,7 +122,7 @@ through the release-and-rotate cascade) and the **zero-trust policy console**
 (`GET/POST /api/v1/command-control/*` — the shipped §9 rules as editable cards,
 a dry-run simulator, the approval queue and the incident trail — plus
 `GET/POST /api/v1/risk/*` — the §7 scorer: score one request from eight
-components, the band legend, live stats and the recorded evaluations), and the
+components, the band legend, live stats and the recorded evaluations - plus the section 11 UEBA layer: baselines learned from the platform's own history (`/risk/baselines`, trained explicitly via `/risk/baselines/train`), named deviations on the behavior component - unusual time, device, IP, target, command and privilege, 5 points each - and the incident chain a critical deviation runs: refuse the start, end standing sessions through the release-and-rotate cascade, rotate the sought credential and record the incident on `/risk/anomalies` and the ledger's risk trail), and the
 **Emergency Break-Glass console** (`GET/POST /api/v1/break-glass/*` — file an
 emergency, collect two distinct approval signatures, open the recorded
 session that releases a real vault credential, close with forced rotation
@@ -144,8 +144,8 @@ is no seed inventory: every credential enters through **Onboard New Credential**
 "not connected" states instead of sample rows.
 
 ```bash
-python -m pytest tests -q     # 343 tests (from backend/phase2_license_server)
-python -m pytest backend -q   # 425 tests from the repo root (+ shared crypto core)
+python -m pytest tests -q     # 352 tests (from backend/phase2_license_server)
+python -m pytest backend -q   # 434 tests from the repo root (+ shared crypto core)
 ```
 
 **Docker (development/runtime testing only — never a shipping instruction):**
@@ -232,7 +232,7 @@ cross-checked against these routes by `tests/test_openapi_contract.py`.
 | POST | `/jit/requests/<id>/close` | admin | End a grant early: release the checkout and rotate the credential (audited) |
 | GET | `/sessions/stats` | – | Session aggregates: per-status counts, event and blocked totals |
 | GET | `/sessions?status=&protocol=&q=&limit=&offset=` | – | Sessions, newest first (live and archived; `status`/`protocol`/search filters) |
-| POST | `/sessions` | admin | Start a privileged session (201; `protocol` (13), `target`, optional `device` (scored at start), `item_id` — checks the credential out — or `jit_request_id` that must be an active grant, plus the 7 control flags). The response carries the §7 `risk` evaluation; a band the gate refuses (critical, or high without an active grant) → 403 with `details.risk` — the evaluation is already committed as ledger evidence. One live session per grant → 409. When a TOTP factor is enrolled the §7 `mfa` decision additionally demands `mfa_code` in the body (no factor → 201 without it; missing/wrong → 403 with `details.mfa`, committed as `mfa-gate` evidence) |
+| POST | `/sessions` | admin | Start a privileged session (201; `protocol` (13), `target`, optional `device` and `source_ip` (both scored at start), `item_id` - checks the credential out — or `jit_request_id` that must be an active grant, plus the 7 control flags). The response carries the §7 `risk` evaluation; a band the gate refuses (critical, or high without an active grant) → 403 with `details.risk` — the evaluation is already committed as ledger evidence. A critical band carrying named baseline deviations (section 11) additionally runs the anomaly response chain, reported in `details.anomaly`: the principal's standing sessions end through the release-and-rotate cascade, the credential the request sought is rotated, and the incident is recorded on `/risk/anomalies` and the ledger's `risk` trail. One live session per grant → 409. When a TOTP factor is enrolled the §7 `mfa` decision additionally demands `mfa_code` in the body (no factor → 201 without it; missing/wrong → 403 with `details.mfa`, committed as `mfa-gate` evidence) |
 | GET | `/sessions/<id>` | – | One session plus stats and its latest events (evaluates linked grant expiry) |
 | GET | `/sessions/<id>/events?order=&type=&limit=&offset=` | – | The append-only recording: `seq`, type, content, `allowed`/`blocked_reason`, `withheld`, `watermark`, actor |
 | POST | `/sessions/<id>/events` | admin | Record a channel event. Not-live → 409; typed content while `record=false` → 403; gated channels store `allowed=false` + reason (blocked evidence); `keystroke_log=false` stores content `null` + `withheld=true` |
@@ -266,6 +266,9 @@ cross-checked against these routes by `tests/test_openapi_contract.py`.
 | GET | `/risk/stats` | – | §7 aggregates: `total`, `by_band`, `by_decision`, `by_result`, `by_context`, `refused`, `avg_score`, `last_evaluated_at` |
 | GET | `/risk/evaluations?band=&context=&limit=&offset=` | – | Every evaluation, newest first: score, band, decision, result, context and all 8 scored components with their measured-input details |
 | POST | `/risk/evaluate` | admin | Score one access request (201; `subject` required ≤160, optional `target`, `device`, `source_ip`, `ticket`, `command`) — always `result=advisory`; the same scorer gates `POST /sessions` |
+| GET | `/risk/baselines` | – | Trained UEBA baselines (§11): per principal the real hours, devices, source IPs, targets, command/privilege verbs and session cadence learned from history rows in the rolling window — empty until trained; normality is never invented |
+| POST | `/risk/baselines/train` | admin | Learn or refresh baselines from real history (200; optional `subject` to train one principal, otherwise every principal in the window) — no history, no baseline |
+| GET | `/risk/anomalies?subject=&limit=&offset=` | – | UEBA incidents (§11), newest first: the refused critical evaluation, its named deviations and the response chain it ran (sessions ended, rotations, honest failure notes); each also fans into the ledger's `risk` trail as `anomaly-incident` |
 | POST | `/bypass/ingest` | admin | Parse a real log bundle into connection observations (201; `origin` + `content` required ≤200000, optional `target` for OpenSSH lines) — every raw line kept verbatim; dedupe by origin+target+raw |
 | GET | `/bypass/signals?status=&protocol=&q=&limit=&offset=` | – | Parsed observations, newest first (`observed`, `candidate`, `covered`, `out_of_scope`) |
 | POST | `/bypass/scans` | admin | Correlate unscanned `observed` signals (201; `candidates`, `covered`, `out_of_scope`, `incidents`, `rotations_forced`) — a managed target outside any recorded session opens an incident with forced rotation; re-scans never duplicate |

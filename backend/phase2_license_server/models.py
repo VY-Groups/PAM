@@ -1222,6 +1222,104 @@ class RiskEvent(db.Model):
         }
 
 
+class BehaviorBaseline(db.Model):
+    """One principal's learned behavior baseline (architecture section 11).
+
+    Trained explicitly from the product's own history - `risk_events`,
+    `privileged_sessions`, `session_events` (commands) and
+    `command_incidents` rows over a rolling window - never from synthetic
+    users: which hours, devices, source IPs, targets, command verbs and
+    privilege verbs the principal actually used, and the session cadence
+    that came with them. Evaluations then diff the request against this
+    profile; each deviation is a named reason ("unusual time", ...) on the
+    `behavior` component and drives the section 11 response chain when the
+    band turns critical.
+    """
+
+    __tablename__ = "behavior_baselines"
+
+    id = db.Column(db.Integer, primary_key=True)
+    # the principal the profile describes (evaluation subject / session actor)
+    subject = db.Column(db.String(160), nullable=False, unique=True, index=True)
+    window_days = db.Column(db.Integer, nullable=False, default=30)
+    # how many real history rows the profile learned from (0 = nothing seen)
+    samples = db.Column(db.Integer, nullable=False, default=0)
+    profile = db.Column(db.JSON, nullable=False, default=dict)
+    trained_by = db.Column(db.String(64), nullable=False, default="system")
+    created_at = db.Column(db.DateTime, nullable=False, default=datetime.now)
+    updated_at = db.Column(db.DateTime, nullable=False, default=datetime.now)
+
+    def to_dict(self) -> Dict[str, Any]:
+        profile = self.profile or {}
+        return {
+            "id": self.id,
+            "subject": self.subject,
+            "window_days": self.window_days,
+            "samples": self.samples,
+            "sessions": int(profile.get("sessions", 0)),
+            "evaluations": int(profile.get("evaluations", 0)),
+            "incidents": int(profile.get("incidents", 0)),
+            "hours": list(profile.get("hours", [])),
+            "devices": list(profile.get("devices", [])),
+            "source_ips": list(profile.get("source_ips", [])),
+            "targets": list(profile.get("targets", [])),
+            "protocols": list(profile.get("protocols", [])),
+            "command_verbs": list(profile.get("command_verbs", [])),
+            "privilege_verbs": list(profile.get("privilege_verbs", [])),
+            "sessions_per_day": float(profile.get("sessions_per_day", 0.0)),
+            "first_at": profile.get("first_at"),
+            "last_at": profile.get("last_at"),
+            "trained_by": self.trained_by,
+            "updated_at": self.updated_at.isoformat(),
+        }
+
+
+class AnomalyEvent(db.Model):
+    """One UEBA incident: a critical evaluation whose `behavior` component
+    named baseline deviations (architecture section 11), plus the response
+    the engine executed for it - sessions ended (release-and-rotate
+    cascade), credentials rotated, evidence pointers.
+
+    Named `*Event` deliberately: the ledger drift guard requires every
+    `*Event` table to join the audit ledger, and this one fans into the
+    `risk` trail (`action: "anomaly-incident"`) next to the evaluation it
+    came from. One incident per refused evaluation (`evaluation_id` is
+    unique); rows are preserved evidence and are never rewritten.
+    """
+
+    __tablename__ = "anomaly_incidents"
+
+    id = db.Column(db.Integer, primary_key=True)
+    incident_ref = db.Column(db.String(64), nullable=False, unique=True, index=True)
+    # the refused evaluation this incident preserves
+    evaluation_id = db.Column(db.Integer, nullable=False, unique=True, index=True)
+    actor = db.Column(db.String(64), nullable=False, default="system")
+    subject = db.Column(db.String(160), nullable=False, index=True)
+    target = db.Column(db.String(255), nullable=False, default="")
+    score = db.Column(db.Integer, nullable=False, default=0)
+    band = db.Column(db.String(16), nullable=False, default="critical")
+    # the named deviations, verbatim from the component ("unusual time", ...)
+    reasons = db.Column(db.JSON, nullable=False, default=list)
+    # what the response chain did: sessions ended, rotations, evidence refs
+    actions = db.Column(db.JSON, nullable=False, default=dict)
+    created_at = db.Column(db.DateTime, nullable=False, default=datetime.now, index=True)
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "id": self.id,
+            "incident_ref": self.incident_ref,
+            "evaluation_id": self.evaluation_id,
+            "actor": self.actor,
+            "subject": self.subject,
+            "target": self.target,
+            "score": self.score,
+            "band": self.band,
+            "reasons": list(self.reasons or []),
+            "actions": self.actions or {},
+            "created_at": self.created_at.isoformat(),
+        }
+
+
 # ---------------------------------------------------------------------------
 # immutable audit ledger (architecture 19)
 # ---------------------------------------------------------------------------
