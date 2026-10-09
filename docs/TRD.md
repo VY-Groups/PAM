@@ -51,7 +51,7 @@ repo.
 | Store | SQLite (`licenses.db`, git-ignored) | append-only enforced by triggers on `audit_events` |
 | Crypto | `cryptography` lib | RSA-PSS-SHA256 (default) / Ed25519 envelopes; AES-256-GCM secrets |
 | Frontend | Static HTML + Tailwind (CDN build) + vanilla JS | 10 sidebar screens, no bundler, works from `file://` |
-| Tests | pytest | 434 backend + 46 pam_master |
+| Tests | pytest | 440 backend + 46 pam_master |
 | UI verification | Node + `playwright-core` (`shots_tool/`) | viewport 1920×1600, never `fullPage` |
 | Vendor tool | Flask + raw `sqlite3` | `pam_master` package, `python -m pam_master` |
 
@@ -288,6 +288,29 @@ Rules enforced by tests/conventions:
   never chain. Endpoints: `GET /risk/baselines`, `POST
   /risk/baselines/train` (admin), `GET /risk/anomalies`.
 
+### 4.15 Dynamic watermark overlay (§12) - Phase 4k
+- **Payload**: `GET /api/v1/sessions/{session_id}` gains an additive
+  `watermark` object (`SessionWatermark` schema) assembled only from the
+  session's own rows - `user` (actor), `session` (custody ref), `target`,
+  `time` (`dd-Mon-yyyy HH:MM`, built locale-independently, of the latest
+  recorded event so it moves when the session does and freezes when it
+  ends), `ticket` (the linked JIT grant's ITSM reference, else null) and
+  `source` (the address recorded at start - a nullable
+  `privileged_sessions.source_ip` column added through `ensure_schema`, so
+  pre-4k rows render an em dash, never a guess). `state` mirrors the
+  session status that pause/resume/terminate move, `enabled` mirrors the
+  watermark control, and `text` is the rendered six-line
+  `USER/SESSION/TARGET/TIME/TICKET/SOURCE` overlay - null while the
+  control is off, exactly like the per-event custody strings shipped in
+  4c. The list view stays lean: the payload rides the detail response
+  only.
+- **Delivery**: the Live Session Hub detail pane renders the overlay from
+  that real payload and reacts to pause/resume/terminate through the
+  screen's existing load cycle; every recorded event row carries its
+  custody watermark line. Protocol-level overlays (actual
+  RDP/VNC/browser/DB/SSH/file-transfer pixels) stay gateway-dependent
+  (§27) and the pane labels them `not connected` until that work lands.
+
 ## 5. API conventions
 
 | Concern | Rule |
@@ -350,7 +373,6 @@ its phase starts (plan > code > docs, in that order).
 
 | Phase / section | Data additions | API additions | Runtime behavior |
 |---|---|---|---|
-| 4k §12 Watermark | (payload assembled from existing session rows) | watermark field on session detail/events | live overlay rendered from real session data in the hub pane; protocol-level overlays gated behind gateway work, labelled `not connected` |
 | 5a §13 Vendor PAM | `vendor_accounts`, vendor scoping | vendor lifecycle endpoints over existing JIT | invite→MFA→NDA→ticket→approval→JIT→record→expiry |
 | 5b §14 Cloud | `cloud_connectors` | connector CRUD + cloud discovery extension | real inventory/cloud grants only when credentials configured |
 | 5c §15 DevSecOps | broker policy rows | `POST /broker/credentials` | time-boxed pipeline credentials (JIT semantics), no static CI secrets |

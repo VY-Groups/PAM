@@ -105,7 +105,7 @@ loaded from Google Fonts; Material Symbols Outlined for icons.
 | Command Center | posture KPIs, health strip, recent activity feed, **§10 bypass detection section** (ingest → scan → incidents) | 2a/4g |
 | Credential Vault | inventory grid, checkout/reveal/rotate, version history | 4a |
 | JIT Access | request list, score breakdown, approvals, grants | 4b |
-| Live Session Hub | active sessions, controls, event stream, terminate cascade | 4c |
+| Live Session Hub | active sessions, controls, event stream, terminate cascade, **§12 dynamic watermark overlay** (six fields from the session's own row, reacts to pause/resume/terminate, protocol overlays `not connected`) | 4c + 4k |
 | Target Infrastructure | scans, discovered assets/accounts, register/ignore | 2d/3c |
 | Policy & Zero Trust | command rules table, evaluate, approval queue, incidents, **§7 risk section** + **§11 Anomalies** (trained baselines, per-reason deviation chips, incident chain) | 4d/4f/4j |
 | Compliance & SOC2 | ledger digest, verify walk, 11-source chips, export, record modal, SIEM header chip | 4e/4f/4g/4h/4i |
@@ -136,7 +136,6 @@ loaded from Google Fonts; Material Symbols Outlined for icons.
 
 | Screen / surface | Pending work | Phase |
 |---|---|---|
-| Live Session Hub | Dynamic watermark overlay pane (USER/SESSION/TARGET/TIME/TICKET/SOURCE) that reacts to pause/resume/terminate; protocol-level overlays remain `not connected` until gateway work | 4k |
 | Target Infrastructure | Cloud connector cards (AWS/Azure/GCP/K8s) — `not connected` until configured | 5b |
 | New nav entries | Vendor/agent surfaces (5a/5d) require sidebar growth — **decision point**: extend the canonical 10-item nav (and the nav-consistency test) or nest under existing screens; decided at phase start, not earlier | 5a/5d |
 

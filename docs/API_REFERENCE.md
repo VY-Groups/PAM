@@ -101,7 +101,7 @@ and the YAML ever disagree, the YAML wins.
 | GET | `/api/v1/sessions/stats` | live counters |
 | GET | `/api/v1/sessions` | list (status/actor filters) |
 | POST | `/api/v1/sessions` | start — **§7 risk gate runs first** (403 `details.risk` when refused); a `mfa` decision also demands `mfa_code` when a factor is enrolled (403 `details.mfa`) |
-| GET | `/api/v1/sessions/{session_id}` | detail |
+| GET | `/api/v1/sessions/{session_id}` | detail + §12 watermark payload (`SessionWatermark`) |
 | GET | `/api/v1/sessions/{session_id}/events` | recorded stream (`after` cursor) |
 | POST | `/api/v1/sessions/{session_id}/events` | append event (controls enforced) |
 | POST | `/api/v1/sessions/{session_id}/controls` | update control flags |
@@ -220,7 +220,6 @@ security + tests in the same commit when its phase starts (counts `—`):
 
 | Phase | Planned additions |
 |---|---|
-| 4k §12 | watermark payload fields on `GET /sessions/{id}` + events (additive schema) |
 | 5a §13 | vendor account CRUD + vendor-scoped lifecycle endpoints |
 | 5b §14 | `POST|GET /api/v1/cloud/connectors`, cloud discovery extension |
 | 5c §15 | `POST /api/v1/broker/credentials` (+ list/revoke) |

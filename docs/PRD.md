@@ -1,6 +1,6 @@
 # VY-PAM — Product Requirements Document (PRD)
 
-**Status:** as-built for Phase 4h
+**Status:** as-built for Phase 4k
 **Source of truth:** `VY-PAM_Enterprise_PAM_Architecture.md` (requirements) and
 `VY-PAM_MASTER_and_PAM_Workflow.md` (phase checkpoints)
 **Companion docs:** `TRD.md`, `PAM_FLOW.md`, `UI_UX_DESIGN_BRIEF.md`,
@@ -56,7 +56,7 @@ never drift apart.
 5. **Zero standing privilege.** Access is requested, risk-scored, approved by
    someone else, time-boxed, recorded, and revoked on expiry — by default.
 
-## 4. Scope — built (as of Phase 4g)
+## 4. Scope - built (as of Phase 4k)
 
 | # | Architecture section | Requirement | Status | Evidence |
 |---|---|---|---|---|
@@ -77,6 +77,7 @@ never drift apart.
 | 15 | Vendor side | VY-PAM MASTER: encrypted customer registry, signed issuance/renewal, delivery bundles, own audit + own OpenAPI contract | Built | `pam_master/` (46 tests) |
 | 16 | §20 Enterprise Integrations | RFC-6238 TOTP factor enrolling + enforced at session start / break-glass open, ITSM ticket verification over real HTTP, SIEM signed-NDJSON push after commit, LDAP bind login with HMAC tickets, connector status aggregate | Built | 5 integration paths / 5 ops, `test_integrations.py` (41) |
 | 17 | §11 AI Security / UEBA | Per-principal behavior baselines learned from real history (hours/device/IP/target/verbs/cadence); named deviations on the behavior component (5 pts each); critical deviation → refuse start → release-and-rotate cascade → rotate sought credential → incident preserved on the `risk` ledger trail | Built | `GET/POST /risk/baselines*`, `GET /risk/anomalies` (3 paths / 3 ops), `test_ueba.py` (9) |
+| 18 | §12 Dynamic Watermarking | Contextual overlay `USER/SESSION/TARGET/TIME/TICKET/SOURCE` assembled only from the session's own rows (actor, custody ref, target, latest-event clock, linked grant's ticket, source address recorded at start); moves with pause/resume/terminate; the watermark control gates the painted text (data stays, `—` for absent facts); console overlay in the Live Session Hub, protocol-level pixel overlays labelled `not connected` pending gateway work | Built | additive `watermark` field on `GET /api/v1/sessions/{session_id}` (`SessionWatermark` schema), `test_watermark.py` (6) |
 
 ## 5. Scope — explicitly NOT built yet (pending requirements)
 
@@ -86,7 +87,6 @@ from the architecture doc, phase assigned in `IMPLEMENTATION_PLAN.md`:
 
 | Arch. section | Pending requirement (target behavior) | Current state | Phase |
 |---|---|---|---|
-| §12 Dynamic Watermarking | Contextual overlay `USER/SESSION/TARGET/TIME/TICKET/SOURCE` on RDP/VNC/browser/DB/SSH/file-transfer, changing with session state | Not started (session custody string only) | 4k |
 | §13 Third-Party / Vendor PAM | Vendor lifecycle *invite → MFA → NDA → ticket → approval → JIT → recording → auto-expiry* + vendor access dashboard | Not started | 5a |
 | §14 Cloud PAM | AWS/Azure/GCP/Kubernetes connectors; K8s *RBAC → JIT → ephemeral privilege → audit* | Not started | 5b |
 | §15 DevSecOps PAM | CI/CD JIT credential broker (Jenkins/GitLab/GitHub/Terraform/Ansible/ArgoCD) — **no static secrets in pipelines** | Not started | 5c |
@@ -173,12 +173,12 @@ from the architecture doc, phase assigned in `IMPLEMENTATION_PLAN.md`:
 | Least privilege | Admin actions authenticated | 49 admin operations require `Bearer`/`X-Admin-Token` when `LICENSE_ADMIN_TOKEN` is set; open dev mode is explicit (`X-Auth-Mode: open`) |
 | Bounded resource use | Scans and lists bounded | Scan ≤256 hosts × ≤24 ports, single-flight; pagination `limit` max 200 |
 | Contract stability | API evolution controlled | OpenAPI 3.1, both-direction contract test, `/api/v1` version segment |
-| Testability | Every phase ships tests | 434 backend + 46 vendor-tool tests; UI verifiers; 17-step smoke |
+| Testability | Every phase ships tests | 440 backend + 46 vendor-tool tests; UI verifiers; 17-step smoke |
 | Offline crypto | Verification without network | Phase 1 validator verifies envelope/JWS offline (signature → structure → expiry) |
 
 ## 8. Success criteria (per release)
 
-1. `python -m pytest backend -q` green (currently **434**) and
+1. `python -m pytest backend -q` green (currently **440**) and
    `python -m pytest pam_master -q` green (**46**).
 2. Contract test green: **87** documented paths both directions, **49**
    admin operations carrying security schemes.
@@ -193,8 +193,8 @@ from the architecture doc, phase assigned in `IMPLEMENTATION_PLAN.md`:
 The full phase-wise backlog (4i → 6c), scope, dependencies and
 definition-of-done per phase live in **`docs/IMPLEMENTATION_PLAN.md`**;
 execution checkpoints are logged in
-`VY-PAM_MASTER_and_PAM_Workflow.md`. Next phase: **4k — §12
-Dynamic Watermarking**.
+`VY-PAM_MASTER_and_PAM_Workflow.md`. Next phase: **5a — §13
+Third-Party / Vendor PAM** (Phase 4 complete).
 
 ## 10. Target end-state (final output after full development)
 
@@ -215,5 +215,5 @@ DevOps and AI environments"*):
 | **Integrations** | IAM, MFA, ITSM, SIEM, SOAR, EDR, cloud and DevSecOps connectors — each either verified working against a real endpoint or explicitly `not connected` |
 | **Scale** | §18 replicated deployment (load balancer, vault/audit replication, failover) with runbooks; single-node install remains Docker-free |
 | **Contracts** | `apis/openapi.yaml` (87 paths today, `—` at completion) enforced both-ways; vendor tool contract likewise; zero dark endpoints |
-| **Quality** | Backend suite (434 today) grows per phase with real counts recorded in READMEs; pam_master 46 stays green; smoke + both UI verifiers green at every boundary |
+| **Quality** | Backend suite (440 today) grows per phase with real counts recorded in READMEs; pam_master 46 stays green; smoke + both UI verifiers green at every boundary |
 | **Honesty invariant** | Unchanged and non-negotiable: every displayed number comes from an API at render time — the product never fabricates, complete or not |

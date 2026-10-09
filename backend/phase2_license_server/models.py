@@ -49,6 +49,11 @@ SCHEMA_COLUMNS: Dict[str, Dict[str, str]] = {
         "rule_id": "INTEGER",
         "ref_seq": "INTEGER",
     },
+    # contextual watermarking (phase 4k, section 12): the SOURCE line of the
+    # overlay is the address the access really came from.
+    "privileged_sessions": {
+        "source_ip": "VARCHAR(64)",
+    },
 }
 
 
@@ -976,6 +981,10 @@ class PrivilegedSession(db.Model):
     # an active JIT grant already checked out (both nullable).
     item_id = db.Column(db.Integer, nullable=True, index=True)
     jit_request_id = db.Column(db.Integer, nullable=True, index=True)
+    # section 12 watermark: where the access came from, kept on the row so the
+    # overlay's SOURCE line is real evidence (nullable - sessions recorded
+    # before this column existed render an em dash, never a guess).
+    source_ip = db.Column(db.String(64), nullable=True)
     status = db.Column(db.String(16), nullable=False, default="active", index=True)
     # session controls (module 8 control list); all default on.
     record = db.Column(db.Boolean, nullable=False, default=True)

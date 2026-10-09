@@ -51,6 +51,7 @@ PAM/
 │       ├── tests/test_break_glass.py  # §17 break-glass emergency path (22 tests)
 │       ├── tests/test_integrations.py # §20 MFA/ITSM/SIEM/LDAP integrations (41 tests)
 │       ├── tests/test_ueba.py         # §11 UEBA baselines & anomaly chain (9 tests)
+│       ├── tests/test_watermark.py    # §12 dynamic watermark overlay (6 tests)
 │       ├── tests/test_openapi_contract.py # apis/openapi.yaml ↔ routes (5 tests)
 │       ├── Dockerfile + docker-compose.yml  # development/runtime testing only
 │       └── README.md                # full API reference
@@ -92,7 +93,7 @@ python -m pam_master.keygen                      # RSA + Ed25519 + registry PII 
 python -m pam_master                             # http://127.0.0.1:5400
 
 # Tests (shared core + shipped API contract + vendor tool)
-python -m pytest backend -q                      # 434 tests
+python -m pytest backend -q                      # 440 tests
 python -m pytest pam_master -q                   # 46 tests (vendor tool)
 ```
 

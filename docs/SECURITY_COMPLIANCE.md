@@ -125,6 +125,7 @@ with per-event `seq` and custody watermarks.
 | HA / DR | ⛔ | single-node SQLite |
 | Break-glass emergency workflow (§17) | ✅ | dual approval (requester excluded) → recorded session → forced rotation at close; ledger `break-glass` |
 | SIEM streaming | ⚠️ seam only | NDJSON export (pull), no live webhook (§20) |
+| Dynamic watermark overlay (§12) | ✅ | six-line `USER/SESSION/TARGET/TIME/TICKET/SOURCE` payload assembled from the session's own rows (grant ticket + recorded source address), console overlay reacting to pause/resume/terminate, per-event custody lines; protocol-level pixel overlays labelled `not connected` pending gateway (§27) |
 
 ## 8. Gap closure plan (target posture — see `IMPLEMENTATION_PLAN.md`)
 
@@ -133,7 +134,6 @@ reported as missing — never as partial-good.
 
 | Gap today | Closes in | Target state |
 |---|---|---|
-| Watermark = custody string only (§12) | 4k | Live contextual overlay from real session data; protocol-level overlays pending gateway work |
 | Single admin role (RBAC/ABAC claimed in matrix) | 6b | Roles + attribute bindings over all admin operations and vault/target scoping |
 | SSO/HSM schema-only | 6c | SAML/OIDC login enforced; HSM/KMS-backed keys where configured |
 | TLS not terminated by the app | runbook §5 (now) | Reverse-proxy TLS — documented and checklisted; app stays plain HTTP by design |

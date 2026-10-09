@@ -9,7 +9,7 @@ Every number below was collected from the real suite at this commit.
 
 | Suite | File | Tests |
 |---|---|---|
-| **Backend total** | `python -m pytest backend -q` | **434** |
+| **Backend total** | `python -m pytest backend -q` | **440** |
 | ├ licensing core | `backend/ipam_licensing/test_license_core.py` | 46 |
 | ├ licensing spec | `backend/ipam_licensing/test_license_spec.py` | 35 |
 | ├ licensing bridge | `backend/ipam_licensing/test_licensing.py` | 1 |
@@ -27,6 +27,7 @@ Every number below was collected from the real suite at this commit.
 | ├ break-glass (4h) | `…/tests/test_break_glass.py` | 22 |
 | ├ integrations (4i) | `…/tests/test_integrations.py` | 41 |
 | ├ UEBA (4j) | `…/tests/test_ueba.py` | 9 |
+| ├ watermark (4k) | `…/tests/test_watermark.py` | 6 |
 | └ OpenAPI contract | `…/tests/test_openapi_contract.py` | 5 |
 | **Vendor tool total** | `python -m pytest pam_master -q` | **46** |
 | ├ registry (encrypted PII) | `pam_master/tests/test_registry.py` | 15 |
@@ -96,7 +97,7 @@ a fullPage path.
 ## 4. Boundary regression (run before every commit)
 
 ```powershell
-python -X utf8 -m pytest backend -q          # 434
+python -X utf8 -m pytest backend -q          # 440
 python -X utf8 -m pytest pam_master -q       # 46
 python -X utf8 -m pytest backend\phase2_license_server\tests\test_openapi_contract.py -q   # 5
 # boundary smoke (Temp\opencode\smoke_restructure.py): 17/17
@@ -149,7 +150,6 @@ Each pending phase adds a test file and grows the contract — **counts are
 
 | Phase | New suite | Contract impact |
 |---|---|---|
-| 4k §12 | `tests/test_watermark.py` | additive session schema assertions |
 | 5a–5d | `test_vendor_pam.py`, `test_cloud.py`, `test_broker.py`, `test_agents.py` | per-phase path additions |
 | 6a §18 | replication/failover drill suite | health/failover paths |
 | 6b | `test_rbac.py` | security schemes gain role requirements across admin ops |

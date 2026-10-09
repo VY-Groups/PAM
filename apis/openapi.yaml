@@ -3665,6 +3665,44 @@ components:
           items: {$ref: "#/components/schemas/SessionEvent"}
         event_count: {type: integer}
         blocked_count: {type: integer}
+        watermark:
+          $ref: "#/components/schemas/SessionWatermark"
+
+    SessionWatermark:
+      type: object
+      description: >-
+        Section 12 contextual overlay, assembled only from this session's real
+        rows. `text` is the rendered six-line USER/SESSION/TARGET/TIME/TICKET/
+        SOURCE watermark and stays null while the session's watermark control
+        is off; missing facts render an em dash, never a guess. Protocol-level
+        overlays (pixel injection into RDP/VNC/browser/DB/SSH/file transfer)
+        await the gateway (section 27) and are labelled `not connected` in the
+        console until then.
+      required: [enabled, state, fields, text]
+      properties:
+        enabled: {type: boolean, description: Mirrors the session's watermark control.}
+        state: {$ref: "#/components/schemas/SessionStatus"}
+        fields:
+          type: object
+          required: [user, session, target, time, ticket, source]
+          properties:
+            user: {type: string, description: The acting principal.}
+            session: {type: string, description: "sess-<hex>, the custody ref."}
+            target: {type: string, description: "host:port of the target."}
+            time:
+              type: string
+              description: >-
+                dd-Mon-yyyy HH:MM of the latest recorded event (locale-independent),
+                so the stamp moves when the session does and freezes when it ends.
+            ticket:
+              type: [string, "null"]
+              description: ITSM reference of the linked JIT grant; null when none.
+            source:
+              type: [string, "null"]
+              description: Source address recorded at start; null when not supplied.
+        text:
+          type: [string, "null"]
+          description: The rendered six-line overlay; null while the control is off.
 
     SessionEventList:
       type: object

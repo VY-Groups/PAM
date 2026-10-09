@@ -115,7 +115,7 @@ across the restored history).
 → start. Schema changes are additive and applied at boot by
 `ensure_schema()`; the one-time chain backfill and rule seeding never repeat.
 Run the boundary suites before exposing it: `python -m pytest backend -q`
-(expect **434**) and `python -m pytest pam_master -q` (**46**).
+(expect **440**) and `python -m pytest pam_master -q` (**46**).
 
 ## 7. Monitoring
 

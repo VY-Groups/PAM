@@ -2894,16 +2894,92 @@ def _session_watermark(session: PrivilegedSession, actor: str) -> str:
     return f"{session.session_ref} | {actor} | {datetime.now().isoformat(timespec='seconds')}"
 
 
+def _request_source_ip(value: Any) -> Optional[str]:
+    """Keep the source address on the session row for the section-12
+    watermark: trimmed, capped to the column, and None when the caller
+    supplied none - the overlay then renders an em dash, never a guess."""
+    if not isinstance(value, str):
+        return None
+    value = value.strip()
+    return value[:64] or None
+
+
+_WATERMARK_MONTHS = (
+    "Jan", "Feb", "Mar", "Apr", "May", "Jun",
+    "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
+)
+
+
+def _watermark_stamp(moment: datetime) -> str:
+    """`03-Oct-2026 15:21` exactly as section 12 writes it - built by hand so
+    the month name never depends on the host locale."""
+    return (
+        f"{moment.day:02d}-{_WATERMARK_MONTHS[moment.month - 1]}-{moment.year} "
+        f"{moment.hour:02d}:{moment.minute:02d}"
+    )
+
+
+def session_watermark(session: PrivilegedSession) -> Dict[str, Any]:
+    """Section 12 contextual overlay, assembled only from this session's real
+    rows: the principal, the custody ref, the target, the clock of its latest
+    recorded event (so TIME moves when the session does), the linked grant's
+    ticket, and the source address recorded at start. `state` is the session
+    status the pause/resume/terminate transitions move, and `text` is the
+    rendered six-line overlay - null while the watermark control is off."""
+    latest = (
+        db.session.query(db.func.max(SessionEvent.created_at))
+        .filter_by(session_id=session.id)
+        .scalar()
+    )
+    moment = latest or session.started_at
+    ticket: Optional[str] = None
+    if session.jit_request_id is not None:
+        grant = JitRequest.query.filter_by(id=session.jit_request_id).first()
+        ticket = grant.ticket if grant is not None else None
+    fields: Dict[str, Any] = {
+        "user": session.actor,
+        "session": session.session_ref,
+        "target": session.target,
+        "time": _watermark_stamp(moment) if moment else None,
+        "ticket": ticket,
+        "source": session.source_ip,
+    }
+    text: Optional[str] = None
+    if session.watermark and fields["time"] is not None:
+        text = "\n".join(
+            f"{label}: {value if value not in (None, '') else '—'}"
+            for label, value in (
+                ("USER", fields["user"]),
+                ("SESSION", fields["session"]),
+                ("TARGET", fields["target"]),
+                ("TIME", fields["time"]),
+                ("TICKET", fields["ticket"]),
+                ("SOURCE", fields["source"]),
+            )
+        )
+    return {
+        "enabled": bool(session.watermark),
+        "state": session.status,
+        "fields": fields,
+        "text": text,
+    }
+
+
 def _append_session_status(
     session: PrivilegedSession, *, actor: str, content: str
 ) -> SessionEvent:
-    """Server-written lifecycle marker so playback shows every control action."""
+    """Server-written lifecycle marker so playback shows every control action.
+
+    Stamped explicitly with the service clock (the same clock the custody
+    string on the row is built from), so the event's time and its watermark
+    time are one instant."""
     event = SessionEvent(
         session_id=session.id,
         seq=_next_session_seq(session.id),
         type="status",
         content=content,
         actor=actor,
+        created_at=datetime.now(),
         watermark=_session_watermark(session, actor) if session.watermark else None,
     )
     db.session.add(event)
@@ -3049,6 +3125,7 @@ def create_session(
         actor=actor,
         item_id=item_id,
         jit_request_id=grant.id if grant is not None else None,
+        source_ip=_request_source_ip(payload.get("source_ip")),
         **controls,
     )
     db.session.add(session)
@@ -3128,6 +3205,8 @@ def session_detail(session_id: int) -> Dict[str, Any]:
         "events": [event.to_dict() for event in events],
         "event_count": total,
         "blocked_count": blocked,
+        # section 12: the contextual overlay rides along with the detail view
+        "watermark": session_watermark(session),
     }
 
 

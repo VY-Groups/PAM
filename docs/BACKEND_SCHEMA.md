@@ -177,6 +177,7 @@ String(32) indexed default `other` · `source` default `manual` · `created_at`.
 | actor | String(64) | ✗ | `system` |
 | item_id | Integer | ✓ | indexed — vault credential link |
 | jit_request_id | Integer | ✓ | indexed — grant link |
+| source_ip | String(64) | ✓ | §12 watermark SOURCE line (4k, via `ensure_schema`; null → `—`) |
 | status | String(16) | ✗ | `active`, indexed (`active|paused|locked|terminated|completed`) |
 | record / keystroke_log / watermark / clipboard_allowed / upload_allowed / download_allowed / screenshot_allowed | Boolean | ✗ | `True` |
 | started_at | DateTime | ✗ | |
@@ -408,7 +409,6 @@ column sets land with the code + contract commit; counts are `—` until then.
 
 | Phase | Tables | Notes |
 |---|---|---|
-| 4k §12 | *(none - payload assembled from `privileged_sessions`/`session_events`)* | |
 | 5a §13 | `vendor_accounts`, vendor link columns on `jit_requests` | |
 | 5b §14 | `cloud_connectors` | credentials themselves in vault, not in the row |
 | 5c §15 | `broker_policies`, `broker_credentials` | JIT semantics; expiry enforced like grants |

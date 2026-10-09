@@ -31,7 +31,7 @@ resumable source of truth while working)
 | §17 Break Glass | emergency protocol (dual approval → recorded session → rotation) | ✅ built | **4h** |
 | §20 Enterprise Integrations | TOTP MFA gate, ITSM verify, SIEM push, LDAP bind | ✅ built | **4i** |
 | §11 AI Security / UEBA | behavior baselines, anomaly response | ✅ built | **4j** |
-| §12 Dynamic Watermarking | contextual session overlay | ⛔ pending (custody string only) | **4k** |
+| §12 Dynamic Watermarking | contextual session overlay | ✅ built | **4k** |
 | §13 Third-Party / Vendor PAM | vendor invite → JIT flow | ⛔ pending | **5a** |
 | §14 Cloud PAM | AWS/Azure/GCP/K8s connectors | ⛔ pending | **5b** |
 | §15 DevSecOps PAM | CI/CD JIT credential broker | ⛔ pending | **5c** |
@@ -287,6 +287,22 @@ state.
 **Done when:** opening a live session shows an overlay whose fields all come
 from that session's real row and change on pause/resume/terminate.
 
+**As built (4k):** additive `watermark` object (`SessionWatermark` schema)
+on `GET /api/v1/sessions/{session_id}`, assembled only from the session's
+own rows — actor, custody ref, target, the clock of the latest recorded
+event (`dd-Mon-yyyy HH:MM`, locale-independent; moves with the session,
+freezes at its end), the linked grant's ticket, and the source address
+recorded at start (new nullable `privileged_sessions.source_ip` column
+added through `ensure_schema`, so pre-4k rows render `—`). `state` moves
+with pause/resume/terminate, `enabled` mirrors the watermark control, and
+`text` is the rendered six-line overlay (null while off — the per-event
+custody strings are gated by the same control). The Live Session Hub
+renders the pane from that payload, every recorded event row carries its
+custody line, and protocol-level pixel overlays are labelled
+`not connected` pending §27 gateway work; screenshot recaptured at
+1920×1600. Contract **87 paths / 96 ops / 14 tags / 49 admin**;
+`test_watermark.py` **6** + full backend **440**.
+
 ---
 
 ## 8. Phase 5 — enterprise expansion
@@ -346,7 +362,7 @@ keys where configured. Posture widget then counts them honestly as active.
 ## 10. Suggested execution order & rationale
 
 ```
-4j §11 ✓ → 4k §12                                (Phase 4 completion)
+4k §12 ✓ (Phase 4 complete)
         → 5a §13 → 5b §14 → 5c §15 → 5d §16     (expansion)
         → 6a §18 → 6b RBAC → 6c SSO/HSM          (scale)
 ```
@@ -372,7 +388,7 @@ real numbers collected at that time, `—` until then**:
    SIEM when configured.
 4. **Contracts:** `apis/openapi.yaml` (path count `—`, today 87) and the
    vendor tool contract both enforced both-ways; zero dark endpoints.
-5. **Quality gates:** backend suite (today **434**) grows per phase with real
+5. **Quality gates:** backend suite (today **440**) grows per phase with real
    counts recorded in the READMEs; pam_master stays green (**46**); smoke,
    both UI verifiers, leak check all green at every boundary.
 6. **Operations:** single-node install stays Docker-free; §18 adds replicated

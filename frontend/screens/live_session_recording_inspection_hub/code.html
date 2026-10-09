@@ -382,6 +382,50 @@
 </div>
 </div>
 </div>
+<!-- Dynamic Watermark Overlay (section 12) -->
+<div class="bg-surface-container-lowest rounded-xl p-4 shadow-sm flex flex-col gap-3" data-role="watermark">
+<div class="flex items-center justify-between">
+<h3 class="font-headline-sm text-headline-sm text-on-surface flex items-center gap-2">
+<span class="material-symbols-outlined text-primary text-[18px]">branding_watermark</span>
+              Dynamic Watermark Overlay
+            </h3>
+<span data-role="wm-state" class="font-code-sm text-[10px] px-2 py-0.5 rounded bg-surface-container text-on-surface-variant font-bold">&mdash;</span>
+</div>
+<div class="grid grid-cols-2 gap-2 text-body-sm">
+<div class="flex flex-col bg-surface-container-low p-2 rounded-lg">
+<span class="font-code-sm text-code-sm text-outline">USER</span>
+<span data-role="wm-user" class="font-body-md text-body-md font-semibold text-on-surface truncate">&mdash;</span>
+</div>
+<div class="flex flex-col bg-surface-container-low p-2 rounded-lg">
+<span class="font-code-sm text-code-sm text-outline">SESSION</span>
+<span data-role="wm-session" class="font-body-md text-body-md font-semibold text-on-surface truncate">&mdash;</span>
+</div>
+<div class="flex flex-col bg-surface-container-low p-2 rounded-lg">
+<span class="font-code-sm text-code-sm text-outline">TARGET</span>
+<span data-role="wm-target" class="font-body-md text-body-md font-semibold text-on-surface truncate">&mdash;</span>
+</div>
+<div class="flex flex-col bg-surface-container-low p-2 rounded-lg">
+<span class="font-code-sm text-code-sm text-outline">TIME</span>
+<span data-role="wm-time" class="font-body-md text-body-md font-semibold text-on-surface truncate">&mdash;</span>
+</div>
+<div class="flex flex-col bg-surface-container-low p-2 rounded-lg">
+<span class="font-code-sm text-code-sm text-outline">TICKET</span>
+<span data-role="wm-ticket" class="font-body-md text-body-md font-semibold text-on-surface truncate">&mdash;</span>
+</div>
+<div class="flex flex-col bg-surface-container-low p-2 rounded-lg">
+<span class="font-code-sm text-code-sm text-outline">SOURCE</span>
+<span data-role="wm-source" class="font-body-md text-body-md font-semibold text-on-surface truncate">&mdash;</span>
+</div>
+</div>
+<div class="flex flex-col gap-1">
+<span class="font-code-sm text-code-sm text-outline uppercase font-semibold">Overlay painted on the channel</span>
+<pre data-role="wm-text" class="font-code-sm text-code-sm text-on-surface-variant bg-surface-container-low p-2 rounded-lg whitespace-pre-wrap m-0">&mdash;</pre>
+</div>
+<div class="flex items-start gap-1.5 font-code-sm text-[10px] text-outline">
+<span class="material-symbols-outlined text-[13px] shrink-0">cloud_off</span>
+<span data-role="wm-protocol">Protocol-level overlay (RDP/VNC/browser/DB/SSH/file transfer): not connected &mdash; pixel injection awaits the gateway (section 27).</span>
+</div>
+</div>
 <!-- Session Metadata Card -->
 <div class="bg-surface-container-lowest rounded-xl p-4 shadow-sm flex flex-col gap-3">
 <div class="flex items-center justify-between">
@@ -700,6 +744,16 @@
       const cardsGrid = document.querySelector('div.grid.md\\:grid-cols-3');
       const leftCol = document.querySelector('div.lg\\:col-span-8');
       const rightCol = document.querySelector('div.lg\\:col-span-4');
+      const wmCard = document.querySelector('[data-role="watermark"]');
+      const wmState = wmCard
+        ? wmCard.querySelector('[data-role="wm-state"]') : null;
+      const wmNodes = {};
+      ['user', 'session', 'target', 'time', 'ticket', 'source'].forEach((key) => {
+        wmNodes[key] = wmCard
+          ? wmCard.querySelector('[data-role="wm-' + key + '"]') : null;
+      });
+      const wmText = wmCard
+        ? wmCard.querySelector('[data-role="wm-text"]') : null;
       const termChip = findSpan('LIVE REPLAY', leftCol);
       const termUser = findSpan('root@prod-payment-gateway-01', leftCol);
       const termMeta = findSpan('pts/2', leftCol);
@@ -1234,6 +1288,39 @@
               + DASH + '</div>';
         }
       }
+      // ---- rendering: the section-12 watermark overlay -----------------------
+      const WM_STATE_CLASS = {
+        active: 'bg-tertiary/15 text-tertiary',
+        paused: 'bg-surface-container text-on-surface-variant',
+        locked: 'bg-error-container/40 text-error',
+        terminated: 'bg-error-container/40 text-error',
+        completed: 'bg-surface-container text-on-surface-variant',
+      };
+      function renderWatermark() {
+        const wm = state.detail ? state.detail.watermark : null;
+        if (wmState) {
+          wmState.textContent = wm ? String(wm.state).toUpperCase() : DASH;
+          wmState.className = 'font-code-sm text-[10px] px-2 py-0.5 rounded font-bold '
+            + (wm && WM_STATE_CLASS[wm.state]
+              ? WM_STATE_CLASS[wm.state]
+              : 'bg-surface-container text-on-surface-variant');
+        }
+        ['user', 'session', 'target', 'time', 'ticket', 'source'].forEach((key) => {
+          const node = wmNodes[key];
+          if (!node) return;
+          const value = wm ? wm.fields[key] : null;
+          node.textContent = (value === null || value === undefined || value === '')
+            ? DASH : String(value);
+        });
+        if (wmText) {
+          wmText.textContent = !wm
+            ? DASH
+            : (wm.enabled && wm.text
+              ? wm.text
+              : 'Watermark control is OFF for this session — '
+                + 'the payload below stays on file, nothing is painted.');
+        }
+      }
       function timelineHTML(ev) {
         const t = hhmm(ev.created_at);
         const blocked = !ev.allowed;
@@ -1250,6 +1337,11 @@
           : (ev.withheld
             ? 'content withheld: keystroke logging off'
             : 'by ' + esc(ev.actor));
+        // section 12: every recorded row carries its custody watermark line
+        const cust = ev.watermark
+          ? '<span class="font-code-sm text-[10px] text-outline break-all">'
+            + 'custody: ' + esc(ev.watermark) + '</span>'
+          : '';
         return '<div class="flex items-start gap-2.5 p-2 rounded-lg '
           + (blocked ? 'bg-error-container/30' : 'bg-surface-container-low') + '">'
           + '<span class="font-code-sm text-code-sm '
@@ -1262,6 +1354,7 @@
           + ' truncate">' + code + '</code>' + badge + '</div>'
           + '<span class="font-body-sm text-body-sm '
           + (blocked ? 'text-error' : 'text-outline') + '">' + sub + '</span>'
+          + cust
           + '</div></div>';
       }
       function renderTimeline() {
@@ -1322,6 +1415,7 @@
         renderTerminal(sel);
         renderAiPanel(sel);
         renderGovernance(sel);
+        renderWatermark();
         renderTimeline();
         renderToolbar(sel);
       }

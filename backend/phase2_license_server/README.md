@@ -144,8 +144,8 @@ is no seed inventory: every credential enters through **Onboard New Credential**
 "not connected" states instead of sample rows.
 
 ```bash
-python -m pytest tests -q     # 352 tests (from backend/phase2_license_server)
-python -m pytest backend -q   # 434 tests from the repo root (+ shared crypto core)
+python -m pytest tests -q     # 358 tests (from backend/phase2_license_server)
+python -m pytest backend -q   # 440 tests from the repo root (+ shared crypto core)
 ```
 
 **Docker (development/runtime testing only — never a shipping instruction):**
@@ -233,7 +233,7 @@ cross-checked against these routes by `tests/test_openapi_contract.py`.
 | GET | `/sessions/stats` | – | Session aggregates: per-status counts, event and blocked totals |
 | GET | `/sessions?status=&protocol=&q=&limit=&offset=` | – | Sessions, newest first (live and archived; `status`/`protocol`/search filters) |
 | POST | `/sessions` | admin | Start a privileged session (201; `protocol` (13), `target`, optional `device` and `source_ip` (both scored at start), `item_id` - checks the credential out — or `jit_request_id` that must be an active grant, plus the 7 control flags). The response carries the §7 `risk` evaluation; a band the gate refuses (critical, or high without an active grant) → 403 with `details.risk` — the evaluation is already committed as ledger evidence. A critical band carrying named baseline deviations (section 11) additionally runs the anomaly response chain, reported in `details.anomaly`: the principal's standing sessions end through the release-and-rotate cascade, the credential the request sought is rotated, and the incident is recorded on `/risk/anomalies` and the ledger's `risk` trail. One live session per grant → 409. When a TOTP factor is enrolled the §7 `mfa` decision additionally demands `mfa_code` in the body (no factor → 201 without it; missing/wrong → 403 with `details.mfa`, committed as `mfa-gate` evidence) |
-| GET | `/sessions/<id>` | – | One session plus stats and its latest events (evaluates linked grant expiry) |
+| GET | `/sessions/<id>` | - | One session plus stats, its latest events, and the §12 `watermark` payload (`state`/`fields`/`text`, evaluated linked grant expiry) |
 | GET | `/sessions/<id>/events?order=&type=&limit=&offset=` | – | The append-only recording: `seq`, type, content, `allowed`/`blocked_reason`, `withheld`, `watermark`, actor |
 | POST | `/sessions/<id>/events` | admin | Record a channel event. Not-live → 409; typed content while `record=false` → 403; gated channels store `allowed=false` + reason (blocked evidence); `keystroke_log=false` stores content `null` + `withheld=true` |
 | POST | `/sessions/<id>/controls` | admin | Update control flags mid-session (live only; JSON keys are the flags) |
