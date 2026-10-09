@@ -482,6 +482,38 @@ def test_critical_deviation_blocks_the_session_and_runs_the_chain(
     verify = client.get("/api/v1/audit/verify").get_json()
     assert verify["intact"] is True, verify
 
+    # a second critical target with no credential on file: the chain still
+    # runs (block + incident), and the empty rotation is reported on the
+    # incident as evidence - never silent success
+    with app.app_context():
+        db.session.add(
+            DiscoveredAsset(
+                address="db-prod-02",
+                asset_type="database",
+                risk=BASE_RISK.get("database", "LOW"),
+                pam_status="unmanaged",
+            )
+        )
+        db.session.commit()
+    second = start_session(
+        client, target="db-prod-02:5432", device="phone-unknown",
+        source_ip="8.8.8.8",
+    )
+    assert second.status_code == 403, second.get_json()
+    second_details = second.get_json()["details"]
+    assert second_details["risk"]["band"] == "critical"
+    second_actions = second_details["anomaly"]["actions"]
+    assert second_actions["blocked"] is True
+    assert second_actions["sessions_ended"] == []
+    assert second_actions["rotations"] == []
+    assert second_actions["notes"] == [
+        "credential on db-prod-02 not rotated: no credential on file"
+    ]
+    page = client.get("/api/v1/risk/anomalies?subject=yash").get_json()
+    assert page["total"] == 2
+    verify = client.get("/api/v1/audit/verify").get_json()
+    assert verify["intact"] is True, verify
+
 
 def test_advisory_critical_never_runs_the_chain(app, client, clock):
     insert_prod_asset(app)

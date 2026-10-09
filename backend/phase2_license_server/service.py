@@ -5587,6 +5587,13 @@ def _anomaly_response(
                 actions["notes"].append(
                     f"credential {failed.get('id')} not rotated: {failed.get('error')}"
                 )
+            if forced.get("status") == "no_credential_on_file":
+                # nothing to rotate, and the incident says so - the same
+                # honesty as the no-host branch below: an absent credential
+                # is evidence too, never silent success.
+                actions["notes"].append(
+                    f"credential on {host} not rotated: no credential on file"
+                )
         else:
             actions["notes"].append("no credential linked to this request to rotate")
     incident = AnomalyEvent(
