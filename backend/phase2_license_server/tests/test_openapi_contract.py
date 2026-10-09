@@ -63,6 +63,7 @@ ADMIN_OPERATIONS = [
     ("post", "/api/v1/discovery/assets/{asset_id}/onboard"),
     ("post", "/api/v1/discovery/scans"),
     ("post", "/api/v1/risk/evaluate"),
+    ("post", "/api/v1/risk/baselines/train"),
     ("post", "/api/v1/bypass/ingest"),
     ("post", "/api/v1/bypass/scans"),
     ("post", "/api/v1/bypass/incidents/{incident_id}/close"),
@@ -74,6 +75,15 @@ ADMIN_OPERATIONS = [
     ("post", "/api/v1/mfa/enroll"),
     ("post", "/api/v1/mfa/verify"),
     ("post", "/api/v1/itsm/verify"),
+    ("post", "/api/v1/vendors"),
+    ("patch", "/api/v1/vendors/{vendor_id}"),
+    ("post", "/api/v1/vendors/{vendor_id}/mfa"),
+    ("post", "/api/v1/vendors/{vendor_id}/nda"),
+    ("post", "/api/v1/vendors/{vendor_id}/ticket"),
+    ("post", "/api/v1/vendors/{vendor_id}/approve"),
+    ("post", "/api/v1/vendors/{vendor_id}/deny"),
+    ("post", "/api/v1/vendors/{vendor_id}/revoke"),
+    ("post", "/api/v1/vendors/{vendor_id}/requests"),
 ]
 
 

@@ -1,6 +1,6 @@
 # VY-PAM — UI/UX Design Brief
 
-**Status:** as-built for Phase 4h
+**Status:** as-built for Phase 5a
 **Source design:** `stitch_pam_suite_dashboard_ui/` (frozen reference — never
 modified; screens live under `frontend/screens/<slug>/code.html`).
 This brief documents the design system as implemented, so new screens match
@@ -47,14 +47,14 @@ loaded from Google Fonts; Material Symbols Outlined for icons.
 **Radius** — `DEFAULT .125rem`, `lg .25rem`, `xl .5rem`, `full .75rem`
 (cards = `rounded-xl`).
 
-### 1.2 Shell layout (identical on all 10 screens)
+### 1.2 Shell layout (identical on all 11 screens)
 
 ```
 <aside> fixed, w-64, bg-surface-container-lowest, border-r outline-variant/30
   ├─ h-16 brand row: logo (../aegispam_enterprise_security_logo/screen.png),
   │   "AegisPAM" + "ZERO-TRUST CORE" code kicker, verified_user icon
   ├─ nav (data-path slugs, Material icon + label, active =
-  │   bg-primary-container text-on-primary-container)  ← 10 items
+  │   bg-primary-container text-on-primary-container)  ← 11 items
   └─ footer widget: module status (e.g. "ZSP Policy — not connected")
 <header> fixed top, left-64, h-16, backdrop-blur, z-40
   ├─ deployment/attestation chip · Cmd+K search (readonly) · audit-stream
@@ -108,9 +108,10 @@ loaded from Google Fonts; Material Symbols Outlined for icons.
 | Live Session Hub | active sessions, controls, event stream, terminate cascade, **§12 dynamic watermark overlay** (six fields from the session's own row, reacts to pause/resume/terminate, protocol overlays `not connected`) | 4c + 4k |
 | Target Infrastructure | scans, discovered assets/accounts, register/ignore | 2d/3c |
 | Policy & Zero Trust | command rules table, evaluate, approval queue, incidents, **§7 risk section** + **§11 Anomalies** (trained baselines, per-reason deviation chips, incident chain) | 4d/4f/4j |
-| Compliance & SOC2 | ledger digest, verify walk, 11-source chips, export, record modal, SIEM header chip | 4e/4f/4g/4h/4i |
+| Compliance & SOC2 | ledger digest, verify walk, 12-source chips, export, record modal, SIEM header chip | 4e/4f/4g/4h/4i |
 | Licensing | entitlements, quota usage, import/validate/revoke | 3a |
 | Break-Glass | request filing, dual-approval signatures, recorded emergency session, close + review — **§17 live** | 4h |
+| Vendor Access | vendor list (M N T A chain dots), **§13 dashboard** (access/denied lists, valid window, recording), 8-step chain with actions, invite modal + one-time MFA seed reveal, scoped JIT requests + lifecycle trail | 5a |
 | Settings | group forms + per-field changelog | 2b |
 
 ## 5. Responsive & accessibility
@@ -137,7 +138,7 @@ loaded from Google Fonts; Material Symbols Outlined for icons.
 | Screen / surface | Pending work | Phase |
 |---|---|---|
 | Target Infrastructure | Cloud connector cards (AWS/Azure/GCP/K8s) — `not connected` until configured | 5b |
-| New nav entries | Vendor/agent surfaces (5a/5d) require sidebar growth — **decision point**: extend the canonical 10-item nav (and the nav-consistency test) or nest under existing screens; decided at phase start, not earlier | 5a/5d |
+| New nav entries | Agent surfaces (5d) still require sidebar growth — the 5a vendor case is **decided and shipped**: canonical nav extended to 11 items (`vendor-access-third-party-lifecycle`, `handshake`, inserted before Platform Settings), nav-consistency test + launcher followed; the 5d case decides at its own phase start | 5d |
 
 Constraints that carry into all pending UI: frozen-HTML rules (no new `id=`,
 `data-role` hooks only), reveal-on-click + 30 s re-mask, honest

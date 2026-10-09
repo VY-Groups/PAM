@@ -1,6 +1,6 @@
 # VY-PAM — Deployment & Operations Runbook
 
-**Status:** as-built for Phase 4h
+**Status:** as-built for Phase 5a
 Docker exists **only** for development and runtime testing (vendor tool +
 license server). The shipped product
 installs directly on a machine — no VM, no container.
@@ -39,7 +39,7 @@ if** `LICENSE_AUTOGENERATE_KEYS=1`, backfills the audit chain once, seeds the
 scheduler.
 
 **Verify:** `GET /health` → 200 with a real DB ping; open
-`http://127.0.0.1:5000/` → the 10-item console with live numbers.
+`http://127.0.0.1:5000/` → the 11-item console with live numbers.
 
 Development alternative (**runtime/real-time testing only**, never a
 shipping instruction): `backend/phase2_license_server/docker-compose.yml`
@@ -115,7 +115,7 @@ across the restored history).
 → start. Schema changes are additive and applied at boot by
 `ensure_schema()`; the one-time chain backfill and rule seeding never repeat.
 Run the boundary suites before exposing it: `python -m pytest backend -q`
-(expect **440**) and `python -m pytest pam_master -q` (**46**).
+(expect **461**) and `python -m pytest pam_master -q` (**46**).
 
 ## 7. Monitoring
 

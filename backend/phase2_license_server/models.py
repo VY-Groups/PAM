@@ -54,6 +54,11 @@ SCHEMA_COLUMNS: Dict[str, Dict[str, str]] = {
     "privileged_sessions": {
         "source_ip": "VARCHAR(64)",
     },
+    # third-party vendor PAM (phase 5a, section 13): grants raised inside a
+    # vendor's access scope carry the vendor they were raised for.
+    "jit_requests": {
+        "vendor_account_id": "INTEGER",
+    },
 }
 
 
@@ -879,6 +884,9 @@ class JitRequest(db.Model):
     expires_at = db.Column(db.DateTime, nullable=True)
     closed_at = db.Column(db.DateTime, nullable=True)
     session_ref = db.Column(db.String(64), nullable=True)
+    # section 13: set when this request was raised through a third-party
+    # vendor account's access scope (nullable - internal requests carry none).
+    vendor_account_id = db.Column(db.Integer, nullable=True, index=True)
     created_at = db.Column(db.DateTime, nullable=False, default=datetime.now)
 
     def to_dict(self) -> Dict[str, Any]:
@@ -908,6 +916,7 @@ class JitRequest(db.Model):
             "expires_at": self.expires_at.isoformat() if self.expires_at else None,
             "closed_at": self.closed_at.isoformat() if self.closed_at else None,
             "session_ref": self.session_ref,
+            "vendor_account_id": self.vendor_account_id,
             "created_at": self.created_at.isoformat(),
         }
 
@@ -1661,6 +1670,154 @@ class IntegrationEvent(db.Model):
     __tablename__ = "integration_events"
 
     id = db.Column(db.Integer, primary_key=True)
+    created_at = db.Column(db.DateTime, nullable=False, default=datetime.now, index=True)
+    action = db.Column(db.String(32), nullable=False)
+    actor = db.Column(db.String(64), nullable=False, default="system")
+    subject = db.Column(db.String(160), nullable=False, default="")
+    detail = db.Column(db.JSON, nullable=False, default=dict)
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "id": self.id,
+            "action": self.action,
+            "actor": self.actor,
+            "subject": self.subject,
+            "detail": self.detail or {},
+            "created_at": self.created_at.isoformat(),
+        }
+
+
+# ---------------------------------------------------------------------------
+# Third-party / vendor PAM (architecture section 13)
+# ---------------------------------------------------------------------------
+VENDOR_STATUSES = (
+    "invited",   # invited: MFA/NDA/ticket/approval steps still outstanding
+    "approved",  # every step done - may request access inside its scope
+    "denied",    # the invite was refused (NDA or approval)
+    "revoked",   # access withdrawn; active grants were closed
+    "expired",   # the account's expires_at elapsed - automatic expiry
+)
+
+
+class VendorAccount(db.Model):
+    """One third-party vendor (architecture section 13): the lifecycle is
+    *invite -> MFA -> NDA/agreement -> ticket -> approval -> JIT -> session
+    recording -> automatic expiry*, all of it evidence-backed - each step
+    stores when it happened and the refusal paths name the step still
+    outstanding. The access scope (allowed/denied targets, valid window,
+    recording) is what the section-13 vendor dashboard renders verbatim.
+
+    The vendor's TOTP seed is sealed at rest (AES-256-GCM, AAD-bound to
+    this row) and returned exactly once, at invite - never again."""
+
+    __tablename__ = "vendor_accounts"
+
+    id = db.Column(db.Integer, primary_key=True)
+    name = db.Column(db.String(128), nullable=False, unique=True, index=True)
+    contact = db.Column(db.String(160), nullable=False, default="")
+    status = db.Column(db.String(16), nullable=False, default="invited", index=True)
+    invited_by = db.Column(db.String(64), nullable=False, default="system")
+    created_at = db.Column(db.DateTime, nullable=False, default=datetime.now, index=True)
+
+    # step 1 - MFA: sealed TOTP seed (shown once at invite) + verification.
+    mfa_secret = db.Column(db.JSON, nullable=True)
+    mfa_verified_at = db.Column(db.DateTime, nullable=True)
+
+    # step 2 - NDA / agreement.
+    nda_ref = db.Column(db.String(64), nullable=True)
+    nda_signed_at = db.Column(db.DateTime, nullable=True)
+
+    # step 3 - ticket, verified for real through section 20 ITSM machinery;
+    # the honest outcome snapshot rides along for the dashboard.
+    ticket = db.Column(db.String(64), nullable=True)
+    ticket_verified_at = db.Column(db.DateTime, nullable=True)
+    ticket_verification = db.Column(db.JSON, nullable=False, default=dict)
+
+    # step 4 - approval.
+    approved_at = db.Column(db.DateTime, nullable=True)
+    approved_by = db.Column(db.String(64), nullable=True)
+    denied_reason = db.Column(db.String(255), nullable=True)
+
+    # access scope (the section-13 dashboard example).
+    allowed_targets = db.Column(db.JSON, nullable=False, default=list)
+    denied_targets = db.Column(db.JSON, nullable=False, default=list)
+    # daily valid window "HH:MM".."HH:MM" (None = any hour), e.g. 14:00-16:00.
+    window_start = db.Column(db.String(5), nullable=True)
+    window_end = db.Column(db.String(5), nullable=True)
+    recording = db.Column(db.Boolean, nullable=False, default=True)
+    # account-level automatic expiry (lazy refresh marks the row `expired`).
+    expires_at = db.Column(db.DateTime, nullable=True)
+
+    def to_dict(self) -> Dict[str, Any]:
+        window = None
+        if self.window_start and self.window_end:
+            window = f"{self.window_start}–{self.window_end}"
+        return {
+            "id": self.id,
+            "name": self.name,
+            "contact": self.contact,
+            "status": self.status,
+            "invited_by": self.invited_by,
+            "created_at": self.created_at.isoformat(),
+            "steps": {
+                "mfa": "verified" if self.mfa_verified_at else "pending",
+                "nda": "signed" if self.nda_signed_at else "pending",
+                "ticket": "verified" if self.ticket_verified_at else "pending",
+                "approval": (
+                    "approved"
+                    if self.approved_at
+                    else "denied"
+                    if self.status == "denied"
+                    else "pending"
+                ),
+            },
+            "mfa_verified_at": (
+                self.mfa_verified_at.isoformat() if self.mfa_verified_at else None
+            ),
+            "nda": {
+                "ref": self.nda_ref,
+                "signed_at": (
+                    self.nda_signed_at.isoformat() if self.nda_signed_at else None
+                ),
+            },
+            "ticket": self.ticket,
+            "ticket_verified_at": (
+                self.ticket_verified_at.isoformat()
+                if self.ticket_verified_at
+                else None
+            ),
+            "ticket_verification": self.ticket_verification or {},
+            "approved_at": (
+                self.approved_at.isoformat() if self.approved_at else None
+            ),
+            "approved_by": self.approved_by,
+            "denied_reason": self.denied_reason,
+            "access": {
+                "allowed": list(self.allowed_targets or []),
+                "denied": list(self.denied_targets or []),
+                "window": window,
+                "recording": bool(self.recording),
+                "expires_at": (
+                    self.expires_at.isoformat() if self.expires_at else None
+                ),
+            },
+        }
+
+
+class VendorEvent(db.Model):
+    """Module action log for section 13: invites, step verifications,
+    approvals, denials, revocations, scope refusals and automatic expiry -
+    folded into the section-19 ledger as the twelfth source (`vendor`).
+    Vendor rows stay evidence, not actions: the ledger records what the
+    product *did*. The TOTP seed and any submitted code never appear in
+    `detail`."""
+
+    __tablename__ = "vendor_events"
+
+    id = db.Column(db.Integer, primary_key=True)
+    # the vendor this action belongs to (indexed; subject stays the display
+    # name captured at the time, so renames never rewrite history).
+    vendor_id = db.Column(db.Integer, nullable=False, index=True)
     created_at = db.Column(db.DateTime, nullable=False, default=datetime.now, index=True)
     action = db.Column(db.String(32), nullable=False)
     actor = db.Column(db.String(64), nullable=False, default="system")

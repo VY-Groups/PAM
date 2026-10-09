@@ -39,11 +39,14 @@ Supported wire formats and algorithms:
 | `tests/test_jit.py` | JIT access: deterministic risk bands, approvals, time-boxed grants, expiry rotation |
 | `tests/test_sessions.py` | Privileged sessions: start/attach, channel events, control gating, lifecycle + cascades |
 | `tests/test_command_control.py` | Zero-trust command policy: rule CRUD, dry-run decisions, approval queue, incident escalation |
-| `tests/test_audit.py` | Immutable §19 ledger: eleven-source fan-in, hash chain, append-only triggers, backfill, verify/export, drift guard |
+| `tests/test_audit.py` | Immutable §19 ledger: twelve-source fan-in, hash chain, append-only triggers, backfill, verify/export, drift guard |
 | `tests/test_risk.py` | §7 risk-based access engine: the eight scored components, bands/decisions, the session-start gate, ledger fan-in |
 | `tests/test_bypass.py` | §10 PAM bypass detection: log/JSON ingest, dedupe, correlation (candidate/covered/out_of_scope), incidents with forced rotation + honest `not_connected`, closure, stats, ledger fan-in |
 | `tests/test_break_glass.py` | §17 break-glass: request lifecycle, dual approval (self/second-signature rules), risk-gated open → recorded session → close with forced rotation + review, stats, ledger fan-in |
 | `tests/test_integrations.py` | §20 integrations: RFC-6238 TOTP + MFA gate/break-glass enforcement, ITSM ticket verify, SIEM signed push + drain failure event, LDAP login + ticket, settings secrets/readonly, contract |
+| `tests/test_ueba.py` | §11 UEBA behavior baselines: explicit training, deviation reasons, incident chain fan-in |
+| `tests/test_watermark.py` | §12 dynamic watermark: six fields from the session's own row, pause/resume/terminate movement, control gating |
+| `tests/test_vendor_pam.py` | §13 third-party PAM: invite → one-time seed → MFA → NDA → real ITSM ticket → approval gate → scoped JIT; refusals + §13 dashboard |
 | `tests/test_openapi_contract.py` | `apis/openapi.yaml` ↔ live route map (both directions) |
 
 ## Quick start
@@ -144,8 +147,8 @@ is no seed inventory: every credential enters through **Onboard New Credential**
 "not connected" states instead of sample rows.
 
 ```bash
-python -m pytest tests -q     # 358 tests (from backend/phase2_license_server)
-python -m pytest backend -q   # 440 tests from the repo root (+ shared crypto core)
+python -m pytest tests -q     # 379 tests (from backend/phase2_license_server)
+python -m pytest backend -q   # 461 tests from the repo root (+ shared crypto core)
 ```
 
 **Docker (development/runtime testing only — never a shipping instruction):**

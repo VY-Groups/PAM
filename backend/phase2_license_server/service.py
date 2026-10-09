@@ -98,6 +98,7 @@ from models import (
     VAULT_STATUS_ROTATION_DUE,
     VAULT_STATUSES,
     VAULT_TYPES,
+    VENDOR_STATUSES,
     DiscoveredAccount,
     DiscoveredAsset,
     DiscoveryEvent,
@@ -115,6 +116,8 @@ from models import (
     VaultEvent,
     VaultItem,
     VaultSecretVersion,
+    VendorAccount,
+    VendorEvent,
     AnomalyEvent,
     AuditEvent,
     BehaviorBaseline,
@@ -3080,6 +3083,15 @@ def create_session(
                     {"field": "status", "status": item.status},
                 )
             own_checkout = True
+
+    # section 13: a session riding a vendor grant is gated by the vendor's
+    # account state, scope and window - each refusal lands on the `vendor`
+    # ledger trail as evidence - and it always records: Recording: ENABLED
+    # is the section-13 contract, not a caller preference.
+    if grant is not None and grant.vendor_account_id is not None:
+        vendor = get_vendor(grant.vendor_account_id)
+        _vendor_session_gate(vendor, target=target, item=item, actor=actor)
+        controls["record"] = True
 
     # architecture section 7: score this request before it runs. The band
     # drives policy - CRITICAL is refused outright, HIGH needs the approval
@@ -7148,3 +7160,830 @@ def break_glass_stats() -> Dict[str, Any]:
         "last_opened_at": last_open.isoformat() if last_open else None,
         "last_closed_at": last_close.isoformat() if last_close else None,
     }
+
+
+# ---------------------------------------------------------------------------
+# Section 13: third-party / vendor PAM
+# ---------------------------------------------------------------------------
+# The lifecycle is invite -> MFA -> NDA/agreement -> ticket -> approval,
+# then JIT access inside the vendor's scope, sessions that always record,
+# and automatic expiry. Every step is evidence on the `vendor` ledger trail
+# and every refusal names the reason; nothing here is simulated - MFA is
+# the section-20 TOTP machinery and the ticket gate is the real section-20
+# ITSM verification over HTTP.
+
+_VENDOR_WINDOW_RE = re.compile(r"^([01]\d|2[0-3]):([0-5]\d)$")
+_VENDOR_TARGETS_MAX = 50
+
+
+def _vendor_event(
+    action: str, vendor: VendorAccount, actor: str, detail: Dict[str, Any]
+) -> VendorEvent:
+    """Queue one section-13 action record; the flush listener folds it into
+    the audit ledger under the twelfth source `vendor` in the same commit.
+    Secrets (the TOTP seed, submitted codes) never enter `detail`."""
+    event = VendorEvent(
+        vendor_id=vendor.id,
+        action=action,
+        actor=actor,
+        subject=vendor.name,
+        detail=detail or {},
+    )
+    db.session.add(event)
+    return event
+
+
+def _vendor_mfa_aad(vendor: VendorAccount) -> bytes:
+    """AAD binding the vendor's sealed TOTP seed to this exact row."""
+    return f"vendor:{vendor.id}:mfa_secret".encode("utf-8")
+
+
+def get_vendor(vendor_id: int) -> VendorAccount:
+    vendor = VendorAccount.query.filter_by(id=vendor_id).first()
+    if vendor is None:
+        raise NotFound("Vendor account not found")
+    return vendor
+
+
+def refresh_vendors() -> int:
+    """Lazy automatic expiry (the last step of the section-13 chain): a
+    vendor whose `expires_at` elapsed stops being usable - invited and
+    approved accounts alike. Grants keep their own expiry clocks."""
+    now = datetime.now()
+    rows = (
+        VendorAccount.query.filter(
+            VendorAccount.status.in_(("invited", "approved")),
+            VendorAccount.expires_at.isnot(None),
+            VendorAccount.expires_at <= now,
+        )
+        .all()
+    )
+    for vendor in rows:
+        vendor.status = "expired"
+        _vendor_event(
+            "expired",
+            vendor,
+            "system",
+            {
+                "reason": "expires_at elapsed",
+                "expires_at": vendor.expires_at.isoformat(),
+            },
+        )
+    if rows:
+        db.session.commit()
+    return len(rows)
+
+
+def _vendor_target_matches(
+    entry: str, target: str, item: Optional[VaultItem]
+) -> bool:
+    """An access-list entry matches a full `host:port` target, that target's
+    host part, or the credential's own name - admins scope by whichever
+    identity they actually hold ("Server 01", "db-01", or "db-01:5432")."""
+    candidates = {target}
+    if item is not None:
+        candidates.update({item.target, item.name})
+    if entry in candidates:
+        return True
+    hosts = {candidate.split(":", 1)[0] for candidate in candidates if candidate}
+    return entry in hosts
+
+
+def _vendor_scope_check(
+    vendor: VendorAccount,
+    target: str,
+    *,
+    item: Optional[VaultItem],
+    action: str,
+    actor: str,
+) -> None:
+    """Deny takes precedence, then the allow list; a refusal lands on the
+    `vendor` trail as evidence and refuses with the reason (never a silent
+    drop)."""
+    denied = [str(entry) for entry in (vendor.denied_targets or [])]
+    allowed = [str(entry) for entry in (vendor.allowed_targets or [])]
+    refusal: Optional[Dict[str, Any]] = None
+    if any(_vendor_target_matches(entry, target, item) for entry in denied):
+        refusal = {"reason": "target is denied for this vendor", "target": target}
+    elif not any(_vendor_target_matches(entry, target, item) for entry in allowed):
+        refusal = {
+            "reason": "target is not in the vendor's access list",
+            "target": target,
+            "allowed": allowed,
+        }
+    if refusal is None:
+        return
+    _vendor_event(action, vendor, actor, refusal)
+    db.session.commit()
+    raise APIError(
+        403,
+        "Vendor access refused",
+        {
+            "vendor": {
+                "name": vendor.name,
+                "status": vendor.status,
+                **refusal,
+            }
+        },
+    )
+
+
+def _vendor_window_check(
+    vendor: VendorAccount, *, action: str, actor: str
+) -> None:
+    """The section-13 `Valid: 14:00-16:00` line, enforced: outside the
+    window the access refuses with both times in the details."""
+    if not (vendor.window_start and vendor.window_end):
+        return
+    now = datetime.now()
+    current = f"{now.hour:02d}:{now.minute:02d}"
+    if vendor.window_start <= current < vendor.window_end:
+        return
+    window = f"{vendor.window_start}\u2013{vendor.window_end}"
+    detail = {
+        "reason": "outside the vendor's valid window",
+        "window": window,
+        "now": current,
+    }
+    _vendor_event(action, vendor, actor, detail)
+    db.session.commit()
+    raise APIError(
+        403,
+        "Vendor access refused",
+        {
+            "vendor": {"name": vendor.name, "status": vendor.status},
+            "window": {"window": window, "now": current},
+            "reason": detail["reason"],
+        },
+    )
+
+
+def _vendor_targets(value: Any, *, field: str) -> List[str]:
+    if not isinstance(value, list):
+        raise ValidationFailed(
+            f"'{field}' must be a list of target strings", {"field": field}
+        )
+    if len(value) > _VENDOR_TARGETS_MAX:
+        raise ValidationFailed(
+            f"'{field}' accepts at most {_VENDOR_TARGETS_MAX} entries",
+            {"field": field, "max": _VENDOR_TARGETS_MAX},
+        )
+    out: List[str] = []
+    for entry in value:
+        if not isinstance(entry, str) or not entry.strip():
+            raise ValidationFailed(
+                f"'{field}' entries must be non-empty strings", {"field": field}
+            )
+        out.append(entry.strip()[:255])
+    return out
+
+
+def _vendor_window_values(start: Any, end: Any) -> Tuple[Optional[str], Optional[str]]:
+    if start is None and end is None:
+        return None, None
+    if (start is None) != (end is None):
+        raise ValidationFailed(
+            "'window_start' and 'window_end' must be given together",
+            {"field": "window"},
+        )
+    for field, value in (("window_start", start), ("window_end", end)):
+        if not isinstance(value, str) or not _VENDOR_WINDOW_RE.match(value.strip()):
+            raise ValidationFailed(
+                "'window' values must be HH:MM (00:00-23:59)",
+                {"field": field, "format": "HH:MM"},
+            )
+    start, end = start.strip(), end.strip()
+    if start >= end:
+        raise ValidationFailed(
+            "'window_start' must precede 'window_end'",
+            {"field": "window", "window_start": start, "window_end": end},
+        )
+    return start, end
+
+
+def _vendor_expiry(value: Any) -> Optional[datetime]:
+    if value is None:
+        return None
+    if not isinstance(value, str) or not value.strip():
+        raise ValidationFailed(
+            "'expires_at' must be an ISO date-time", {"field": "expires_at"}
+        )
+    try:
+        moment = datetime.fromisoformat(value.strip().replace("Z", "+00:00"))
+    except ValueError:
+        raise ValidationFailed(
+            "'expires_at' must be an ISO date-time", {"field": "expires_at"}
+        )
+    if moment.tzinfo is not None:
+        moment = moment.astimezone().replace(tzinfo=None)
+    if moment <= datetime.now():
+        raise ValidationFailed(
+            "'expires_at' must be in the future", {"field": "expires_at"}
+        )
+    return moment
+
+
+def invite_vendor(payload: Any, *, actor: str) -> Dict[str, Any]:
+    """Invite a third-party vendor: the account starts `invited` with a
+    fresh TOTP seed sealed at rest. The seed and its otpauth URI are
+    returned exactly once, here - they never appear again. Re-inviting a
+    name that was denied, revoked or expired starts a fresh cycle on the
+    same row; the ledger keeps every previous cycle's evidence."""
+    if not isinstance(payload, dict):
+        raise ValidationFailed("Request body must be a JSON object")
+    name = payload.get("name")
+    if not isinstance(name, str) or not name.strip():
+        raise ValidationFailed("'name' is required", {"field": "name"})
+    name = name.strip()[:128]
+    if len(name) < 2:
+        raise ValidationFailed(
+            "'name' must be at least 2 characters", {"field": "name"}
+        )
+    contact = payload.get("contact") or ""
+    if not isinstance(contact, str):
+        raise ValidationFailed("'contact' must be a string", {"field": "contact"})
+    contact = contact.strip()[:160]
+    allowed = _vendor_targets(payload.get("allowed_targets") or [], field="allowed_targets")
+    denied = _vendor_targets(payload.get("denied_targets") or [], field="denied_targets")
+    start, end = _vendor_window_values(
+        payload.get("window_start"), payload.get("window_end")
+    )
+    recording = payload.get("recording", True)
+    if not isinstance(recording, bool):
+        raise ValidationFailed("'recording' must be true or false", {"field": "recording"})
+    expires_at = _vendor_expiry(payload.get("expires_at")) if "expires_at" in payload else None
+
+    existing = VendorAccount.query.filter_by(name=name).first()
+    reinvited = False
+    if existing is not None:
+        if existing.status in ("invited", "approved"):
+            raise Conflict(
+                "A vendor with this name already exists",
+                {"field": "name", "status": existing.status, "vendor_id": existing.id},
+            )
+        vendor, reinvited = existing, True
+        vendor.contact = contact
+        vendor.status = "invited"
+        vendor.invited_by = actor
+        vendor.created_at = datetime.now()
+        vendor.mfa_secret = None
+        vendor.mfa_verified_at = None
+        vendor.nda_ref = None
+        vendor.nda_signed_at = None
+        vendor.ticket = None
+        vendor.ticket_verified_at = None
+        vendor.ticket_verification = {}
+        vendor.approved_at = None
+        vendor.approved_by = None
+        vendor.denied_reason = None
+        vendor.allowed_targets = allowed
+        vendor.denied_targets = denied
+        vendor.window_start = start
+        vendor.window_end = end
+        vendor.recording = recording
+        vendor.expires_at = expires_at
+    else:
+        vendor = VendorAccount(
+            name=name,
+            contact=contact,
+            status="invited",
+            invited_by=actor,
+            allowed_targets=allowed,
+            denied_targets=denied,
+            window_start=start,
+            window_end=end,
+            recording=recording,
+            expires_at=expires_at,
+        )
+        db.session.add(vendor)
+    db.session.flush()  # the row id binds the sealed seed's AAD
+
+    secret = integrations.generate_totp_secret()
+    vendor.mfa_secret = seal_with_aad(secret, _vendor_mfa_aad(vendor), _vault_config())
+    _vendor_event(
+        "invited",
+        vendor,
+        actor,
+        {
+            "contact": contact,
+            "allowed": allowed,
+            "denied": denied,
+            "window": f"{start}\u2013{end}" if start else None,
+            "recording": recording,
+            "expires_at": expires_at.isoformat() if expires_at else None,
+            **({"reinvited": True} if reinvited else {}),
+        },
+    )
+    db.session.commit()
+
+    return {
+        "vendor": vendor.to_dict(),
+        "mfa": {
+            "secret": secret,
+            "otpauth_uri": integrations.otpauth_uri(secret, account=name),
+            "digits": 6,
+            "period": 30,
+            "algorithm": "SHA1",
+            "note": "shown once, at invite - it never appears again",
+        },
+    }
+
+
+def list_vendors(
+    *,
+    status: Optional[str] = None,
+    q: Optional[str] = None,
+    limit: int = 50,
+    offset: int = 0,
+) -> Tuple[List[VendorAccount], int]:
+    if status is not None and status not in VENDOR_STATUSES:
+        raise ValidationFailed(
+            "Unknown vendor status",
+            {"field": "status", "allowed": list(VENDOR_STATUSES)},
+        )
+    refresh_vendors()
+    query = VendorAccount.query
+    if status is not None:
+        query = query.filter_by(status=status)
+    if q is not None and q.strip():
+        like = f"%{q.strip()}%"
+        query = query.filter(
+            VendorAccount.name.like(like) | VendorAccount.contact.like(like)
+        )
+    total = query.count()
+    rows = (
+        query.order_by(VendorAccount.created_at.desc(), VendorAccount.id.desc())
+        .limit(limit)
+        .offset(offset)
+        .all()
+    )
+    return rows, total
+
+
+def vendor_detail(vendor_id: int) -> Dict[str, Any]:
+    """The vendor dashboard payload: the section-13 example (access list,
+    denied list, valid window, recording) plus the chain steps, the grants
+    raised through this account and the recent lifecycle trail."""
+    refresh_vendors()
+    vendor = get_vendor(vendor_id)
+    out = vendor.to_dict()
+    requests = (
+        JitRequest.query.filter_by(vendor_account_id=vendor.id)
+        .order_by(JitRequest.created_at.desc(), JitRequest.id.desc())
+        .all()
+    )
+    out["requests"] = [request.to_dict() for request in requests[:20]]
+    out["request_count"] = len(requests)
+    events = (
+        VendorEvent.query.filter_by(vendor_id=vendor.id)
+        .order_by(VendorEvent.id.desc())
+        .limit(20)
+        .all()
+    )
+    out["events"] = [event.to_dict() for event in events]
+    return out
+
+
+def update_vendor(vendor_id: int, payload: Any, *, actor: str) -> Dict[str, Any]:
+    """CRUD update of an invited/approved vendor's contact and access scope
+    (allowed/denied lists, valid window, recording, expiry). Denied, revoked
+    and expired accounts are frozen - re-invite instead."""
+    refresh_vendors()
+    vendor = get_vendor(vendor_id)
+    if not isinstance(payload, dict):
+        raise ValidationFailed("Request body must be a JSON object")
+    if vendor.status not in ("invited", "approved"):
+        raise Conflict(
+            f"Vendor is {vendor.status}; only an invited or approved vendor can be edited",
+            {"field": "status", "status": vendor.status},
+        )
+    allowed_keys = {
+        "name",
+        "contact",
+        "allowed_targets",
+        "denied_targets",
+        "window_start",
+        "window_end",
+        "recording",
+        "expires_at",
+    }
+    unknown = sorted(set(payload) - allowed_keys)
+    if unknown:
+        raise ValidationFailed(
+            "Unknown field(s) in this update",
+            {"field": unknown[0], "fields": unknown},
+        )
+    if not payload:
+        raise ValidationFailed("This update has no fields")
+    changed: List[str] = []
+
+    if "name" in payload:
+        name = payload.get("name")
+        if not isinstance(name, str) or not name.strip():
+            raise ValidationFailed("'name' must be a non-empty string", {"field": "name"})
+        name = name.strip()[:128]
+        clash = VendorAccount.query.filter(
+            VendorAccount.name == name, VendorAccount.id != vendor.id
+        ).first()
+        if clash is not None:
+            raise Conflict(
+                "A vendor with this name already exists",
+                {"field": "name", "vendor_id": clash.id},
+            )
+        vendor.name = name
+        changed.append("name")
+    if "contact" in payload:
+        contact = payload.get("contact") or ""
+        if not isinstance(contact, str):
+            raise ValidationFailed("'contact' must be a string", {"field": "contact"})
+        vendor.contact = contact.strip()[:160]
+        changed.append("contact")
+    if "allowed_targets" in payload:
+        vendor.allowed_targets = _vendor_targets(
+            payload.get("allowed_targets") or [], field="allowed_targets"
+        )
+        changed.append("allowed_targets")
+    if "denied_targets" in payload:
+        vendor.denied_targets = _vendor_targets(
+            payload.get("denied_targets") or [], field="denied_targets"
+        )
+        changed.append("denied_targets")
+    if "window_start" in payload or "window_end" in payload:
+        if ("window_start" in payload) != ("window_end" in payload):
+            raise ValidationFailed(
+                "'window_start' and 'window_end' must be given together",
+                {"field": "window"},
+            )
+        start, end = _vendor_window_values(
+            payload.get("window_start"), payload.get("window_end")
+        )
+        vendor.window_start, vendor.window_end = start, end
+        changed.extend(["window_start", "window_end"])
+    if "recording" in payload:
+        recording = payload.get("recording")
+        if not isinstance(recording, bool):
+            raise ValidationFailed(
+                "'recording' must be true or false", {"field": "recording"}
+            )
+        vendor.recording = recording
+        changed.append("recording")
+    if "expires_at" in payload:
+        vendor.expires_at = _vendor_expiry(payload.get("expires_at"))
+        changed.append("expires_at")
+
+    _vendor_event("updated", vendor, actor, {"fields": changed})
+    db.session.commit()
+    return vendor.to_dict()
+
+
+def verify_vendor_mfa(vendor_id: int, payload: Any, *, actor: str) -> Dict[str, Any]:
+    """Step 1 - the vendor proves the enrolled factor. Real RFC-6238 over
+    the seed sealed at invite; a wrong code is refused 401 and recorded,
+    the code itself never lands anywhere."""
+    refresh_vendors()
+    vendor = get_vendor(vendor_id)
+    if vendor.status != "invited":
+        raise Conflict(
+            f"Vendor is {vendor.status}; MFA is verified during the invite stage",
+            {"field": "status", "status": vendor.status},
+        )
+    if vendor.mfa_verified_at is not None:
+        raise Conflict(
+            "MFA is already verified for this vendor",
+            {"field": "mfa", "mfa_verified_at": vendor.mfa_verified_at.isoformat()},
+        )
+    code = payload.get("code") if isinstance(payload, dict) else None
+    if not isinstance(code, str) or not code.strip():
+        raise ValidationFailed(
+            "'code' is required", {"field": "mfa_code"}
+        )
+    if not vendor.mfa_secret:
+        raise Conflict("No MFA factor on file for this vendor", {"field": "mfa"})
+    secret = unseal_with_aad(vendor.mfa_secret, _vendor_mfa_aad(vendor), _vault_config())
+    if not integrations.verify_totp(secret, code.strip()):
+        _vendor_event(
+            "mfa-verify-failed",
+            vendor,
+            actor,
+            {"reason": "invalid or expired TOTP code"},
+        )
+        db.session.commit()
+        raise Unauthorized(
+            "TOTP code is invalid or expired",
+            {"field": "mfa_code", "mfa": "invalid or expired TOTP code"},
+        )
+    vendor.mfa_verified_at = datetime.now()
+    _vendor_event("mfa-verified", vendor, actor, {"method": "totp"})
+    db.session.commit()
+    return vendor.to_dict()
+
+
+def sign_vendor_nda(vendor_id: int, payload: Any, *, actor: str) -> Dict[str, Any]:
+    """Step 2 - record the NDA/agreement acceptance (reference optional,
+    the timestamp is not)."""
+    refresh_vendors()
+    vendor = get_vendor(vendor_id)
+    if vendor.status != "invited":
+        raise Conflict(
+            f"Vendor is {vendor.status}; the NDA is signed during the invite stage",
+            {"field": "status", "status": vendor.status},
+        )
+    if vendor.nda_signed_at is not None:
+        raise Conflict(
+            "The NDA is already signed for this vendor",
+            {"field": "nda", "nda_signed_at": vendor.nda_signed_at.isoformat()},
+        )
+    ref: Optional[str] = None
+    if isinstance(payload, dict) and payload.get("ref") is not None:
+        if not isinstance(payload.get("ref"), str):
+            raise ValidationFailed("'ref' must be a string", {"field": "ref"})
+        ref = payload["ref"].strip()[:64] or None
+    vendor.nda_ref = ref
+    vendor.nda_signed_at = datetime.now()
+    _vendor_event("nda-signed", vendor, actor, {"ref": ref})
+    db.session.commit()
+    return vendor.to_dict()
+
+
+def verify_vendor_ticket(vendor_id: int, payload: Any, *, actor: str) -> Dict[str, Any]:
+    """Step 3 - the real section-20 ITSM check. Not configured -> 409
+    (honest, never a simulated pass); configured but unverified -> 409 with
+    the upstream's answer. Either way the attempt lands on the `vendor`
+    trail, and the successful outcome is kept for the dashboard."""
+    refresh_vendors()
+    vendor = get_vendor(vendor_id)
+    if vendor.status != "invited":
+        raise Conflict(
+            f"Vendor is {vendor.status}; the ticket is verified during the invite stage",
+            {"field": "status", "status": vendor.status},
+        )
+    ticket = payload.get("ticket") if isinstance(payload, dict) else None
+    if not isinstance(ticket, str) or not ticket.strip():
+        raise ValidationFailed(
+            "'ticket' is required (an ITSM reference such as INC-23891)",
+            {"field": "ticket"},
+        )
+    ticket = ticket.strip()[:64]
+    if not _JIT_TICKET_RE.match(ticket):
+        raise ValidationFailed(
+            "'ticket' must look like INC-23891",
+            {"field": "ticket", "pattern": _JIT_TICKET_RE.pattern},
+        )
+    outcome = itsm_verify_ticket(ticket, actor=actor, record=True)
+    if not outcome.get("configured"):
+        detail = outcome.get("detail") or "itsm is not configured"
+        _vendor_event(
+            "ticket-refused", vendor, actor, {"ticket": ticket, "reason": detail}
+        )
+        db.session.commit()
+        raise Conflict(
+            detail,
+            {"field": "itsm", "configured": False, "detail": detail},
+        )
+    if not outcome.get("verified"):
+        detail = outcome.get("detail") or "ticket verification failed"
+        _vendor_event(
+            "ticket-refused",
+            vendor,
+            actor,
+            {
+                "ticket": ticket,
+                "reason": detail,
+                "http_status": outcome.get("http_status"),
+            },
+        )
+        db.session.commit()
+        raise Conflict(
+            "Ticket could not be verified against ITSM",
+            {
+                "field": "ticket",
+                "configured": True,
+                "verified": False,
+                "detail": detail,
+                "http_status": outcome.get("http_status"),
+            },
+        )
+    vendor.ticket = ticket
+    vendor.ticket_verified_at = datetime.now()
+    vendor.ticket_verification = {
+        key: outcome.get(key)
+        for key in (
+            "ticket",
+            "configured",
+            "verified",
+            "vendor",
+            "http_status",
+            "detail",
+            "checked_at",
+        )
+    }
+    _vendor_event(
+        "ticket-verified",
+        vendor,
+        actor,
+        {
+            "ticket": ticket,
+            "http_status": outcome.get("http_status"),
+            "itsm": outcome.get("vendor"),
+        },
+    )
+    db.session.commit()
+    return vendor.to_dict()
+
+
+def approve_vendor(vendor_id: int, *, actor: str) -> Dict[str, Any]:
+    """Step 4 - approval, refused with the exact list of steps still
+    outstanding (MFA, NDA, ticket) so the chain can never be short-cut."""
+    refresh_vendors()
+    vendor = get_vendor(vendor_id)
+    if vendor.status != "invited":
+        raise Conflict(
+            f"Vendor is {vendor.status}; only an invited vendor can be approved",
+            {"field": "status", "status": vendor.status},
+        )
+    missing = [
+        step
+        for step, done in (
+            ("mfa", vendor.mfa_verified_at),
+            ("nda", vendor.nda_signed_at),
+            ("ticket", vendor.ticket_verified_at),
+        )
+        if not done
+    ]
+    if missing:
+        _vendor_event("approval-refused", vendor, actor, {"missing": missing})
+        db.session.commit()
+        raise Conflict(
+            "Every lifecycle step must be complete before approval",
+            {"field": "steps", "missing": missing},
+        )
+    vendor.status = "approved"
+    vendor.approved_at = datetime.now()
+    vendor.approved_by = actor
+    _vendor_event(
+        "approved",
+        vendor,
+        actor,
+        {
+            "ticket": vendor.ticket,
+            "allowed": list(vendor.allowed_targets or []),
+            "denied": list(vendor.denied_targets or []),
+            "window": (
+                f"{vendor.window_start}\u2013{vendor.window_end}"
+                if vendor.window_start and vendor.window_end
+                else None
+            ),
+            "recording": bool(vendor.recording),
+        },
+    )
+    db.session.commit()
+    return vendor.to_dict()
+
+
+def deny_vendor(vendor_id: int, payload: Any, *, actor: str) -> Dict[str, Any]:
+    """Refuse the invite outright (NDA or approval decision); a denied name
+    may be re-invited later, with this cycle preserved on the trail."""
+    refresh_vendors()
+    vendor = get_vendor(vendor_id)
+    if vendor.status != "invited":
+        raise Conflict(
+            f"Vendor is {vendor.status}; only an invited vendor can be denied",
+            {"field": "status", "status": vendor.status},
+        )
+    reason: Optional[str] = None
+    if isinstance(payload, dict) and payload.get("reason") is not None:
+        if not isinstance(payload.get("reason"), str):
+            raise ValidationFailed("'reason' must be a string", {"field": "reason"})
+        reason = payload["reason"].strip()[:255] or None
+    vendor.status = "denied"
+    vendor.denied_reason = reason
+    _vendor_event("denied", vendor, actor, {"reason": reason})
+    db.session.commit()
+    return vendor.to_dict()
+
+
+def revoke_vendor(vendor_id: int, payload: Any, *, actor: str) -> Dict[str, Any]:
+    """Withdraw an approved vendor: every active grant it holds is closed
+    through the normal JIT close path (checkout released, credential
+    rotated, live sessions ended), then the account turns `revoked`."""
+    refresh_vendors()
+    vendor = get_vendor(vendor_id)
+    if vendor.status != "approved":
+        raise Conflict(
+            f"Vendor is {vendor.status}; only an approved vendor can be revoked",
+            {"field": "status", "status": vendor.status},
+        )
+    reason: Optional[str] = None
+    if isinstance(payload, dict) and payload.get("reason") is not None:
+        if not isinstance(payload.get("reason"), str):
+            raise ValidationFailed("'reason' must be a string", {"field": "reason"})
+        reason = payload["reason"].strip()[:255] or None
+    active = (
+        JitRequest.query.filter_by(vendor_account_id=vendor.id, status="active")
+        .order_by(JitRequest.id)
+        .all()
+    )
+    ended: List[int] = []
+    for request in active:
+        close_jit_request(request.id, actor=actor)
+        ended.append(request.id)
+    vendor.status = "revoked"
+    _vendor_event(
+        "revoked", vendor, actor, {"reason": reason, "grants_ended": ended}
+    )
+    db.session.commit()
+    return {"vendor": vendor.to_dict(), "grants_ended": ended}
+
+
+def create_vendor_jit_request(
+    vendor_id: int, payload: Any, *, actor: str
+) -> Dict[str, Any]:
+    """The vendor requests access, scoped by its account: status must be
+    `approved`, the credential's target must be inside the allow list and
+    outside the deny list, and now must fall inside the valid window -
+    each refusal is evidence on the `vendor` trail. The request itself is
+    the normal section-6 JIT machinery (real risk scoring, the approvals
+    that band requires), linked back through `vendor_account_id`, with the
+    vendor's verified ITSM ticket as its default reference."""
+    refresh_vendors()
+    vendor = get_vendor(vendor_id)
+    if vendor.status != "approved":
+        detail = {
+            "reason": f"account is {vendor.status}",
+            "target": None,
+        }
+        _vendor_event("access-refused", vendor, actor, detail)
+        db.session.commit()
+        raise APIError(
+            403,
+            "Vendor access refused",
+            {
+                "vendor": {
+                    "name": vendor.name,
+                    "status": vendor.status,
+                    "reason": detail["reason"],
+                }
+            },
+        )
+    if not isinstance(payload, dict):
+        raise ValidationFailed("Request body must be a JSON object")
+    item_id = payload.get("item_id")
+    if isinstance(item_id, bool) or not isinstance(item_id, int):
+        raise ValidationFailed("'item_id' is required", {"field": "item_id"})
+    item = get_vault_item(item_id)  # 404 for unknown ids
+    _vendor_scope_check(
+        vendor, item.target, item=item, action="access-refused", actor=actor
+    )
+    _vendor_window_check(vendor, action="access-refused", actor=actor)
+
+    request_payload: Dict[str, Any] = {
+        "item_id": item.id,
+        "reason": payload.get("reason"),
+        "minutes": payload.get("minutes", 15),
+        "ticket": payload.get("ticket") or vendor.ticket,
+        "requester": vendor.name[:64],
+    }
+    request = create_jit_request(request_payload, actor=actor)
+    request.vendor_account_id = vendor.id
+    db.session.add(request)
+    _vendor_event(
+        "access-requested",
+        vendor,
+        actor,
+        {
+            "request_id": request.id,
+            "item_id": request.item_id,
+            "target": item.target,
+            "minutes": request.minutes,
+            "risk": {"score": request.risk_score, "level": request.risk_level},
+            "jit_status": request.status,
+        },
+    )
+    db.session.commit()
+    return request.to_dict()
+
+
+def _vendor_session_gate(
+    vendor: VendorAccount, *, target: str, item: VaultItem, actor: str
+) -> None:
+    """Session-start gates for a vendor grant: account state, scope against
+    the session's real target, and the valid window - then the caller
+    forces recording on (section 13's Recording: ENABLED is not a
+    preference the caller gets to make)."""
+    if vendor.status != "approved":
+        detail = {"reason": f"account is {vendor.status}", "target": target}
+        _vendor_event("session-refused", vendor, actor, detail)
+        db.session.commit()
+        raise APIError(
+            403,
+            "Vendor access refused",
+            {
+                "vendor": {
+                    "name": vendor.name,
+                    "status": vendor.status,
+                    **detail,
+                }
+            },
+        )
+    _vendor_scope_check(vendor, target, item=item, action="session-refused", actor=actor)
+    _vendor_window_check(vendor, action="session-refused", actor=actor)

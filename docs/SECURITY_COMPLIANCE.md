@@ -1,6 +1,6 @@
 # VY-PAM — Security & Compliance Overview
 
-**Status:** as-built for Phase 4h
+**Status:** as-built for Phase 5a
 States what the platform **actually enforces today** — implemented controls
 are described with their evidence; gaps are named plainly.
 
@@ -63,10 +63,14 @@ token or explicit open dev mode), (c) runtime↔disk (encrypted secrets),
   the database.
 - **Ephemeral channel content:** `keystroke_log=false` stores
   `content: null, withheld: true` — evidence of withholding, not the data.
+- **Per-vendor TOTP seeds:** each §13 vendor's RFC-6238 seed is sealed
+  AES-256-GCM with AAD `vendor:{id}:mfa_secret` and returned exactly once,
+  at invite; a wrong code is refused 401 and recorded without the code ever
+  landing in the ledger.
 
 ## 4. Authentication & accountability
 
-- **49 admin operations** carry security schemes in `openapi.yaml`
+- **58 admin operations** carry security schemes in `openapi.yaml`
   (contract-tested) — they require `Bearer`/`X-Admin-Token` whenever
   `LICENSE_ADMIN_TOKEN` is set.
 - **Open dev mode is loud, never silent:** responses carry
@@ -80,6 +84,12 @@ token or explicit open dev mode), (c) runtime↔disk (encrypted secrets),
 - **Separation of duties:** JIT requester ≠ approver (enforced in code);
   `high` band requires manager **and** security approvals; held commands are
   resolved through append-only approval rows by another actor.
+- **Vendor chain cannot be short-cut (§13):** approval is refused 409 while
+  MFA/NDA/ticket are outstanding (the refusal names the steps), the ticket
+  step is a real §20 ITSM HTTP check (unconfigured → honest 409, never a
+  simulated pass), vendor access requests are scope- and window-checked
+  before the JIT request exists, and every refusal lands on the `vendor`
+  ledger trail.
 
 ## 5. Tamper evidence (architecture §19)
 
@@ -88,7 +98,7 @@ token or explicit open dev mode), (c) runtime↔disk (encrypted secrets),
 | Ordered | `seq` unique, ascending | `test_audit.py` chain walk |
 | Chained | `prev_hash` → `event_hash = sha256(canonical record)`, genesis `0`×64 | verify endpoint recompute |
 | Append-only | SQLite triggers abort `UPDATE`/`DELETE` with `'audit_events is append-only (architecture 19)'` | trigger tests |
-| Complete coverage | 11 sources (`license settings vault discovery jit session command risk bypass break-glass integration`); mapper-coverage test fails if any event model lacks a mapper | `MAPPERS` ⇄ models ⇄ `by_source` assertions |
+| Complete coverage | 12 sources (`license settings vault discovery jit session command risk bypass break-glass integration vendor`); mapper-coverage test fails if any event model lacks a mapper | `MAPPERS` ⇄ models ⇄ `by_source` assertions |
 | Detect, don't repair | tampering is **reported** (`first break` index), never silently fixed | forged-insert test |
 | Portable evidence | `/audit/verify`, `/audit/export` NDJSON in chain order | contract + audit tests |
 
@@ -110,7 +120,7 @@ with per-event `seq` and custody watermarks.
 
 | Control theme | Status | Where |
 |---|---|---|
-| Logical access — least privilege on admin APIs | ✅ (token mode) | 45 secured operations, contract-tested |
+| Logical access — least privilege on admin APIs | ✅ (token mode) | 58 secured operations, contract-tested |
 | Logical access — dev-mode transparency | ✅ explicit | `X-Auth-Mode: open`, posture violation logged |
 | Encryption of secrets at rest | ✅ | AES-256-GCM vault versions |
 | Change management — config change log | ✅ | `settings_events` per-field diffs |
@@ -124,6 +134,7 @@ with per-event `seq` and custody watermarks.
 | TLS in transit | ⛔ at app layer | terminate at reverse proxy (see runbook) |
 | HA / DR | ⛔ | single-node SQLite |
 | Break-glass emergency workflow (§17) | ✅ | dual approval (requester excluded) → recorded session → forced rotation at close; ledger `break-glass` |
+| Third-party / vendor access (§13) | ✅ | per-vendor TOTP (sealed, shown once) + NDA + real ITSM ticket → strict approval gate → scope/window-checked JIT request with forced session recording + lazy expiry; refusals recorded; ledger `vendor` |
 | SIEM streaming | ⚠️ seam only | NDJSON export (pull), no live webhook (§20) |
 | Dynamic watermark overlay (§12) | ✅ | six-line `USER/SESSION/TARGET/TIME/TICKET/SOURCE` payload assembled from the session's own rows (grant ticket + recorded source address), console overlay reacting to pause/resume/terminate, per-event custody lines; protocol-level pixel overlays labelled `not connected` pending gateway (§27) |
 

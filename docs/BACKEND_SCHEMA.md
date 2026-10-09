@@ -1,6 +1,6 @@
 # VY-PAM — Backend Schema
 
-**Status:** as-built for Phase 4h
+**Status:** as-built for Phase 5a
 Two databases: the **shipped runtime DB** (`backend/phase2_license_server/
 licenses.db`, SQLAlchemy/Flask-SQLAlchemy) and the **vendor-tool DB**
 (`pam_master/master.db`, raw `sqlite3`). Both are SQLite, both git-ignored.
@@ -11,7 +11,7 @@ external migration tool.
 
 ---
 
-## 1. Shipped runtime - 28 tables
+## 1. Shipped runtime - 30 tables
 
 ### ERD (logical)
 
@@ -22,7 +22,7 @@ vault_items ─1:n─ vault_events
 vault_items ─1:n─ vault_secret_versions
 discovered_assets ─1:n─ discovered_accounts
 discovery_scans ─1:n─ discovery_events        discovery_assets links via asset_id
-jit_requests ─1:n─ jit_events
+jit_requests ─1:n─ jit_events                (item_id → vault_items, vendor_account_id → vendor_accounts)
 privileged_sessions ─1:n─ session_events      (item_id → vault_items, jit_request_id → jit_requests)
 privileged_sessions ─1:n─ command_incidents   (event_seq → session_events.seq)
 command_rules                                  (referenced by rules/incidents, not FK)
@@ -34,6 +34,7 @@ bypass_events                                  (module actions → ledger source
 break_glass_requests ─1:n─ break_glass_approvals (request_id → break_glass_requests)
 break_glass_events                             (emergency actions → ledger source `break-glass`)
 integration_events                             (connector actions → ledger source `integration`)
+vendor_accounts ─1:n─ vendor_events           (vendor_id → vendor_accounts; lifecycle actions → ledger source `vendor`)
 audit_events                                    (hash chain over all of the above)
 ```
 
@@ -161,6 +162,7 @@ String(32) indexed default `other` · `source` default `manual` · `created_at`.
 | security_approval | JSON | ✓ | snapshot |
 | granted_at / expires_at / closed_at | DateTime | ✓ | |
 | session_ref | String(64) | ✓ | consumed session |
+| vendor_account_id | Integer | ✓ | indexed (§13 vendor link — set when the request was filed through a vendor account) |
 | created_at | DateTime | ✗ | |
 
 ### 1.13 `jit_events`
@@ -332,9 +334,45 @@ DateTime indexed
   by the release-and-rotate cascade, rotations, honest failure notes).
   Preserved evidence, never rewritten. Folded into the §19 ledger by
   `_map_anomaly` under the existing `risk` source (`action:
-  anomaly-incident`, ref `anom:<id>`), so the ledger source count stays 11.
+  anomaly-incident`, ref `anom:<id>`), so the anomaly rows added no new
+  ledger source (11 sources at 4j; **12** today — the §13 `vendor` source
+  joined in 5a).
   The model class is named `AnomalyEvent` deliberately: the audit drift
   guard requires every `*Event` table to join the ledger.
+
+### 1.29 `vendor_accounts` — §13 third-party vendor lifecycle
+| Column | Type | Null | Default |
+|---|---|---|---|
+| id | PK | ✗ | |
+| name | String(128) | ✗ | unique indexed (re-invite reuses the row for denied/revoked/expired names) |
+| contact | String(160) | ✗ | `""` |
+| status | String(16) | ✗ | `invited`, indexed (`invited\|approved\|denied\|revoked\|expired`) |
+| invited_by | String(64) | ✗ | `system` |
+| created_at | DateTime | ✗ | indexed |
+| mfa_secret | JSON | ✓ | sealed AES-256-GCM (AAD `vendor:{id}:mfa_secret`) — plaintext returned once at invite, never again |
+| mfa_verified_at | DateTime | ✓ | step 1 (real RFC-6238 over the sealed seed) |
+| nda_ref | String(64) | ✓ | step 2 reference (optional; the timestamp is not) |
+| nda_signed_at | DateTime | ✓ | step 2 |
+| ticket | String(64) | ✓ | step 3 — the verified ITSM reference |
+| ticket_verified_at | DateTime | ✓ | step 3 |
+| ticket_verification | JSON | ✗ | `{}` honest outcome snapshot (ticket/configured/verified/vendor/http_status/detail/checked_at) |
+| approved_at / approved_by | DateTime / String(64) | ✓ | step 4 |
+| denied_reason | String(255) | ✓ | denial note, recorded verbatim |
+| allowed_targets / denied_targets | JSON | ✗ | `[]` target strings (deny beats allow at every gate) |
+| window_start / window_end | String(5) | ✓ | daily valid window `HH:MM` (`None` = any hour), e.g. `14:00`–`16:00` |
+| recording | Boolean | ✗ | `true` — vendor sessions record server-side regardless of any caller flag |
+| expires_at | DateTime | ✓ | account expiry; the lazy refresh marks the row `expired` |
+
+### 1.30 `vendor_events` — §13 module action log (ledger source `vendor`)
+`id` PK · `vendor_id` Integer indexed · `created_at` DateTime indexed ·
+`action` String(32) · `actor` String(64) · `subject` String(160) (display
+name captured at the time — renames never rewrite history) · `detail` JSON.
+- actions: `invited` · `updated` · `mfa-verified` · `mfa-verify-failed` ·
+  `nda-signed` · `ticket-verified` · `ticket-refused` · `approval-refused` ·
+  `approved` · `denied` · `revoked` · `access-requested` · `access-refused` ·
+  `session-refused` · `expired`. The TOTP seed and any submitted code never
+  appear in `detail`. Folded into the §19 ledger by `_map_vendor` (ref
+  `vendor:<id>`) as the **twelfth** source.
 
 ---
 
@@ -409,7 +447,6 @@ column sets land with the code + contract commit; counts are `—` until then.
 
 | Phase | Tables | Notes |
 |---|---|---|
-| 5a §13 | `vendor_accounts`, vendor link columns on `jit_requests` | |
 | 5b §14 | `cloud_connectors` | credentials themselves in vault, not in the row |
 | 5c §15 | `broker_policies`, `broker_credentials` | JIT semantics; expiry enforced like grants |
 | 5d §16 | `agent_identities`, `agent_task_scopes` | command restrictions reference `command_rules` |

@@ -1,6 +1,6 @@
 # VY-PAM — Technical Requirements & Design Document (TRD)
 
-**Status:** as-built for Phase 4h
+**Status:** as-built for Phase 5a
 **Audience:** engineers extending or operating the system
 **Companion docs:** `PRD.md`, `PAM_FLOW.md`, `BACKEND_SCHEMA.md`, `API_REFERENCE.md`
 
@@ -51,7 +51,7 @@ repo.
 | Store | SQLite (`licenses.db`, git-ignored) | append-only enforced by triggers on `audit_events` |
 | Crypto | `cryptography` lib | RSA-PSS-SHA256 (default) / Ed25519 envelopes; AES-256-GCM secrets |
 | Frontend | Static HTML + Tailwind (CDN build) + vanilla JS | 10 sidebar screens, no bundler, works from `file://` |
-| Tests | pytest | 440 backend + 46 pam_master |
+| Tests | pytest | 461 backend + 46 pam_master |
 | UI verification | Node + `playwright-core` (`shots_tool/`) | viewport 1920×1600, never `fullPage` |
 | Vendor tool | Flask + raw `sqlite3` | `pam_master` package, `python -m pam_master` |
 
@@ -311,12 +311,45 @@ Rules enforced by tests/conventions:
   RDP/VNC/browser/DB/SSH/file-transfer pixels) stay gateway-dependent
   (§27) and the pane labels them `not connected` until that work lands.
 
+### 4.16 Third-party / vendor PAM (§13) — Phase 5a
+- **Data**: `vendor_accounts` (unique `name`, status
+  `invited|approved|denied|revoked|expired`, per-step timestamp columns for
+  MFA/NDA/ticket/approval, `allowed_targets`/`denied_targets` JSON, nullable
+  `window_start`/`window_end` daily window `HH:MM`, `recording`, lazy
+  `expires_at`) + `vendor_events` (module log folded into the ledger as
+  source `vendor`, the twelfth); `jit_requests` gains an indexed nullable
+  `vendor_account_id` added through `ensure_schema`.
+- **Chain**: invite seals a fresh TOTP seed (AES-256-GCM, AAD
+  `vendor:{id}:mfa_secret`) and returns seed + otpauth URI exactly once;
+  MFA verifies real RFC-6238 over it (a wrong code is refused + recorded,
+  the code itself never lands); NDA records acceptance + timestamp; the
+  ticket step is a real §20 ITSM HTTP GET (unconfigured → 409 honest
+  refusal, never a simulated pass); approval refuses 409 with
+  `details.missing` naming the outstanding steps — the chain cannot be
+  short-cut. Deny/revoke are recorded verbatim, revoke closes every active
+  grant through the normal JIT path (rotate + end sessions), and
+  denied/revoked/expired names may be re-invited on the same row.
+- **Access**: `POST /vendors/{id}/requests` delegates to
+  `create_jit_request` after the scope gate — status must be `approved`,
+  the target inside the allow list and outside the deny list (deny beats
+  allow) and now inside the valid window; every refusal is 403
+  `Vendor access refused` plus a `vendor` trail event, and the ITSM ticket
+  defaults to the vendor's verified one. Vendor sessions start with
+  `controls.record = true` regardless of caller flags; the lazy refresh
+  marks past-`expires_at` rows `expired`.
+- **Console**: the 11th sidebar screen
+  `vendor_access_third_party_lifecycle` renders the section-13 dashboard
+  (access/denied lists, `14:00–16:00`-style window, recording flag) from
+  the account's own row, the 8-step chain with its actions, the invite
+  modal with the one-time seed reveal, the vendor's JIT requests and
+  lifecycle trail; Compliance gains the 13th chip (source `vendor`).
+
 ## 5. API conventions
 
 | Concern | Rule |
 |---|---|
 | Versioning | Everything under `/api/v1` (health/meta unversioned) |
-| Auth | `LICENSE_ADMIN_TOKEN` set → `Authorization: Bearer …` or `X-Admin-Token` on the 49 admin operations; unset → explicit open dev mode (`X-Auth-Mode: open` response header) |
+| Auth | `LICENSE_ADMIN_TOKEN` set → `Authorization: Bearer …` or `X-Admin-Token: …` on the 58 admin operations; unset → explicit open dev mode (`X-Auth-Mode: open` response header) |
 | Actor | `X-Actor` header recorded on every audited write |
 | Errors | `{"error": {"code", "message", "details?"}}`; 400 validation, 401 auth, 403 policy refusal, 404, 409 conflict/state, 422 shape, 503 fail-closed dependency |
 | Pagination | `limit` (max 200) + `offset`, newest first |
@@ -373,12 +406,11 @@ its phase starts (plan > code > docs, in that order).
 
 | Phase / section | Data additions | API additions | Runtime behavior |
 |---|---|---|---|
-| 5a §13 Vendor PAM | `vendor_accounts`, vendor scoping | vendor lifecycle endpoints over existing JIT | invite→MFA→NDA→ticket→approval→JIT→record→expiry |
 | 5b §14 Cloud | `cloud_connectors` | connector CRUD + cloud discovery extension | real inventory/cloud grants only when credentials configured |
 | 5c §15 DevSecOps | broker policy rows | `POST /broker/credentials` | time-boxed pipeline credentials (JIT semantics), no static CI secrets |
 | 5d §16 AI-Agent | `agent_identities`, task scopes | agent request endpoints + task-scoped rule evaluation | identity → task → risk → JIT → restricted commands → expiry |
 | 6a §18 HA | replication/failover topology | health/failover endpoints | multi-node; storage engine decision = core design item |
-| 6b RBAC | `roles`, `role_bindings` | security schemes gain role requirements | attribute checks on the 49 admin ops + vault/target scoping |
+| 6b RBAC | `roles`, `role_bindings` | security schemes gain role requirements | attribute checks on the 58 admin ops + vault/target scoping |
 | 6c SSO/HSM | SSO/HSM config state | SAML/OIDC login path, PKCS#11/KMS key ops | settings schema becomes enforcement; posture counts flip honestly |
 
 Standing constraints that carry into all of these: ledger emission inside

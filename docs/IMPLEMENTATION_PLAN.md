@@ -26,13 +26,13 @@ resumable source of truth while working)
 | §7 Risk-Based Access | 8-component engine + session gate | ✅ built | 4f |
 | §8 Privileged Sessions | recording, controls, cascade | ✅ built | 4c |
 | §9 Command Control | default-allow rules, holds, incidents | ✅ built | 4d |
-| §19 Immutable Audit | hash chain, 11 sources, verify/export | ✅ built | 4e |
+| §19 Immutable Audit | hash chain, 12 sources, verify/export | ✅ built | 4e |
 | §10 PAM Bypass Detection | direct-access detection | ✅ built | **4g** |
 | §17 Break Glass | emergency protocol (dual approval → recorded session → rotation) | ✅ built | **4h** |
 | §20 Enterprise Integrations | TOTP MFA gate, ITSM verify, SIEM push, LDAP bind | ✅ built | **4i** |
 | §11 AI Security / UEBA | behavior baselines, anomaly response | ✅ built | **4j** |
 | §12 Dynamic Watermarking | contextual session overlay | ✅ built | **4k** |
-| §13 Third-Party / Vendor PAM | vendor invite → JIT flow | ⛔ pending | **5a** |
+| §13 Third-Party / Vendor PAM | vendor invite → JIT flow, §13 dashboard | ✅ built | **5a** |
 | §14 Cloud PAM | AWS/Azure/GCP/K8s connectors | ⛔ pending | **5b** |
 | §15 DevSecOps PAM | CI/CD JIT credential broker | ⛔ pending | **5c** |
 | §16 AI-Agent PAM | agent identity + task-scoped access | ⛔ pending | **5d** |
@@ -314,6 +314,25 @@ Recording → Automatic expiry* on top of existing JIT/vault/session machinery;
 window, recording state per spec example). Reuses 4i MFA and ITSM ticket
 verification for the real gate.
 
+**As built (5a):** `vendor_accounts` + `vendor_events` (tables **28→30**) and
+an indexed `jit_requests.vendor_account_id`. Invite seals a fresh per-vendor
+TOTP seed (AES-256-GCM, AAD `vendor:{id}:mfa_secret`) returned exactly once;
+MFA/NDA/ticket/approve each store their timestamp, approval refuses **409**
+with `details.missing` while any step is outstanding, the ticket step is the
+real §20 ITSM HTTP check (unconfigured → honest 409), deny/revoke record
+verbatim (revoke closes active grants through the normal JIT path — rotate +
+end sessions), and denied/revoked/expired names re-invite on the same row.
+`POST /vendors/{id}/requests` gates on `approved` status + allow/deny lists
+(deny beats allow) + the daily window before delegating to
+`create_jit_request`; vendor sessions force `controls.record = true`; lazy
+expiry marks past-`expires_at` rows `expired`. New **11th** sidebar screen
+`vendor_access_third_party_lifecycle` renders the §13 dashboard (chain dots
+M N T A, one-time seed reveal modal, requests + trail) from the account's
+own row; ledger source `vendor` (**11→12**), Compliance chips **12→13**,
+launcher card live, `__verify_live.mjs` **8→9** screens. Contract
+**96 paths / 107 ops / 15 tags / 58 admin**; `test_vendor_pam.py` **21** +
+full backend **461** (in-container **379**).
+
 ### 5b — Cloud PAM (§14)
 Connector model (`cloud_connectors` per AWS/Azure/GCP/K8s) with credential
 federation into the vault; discovery extension inventories cloud assets for
@@ -349,7 +368,7 @@ procedures in `docs/DEPLOYMENT_RUNBOOK.md` extend to replication runbooks.
 ### 6b — RBAC / ABAC
 Multi-role model (today: single admin token + open dev mode): roles
 (admin / approver / operator / auditor / auditor-read-only), policy bindings
-on the 49 admin operations, attribute rules on vault items and targets.
+on the 58 admin operations, attribute rules on vault items and targets.
 Contract lockstep: security schemes gain role requirements.
 
 ### 6c — SSO + HSM enforcement
@@ -383,12 +402,12 @@ real numbers collected at that time, `—` until then**:
 2. **Console:** all 10 sidebar screens live (including Break-Glass), zero
    `data-kind="static"` surfaces, zero FORBIDDEN strings, `file://` fallback
    intact.
-3. **Evidence:** one append-only ledger covering every module source (11+
+3. **Evidence:** one append-only ledger covering every module source (12+
    sources), chain verified in CI, NDJSON + webhook export flowing to a real
    SIEM when configured.
-4. **Contracts:** `apis/openapi.yaml` (path count `—`, today 87) and the
+4. **Contracts:** `apis/openapi.yaml` (path count `—`, today 96) and the
    vendor tool contract both enforced both-ways; zero dark endpoints.
-5. **Quality gates:** backend suite (today **440**) grows per phase with real
+5. **Quality gates:** backend suite (today **461**) grows per phase with real
    counts recorded in the READMEs; pam_master stays green (**46**); smoke,
    both UI verifiers, leak check all green at every boundary.
 6. **Operations:** single-node install stays Docker-free; §18 adds replicated

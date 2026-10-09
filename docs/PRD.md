@@ -1,6 +1,6 @@
 # VY-PAM — Product Requirements Document (PRD)
 
-**Status:** as-built for Phase 4k
+**Status:** as-built for Phase 5a
 **Source of truth:** `VY-PAM_Enterprise_PAM_Architecture.md` (requirements) and
 `VY-PAM_MASTER_and_PAM_Workflow.md` (phase checkpoints)
 **Companion docs:** `TRD.md`, `PAM_FLOW.md`, `UI_UX_DESIGN_BRIEF.md`,
@@ -71,13 +71,14 @@ never drift apart.
 | 9 | §9 Command Control | Default-allow engine, shipped §9 rules (15, seeded once), block → approval → allow, dry-run, approval queue, incidents with preserved evidence | Built | 8 command-control paths, `test_command_control.py` (18) |
 | 10 | §10 PAM Bypass Detection | Real auth-log/JSON ingest → verbatim observations, correlation against managed inventory + recorded sessions, incidents with alert + forced rotation (real §5 pipeline) + honest `block_source` | Built | 7 bypass paths, `test_bypass.py` (19) |
 | 11 | §17 Break Glass | Emergency request → dual approval (two distinct approvers, requester excluded) → recorded session releasing a real vault credential → forced rotation + required review at close, itself on the ledger | Built | 7 break-glass paths / 8 ops, `test_break_glass.py` (22) |
-| 12 | §19 Immutable Audit Architecture | Hash-chained append-only ledger over 11 module trails, SQLite triggers, boot backfill, verify walk, NDJSON export | Built | 3 audit paths, `test_audit.py` (19) |
+| 12 | §19 Immutable Audit Architecture | Hash-chained append-only ledger over 12 module trails, SQLite triggers, boot backfill, verify walk, NDJSON export | Built | 3 audit paths, `test_audit.py` (19) |
 | 13 | §21 Admin Dashboard | Command Center overview (health, posture, counters, recent activity) + Compliance center (digest, verify, per-trail filter, export) | Built | `GET /overview`, `GET /events` |
-| 14 | Product delivery | Console: 10-item sidebar, launcher, 10 screens live against real APIs, honest `file://` fallback | Built | `frontend/`, verifiers in `shots_tool/` |
+| 14 | Product delivery | Console: 11-item sidebar, launcher, 11 screens live against real APIs, honest `file://` fallback | Built | `frontend/`, verifiers in `shots_tool/` |
 | 15 | Vendor side | VY-PAM MASTER: encrypted customer registry, signed issuance/renewal, delivery bundles, own audit + own OpenAPI contract | Built | `pam_master/` (46 tests) |
 | 16 | §20 Enterprise Integrations | RFC-6238 TOTP factor enrolling + enforced at session start / break-glass open, ITSM ticket verification over real HTTP, SIEM signed-NDJSON push after commit, LDAP bind login with HMAC tickets, connector status aggregate | Built | 5 integration paths / 5 ops, `test_integrations.py` (41) |
 | 17 | §11 AI Security / UEBA | Per-principal behavior baselines learned from real history (hours/device/IP/target/verbs/cadence); named deviations on the behavior component (5 pts each); critical deviation → refuse start → release-and-rotate cascade → rotate sought credential → incident preserved on the `risk` ledger trail | Built | `GET/POST /risk/baselines*`, `GET /risk/anomalies` (3 paths / 3 ops), `test_ueba.py` (9) |
 | 18 | §12 Dynamic Watermarking | Contextual overlay `USER/SESSION/TARGET/TIME/TICKET/SOURCE` assembled only from the session's own rows (actor, custody ref, target, latest-event clock, linked grant's ticket, source address recorded at start); moves with pause/resume/terminate; the watermark control gates the painted text (data stays, `—` for absent facts); console overlay in the Live Session Hub, protocol-level pixel overlays labelled `not connected` pending gateway work | Built | additive `watermark` field on `GET /api/v1/sessions/{session_id}` (`SessionWatermark` schema), `test_watermark.py` (6) |
+| 19 | §13 Third-Party / Vendor PAM | Per-vendor TOTP (sealed at rest, shown once at invite), NDA, real ITSM ticket check, strict approval gate (refused 409 naming the missing steps), vendor-scoped JIT requests (scope + window checked pre-creation, deny beats allow), forced session recording, lazy account expiry, deny/revoke with the grant close cascade, re-invite on the same row; the vendor dashboard (access/denied lists, valid window, recording) renders the account's own row | Built | 9 vendor paths / 11 ops, `test_vendor_pam.py` (21) |
 
 ## 5. Scope — explicitly NOT built yet (pending requirements)
 
@@ -87,7 +88,6 @@ from the architecture doc, phase assigned in `IMPLEMENTATION_PLAN.md`:
 
 | Arch. section | Pending requirement (target behavior) | Current state | Phase |
 |---|---|---|---|
-| §13 Third-Party / Vendor PAM | Vendor lifecycle *invite → MFA → NDA → ticket → approval → JIT → recording → auto-expiry* + vendor access dashboard | Not started | 5a |
 | §14 Cloud PAM | AWS/Azure/GCP/Kubernetes connectors; K8s *RBAC → JIT → ephemeral privilege → audit* | Not started | 5b |
 | §15 DevSecOps PAM | CI/CD JIT credential broker (Jenkins/GitLab/GitHub/Terraform/Ansible/ArgoCD) — **no static secrets in pipelines** | Not started | 5c |
 | §16 AI-Agent PAM | Agent identity → task verification → risk → JIT credential → task-scoped command restrictions → monitoring → expiry | Not started | 5d |
@@ -167,20 +167,20 @@ from the architecture doc, phase assigned in `IMPLEMENTATION_PLAN.md`:
 
 | NFR | Requirement | How it is met today |
 |---|---|---|
-| Data honesty | No fabricated values anywhere in the product | Live-data wiring + FORBIDDEN-string sweep (`shots_tool/__verify_live.mjs`, 8 screens × HTTP/file) |
+| Data honesty | No fabricated values anywhere in the product | Live-data wiring + FORBIDDEN-string sweep (`shots_tool/__verify_live.mjs`, 9 screens × HTTP/file) |
 | Portability | Installs directly on a machine | Pure Python deps; SQLite files; Docker only under `pam_master/` and `backend/phase2_license_server/` for development |
 | Tamper evidence | Audit trail provable | sha256 chain + append-only triggers + `/audit/verify` |
-| Least privilege | Admin actions authenticated | 49 admin operations require `Bearer`/`X-Admin-Token` when `LICENSE_ADMIN_TOKEN` is set; open dev mode is explicit (`X-Auth-Mode: open`) |
+| Least privilege | Admin actions authenticated | 58 admin operations require `Bearer`/`X-Admin-Token` when `LICENSE_ADMIN_TOKEN` is set; open dev mode is explicit (`X-Auth-Mode: open`) |
 | Bounded resource use | Scans and lists bounded | Scan ≤256 hosts × ≤24 ports, single-flight; pagination `limit` max 200 |
 | Contract stability | API evolution controlled | OpenAPI 3.1, both-direction contract test, `/api/v1` version segment |
-| Testability | Every phase ships tests | 440 backend + 46 vendor-tool tests; UI verifiers; 17-step smoke |
+| Testability | Every phase ships tests | 461 backend + 46 vendor-tool tests; UI verifiers; 17-step smoke |
 | Offline crypto | Verification without network | Phase 1 validator verifies envelope/JWS offline (signature → structure → expiry) |
 
 ## 8. Success criteria (per release)
 
-1. `python -m pytest backend -q` green (currently **440**) and
+1. `python -m pytest backend -q` green (currently **461**) and
    `python -m pytest pam_master -q` green (**46**).
-2. Contract test green: **87** documented paths both directions, **49**
+2. Contract test green: **96** documented paths both directions, **58**
    admin operations carrying security schemes.
 3. Boundary verifiers green: smoke 17/17, `__verify_live.mjs`,
    `__verify_discovery.mjs`.
@@ -208,12 +208,12 @@ DevOps and AI environments"*):
 | Dimension | Final output |
 |---|---|
 | **Modules** | All architecture sections §1–§21 built (the §4 table grows to full ✅; §5 table empties); §22 Feature Matrix matches reality line-for-line |
-| **Console** | All 10 sidebar screens live — **zero `data-kind="static"` surfaces** (Break-Glass included); every widget renders real API data or honest `—`; `file://` fallback preserved |
-| **Evidence** | One append-only hash-chained ledger covering every module source (10+), verified in CI, exported as NDJSON **and** pushed to a configured SIEM |
+| **Console** | Every sidebar screen live — **zero `data-kind="static"` surfaces** (Break-Glass included); every widget renders real API data or honest `—`; `file://` fallback preserved |
+| **Evidence** | One append-only hash-chained ledger covering every module source (12+), verified in CI, exported as NDJSON **and** pushed to a configured SIEM |
 | **Access model** | Standing privilege eliminated everywhere: JIT for humans, task-scoped grants for agents/pipelines, MFA and SSO enforced, multi-role RBAC/ABAC over all admin operations |
 | **Threat response** | Bypass detection, UEBA anomalies, and risk banding all drive the *real* response machinery — session cascade, forced rotation, incidents with preserved evidence |
 | **Integrations** | IAM, MFA, ITSM, SIEM, SOAR, EDR, cloud and DevSecOps connectors — each either verified working against a real endpoint or explicitly `not connected` |
 | **Scale** | §18 replicated deployment (load balancer, vault/audit replication, failover) with runbooks; single-node install remains Docker-free |
-| **Contracts** | `apis/openapi.yaml` (87 paths today, `—` at completion) enforced both-ways; vendor tool contract likewise; zero dark endpoints |
-| **Quality** | Backend suite (440 today) grows per phase with real counts recorded in READMEs; pam_master 46 stays green; smoke + both UI verifiers green at every boundary |
+| **Contracts** | `apis/openapi.yaml` (96 paths today, `—` at completion) enforced both-ways; vendor tool contract likewise; zero dark endpoints |
+| **Quality** | Backend suite (461 today) grows per phase with real counts recorded in READMEs; pam_master 46 stays green; smoke + both UI verifiers green at every boundary |
 | **Honesty invariant** | Unchanged and non-negotiable: every displayed number comes from an API at render time — the product never fabricates, complete or not |

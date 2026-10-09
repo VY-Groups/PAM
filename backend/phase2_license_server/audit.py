@@ -50,9 +50,10 @@ from models import (
     SettingGroup,
     SettingsEvent,
     VaultEvent,
+    VendorEvent,
 )
 
-# the eleven trails folded into the ledger (the unified feed reads these)
+# the twelve trails folded into the ledger (the unified feed reads these)
 AUDIT_SOURCES = (
     "license",
     "settings",
@@ -65,6 +66,7 @@ AUDIT_SOURCES = (
     "bypass",
     "break-glass",
     "integration",
+    "vendor",
 )
 SOURCE_RANK = {name: index for index, name in enumerate(AUDIT_SOURCES)}
 
@@ -394,6 +396,23 @@ def _map_integration(event: IntegrationEvent, db_session) -> Dict[str, Any]:
     )
 
 
+def _map_vendor(event: VendorEvent, db_session) -> Dict[str, Any]:
+    """Invites, step verifications, approvals, denials, revocations, scope
+    refusals and automatic expiry under the twelfth trail `vendor`
+    (architecture section 13) - the auditable trail of the third-party
+    lifecycle itself, never the TOTP seed or a submitted code."""
+    return _entry(
+        source="vendor",
+        event_ref=f"vendor:{event.id}",
+        action=_value(event, "action"),
+        actor=_value(event, "actor"),
+        subject=_value(event, "subject"),
+        detail=_value(event, "detail") or {},
+        created_at=event.created_at,
+        sort_id=event.id,
+    )
+
+
 # every event model that must reach the ledger, in a stable backfill order
 LEDGER_MODELS = (
     LicenseEvent,
@@ -408,6 +427,7 @@ LEDGER_MODELS = (
     BreakGlassEvent,
     IntegrationEvent,
     AnomalyEvent,
+    VendorEvent,
 )
 
 MAPPERS = {
@@ -423,6 +443,7 @@ MAPPERS = {
     BreakGlassEvent: _map_break_glass,
     IntegrationEvent: _map_integration,
     AnomalyEvent: _map_anomaly,
+    VendorEvent: _map_vendor,
 }
 
 

@@ -1,9 +1,9 @@
 # VY-PAM — PAM Flow (Application Flow)
 
-**Status:** as-built for Phase 4h
+**Status:** as-built for Phase 5a
 Maps navigation, user journeys, and state machines across the console.
 Screen files live in `frontend/screens/<slug>/code.html`; the canonical
-navigation is the 10-item sidebar rendered on every screen.
+navigation is the 11-item sidebar rendered on every screen.
 
 ---
 
@@ -22,7 +22,8 @@ Sidebar order (slugs = `data-path`, labels = nav text, icons = Material Symbols)
 | 7 | `compliance-soc-2-audit-center` | Compliance & SOC2 | `policy` | ✅ `/audit/*`, `/events` |
 | 8 | `license-entitlement-center` | Licensing & Entitlements | `workspace_premium` | ✅ `/licenses/*` |
 | 9 | `break-glass-emergency-protocol` | Emergency Break-Glass | `emergency_home` (rendered in `text-error`) | ✅ `/break-glass/*` |
-| 10 | `platform-settings-center` | Settings | `tune` | ✅ `/settings/*` |
+| 10 | `vendor-access-third-party-lifecycle` | Vendor Access | `handshake` | ✅ `/vendors/*` |
+| 11 | `platform-settings-center` | Settings | `tune` | ✅ `/settings/*` |
 
 Plus the **launcher** (`frontend/launcher.html`) — a link hub, and the static
 spec screens (`enterprise_licensing_…`, `platform_settings_idp_hsm_…`) used as
@@ -154,7 +155,7 @@ Command Center → bypass section → paste an auth-log bundle → Ingest
       failures recorded) · block source "not connected" (no connector yet)
   → analyst closes with a note (who + when)     GET /bypass/incidents…
   → every ingest/scan/detect/close fans into the ledger (source `bypass`)
-  → Compliance screen: `bypass` chip in the 11-source filter
+  → Compliance screen: `bypass` chip in the 12-source filter
 ```
 
 ### 2.9 Break-glass emergency (§17)
@@ -176,7 +177,7 @@ Break-Glass screen → Initiate emergency (target + reason + severity +
         trigger `break-glass`), cascade recorded on the request
   → every request/approve/deny/open/close fans into the ledger
       (source `break-glass`, ref `bg-…`)
-  → Compliance screen: `break-glass` chip in the 11-source filter
+  → Compliance screen: `break-glass` chip in the 12-source filter
 ```
 
 ### 2.10 Enterprise integrations (§20)
@@ -222,6 +223,19 @@ CRITICAL refusal at session start with named deviations (the §11 chain)
     existing `risk` trail (action `anomaly-incident`) → GET /risk/anomalies
   → console evaluations stay advisory: scored with the same reasons,
     never chained
+```
+
+### Vendor / third-party access (§13 — built in 5a)
+
+```
+Invite (seed shown once) → MFA (real TOTP over the sealed seed)
+  → NDA/Agreement → ticket (real ITSM check; unconfigured = honest 409)
+  → approval (409 while any step is missing — the refusal names it)
+  → vendor files a scoped JIT request (allowed/denied targets + time window
+    checked first; every refusal lands on the `vendor` trail)
+  → session recording ENABLED (controls.record forced server-side)
+  → automatic expiry (lazy: the row turns expired on its next touch)
+  → vendor dashboard shows access ✓ / denied ✗ / validity window / recording
 ```
 
 ## 3. Cross-cutting interaction rules
@@ -280,15 +294,7 @@ BreakGlassRequest.status:
 Flows below are **not implemented yet**; they show the target journeys the
 console will gain, quoted from the architecture doc.
 
-### 6.1 Vendor / third-party access (§13 → phase 5a)
-```
-Invite vendor → MFA → NDA/Agreement → ticket → approval
-  → JIT access (scoped: allowed/denied targets + time window)
-  → session recording ENABLED → automatic expiry
-  → vendor dashboard shows access ✓ / denied ✗ / validity window / recording
-```
-
-### 6.2 DevSecOps & AI-agent access (§15/§16 → phases 5c/5d)
+### 6.1 DevSecOps & AI-agent access (§15/§16 → phases 5c/5d)
 ```
 Pipeline/Agent → request credential or task access
   → identity verification → risk evaluation → JIT token

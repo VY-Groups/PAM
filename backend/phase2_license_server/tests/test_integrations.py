@@ -1250,8 +1250,8 @@ def test_integration_trail_reaches_the_ledger_and_the_feed(client):
     stats = client.get("/api/v1/audit/stats").get_json()
     assert "integration" in stats["by_source"]
     assert stats["by_source"]["integration"] >= 1
-    assert len(audit_module.AUDIT_SOURCES) == 11
-    assert audit_module.AUDIT_SOURCES[-1] == "integration"
+    assert len(audit_module.AUDIT_SOURCES) == 12
+    assert audit_module.AUDIT_SOURCES[-1] == "vendor"
 
     feed = client.get("/api/v1/events", query_string={"source": "integration"})
     assert feed.status_code == 200

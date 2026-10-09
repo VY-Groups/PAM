@@ -1365,3 +1365,174 @@ def close_break_glass_request(request_id: int):
 def break_glass_stats():
     """Real aggregates: request states, approval signatures, ledger actions."""
     return jsonify(service.break_glass_stats())
+
+
+
+# ---------------------------------------------------------------------------
+# third-party / vendor PAM (architecture section 13)
+# ---------------------------------------------------------------------------
+@api.post("/vendors")
+@require_admin
+def invite_vendor():
+    """Invite a third-party vendor (201): the account starts `invited` and
+    the TOTP seed + otpauth URI come back once, here, never again."""
+    view = service.invite_vendor(_json_body(), actor=_actor())
+    name = view["vendor"]["name"]
+    return (
+        jsonify(
+            {
+                **view,
+                "message": (
+                    f"Vendor {name} invited - MFA secret shown once"
+                ),
+            }
+        ),
+        201,
+    )
+
+
+@api.get("/vendors")
+def list_vendors():
+    """Vendor accounts, newest first (status filter + search + paging)."""
+    limit = min(_int_param("limit", 50), MAX_PAGE_SIZE)
+    offset = _int_param("offset", 0)
+    rows, total = service.list_vendors(
+        status=request.args.get("status"),
+        q=request.args.get("q"),
+        limit=limit,
+        offset=offset,
+    )
+    return jsonify(
+        {
+            "vendors": [row.to_dict() for row in rows],
+            "total": total,
+            "limit": limit,
+            "offset": offset,
+        }
+    )
+
+
+@api.get("/vendors/<int:vendor_id>")
+def get_vendor(vendor_id: int):
+    """The vendor dashboard payload: chain steps, access/denied lists,
+    valid window, recording state, grants raised and the recent trail."""
+    return jsonify(service.vendor_detail(vendor_id))
+
+
+@api.patch("/vendors/<int:vendor_id>")
+@require_admin
+def update_vendor(vendor_id: int):
+    """Edit contact and access scope (allowed/denied targets, valid window,
+    recording, expiry) on an invited or approved account."""
+    view = service.update_vendor(vendor_id, _json_body(), actor=_actor())
+    return jsonify({"vendor": view, "message": f"Vendor {view['name']} updated"})
+
+
+@api.post("/vendors/<int:vendor_id>/mfa")
+@require_admin
+def verify_vendor_mfa(vendor_id: int):
+    """Step 1 - verify the vendor's TOTP code (real RFC-6238)."""
+    view = service.verify_vendor_mfa(vendor_id, _json_body(), actor=_actor())
+    return jsonify(
+        {"vendor": view, "message": f"MFA verified for {view['name']}"}
+    )
+
+
+@api.post("/vendors/<int:vendor_id>/nda")
+@require_admin
+def sign_vendor_nda(vendor_id: int):
+    """Step 2 - record the NDA/agreement acceptance."""
+    view = service.sign_vendor_nda(vendor_id, _json_body(required=False), actor=_actor())
+    ref = view["nda"]["ref"]
+    return jsonify(
+        {
+            "vendor": view,
+            "message": (
+                f"NDA signed for {view['name']}"
+                + (f" ({ref})" if ref else "")
+            ),
+        }
+    )
+
+
+@api.post("/vendors/<int:vendor_id>/ticket")
+@require_admin
+def verify_vendor_ticket(vendor_id: int):
+    """Step 3 - verify the ITSM ticket for real (409 while ITSM is not
+    configured; the upstream's own answer on a failed check)."""
+    view = service.verify_vendor_ticket(vendor_id, _json_body(), actor=_actor())
+    return jsonify(
+        {
+            "vendor": view,
+            "message": f"Ticket {view['ticket']} verified against ITSM",
+        }
+    )
+
+
+@api.post("/vendors/<int:vendor_id>/approve")
+@require_admin
+def approve_vendor(vendor_id: int):
+    """Step 4 - approve, refused with the exact steps still outstanding."""
+    view = service.approve_vendor(vendor_id, actor=_actor())
+    return jsonify(
+        {
+            "vendor": view,
+            "message": (
+                f"Vendor {view['name']} approved - access enabled inside its scope"
+            ),
+        }
+    )
+
+
+@api.post("/vendors/<int:vendor_id>/deny")
+@require_admin
+def deny_vendor(vendor_id: int):
+    """Refuse the invite outright (the name may be re-invited later)."""
+    view = service.deny_vendor(vendor_id, _json_body(required=False), actor=_actor())
+    return jsonify({"vendor": view, "message": f"Vendor {view['name']} denied"})
+
+
+@api.post("/vendors/<int:vendor_id>/revoke")
+@require_admin
+def revoke_vendor(vendor_id: int):
+    """Withdraw the vendor: active grants close (credential rotated, live
+    sessions ended) and the account turns `revoked`."""
+    view = service.revoke_vendor(vendor_id, _json_body(required=False), actor=_actor())
+    ended = view["grants_ended"]
+    return jsonify(
+        {
+            "vendor": view["vendor"],
+            "grants_ended": ended,
+            "message": (
+                f"Vendor {view['vendor']['name']} revoked"
+                + (
+                    f"; {len(ended)} grant(s) closed"
+                    if ended
+                    else ""
+                )
+            ),
+        }
+    )
+
+
+@api.post("/vendors/<int:vendor_id>/requests")
+@require_admin
+def create_vendor_jit_request(vendor_id: int):
+    """The vendor requests access inside its scope (201): the normal
+    section-6 JIT request, linked to this account, ticket defaulting to
+    the vendor's verified ITSM reference."""
+    view = service.create_vendor_jit_request(
+        vendor_id, _json_body(), actor=_actor()
+    )
+    return (
+        jsonify(
+            {
+                "request": view,
+                "message": (
+                    f"Access request #{view['id']} filed for this vendor "
+                    f"(risk: {view['risk']['level']}, status: {view['status']})"
+                ),
+            }
+        ),
+        201,
+    )

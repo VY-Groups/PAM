@@ -33,6 +33,7 @@ CANONICAL_NAV = [
     ("compliance-soc-2-audit-center", "compliance_soc_2_audit_center"),
     ("license-entitlement-center", "license_entitlement_center"),
     ("break-glass-emergency-protocol", "break_glass_emergency_protocol"),
+    ("vendor-access-third-party-lifecycle", "vendor_access_third_party_lifecycle"),
     ("platform-settings-center", "platform_settings_center"),
 ]
 # Which sidebar item marks "you are here" on each screen (the two spec screens
@@ -47,9 +48,10 @@ OWN_INDEX = {
     "compliance_soc_2_audit_center": 6,
     "license_entitlement_center": 7,
     "break_glass_emergency_protocol": 8,
-    "platform_settings_center": 9,
+    "vendor_access_third_party_lifecycle": 9,
+    "platform_settings_center": 10,
     "enterprise_licensing_tier_entitlements_node_quotas": 7,
-    "platform_settings_idp_hsm_configuration": 9,
+    "platform_settings_idp_hsm_configuration": 10,
 }
 WIRED_SCREENS = sorted(OWN_INDEX)
 

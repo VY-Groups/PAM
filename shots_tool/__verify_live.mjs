@@ -19,6 +19,7 @@ const SCREENS = [
   'live_session_recording_inspection_hub',
   'policy_zero_trust_rules_engine',
   'break_glass_emergency_protocol',
+  'vendor_access_third_party_lifecycle',
 ];
 
 const FORBIDDEN = [

@@ -1,7 +1,7 @@
 # VY-PAM — API Reference
 
-**Status:** as-built for Phase 4i
-**Contract:** `apis/openapi.yaml` (OpenAPI 3.1) - **87 paths / 96
+**Status:** as-built for Phase 5a
+**Contract:** `apis/openapi.yaml` (OpenAPI 3.1) - **96 paths / 107
 operations**, enforced in both directions by
 `backend/phase2_license_server/tests/test_openapi_contract.py`. If this page
 and the YAML ever disagree, the YAML wins.
@@ -15,13 +15,13 @@ and the YAML ever disagree, the YAML wins.
 | Base URL (dev) | `http://127.0.0.1:5000` (`LICENSE_SERVER_HOST`/`LICENSE_SERVER_PORT`) |
 | Version | `/api/v1/…` (`/health`, `/api/v1/meta` unversioned) |
 | Content type | `application/json` (license import also accepts multipart upload / raw body) |
-| Auth | When `LICENSE_ADMIN_TOKEN` is set: `Authorization: Bearer <token>` **or** `X-Admin-Token: <token>` on the **49 admin operations**. When unset: open dev mode - responses carry `X-Auth-Mode: open` (explicit, never silent). |
+| Auth | When `LICENSE_ADMIN_TOKEN` is set: `Authorization: Bearer <token>` **or** `X-Admin-Token: <token>` on the **58 admin operations**. When unset: open dev mode - responses carry `X-Auth-Mode: open` (explicit, never silent). |
 | Actor | `X-Actor: <name>` recorded verbatim in the audit ledger on every audited write |
 | Errors | `{"error":{"code","message","details?"}}` — 400 validation · 401 auth · 403 policy refusal (risk gate) · 404 · 409 conflict/state · 422 unprocessable shape · 503 fail-closed dependency |
 | Pagination | `limit` (≤200) + `offset`, newest first |
 | Ordering | Ledger/session streams ascending `seq`; listings newest-first |
 
-## 2. Operations by tag (14 tags)
+## 2. Operations by tag (15 tags)
 
 ### `ops` — unversioned
 | Method | Path | Summary |
@@ -168,6 +168,21 @@ and the YAML ever disagree, the YAML wins.
 | POST | `/api/v1/break-glass/requests/{request_id}/close` | end session, forced credential rotation, review note required |
 | GET | `/api/v1/break-glass/stats` | request statuses, approval signatures, action counts, last unseal |
 
+### `vendors` — §13 third-party PAM (Phase 5a, 9 paths / 11 operations)
+| Method | Path | Summary |
+|---|---|---|
+| POST | `/api/v1/vendors` | invite a vendor (201): the per-vendor TOTP seed + otpauth URI come back once, here — never again |
+| GET | `/api/v1/vendors` | list accounts, newest first (`status` filter, `q` search, paging) |
+| GET | `/api/v1/vendors/{vendor_id}` | dashboard payload: chain steps, access/denied lists, valid window, recording, requests, trail |
+| PATCH | `/api/v1/vendors/{vendor_id}` | edit contact + access scope (allowed/denied targets, window, recording, expiry) on an invited/approved account |
+| POST | `/api/v1/vendors/{vendor_id}/mfa` | step 1 — verify the vendor's TOTP code (real RFC-6238; a wrong code is 401 + recorded, the code itself never lands) |
+| POST | `/api/v1/vendors/{vendor_id}/nda` | step 2 — record the NDA/agreement acceptance (reference optional, timestamp not) |
+| POST | `/api/v1/vendors/{vendor_id}/ticket` | step 3 — real §20 ITSM check (unconfigured → 409 honest refusal; upstream's own answer on a failed check) |
+| POST | `/api/v1/vendors/{vendor_id}/approve` | step 4 — approve; refused 409 with the exact steps still missing (the chain cannot be short-cut) |
+| POST | `/api/v1/vendors/{vendor_id}/deny` | refuse the invite outright (reason recorded; the name may be re-invited later) |
+| POST | `/api/v1/vendors/{vendor_id}/revoke` | withdraw an approved vendor: active grants close through the JIT path (rotate + end sessions), account turns `revoked` |
+| POST | `/api/v1/vendors/{vendor_id}/requests` | the vendor files a scoped JIT request — status must be `approved`, scope + window checked pre-creation (403 `Vendor access refused` is evidence on the trail), ticket defaults to the verified one |
+
 ### Ledger (Compliance feeds)
 | Method | Path | Summary |
 |---|---|---|
@@ -214,13 +229,12 @@ keys only via `python -m pam_master.keygen`.
 
 ## 5. Planned endpoints (NOT in the contract — see `IMPLEMENTATION_PLAN.md`)
 
-These do **not** exist today; the contract's **87 paths / 96 operations**
+These do **not** exist today; the contract's **96 paths / 107 operations**
 are the complete current surface. Each lands in `openapi.yaml` + ADMIN
 security + tests in the same commit when its phase starts (counts `—`):
 
 | Phase | Planned additions |
 |---|---|
-| 5a §13 | vendor account CRUD + vendor-scoped lifecycle endpoints |
 | 5b §14 | `POST|GET /api/v1/cloud/connectors`, cloud discovery extension |
 | 5c §15 | `POST /api/v1/broker/credentials` (+ list/revoke) |
 | 5d §16 | agent identity CRUD + task-scoped request endpoints |

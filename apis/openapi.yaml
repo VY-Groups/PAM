@@ -50,6 +50,8 @@ tags:
     description: Break Glass - emergency requests, dual approval, recorded unseal, forced rotation (architecture 17)
   - name: integrations
     description: Enterprise Integrations - TOTP MFA, ITSM ticket verification, SIEM status, LDAP bind login (architecture 20)
+  - name: vendors
+    description: Third-Party / Vendor PAM - invite lifecycle (MFA/NDA/ticket/approval), scoped JIT access, vendor dashboard (architecture 13)
 paths:
   /health:
     get:
@@ -2541,6 +2543,356 @@ paths:
               schema: {$ref: "#/components/schemas/Error"}
         "409": {$ref: "#/components/responses/Conflict"}
 
+  /api/v1/vendors:
+    get:
+      tags: [vendors]
+      summary: Vendor accounts, newest first
+      description: Paged third-party vendor accounts with their chain steps and access scope; `q` searches name/contact. Stale accounts are expired lazily (section 13 automatic expiry) before the list answers.
+      parameters:
+        - name: status
+          in: query
+          schema: {type: string, enum: [invited, approved, denied, revoked, expired]}
+        - name: q
+          in: query
+          description: Substring match on name or contact.
+          schema: {type: string}
+        - {$ref: "#/components/parameters/Limit"}
+        - {$ref: "#/components/parameters/Offset"}
+      responses:
+        "200":
+          description: Paged vendor accounts
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/VendorList"}
+        "400": {$ref: "#/components/responses/BadRequest"}
+    post:
+      tags: [vendors]
+      summary: Invite a third-party vendor (architecture 13)
+      description: |
+        Starts the section-13 chain: the account lands `invited` with a
+        fresh TOTP seed sealed at rest (AAD-bound to the row). The seed
+        and its otpauth URI are returned once, in this response, and never
+        again. Re-inviting a name that was denied, revoked or expired
+        starts a fresh cycle on the same row - the `vendor` ledger trail
+        keeps every previous cycle's evidence. An invited or approved name
+        already on file conflicts (409).
+      security:
+        - bearerAuth: []
+        - adminTokenHeader: []
+        - {}
+      parameters:
+        - name: X-Actor
+          in: header
+          description: Who is issuing the invite.
+          schema: {type: string, maxLength: 64}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: "#/components/schemas/VendorInviteRequest"}
+      responses:
+        "201":
+          description: Vendor invited; MFA material shown once
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/VendorInviteResponse"}
+        "400": {$ref: "#/components/responses/BadRequest"}
+        "401": {$ref: "#/components/responses/Unauthorized"}
+        "409": {$ref: "#/components/responses/Conflict"}
+
+  /api/v1/vendors/{vendor_id}:
+    get:
+      tags: [vendors]
+      summary: Vendor dashboard payload (architecture 13 spec example)
+      description: |
+        The section-13 vendor dashboard: chain steps (MFA, NDA, ticket,
+        approval), the access/denied lists, the valid window rendered as
+        `14:00–16:00`, the recording flag, grants raised through this
+        account and the recent lifecycle trail. Automatic expiry is
+        applied before the answer.
+      parameters:
+        - name: vendor_id
+          in: path
+          required: true
+          schema: {type: integer, minimum: 1}
+      responses:
+        "200":
+          description: The vendor's dashboard payload
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/VendorDetailResponse"}
+        "404": {$ref: "#/components/responses/NotFound"}
+    patch:
+      tags: [vendors]
+      summary: Edit a vendor's contact and access scope
+      description: Allowed on invited and approved accounts; denied, revoked and expired accounts are frozen (409 - re-invite instead). A window must be given as a pair.
+      security:
+        - bearerAuth: []
+        - adminTokenHeader: []
+        - {}
+      parameters:
+        - name: vendor_id
+          in: path
+          required: true
+          schema: {type: integer, minimum: 1}
+        - name: X-Actor
+          in: header
+          schema: {type: string, maxLength: 64}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: "#/components/schemas/VendorUpdateRequest"}
+      responses:
+        "200":
+          description: Vendor updated
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/VendorActionResponse"}
+        "400": {$ref: "#/components/responses/BadRequest"}
+        "401": {$ref: "#/components/responses/Unauthorized"}
+        "404": {$ref: "#/components/responses/NotFound"}
+        "409": {$ref: "#/components/responses/Conflict"}
+
+  /api/v1/vendors/{vendor_id}/mfa:
+    post:
+      tags: [vendors]
+      summary: Step 1 - verify the vendor's TOTP code
+      description: Real RFC-6238 against the seed sealed at invite (+/-1 window). A wrong code is refused and recorded on the `vendor` trail; the code itself never lands anywhere.
+      security:
+        - bearerAuth: []
+        - adminTokenHeader: []
+        - {}
+      parameters:
+        - name: vendor_id
+          in: path
+          required: true
+          schema: {type: integer, minimum: 1}
+        - name: X-Actor
+          in: header
+          schema: {type: string, maxLength: 64}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: "#/components/schemas/VendorMfaRequest"}
+      responses:
+        "200":
+          description: Factor verified
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/VendorActionResponse"}
+        "400": {$ref: "#/components/responses/BadRequest"}
+        "401":
+          description: TOTP code invalid or expired (`details.field` is `mfa_code`).
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/Error"}
+        "404": {$ref: "#/components/responses/NotFound"}
+        "409": {$ref: "#/components/responses/Conflict"}
+
+  /api/v1/vendors/{vendor_id}/nda:
+    post:
+      tags: [vendors]
+      summary: Step 2 - record the NDA / agreement acceptance
+      security:
+        - bearerAuth: []
+        - adminTokenHeader: []
+        - {}
+      parameters:
+        - name: vendor_id
+          in: path
+          required: true
+          schema: {type: integer, minimum: 1}
+        - name: X-Actor
+          in: header
+          schema: {type: string, maxLength: 64}
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema: {$ref: "#/components/schemas/VendorNdaRequest"}
+      responses:
+        "200":
+          description: NDA signed (reference optional)
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/VendorActionResponse"}
+        "400": {$ref: "#/components/responses/BadRequest"}
+        "401": {$ref: "#/components/responses/Unauthorized"}
+        "404": {$ref: "#/components/responses/NotFound"}
+        "409": {$ref: "#/components/responses/Conflict"}
+
+  /api/v1/vendors/{vendor_id}/ticket:
+    post:
+      tags: [vendors]
+      summary: Step 3 - verify the ITSM ticket (real section-20 check)
+      description: |
+        The honest gate: ITSM not configured -> 409 naming it (never a
+        simulated pass); configured but the upstream does not confirm the
+        ticket -> 409 with its answer. A verified outcome is kept on the
+        account for the dashboard and the trail.
+      security:
+        - bearerAuth: []
+        - adminTokenHeader: []
+        - {}
+      parameters:
+        - name: vendor_id
+          in: path
+          required: true
+          schema: {type: integer, minimum: 1}
+        - name: X-Actor
+          in: header
+          schema: {type: string, maxLength: 64}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: "#/components/schemas/VendorTicketRequest"}
+      responses:
+        "200":
+          description: Ticket verified against ITSM
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/VendorActionResponse"}
+        "400": {$ref: "#/components/responses/BadRequest"}
+        "401": {$ref: "#/components/responses/Unauthorized"}
+        "404": {$ref: "#/components/responses/NotFound"}
+        "409": {$ref: "#/components/responses/Conflict"}
+
+  /api/v1/vendors/{vendor_id}/approve:
+    post:
+      tags: [vendors]
+      summary: Step 4 - approve the vendor
+      description: Refused with `details.missing` naming the steps still outstanding (mfa, nda, ticket) - the chain can never be short-cut.
+      security:
+        - bearerAuth: []
+        - adminTokenHeader: []
+        - {}
+      parameters:
+        - name: vendor_id
+          in: path
+          required: true
+          schema: {type: integer, minimum: 1}
+        - name: X-Actor
+          in: header
+          schema: {type: string, maxLength: 64}
+      responses:
+        "200":
+          description: Vendor approved - access enabled inside its scope
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/VendorActionResponse"}
+        "401": {$ref: "#/components/responses/Unauthorized"}
+        "404": {$ref: "#/components/responses/NotFound"}
+        "409": {$ref: "#/components/responses/Conflict"}
+
+  /api/v1/vendors/{vendor_id}/deny:
+    post:
+      tags: [vendors]
+      summary: Deny the invite outright
+      description: Turns a pending invite down (reason optional); the name may be re-invited later and this cycle stays on the trail.
+      security:
+        - bearerAuth: []
+        - adminTokenHeader: []
+        - {}
+      parameters:
+        - name: vendor_id
+          in: path
+          required: true
+          schema: {type: integer, minimum: 1}
+        - name: X-Actor
+          in: header
+          schema: {type: string, maxLength: 64}
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema: {$ref: "#/components/schemas/VendorReasonRequest"}
+      responses:
+        "200":
+          description: Vendor denied
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/VendorActionResponse"}
+        "400": {$ref: "#/components/responses/BadRequest"}
+        "401": {$ref: "#/components/responses/Unauthorized"}
+        "404": {$ref: "#/components/responses/NotFound"}
+        "409": {$ref: "#/components/responses/Conflict"}
+
+  /api/v1/vendors/{vendor_id}/revoke:
+    post:
+      tags: [vendors]
+      summary: Revoke an approved vendor
+      description: Withdraws the vendor - every active grant closes through the normal JIT close path (checkout released, credential rotated, live sessions ended), then the account turns `revoked`. `grants_ended` names the closed requests.
+      security:
+        - bearerAuth: []
+        - adminTokenHeader: []
+        - {}
+      parameters:
+        - name: vendor_id
+          in: path
+          required: true
+          schema: {type: integer, minimum: 1}
+        - name: X-Actor
+          in: header
+          schema: {type: string, maxLength: 64}
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema: {$ref: "#/components/schemas/VendorReasonRequest"}
+      responses:
+        "200":
+          description: Vendor revoked, active grants closed
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/VendorRevokeResponse"}
+        "400": {$ref: "#/components/responses/BadRequest"}
+        "401": {$ref: "#/components/responses/Unauthorized"}
+        "404": {$ref: "#/components/responses/NotFound"}
+        "409": {$ref: "#/components/responses/Conflict"}
+
+  /api/v1/vendors/{vendor_id}/requests:
+    post:
+      tags: [vendors]
+      summary: Vendor access request inside its scope (architecture 13)
+      description: |
+        The normal section-6 JIT request (real risk scoring, the approvals
+        that band requires), linked to this account through
+        `vendor_account_id`, with the requester set to the vendor and the
+        ticket defaulting to the vendor's verified ITSM reference. Refused
+        403 unless the account is `approved`, the credential's target is
+        inside the allow list (deny takes precedence) and now falls inside
+        the valid window - each refusal lands on the `vendor` trail.
+      security:
+        - bearerAuth: []
+        - adminTokenHeader: []
+        - {}
+      parameters:
+        - name: vendor_id
+          in: path
+          required: true
+          schema: {type: integer, minimum: 1}
+        - name: X-Actor
+          in: header
+          schema: {type: string, maxLength: 64}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: "#/components/schemas/VendorJitCreateRequest"}
+      responses:
+        "201":
+          description: Request filed (status depends on its risk band)
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/JitRequestResponse"}
+        "400": {$ref: "#/components/responses/BadRequest"}
+        "401": {$ref: "#/components/responses/Unauthorized"}
+        "403": {$ref: "#/components/responses/Forbidden"}
+        "404": {$ref: "#/components/responses/NotFound"}
+
 components:
   securitySchemes:
     bearerAuth:
@@ -2596,7 +2948,7 @@ components:
         application/json:
           schema: {$ref: "#/components/schemas/Error"}
     Forbidden:
-      description: Self-approval attempted (requesters cannot approve their own access).
+      description: Refused by policy - self-approval attempted (requesters cannot approve their own access), or a vendor request/session outside the vendor's scope or valid window.
       content:
         application/json:
           schema: {$ref: "#/components/schemas/Error"}
@@ -4606,3 +4958,192 @@ components:
         itsm: {$ref: "#/components/schemas/ItsmStatus"}
         siem: {$ref: "#/components/schemas/SiemStatus"}
         ldap: {$ref: "#/components/schemas/LdapStatus"}
+
+
+    VendorEvent:
+      type: object
+      description: One section-13 lifecycle action on the `vendor` ledger trail (never the TOTP seed or a submitted code).
+      required: [id, action, actor, subject, created_at]
+      properties:
+        id: {type: integer}
+        action:
+          type: string
+          enum: [invited, mfa-verified, mfa-verify-failed, nda-signed, ticket-verified, ticket-refused, approval-refused, approved, denied, revoked, updated, access-requested, access-refused, session-refused, expired]
+        actor: {type: string}
+        subject: {type: string, description: The vendor's name at the time of the action.}
+        detail: {type: object, additionalProperties: true}
+        created_at: {type: string, format: date-time}
+
+    VendorAccount:
+      type: object
+      description: One third-party vendor account - lifecycle chain plus the section-13 access scope the dashboard renders.
+      required: [id, name, status, steps, access]
+      properties:
+        id: {type: integer}
+        name: {type: string, maxLength: 128}
+        contact: {type: string}
+        status: {type: string, enum: [invited, approved, denied, revoked, expired]}
+        invited_by: {type: string}
+        created_at: {type: string, format: date-time}
+        steps:
+          type: object
+          required: [mfa, nda, ticket, approval]
+          properties:
+            mfa: {type: string, enum: [pending, verified]}
+            nda: {type: string, enum: [pending, signed]}
+            ticket: {type: string, enum: [pending, verified]}
+            approval: {type: string, enum: [pending, approved, denied]}
+        mfa_verified_at: {type: [string, "null"], format: date-time}
+        nda:
+          type: object
+          required: [ref, signed_at]
+          properties:
+            ref: {type: [string, "null"], maxLength: 64}
+            signed_at: {type: [string, "null"], format: date-time}
+        ticket: {type: [string, "null"], maxLength: 64}
+        ticket_verified_at: {type: [string, "null"], format: date-time}
+        ticket_verification:
+          type: object
+          additionalProperties: true
+          description: The honest section-20 ITSM outcome kept on file (configured/verified/vendor/http_status/detail/checked_at).
+        approved_at: {type: [string, "null"], format: date-time}
+        approved_by: {type: [string, "null"]}
+        denied_reason: {type: [string, "null"]}
+        access:
+          type: object
+          description: The section-13 dashboard example - Access (allowed), Denied, Valid window, Recording.
+          required: [allowed, denied, window, recording, expires_at]
+          properties:
+            allowed: {type: array, items: {type: string, maxLength: 255}}
+            denied: {type: array, items: {type: string, maxLength: 255}}
+            window:
+              type: [string, "null"]
+              description: "Daily valid window with an en dash, e.g. 14:00\u201316:00; null means any hour."
+            recording: {type: boolean, description: "Vendor sessions always record - the console renders ENABLED."}
+            expires_at: {type: [string, "null"], format: date-time}
+
+    VendorInviteRequest:
+      type: object
+      required: [name]
+      properties:
+        name: {type: string, minLength: 2, maxLength: 128}
+        contact: {type: string, maxLength: 160}
+        allowed_targets: {type: array, maxItems: 50, items: {type: string, maxLength: 255}}
+        denied_targets: {type: array, maxItems: 50, items: {type: string, maxLength: 255}}
+        window_start:
+          type: string
+          pattern: "^([01][0-9]|2[0-3]):[0-5][0-9]$"
+          description: Daily valid window start (must be given with window_end and before it).
+        window_end:
+          type: string
+          pattern: "^([01][0-9]|2[0-3]):[0-5][0-9]$"
+          description: Daily valid window end (exclusive).
+        recording: {type: boolean, default: true}
+        expires_at:
+          type: [string, "null"]
+          format: date-time
+          description: Automatic expiry - a future ISO date-time; the account then turns `expired` lazily.
+
+    VendorUpdateRequest:
+      type: object
+      description: Any subset of the invite fields (a window must be given as a pair; null clears).
+      properties:
+        name: {type: string, minLength: 2, maxLength: 128}
+        contact: {type: string, maxLength: 160}
+        allowed_targets: {type: array, maxItems: 50, items: {type: string, maxLength: 255}}
+        denied_targets: {type: array, maxItems: 50, items: {type: string, maxLength: 255}}
+        window_start: {type: [string, "null"], pattern: "^([01][0-9]|2[0-3]):[0-5][0-9]$"}
+        window_end: {type: [string, "null"], pattern: "^([01][0-9]|2[0-3]):[0-5][0-9]$"}
+        recording: {type: boolean}
+        expires_at: {type: [string, "null"], format: date-time}
+
+    VendorInviteResponse:
+      type: object
+      required: [vendor, mfa, message]
+      properties:
+        vendor: {$ref: "#/components/schemas/VendorAccount"}
+        mfa:
+          type: object
+          description: The TOTP seed material - returned once, at invite, never again.
+          required: [secret, otpauth_uri, digits, period, algorithm, note]
+          properties:
+            secret: {type: string, description: Base32 seed, shown once.}
+            otpauth_uri: {type: string}
+            digits: {type: integer}
+            period: {type: integer}
+            algorithm: {type: string}
+            note: {type: string}
+        message: {type: string}
+
+    VendorList:
+      type: object
+      required: [vendors, total, limit, offset]
+      properties:
+        vendors: {type: array, items: {$ref: "#/components/schemas/VendorAccount"}}
+        total: {type: integer}
+        limit: {type: integer}
+        offset: {type: integer}
+
+    VendorDetailResponse:
+      description: The vendor dashboard payload - the section-13 example plus chain steps, grants raised and the recent trail.
+      allOf:
+        - $ref: "#/components/schemas/VendorAccount"
+        - type: object
+          required: [requests, request_count, events]
+          properties:
+            requests: {type: array, items: {$ref: "#/components/schemas/JitRequest"}}
+            request_count: {type: integer}
+            events: {type: array, items: {$ref: "#/components/schemas/VendorEvent"}}
+
+    VendorActionResponse:
+      type: object
+      description: Lifecycle step answer (update, MFA, NDA, ticket, approve, deny) - the fresh vendor state plus a human message.
+      required: [vendor, message]
+      properties:
+        vendor: {$ref: "#/components/schemas/VendorAccount"}
+        message: {type: string}
+
+    VendorRevokeResponse:
+      type: object
+      required: [vendor, grants_ended, message]
+      properties:
+        vendor: {$ref: "#/components/schemas/VendorAccount"}
+        grants_ended:
+          type: array
+          items: {type: integer}
+          description: JIT request ids closed by the revocation.
+        message: {type: string}
+
+    VendorMfaRequest:
+      type: object
+      required: [code]
+      properties:
+        code: {type: string, minLength: 6, maxLength: 8, description: The vendor's current 6-digit TOTP code.}
+
+    VendorNdaRequest:
+      type: object
+      properties:
+        ref: {type: string, maxLength: 64, description: Agreement reference (optional; the acceptance timestamp is not).}
+
+    VendorTicketRequest:
+      type: object
+      required: [ticket]
+      properties:
+        ticket: {type: string, maxLength: 64, pattern: "^[A-Za-z]{2,10}-\\d{2,10}$", description: "ITSM reference such as INC-23891."}
+
+    VendorReasonRequest:
+      type: object
+      properties:
+        reason: {type: string, maxLength: 255}
+
+    VendorJitCreateRequest:
+      type: object
+      required: [item_id, reason]
+      properties:
+        item_id: {type: integer, minimum: 1}
+        reason: {type: string, minLength: 8, maxLength: 255}
+        minutes: {type: integer, minimum: 1, maximum: 480, default: 15}
+        ticket:
+          type: string
+          maxLength: 64
+          description: Defaults to the vendor's verified ITSM reference when omitted.

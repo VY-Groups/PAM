@@ -1,0 +1,1180 @@
+<!DOCTYPE html>
+
+<html lang="en"><head><meta charset="utf-8"/><meta content="width=device-width, initial-scale=1.0" name="viewport"/><meta content="web_dashboard" name="shell-type"/><link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Geist:wght@100..900&amp;family=JetBrains+Mono:wght@100..900&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/><style>@layer base{html,body{margin:0;padding:0;}body{overscroll-behavior:none;}main>:first-child{margin-top:0!important;}main>:last-child{margin-bottom:0!important;}}::-webkit-scrollbar{display:none;}</style><script src="https://cdn.tailwindcss.com"></script><script id="tailwind-config">tailwind.config={darkMode:"class",theme:{extend:{"colors":{"inverse-primary":"#b4c5ff","outline":"#737686","on-secondary-fixed":"#131b2e","surface-bright":"#f8f9ff","on-surface":"#0b1c30","surface-container":"#e5eeff","surface-tint":"#0053db","surface-container-lowest":"#ffffff","on-secondary-fixed-variant":"#3f465c","on-tertiary-fixed-variant":"#005236","on-error":"#ffffff","tertiary-fixed":"#6ffbbe","error-container":"#ffdad6","surface-container-highest":"#d3e4fe","on-error-container":"#93000a","surface-variant":"#d3e4fe","tertiary-fixed-dim":"#4edea3","on-primary-fixed":"#00174b","tertiary-container":"#007d55","tertiary":"#006242","on-tertiary":"#ffffff","primary-container":"#2563eb","inverse-on-surface":"#eaf1ff","surface":"#f8f9ff","primary-fixed-dim":"#b4c5ff","surface-dim":"#cbdbf5","primary":"#004ac6","on-secondary":"#ffffff","on-background":"#0b1c30","secondary-fixed":"#dae2fd","on-surface-variant":"#434655","on-primary":"#ffffff","background":"#f8f9ff","secondary-container":"#dae2fd","secondary-fixed-dim":"#bec6e0","secondary":"#565e74","inverse-surface":"#213145","on-secondary-container":"#5c647a","on-tertiary-fixed":"#002113","on-tertiary-container":"#bdffdb","on-primary-fixed-variant":"#003ea8","surface-container-low":"#eff4ff","on-primary-container":"#eeefff","surface-container-high":"#dce9ff","primary-fixed":"#dbe1ff","error":"#ba1a1a","outline-variant":"#c3c6d7"},"borderRadius":{"DEFAULT":"0.125rem","lg":"0.25rem","xl":"0.5rem","full":"0.75rem"},"spacing":{"margin":"1rem","space-lg":"1rem","space-xs":"0.25rem","margin-lg":"2rem","space-md":"0.75rem","gutter":"1rem","space-xl":"1.5rem","gutter-lg":"1.5rem","margin-md":"1.5rem","space-sm":"0.5rem"},"fontFamily":{"headline-xl-mobile":["Geist"],"code-sm":["JetBrains Mono"],"body-md":["Geist"],"code-md":["JetBrains Mono"],"headline-sm":["Geist"],"headline-lg":["Geist"],"body-lg":["Geist"],"headline-md":["Geist"],"label-badge":["JetBrains Mono"],"headline-xl":["Geist"],"label-md":["Geist"],"body-sm":["Geist"]},"fontSize":{"headline-xl-mobile":["26px",{"lineHeight":"34px","letterSpacing":"-0.015em","fontWeight":"600"}],"code-sm":["11px",{"lineHeight":"16px","fontWeight":"500"}],"body-md":["14px",{"lineHeight":"20px","fontWeight":"400"}],"code-md":["13px",{"lineHeight":"20px","fontWeight":"500"}],"headline-sm":["16px",{"lineHeight":"24px","letterSpacing":"-0.005em","fontWeight":"600"}],"headline-lg":["24px",{"lineHeight":"32px","letterSpacing":"-0.015em","fontWeight":"600"}],"body-lg":["15px",{"lineHeight":"24px","fontWeight":"400"}],"headline-md":["20px",{"lineHeight":"28px","letterSpacing":"-0.01em","fontWeight":"600"}],"label-badge":["11px",{"lineHeight":"14px","letterSpacing":"0.02em","fontWeight":"600"}],"headline-xl":["32px",{"lineHeight":"40px","letterSpacing":"-0.02em","fontWeight":"600"}],"label-md":["12px",{"lineHeight":"16px","letterSpacing":"0.01em","fontWeight":"500"}],"body-sm":["12px",{"lineHeight":"18px","fontWeight":"400"}]}}}}</script></head><body class="bg-surface font-body-md text-on-surface antialiased min-h-screen"><aside class="fixed left-0 top-0 h-full w-64 bg-surface-container-lowest border-r border-outline-variant/30 z-50 flex flex-col justify-between shadow-[0_1px_8px_rgba(0,0,0,0.03)]"><div class="flex flex-col"><div class="h-16 px-space-lg flex items-center justify-between border-b border-outline-variant/20"><div class="flex items-center gap-space-sm"><img alt="AegisPAM Enterprise Security Logo" class="h-8 w-8 object-cover object-left" src="../aegispam_enterprise_security_logo/screen.png"/><div class="flex flex-col"><span class="font-headline-sm text-headline-sm text-on-surface tracking-tight leading-none">Aegis<span class="text-primary">PAM</span></span><span class="font-code-sm text-code-sm text-on-surface-variant font-normal tracking-wide">ZERO-TRUST CORE</span></div></div><span class="material-symbols-outlined text-outline text-[18px]">verified_user</span></div><div class="px-space-md py-space-sm overflow-y-auto max-h-[calc(100vh-160px)]"><div class="px-space-sm py-space-xs mb-space-xs font-code-sm text-code-sm text-outline uppercase tracking-wider font-semibold">Privileged Controls</div><nav class="flex flex-col gap-1" data-active-classes="bg-primary-container text-on-primary-container font-semibold shadow-sm"><a class="flex items-center gap-space-sm px-space-md py-space-sm rounded-lg text-on-surface-variant hover:bg-surface-container hover:text-on-surface transition-colors font-body-md text-body-md" data-path="pam-command-center-threat-dashboard" href="../pam_command_center_threat_dashboard/code.html"><span class="material-symbols-outlined text-[20px]">grid_view</span><span>Command Center</span></a><a class="flex items-center gap-space-sm px-space-md py-space-sm rounded-lg text-on-surface-variant hover:bg-surface-container hover:text-on-surface transition-colors font-body-md text-body-md" data-path="credential-vault-secrets-inventory" href="../credential_vault_secrets_inventory/code.html"><span class="material-symbols-outlined text-[20px]">vpn_key</span><span>Credential Vault</span></a><a class="flex items-center gap-space-sm px-space-md py-space-sm rounded-lg text-on-surface-variant hover:bg-surface-container hover:text-on-surface transition-colors font-body-md text-body-md" data-path="jit-access-ephemeral-approvals" href="../jit_access_ephemeral_approvals/code.html"><span class="material-symbols-outlined text-[20px]">hourglass_top</span><span>JIT Access &amp; Approvals</span></a><a class="flex items-center gap-space-sm px-space-md py-space-sm rounded-lg text-on-surface-variant hover:bg-surface-container hover:text-on-surface transition-colors font-body-md text-body-md" data-path="live-session-recording-inspection-hub" href="../live_session_recording_inspection_hub/code.html"><span class="material-symbols-outlined text-[20px]">terminal</span><span>Live Session Hub</span></a><a class="flex items-center gap-space-sm px-space-md py-space-sm rounded-lg text-on-surface-variant hover:bg-surface-container hover:text-on-surface transition-colors font-body-md text-body-md" data-path="target-infrastructure-connectors" href="../target_infrastructure_connectors/code.html"><span class="material-symbols-outlined text-[20px]">dns</span><span>Target Infrastructure</span></a><a class="flex items-center gap-space-sm px-space-md py-space-sm rounded-lg text-on-surface-variant hover:bg-surface-container hover:text-on-surface transition-colors font-body-md text-body-md" data-path="policy-zero-trust-rules-engine" href="../policy_zero_trust_rules_engine/code.html"><span class="material-symbols-outlined text-[20px]">shield_lock</span><span>Policy &amp; Zero Trust</span></a><a class="flex items-center gap-space-sm px-space-md py-space-sm rounded-lg text-on-surface-variant hover:bg-surface-container hover:text-on-surface transition-colors font-body-md text-body-md" data-path="compliance-soc-2-audit-center" href="../compliance_soc_2_audit_center/code.html"><span class="material-symbols-outlined text-[20px]">policy</span><span>Compliance &amp; SOC-2</span></a><a class="flex items-center gap-space-sm px-space-md py-space-sm rounded-lg text-on-surface-variant hover:bg-surface-container hover:text-on-surface transition-colors font-body-md text-body-md" data-path="license-entitlement-center" href="../license_entitlement_center/code.html"><span class="material-symbols-outlined text-[20px]">workspace_premium</span><span>Licensing &amp; Entitlements</span></a><a class="flex items-center gap-space-sm px-space-md py-space-sm rounded-lg text-on-surface-variant hover:bg-surface-container hover:text-on-surface transition-colors font-body-md text-body-md" data-path="break-glass-emergency-protocol" href="../break_glass_emergency_protocol/code.html"><span class="material-symbols-outlined text-[20px] text-error">emergency_home</span><span>Emergency Break-Glass</span></a><a aria-current="page" class="flex items-center gap-space-sm px-space-md py-space-sm rounded-lg transition-colors bg-primary-container text-on-primary-container font-semibold shadow-sm" data-path="vendor-access-third-party-lifecycle" href="../vendor_access_third_party_lifecycle/code.html"><span class="material-symbols-outlined text-[20px]">handshake</span><span>Vendor Access</span></a><a class="flex items-center gap-space-sm px-space-md py-space-sm rounded-lg text-on-surface-variant hover:bg-surface-container hover:text-on-surface transition-colors font-body-md text-body-md" data-path="platform-settings-center" href="../platform_settings_center/code.html"><span class="material-symbols-outlined text-[20px]">settings</span><span>Platform Settings</span></a></nav></div></div><div class="p-space-md border-t border-outline-variant/20 bg-surface-container-low/40"><div class="p-space-sm rounded-lg bg-surface-container-lowest border border-outline-variant/30 flex flex-col gap-1"><div class="flex items-center justify-between"><span class="font-code-sm text-code-sm text-outline uppercase">ZSP Policy</span><span class="inline-flex items-center gap-1 font-label-badge text-label-badge text-outline font-semibold"><span class="w-1.5 h-1.5 rounded-full bg-outline"></span>not connected</span></div><p class="font-body-sm text-body-sm text-on-surface-variant">Policy engine not connected — zero-standing-privilege rules arrive with the policy module.</p></div></div></aside><div class="pl-64"><header class="fixed top-0 left-64 right-0 h-16 bg-surface-container-lowest/90 backdrop-blur-md border-b border-outline-variant/25 z-40 flex items-center justify-between px-space-xl"><div class="flex items-center gap-space-md flex-1 max-w-2xl"><div class="flex items-center gap-space-xs px-space-sm py-1 rounded bg-surface-container text-on-surface font-code-sm text-code-sm border border-outline-variant/30 shrink-0"><span class="w-2 h-2 rounded-full bg-outline"></span><span>deployment: —</span><span class="text-outline">|</span><span class="text-outline font-semibold">attestation: —</span></div><div class="relative flex-1"><span class="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-outline text-[18px]">search</span><input class="w-full pl-9 pr-12 py-1.5 rounded-lg bg-surface border border-outline-variant/40 font-body-sm text-body-sm text-on-surface placeholder:text-outline focus:outline-none focus:border-primary-container focus:ring-1 focus:ring-primary-container transition-all" placeholder="Cmd + K to query credentials, targets, sessions..." readonly="" type="text"/><span class="absolute right-2.5 top-1/2 -translate-y-1/2 px-1.5 py-0.5 rounded font-code-sm text-code-sm bg-surface-container-high text-on-surface-variant border border-outline-variant/40">⌘K</span></div></div><div class="flex items-center gap-space-md"><div class="hidden xl:flex items-center gap-space-sm px-space-sm py-1 rounded bg-surface-container-low border border-outline-variant/30"><span class="material-symbols-outlined text-outline text-[16px]">fiber_manual_record</span><span class="font-code-sm text-code-sm text-on-surface">Audit stream: — evt/s</span></div><a class="flex items-center gap-1.5 px-space-md py-1.5 rounded-lg bg-error text-on-error hover:bg-error/90 font-label-md text-label-md transition-colors shadow-sm font-semibold tracking-wide uppercase" data-path="break-glass-portal" href="../break_glass_emergency_protocol/code.html"><span class="material-symbols-outlined text-[16px]">warning</span><span>Break-Glass</span></a><div class="relative flex items-center justify-center p-2 rounded-lg text-on-surface-variant hover:bg-surface-container transition-colors cursor-pointer"><span class="material-symbols-outlined text-[20px]">notifications</span><span class="absolute top-1.5 right-1.5 flex h-4 w-4 items-center justify-center rounded-full bg-surface-container text-on-surface-variant font-code-sm text-[10px] font-bold">—</span></div><div class="h-6 w-px bg-outline-variant/40"></div><div class="flex items-center gap-space-sm pl-1"><img alt="Profile" class="w-8 h-8 rounded-full object-cover border border-outline-variant" src="https://lh3.googleusercontent.com/aida-public/AB6AXuBZ43b4L1jvA4lZ6y0Y9Ilfph6oFQH275tub5o5spOGUvNi0q5YDF1GkNN0XrGxQYFEXdKWAmLVl4JhTpZ4E8WyXdlYMEaKgvHWK6aAlmN5v9-CQtC7wp3T_KUqGNd_yINPzdpFVuWfSIrXiWO_nzjjxCEe4BWyyHS6FahqlmhmZp2BZRNXc45lakv0PoHtwj-zPhdTQj-VcQSscV8lT0uEhRnypm1rzu0Gd72gNuQnjY3FvlXRvAsZkw"/><div class="flex flex-col text-left"><span class="font-headline-sm text-[13px] text-on-surface font-semibold leading-tight">no user session</span><span class="font-label-badge text-label-badge text-outline leading-none">auth: —</span></div></div></div></header><main class="relative pt-16 pb-12 min-h-screen bg-surface w-full px-space-xl"><div class="flex flex-col w-full">
+<!-- Critical banner: honest claims only (architecture section 13) -->
+<div class="flex items-center gap-2 px-space-lg py-2.5 mb-4 rounded-lg bg-tertiary-container/40 border border-tertiary/30 text-on-tertiary-container font-code-sm text-code-sm">
+  <span class="material-symbols-outlined text-[18px]">handshake</span>
+  <span>THIRD-PARTY ACCESS (architecture section 13) — the chain <span class="font-semibold">Invite &rarr; MFA &rarr; NDA &rarr; Ticket &rarr; Approval &rarr; JIT &rarr; Recording &rarr; Expiry</span> is evidence-backed step by step and every action lands on the immutable audit ledger (source <span class="font-semibold">vendor</span> — the twelfth). Approval is refused while any step is outstanding, and the refusal names the step.</span>
+</div>
+
+<!-- Screen header -->
+<div class="flex flex-wrap items-end justify-between gap-space-lg mb-5">
+  <div>
+    <h1 class="font-headline-lg text-headline-lg text-on-surface">Vendor Access</h1>
+    <p class="font-body-md text-body-md text-on-surface-variant mt-1 max-w-3xl">Third-party onboarding with a per-vendor TOTP factor (seed sealed at rest, shown once at invite), NDA, real ITSM ticket verification, scoped JIT requests and forced session recording. The access scope — allowed / denied targets, valid window, recording — renders exactly as the section-13 vendor dashboard specifies.</p>
+  </div>
+  <div class="flex items-center gap-space-md">
+    <span id="vendorChip" class="font-code-sm text-code-sm px-space-md py-1.5 rounded-lg bg-surface-container text-on-surface">&mdash; vendors</span>
+    <button id="inviteBtn" class="flex items-center gap-space-sm px-space-xl py-3 rounded-lg bg-primary hover:bg-primary/90 text-on-primary font-headline-sm text-headline-sm transition-all shadow-md hover:shadow-lg active:scale-95">
+      <span class="material-symbols-outlined text-[20px]">person_add</span>
+      Invite Vendor
+    </button>
+  </div>
+</div>
+
+<!-- Header metrics (real aggregates over the loaded accounts) -->
+<div class="grid grid-cols-2 xl:grid-cols-4 gap-space-md mb-5">
+  <div class="bg-surface-container-lowest border border-outline-variant/40 rounded-xl p-space-lg shadow-sm">
+    <div class="font-code-sm text-code-sm text-outline uppercase tracking-wider">Vendor accounts</div>
+    <div id="statTotal" class="font-headline-lg text-headline-lg text-on-surface mt-1">&mdash;</div>
+    <div class="font-code-sm text-code-sm text-outline">in the current filter</div>
+  </div>
+  <div class="bg-surface-container-lowest border border-outline-variant/40 rounded-xl p-space-lg shadow-sm">
+    <div class="font-code-sm text-code-sm text-outline uppercase tracking-wider">Approved</div>
+    <div id="statApproved" class="font-headline-lg text-headline-lg text-on-surface mt-1">&mdash;</div>
+    <div class="font-code-sm text-code-sm text-outline">scoped access enabled</div>
+  </div>
+  <div class="bg-surface-container-lowest border border-outline-variant/40 rounded-xl p-space-lg shadow-sm">
+    <div class="font-code-sm text-code-sm text-outline uppercase tracking-wider">In the chain</div>
+    <div id="statChain" class="font-headline-lg text-headline-lg text-on-surface mt-1">&mdash;</div>
+    <div class="font-code-sm text-code-sm text-outline">invited, steps outstanding</div>
+  </div>
+  <div class="bg-surface-container-lowest border border-outline-variant/40 rounded-xl p-space-lg shadow-sm">
+    <div class="font-code-sm text-code-sm text-outline uppercase tracking-wider">Expired</div>
+    <div id="statExpired" class="font-headline-lg text-headline-lg text-on-surface mt-1">&mdash;</div>
+    <div class="font-code-sm text-code-sm text-outline">automatic account expiry</div>
+  </div>
+</div>
+
+<div class="grid grid-cols-1 xl:grid-cols-3 gap-space-md">
+  <!-- Vendor accounts table -->
+  <section class="xl:col-span-2 bg-surface-container-lowest border border-outline-variant/40 rounded-xl shadow-sm overflow-hidden">
+    <div class="flex items-center justify-between px-space-xl py-space-lg border-b border-outline-variant/40">
+      <div>
+        <h2 class="font-headline-sm text-headline-sm text-on-surface">Vendor accounts</h2>
+        <p class="font-code-sm text-code-sm text-outline mt-0.5">Newest first &mdash; M N T A = MFA, NDA, Ticket, Approval</p>
+      </div>
+      <div class="flex items-center gap-space-sm">
+        <select id="statusFilter" class="p-2 rounded-lg bg-surface-container-low font-code-sm text-code-sm text-on-surface focus:outline-none shadow-xs border border-outline-variant/30">
+          <option value="">all statuses</option>
+          <option value="invited">invited</option>
+          <option value="approved">approved</option>
+          <option value="denied">denied</option>
+          <option value="revoked">revoked</option>
+          <option value="expired">expired</option>
+        </select>
+        <span id="listCount" class="font-code-sm text-code-sm px-space-sm py-1 rounded bg-surface-container text-on-surface">&mdash;</span>
+      </div>
+    </div>
+    <div class="overflow-x-auto">
+      <table class="w-full text-left font-body-md text-body-md border-collapse">
+        <thead>
+          <tr class="bg-surface-container-low text-outline font-code-sm text-code-sm uppercase tracking-wider">
+            <th class="py-2.5 px-space-md">Vendor</th>
+            <th class="py-2.5 px-space-md">Status</th>
+            <th class="py-2.5 px-space-md">Chain</th>
+            <th class="py-2.5 px-space-md">Valid window</th>
+            <th class="py-2.5 px-space-md">Recording</th>
+            <th class="py-2.5 px-space-md rounded-r-lg">Actions</th>
+          </tr>
+        </thead>
+        <tbody id="vendorTbody" class="text-on-surface"></tbody>
+      </table>
+    </div>
+    <div id="vendorEmpty" class="px-space-xl py-8 text-center font-code-sm text-code-sm text-outline">Loading&hellip;</div>
+  </section>
+
+  <!-- Right rail: the section-13 dashboard + the lifecycle chain -->
+  <div class="flex flex-col gap-space-md">
+    <div class="bg-surface-container-lowest border border-outline-variant/40 rounded-xl p-space-lg shadow-sm">
+      <div class="font-code-sm text-code-sm text-outline uppercase tracking-wider font-semibold mb-2">Section-13 dashboard</div>
+      <div id="dashName" class="font-headline-sm text-headline-sm text-on-surface">&mdash;</div>
+      <div id="dashContact" class="font-code-sm text-code-sm text-outline mt-0.5">&mdash;</div>
+      <div class="mt-3 space-y-2 font-code-sm text-code-sm">
+        <div>
+          <span class="text-outline uppercase tracking-wider">Access:</span>
+          <ul id="dashAllowed" class="mt-1 space-y-0.5"></ul>
+        </div>
+        <div>
+          <span class="text-outline uppercase tracking-wider">Denied:</span>
+          <ul id="dashDenied" class="mt-1 space-y-0.5"></ul>
+        </div>
+        <div><span class="text-outline uppercase tracking-wider">Valid:</span> <span id="dashWindow" class="text-on-surface font-semibold">&mdash;</span></div>
+        <div><span class="text-outline uppercase tracking-wider">Recording:</span> <span id="dashRecording" class="text-on-surface font-semibold">&mdash;</span></div>
+        <div><span class="text-outline uppercase tracking-wider">Account expires:</span> <span id="dashExpires" class="text-on-surface">&mdash;</span></div>
+      </div>
+      <p id="dashEmpty" class="font-code-sm text-code-sm text-outline mt-2">Select a vendor to render its dashboard.</p>
+    </div>
+
+    <div class="bg-surface-container-lowest border border-outline-variant/40 rounded-xl p-space-lg shadow-sm">
+      <div class="font-code-sm text-code-sm text-outline uppercase tracking-wider font-semibold mb-2">Lifecycle chain</div>
+      <ol id="chainList" class="space-y-2 font-code-sm text-code-sm text-on-surface-variant"></ol>
+    </div>
+  </div>
+</div>
+
+<!-- Requests + trail -->
+<div class="grid grid-cols-1 xl:grid-cols-2 gap-space-md mt-5">
+  <section class="bg-surface-container-lowest border border-outline-variant/40 rounded-xl shadow-sm overflow-hidden">
+    <div class="px-space-xl py-space-lg border-b border-outline-variant/40">
+      <h2 class="font-headline-sm text-headline-sm text-on-surface">Access requests (JIT)</h2>
+      <p class="font-code-sm text-code-sm text-outline mt-0.5">Raised through this account &mdash; real section-6 risk scoring and approvals</p>
+    </div>
+    <div class="overflow-x-auto">
+      <table class="w-full text-left font-body-md text-body-md border-collapse">
+        <thead>
+          <tr class="bg-surface-container-low text-outline font-code-sm text-code-sm uppercase tracking-wider">
+            <th class="py-2.5 px-space-md">Request</th>
+            <th class="py-2.5 px-space-md">Target</th>
+            <th class="py-2.5 px-space-md">Risk</th>
+            <th class="py-2.5 px-space-md">Status</th>
+            <th class="py-2.5 px-space-md rounded-r-lg">Session</th>
+          </tr>
+        </thead>
+        <tbody id="reqTbody" class="text-on-surface"></tbody>
+      </table>
+    </div>
+    <div id="reqEmpty" class="px-space-xl py-6 text-center font-code-sm text-code-sm text-outline">Select a vendor to list its access requests.</div>
+  </section>
+
+  <section class="bg-surface-container-lowest border border-outline-variant/40 rounded-xl shadow-sm overflow-hidden">
+    <div class="px-space-xl py-space-lg border-b border-outline-variant/40">
+      <h2 class="font-headline-sm text-headline-sm text-on-surface">Lifecycle trail</h2>
+      <p class="font-code-sm text-code-sm text-outline mt-0.5">Newest first &mdash; the same events the ledger carries (source vendor)</p>
+    </div>
+    <div id="trailList" class="px-space-xl py-2 font-code-sm text-code-sm text-on-surface-variant"></div>
+    <div id="trailEmpty" class="px-space-xl py-6 text-center font-code-sm text-code-sm text-outline">Select a vendor to read its lifecycle trail.</div>
+  </section>
+</div>
+
+<!-- Invite modal -->
+<div id="invModal" class="hidden fixed inset-0 z-50 bg-on-surface/40 backdrop-blur-sm flex items-center justify-center p-space-xl">
+  <div class="w-full max-w-2xl bg-surface-container-lowest rounded-xl border border-outline-variant/40 shadow-xl p-space-xl">
+    <div class="flex items-center justify-between mb-4">
+      <div>
+        <h3 class="font-headline-sm text-headline-sm text-on-surface">Invite vendor</h3>
+        <p class="font-code-sm text-code-sm text-outline mt-0.5">Denied, revoked and expired names may be re-invited &mdash; a fresh cycle on the same row.</p>
+      </div>
+      <button id="invClose" class="p-1.5 rounded-lg hover:bg-surface-container text-on-surface-variant"><span class="material-symbols-outlined">close</span></button>
+    </div>
+    <div class="space-y-3">
+      <div class="grid grid-cols-2 gap-space-md">
+        <div>
+          <label class="block font-code-sm text-code-sm uppercase tracking-wider text-outline font-semibold mb-1">Vendor name</label>
+          <input id="invName" type="text" maxlength="128" placeholder="ABC Technologies"
+                 class="w-full p-2.5 rounded-lg bg-surface-container-low font-code-sm text-code-sm text-on-surface focus:outline-none focus:bg-surface-container-lowest shadow-xs" />
+        </div>
+        <div>
+          <label class="block font-code-sm text-code-sm uppercase tracking-wider text-outline font-semibold mb-1">Contact (optional)</label>
+          <input id="invContact" type="text" maxlength="160" placeholder="ops@abc.example"
+                 class="w-full p-2.5 rounded-lg bg-surface-container-low font-code-sm text-code-sm text-on-surface focus:outline-none focus:bg-surface-container-lowest shadow-xs" />
+        </div>
+      </div>
+      <div class="grid grid-cols-2 gap-space-md">
+        <div>
+          <label class="block font-code-sm text-code-sm uppercase tracking-wider text-outline font-semibold mb-1">Allowed targets (one per line)</label>
+          <textarea id="invAllowed" rows="3" placeholder="srv-01.corp:22"
+                    class="w-full p-2.5 rounded-lg bg-surface-container-low font-code-sm text-code-sm text-on-surface resize-none focus:outline-none focus:bg-surface-container-lowest shadow-xs"></textarea>
+        </div>
+        <div>
+          <label class="block font-code-sm text-code-sm uppercase tracking-wider text-outline font-semibold mb-1">Denied targets (one per line)</label>
+          <textarea id="invDenied" rows="3" placeholder="db-01.corp:5432"
+                    class="w-full p-2.5 rounded-lg bg-surface-container-low font-code-sm text-code-sm text-on-surface resize-none focus:outline-none focus:bg-surface-container-lowest shadow-xs"></textarea>
+        </div>
+      </div>
+      <div class="grid grid-cols-3 gap-space-md">
+        <div>
+          <label class="block font-code-sm text-code-sm uppercase tracking-wider text-outline font-semibold mb-1">Window start</label>
+          <input id="invWinStart" type="time" class="w-full p-2.5 rounded-lg bg-surface-container-low font-code-sm text-code-sm text-on-surface focus:outline-none shadow-xs" />
+        </div>
+        <div>
+          <label class="block font-code-sm text-code-sm uppercase tracking-wider text-outline font-semibold mb-1">Window end</label>
+          <input id="invWinEnd" type="time" class="w-full p-2.5 rounded-lg bg-surface-container-low font-code-sm text-code-sm text-on-surface focus:outline-none shadow-xs" />
+        </div>
+        <div>
+          <label class="block font-code-sm text-code-sm uppercase tracking-wider text-outline font-semibold mb-1">Account expiry (optional)</label>
+          <input id="invExpires" type="datetime-local" class="w-full p-2.5 rounded-lg bg-surface-container-low font-code-sm text-code-sm text-on-surface focus:outline-none shadow-xs" />
+        </div>
+      </div>
+      <label class="flex items-center gap-2 font-code-sm text-code-sm text-on-surface cursor-pointer">
+        <input id="invRecording" type="checkbox" checked class="accent-primary" />
+        Recording expected &mdash; vendor sessions are recorded server-side regardless of this flag
+      </label>
+      <div id="invError" class="hidden font-code-sm text-code-sm text-error"></div>
+    </div>
+    <div class="flex justify-end gap-space-md mt-4">
+      <button id="invCancel" class="px-space-lg py-2.5 rounded-lg bg-surface-container hover:bg-surface-container-high text-on-surface font-code-sm text-code-sm font-semibold transition-colors">Cancel</button>
+      <button id="invSubmit" class="px-space-lg py-2.5 rounded-lg bg-primary hover:bg-primary/90 text-on-primary font-code-sm text-code-sm font-semibold transition-colors">Invite &amp; show MFA seed</button>
+    </div>
+  </div>
+</div>
+
+<!-- MFA seed modal: shown exactly once, right after the invite -->
+<div id="secModal" class="hidden fixed inset-0 z-50 bg-on-surface/40 backdrop-blur-sm flex items-center justify-center p-space-xl">
+  <div class="w-full max-w-lg bg-surface-container-lowest rounded-xl border border-outline-variant/40 shadow-xl p-space-xl">
+    <div class="flex items-center justify-between mb-4">
+      <div>
+        <h3 class="font-headline-sm text-headline-sm text-on-surface">MFA seed &mdash; shown once</h3>
+        <p id="secName" class="font-code-sm text-code-sm text-outline mt-0.5">&mdash;</p>
+      </div>
+      <button id="secClose" class="p-1.5 rounded-lg hover:bg-surface-container text-on-surface-variant"><span class="material-symbols-outlined">close</span></button>
+    </div>
+    <div class="space-y-3">
+      <div>
+        <label class="block font-code-sm text-code-sm uppercase tracking-wider text-outline font-semibold mb-1">TOTP secret</label>
+        <div id="secSecret" class="p-2.5 rounded-lg bg-surface-container-low font-code-sm text-code-sm tracking-[0.2em] text-on-surface break-all select-all">&mdash;</div>
+      </div>
+      <div>
+        <label class="block font-code-sm text-code-sm uppercase tracking-wider text-outline font-semibold mb-1">otpauth URI (for the authenticator app)</label>
+        <div id="secUri" class="p-2.5 rounded-lg bg-surface-container-low font-code-sm text-code-sm text-on-surface break-all select-all">&mdash;</div>
+      </div>
+      <p class="font-code-sm text-code-sm text-outline leading-relaxed">Shown exactly once. The seed is stored sealed (AES-256-GCM, bound to this vendor row) and never leaves the server again &mdash; verification demands real RFC-6238 codes, and a wrong code is refused and recorded, never simulated.</p>
+    </div>
+    <div class="flex justify-end mt-4">
+      <button id="secDone" class="px-space-lg py-2.5 rounded-lg bg-primary hover:bg-primary/90 text-on-primary font-code-sm text-code-sm font-semibold transition-colors">I stored the seed</button>
+    </div>
+  </div>
+</div>
+
+<!-- Verify MFA modal -->
+<div id="mfaModal" class="hidden fixed inset-0 z-50 bg-on-surface/40 backdrop-blur-sm flex items-center justify-center p-space-xl">
+  <div class="w-full max-w-md bg-surface-container-lowest rounded-xl border border-outline-variant/40 shadow-xl p-space-xl">
+    <div class="flex items-center justify-between mb-4">
+      <div>
+        <h3 class="font-headline-sm text-headline-sm text-on-surface">Verify vendor MFA</h3>
+        <p id="mfaName" class="font-code-sm text-code-sm text-outline mt-0.5">&mdash;</p>
+      </div>
+      <button id="mfaClose" class="p-1.5 rounded-lg hover:bg-surface-container text-on-surface-variant"><span class="material-symbols-outlined">close</span></button>
+    </div>
+    <div class="space-y-3">
+      <div>
+        <label class="block font-code-sm text-code-sm uppercase tracking-wider text-outline font-semibold mb-1">TOTP code (6 digits)</label>
+        <input id="mfaCode" type="text" inputmode="numeric" autocomplete="one-time-code" maxlength="6" placeholder="123456"
+               class="w-full p-2.5 rounded-lg bg-surface-container-low font-code-sm text-code-sm tracking-[0.4em] text-on-surface focus:outline-none focus:bg-surface-container-lowest shadow-xs" />
+      </div>
+      <p class="font-code-sm text-code-sm text-outline leading-relaxed">Checked against the sealed seed with real RFC-6238; a rejected code is recorded on the vendor trail and the seed is never echoed back.</p>
+      <div id="mfaError" class="hidden font-code-sm text-code-sm text-error"></div>
+    </div>
+    <div class="flex justify-end gap-space-md mt-4">
+      <button id="mfaCancel" class="px-space-lg py-2.5 rounded-lg bg-surface-container hover:bg-surface-container-high text-on-surface font-code-sm text-code-sm font-semibold transition-colors">Cancel</button>
+      <button id="mfaSubmit" class="px-space-lg py-2.5 rounded-lg bg-primary hover:bg-primary/90 text-on-primary font-code-sm text-code-sm font-semibold transition-colors">Verify code</button>
+    </div>
+  </div>
+</div>
+
+<!-- NDA modal -->
+<div id="ndaModal" class="hidden fixed inset-0 z-50 bg-on-surface/40 backdrop-blur-sm flex items-center justify-center p-space-xl">
+  <div class="w-full max-w-md bg-surface-container-lowest rounded-xl border border-outline-variant/40 shadow-xl p-space-xl">
+    <div class="flex items-center justify-between mb-4">
+      <div>
+        <h3 class="font-headline-sm text-headline-sm text-on-surface">Record NDA / agreement</h3>
+        <p id="ndaName" class="font-code-sm text-code-sm text-outline mt-0.5">&mdash;</p>
+      </div>
+      <button id="ndaClose" class="p-1.5 rounded-lg hover:bg-surface-container text-on-surface-variant"><span class="material-symbols-outlined">close</span></button>
+    </div>
+    <div class="space-y-3">
+      <div>
+        <label class="block font-code-sm text-code-sm uppercase tracking-wider text-outline font-semibold mb-1">Agreement reference (optional)</label>
+        <input id="ndaRef" type="text" maxlength="64" placeholder="NDA-2026-0042"
+               class="w-full p-2.5 rounded-lg bg-surface-container-low font-code-sm text-code-sm text-on-surface focus:outline-none focus:bg-surface-container-lowest shadow-xs" />
+      </div>
+      <p class="font-code-sm text-code-sm text-outline leading-relaxed">The acceptance itself is the evidence &mdash; the timestamp is recorded on the vendor trail whether a reference is given or not.</p>
+      <div id="ndaError" class="hidden font-code-sm text-code-sm text-error"></div>
+    </div>
+    <div class="flex justify-end gap-space-md mt-4">
+      <button id="ndaCancel" class="px-space-lg py-2.5 rounded-lg bg-surface-container hover:bg-surface-container-high text-on-surface font-code-sm text-code-sm font-semibold transition-colors">Cancel</button>
+      <button id="ndaSubmit" class="px-space-lg py-2.5 rounded-lg bg-primary hover:bg-primary/90 text-on-primary font-code-sm text-code-sm font-semibold transition-colors">Record NDA</button>
+    </div>
+  </div>
+</div>
+
+<!-- Ticket modal -->
+<div id="tktModal" class="hidden fixed inset-0 z-50 bg-on-surface/40 backdrop-blur-sm flex items-center justify-center p-space-xl">
+  <div class="w-full max-w-md bg-surface-container-lowest rounded-xl border border-outline-variant/40 shadow-xl p-space-xl">
+    <div class="flex items-center justify-between mb-4">
+      <div>
+        <h3 class="font-headline-sm text-headline-sm text-on-surface">Verify ITSM ticket</h3>
+        <p id="tktName" class="font-code-sm text-code-sm text-outline mt-0.5">&mdash;</p>
+      </div>
+      <button id="tktClose" class="p-1.5 rounded-lg hover:bg-surface-container text-on-surface-variant"><span class="material-symbols-outlined">close</span></button>
+    </div>
+    <div class="space-y-3">
+      <div>
+        <label class="block font-code-sm text-code-sm uppercase tracking-wider text-outline font-semibold mb-1">Ticket (e.g. INC-23891)</label>
+        <input id="tktTicket" type="text" maxlength="64" placeholder="INC-23891"
+               class="w-full p-2.5 rounded-lg bg-surface-container-low font-code-sm text-code-sm text-on-surface focus:outline-none focus:bg-surface-container-lowest shadow-xs" />
+      </div>
+      <p class="font-code-sm text-code-sm text-outline leading-relaxed">A real HTTP check against the configured ITSM instance (section 20). While no instance is configured the step is refused honestly &mdash; a pass is never simulated.</p>
+      <div id="tktError" class="hidden font-code-sm text-code-sm text-error"></div>
+    </div>
+    <div class="flex justify-end gap-space-md mt-4">
+      <button id="tktCancel" class="px-space-lg py-2.5 rounded-lg bg-surface-container hover:bg-surface-container-high text-on-surface font-code-sm text-code-sm font-semibold transition-colors">Cancel</button>
+      <button id="tktSubmit" class="px-space-lg py-2.5 rounded-lg bg-primary hover:bg-primary/90 text-on-primary font-code-sm text-code-sm font-semibold transition-colors">Verify ticket</button>
+    </div>
+  </div>
+</div>
+
+<!-- Deny modal -->
+<div id="denyModal" class="hidden fixed inset-0 z-50 bg-on-surface/40 backdrop-blur-sm flex items-center justify-center p-space-xl">
+  <div class="w-full max-w-md bg-surface-container-lowest rounded-xl border border-outline-variant/40 shadow-xl p-space-xl">
+    <div class="flex items-center justify-between mb-4">
+      <div>
+        <h3 class="font-headline-sm text-headline-sm text-on-surface">Deny vendor</h3>
+        <p id="denyName" class="font-code-sm text-code-sm text-outline mt-0.5">&mdash;</p>
+      </div>
+      <button id="denyClose" class="p-1.5 rounded-lg hover:bg-surface-container text-on-surface-variant"><span class="material-symbols-outlined">close</span></button>
+    </div>
+    <div class="space-y-3">
+      <div>
+        <label class="block font-code-sm text-code-sm uppercase tracking-wider text-outline font-semibold mb-1">Reason (optional, recorded verbatim)</label>
+        <textarea id="denyReason" rows="3" maxlength="255" placeholder="Why this invite is refused."
+                  class="w-full p-2.5 rounded-lg bg-surface-container-low font-code-sm text-code-sm text-on-surface resize-none focus:outline-none focus:bg-surface-container-lowest shadow-xs"></textarea>
+      </div>
+      <p class="font-code-sm text-code-sm text-outline leading-relaxed">The account turns <span class="font-semibold">denied</span>; this cycle stays on the ledger and the name may be re-invited later.</p>
+      <div id="denyError" class="hidden font-code-sm text-code-sm text-error"></div>
+    </div>
+    <div class="flex justify-end gap-space-md mt-4">
+      <button id="denyCancel" class="px-space-lg py-2.5 rounded-lg bg-surface-container hover:bg-surface-container-high text-on-surface font-code-sm text-code-sm font-semibold transition-colors">Cancel</button>
+      <button id="denySubmit" class="px-space-lg py-2.5 rounded-lg bg-error hover:bg-error/90 text-on-error font-code-sm text-code-sm font-semibold transition-colors">Deny vendor</button>
+    </div>
+  </div>
+</div>
+
+<!-- Revoke modal -->
+<div id="revModal" class="hidden fixed inset-0 z-50 bg-on-surface/40 backdrop-blur-sm flex items-center justify-center p-space-xl">
+  <div class="w-full max-w-md bg-surface-container-lowest rounded-xl border border-outline-variant/40 shadow-xl p-space-xl">
+    <div class="flex items-center justify-between mb-4">
+      <div>
+        <h3 class="font-headline-sm text-headline-sm text-on-surface">Revoke vendor</h3>
+        <p id="revName" class="font-code-sm text-code-sm text-outline mt-0.5">&mdash;</p>
+      </div>
+      <button id="revClose" class="p-1.5 rounded-lg hover:bg-surface-container text-on-surface-variant"><span class="material-symbols-outlined">close</span></button>
+    </div>
+    <div class="space-y-3">
+      <div>
+        <label class="block font-code-sm text-code-sm uppercase tracking-wider text-outline font-semibold mb-1">Reason (optional, recorded verbatim)</label>
+        <textarea id="revReason" rows="3" maxlength="255" placeholder="Engagement ended."
+                  class="w-full p-2.5 rounded-lg bg-surface-container-low font-code-sm text-code-sm text-on-surface resize-none focus:outline-none focus:bg-surface-container-lowest shadow-xs"></textarea>
+      </div>
+      <p class="font-code-sm text-code-sm text-outline leading-relaxed">Every active grant this account holds is closed through the normal JIT path (checkout released, credential rotated, live sessions ended), then the account turns <span class="font-semibold">revoked</span>.</p>
+      <div id="revError" class="hidden font-code-sm text-code-sm text-error"></div>
+    </div>
+    <div class="flex justify-end gap-space-md mt-4">
+      <button id="revCancel" class="px-space-lg py-2.5 rounded-lg bg-surface-container hover:bg-surface-container-high text-on-surface font-code-sm text-code-sm font-semibold transition-colors">Cancel</button>
+      <button id="revSubmit" class="px-space-lg py-2.5 rounded-lg bg-error hover:bg-error/90 text-on-error font-code-sm text-code-sm font-semibold transition-colors">Revoke &amp; close grants</button>
+    </div>
+  </div>
+</div>
+
+<!-- Request access modal (the vendor's scoped JIT request) -->
+<div id="reqModal" class="hidden fixed inset-0 z-50 bg-on-surface/40 backdrop-blur-sm flex items-center justify-center p-space-xl">
+  <div class="w-full max-w-lg bg-surface-container-lowest rounded-xl border border-outline-variant/40 shadow-xl p-space-xl">
+    <div class="flex items-center justify-between mb-4">
+      <div>
+        <h3 class="font-headline-sm text-headline-sm text-on-surface">Vendor requests access</h3>
+        <p id="reqName" class="font-code-sm text-code-sm text-outline mt-0.5">&mdash;</p>
+      </div>
+      <button id="reqClose" class="p-1.5 rounded-lg hover:bg-surface-container text-on-surface-variant"><span class="material-symbols-outlined">close</span></button>
+    </div>
+    <div class="space-y-3">
+      <div>
+        <label class="block font-code-sm text-code-sm uppercase tracking-wider text-outline font-semibold mb-1">Credential (target must be inside the allow list)</label>
+        <select id="reqItem" class="w-full p-2.5 rounded-lg bg-surface-container-low font-code-sm text-code-sm text-on-surface focus:outline-none shadow-xs"></select>
+      </div>
+      <div class="grid grid-cols-2 gap-space-md">
+        <div>
+          <label class="block font-code-sm text-code-sm uppercase tracking-wider text-outline font-semibold mb-1">Minutes</label>
+          <input id="reqMinutes" type="number" min="1" max="720" value="15"
+                 class="w-full p-2.5 rounded-lg bg-surface-container-low font-code-sm text-code-sm text-on-surface focus:outline-none shadow-xs" />
+        </div>
+        <div>
+          <label class="block font-code-sm text-code-sm uppercase tracking-wider text-outline font-semibold mb-1">Reason (optional)</label>
+          <input id="reqReason" type="text" maxlength="255" placeholder="Monthly patching window."
+                 class="w-full p-2.5 rounded-lg bg-surface-container-low font-code-sm text-code-sm text-on-surface focus:outline-none shadow-xs" />
+        </div>
+      </div>
+      <p class="font-code-sm text-code-sm text-outline leading-relaxed">The request goes through the normal section-6 JIT machinery: real risk scoring, the approvals that band requires, and a session whose recording is forced. Scope and window are checked before the request even exists.</p>
+      <div id="reqError" class="hidden font-code-sm text-code-sm text-error"></div>
+    </div>
+    <div class="flex justify-end gap-space-md mt-4">
+      <button id="reqCancel" class="px-space-lg py-2.5 rounded-lg bg-surface-container hover:bg-surface-container-high text-on-surface font-code-sm text-code-sm font-semibold transition-colors">Cancel</button>
+      <button id="reqSubmit" class="px-space-lg py-2.5 rounded-lg bg-primary hover:bg-primary/90 text-on-primary font-code-sm text-code-sm font-semibold transition-colors">File request</button>
+    </div>
+  </div>
+</div>
+
+<div id="vToast" class="hidden fixed bottom-14 right-5 z-50 max-w-md px-space-lg py-3 rounded-lg bg-surface-container-high text-on-surface font-code-sm text-code-sm shadow-lg border border-outline-variant/40"></div>
+
+</div>
+
+<script>
+      // Vendor access wiring (architecture section 13): every value on this
+      // screen comes from the API; file:// stays honest static state.
+      (function () {
+        const ROOT = location.protocol === 'file:' ? '' : '/';
+        const API = ROOT + 'api/v1';
+        const TOKEN_KEY = 'aegispam_admin_token';
+        const DASH = '\u2014';
+        const FILE_MODE = ROOT === '';
+
+        const state = {
+          vendors: [], total: 0, selectedId: null, detail: null,
+          items: [], itsm: null, connected: false,
+        };
+        let filterStatus = '';
+
+        const f = (id) => document.getElementById(id);
+        const put = (el, text) => { if (el) el.textContent = text; };
+        const esc = (s) => String(s == null ? '' : s)
+          .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+          .replace(/"/g, '&quot;');
+
+        function headers() {
+          const h = { 'Content-Type': 'application/json', 'X-Actor': 'vendor-console' };
+          const token = sessionStorage.getItem(TOKEN_KEY);
+          if (token) h.Authorization = 'Bearer ' + token;
+          return h;
+        }
+        async function call(path, method, body) {
+          const url = API + (path.charAt(0) === '/' ? path : '/' + path);
+          const res = await fetch(url, {
+            method: method || 'GET',
+            headers: headers(),
+            body: body === undefined ? undefined : JSON.stringify(body),
+          });
+          const json = await res.json().catch(function () { return {}; });
+          if (!res.ok) {
+            const field = json.details && json.details.field
+              ? ' [' + json.details.field + ']' : '';
+            const err = new Error((json.error || ('HTTP ' + res.status)) + field);
+            err.details = json.details || {};
+            throw err;
+          }
+          return json;
+        }
+
+        function toast(msg, isError) {
+          const el = f('vToast');
+          if (!el) return;
+          el.textContent = msg;
+          el.classList.toggle('bg-error-container', !!isError);
+          el.classList.toggle('text-on-error-container', !!isError);
+          el.classList.toggle('bg-surface-container-high', !isError);
+          el.classList.toggle('text-on-surface', !isError);
+          el.classList.remove('hidden');
+          clearTimeout(toast._t);
+          toast._t = setTimeout(function () { el.classList.add('hidden'); }, 6000);
+        }
+
+        function fmtTime(iso) {
+          if (!iso) return DASH;
+          try { return new Date(iso).toLocaleString(); } catch (err) { return iso; }
+        }
+
+        const STATUS_CLASS = {
+          invited: 'bg-surface-container-high text-on-surface',
+          approved: 'bg-primary-container text-white',
+          denied: 'bg-error-container text-on-error-container',
+          revoked: 'bg-error-container/70 text-on-error-container',
+          expired: 'bg-surface-container text-outline',
+        };
+        const REQ_CLASS = {
+          pending: 'bg-surface-container-high text-on-surface',
+          approved: 'bg-primary-container text-white',
+          active: 'bg-tertiary-container text-on-tertiary-container',
+          denied: 'bg-error-container text-on-error-container',
+          expired: 'bg-surface-container text-outline',
+          closed: 'bg-surface-container text-outline',
+        };
+
+        // ---- rendering ----------------------------------------------------
+        function chainCell(v) {
+          const s = v.steps;
+          const part = function (letter, done, denied) {
+            return '<span class="px-1.5 py-0.5 rounded font-semibold '
+              + (denied ? 'bg-error-container text-on-error-container'
+                : done ? 'bg-tertiary-container text-on-tertiary-container'
+                  : 'bg-surface-container text-outline')
+              + '">' + letter + '</span>';
+          };
+          return '<div class="flex gap-1">'
+            + part('M', s.mfa === 'verified')
+            + part('N', s.nda === 'signed')
+            + part('T', s.ticket === 'verified')
+            + part('A', s.approval === 'approved', s.approval === 'denied')
+            + '</div>';
+        }
+
+        function renderMetrics() {
+          const rows = state.vendors;
+          const by = function (s) {
+            return rows.filter(function (x) { return x.status === s; }).length;
+          };
+          put(f('statTotal'), String(state.total));
+          put(f('statApproved'), String(by('approved')));
+          put(f('statChain'), String(by('invited')));
+          put(f('statExpired'), String(by('expired')));
+          const chip = f('vendorChip');
+          if (chip) {
+            chip.textContent = state.total + (state.total === 1 ? ' vendor' : ' vendors')
+              + (filterStatus ? ' \u00b7 ' + filterStatus : '');
+          }
+        }
+
+        function renderList() {
+          const tbody = f('vendorTbody');
+          const empty = f('vendorEmpty');
+          if (!tbody || !empty) return;
+          put(f('listCount'), state.total + ' total');
+          const rows = state.vendors;
+          if (!rows.length) {
+            tbody.innerHTML = '';
+            empty.classList.remove('hidden');
+            empty.textContent = FILE_MODE
+              ? 'File mode \u2014 connect to the license server to load vendor accounts.'
+              : (state.connected
+                ? 'No vendor accounts match this view. Invite one to start the section-13 chain.'
+                : 'License server unreachable \u2014 no vendor data to show.');
+            return;
+          }
+          empty.classList.add('hidden');
+          tbody.innerHTML = rows.map(function (v) {
+            const terminal = v.status === 'denied' || v.status === 'revoked'
+              || v.status === 'expired';
+            const selected = v.id === state.selectedId;
+            const open = selected
+              ? '<span class="font-code-sm text-code-sm text-tertiary font-semibold">selected</span>'
+              : '<button data-action="open" data-id="' + v.id
+                + '" class="px-space-sm py-1.5 rounded-lg font-code-sm text-code-sm font-semibold bg-surface-container hover:bg-surface-container-high text-on-surface transition-colors">Open</button>';
+            const reinv = terminal
+              ? ' <button data-action="reinvite" data-id="' + v.id
+                + '" class="px-space-sm py-1.5 rounded-lg font-code-sm text-code-sm font-semibold bg-primary-container text-white hover:opacity-90 transition-opacity">Re-invite</button>'
+              : '';
+            return '<tr class="border-t border-outline-variant/30 hover:bg-surface-container-low/60'
+              + (selected ? ' bg-surface-container-low' : '') + '">'
+              + '<td class="py-2.5 px-space-md"><div class="font-code-sm text-code-sm text-on-surface font-semibold">'
+              + esc(v.name) + '</div><div class="text-outline">' + esc(v.contact || DASH)
+              + '</div></td>'
+              + '<td class="py-2.5 px-space-md"><span class="font-code-sm text-code-sm px-2 py-1 rounded '
+              + (STATUS_CLASS[v.status] || 'bg-surface-container text-outline') + '">'
+              + esc(v.status) + '</span></td>'
+              + '<td class="py-2.5 px-space-md">' + chainCell(v) + '</td>'
+              + '<td class="py-2.5 px-space-md font-code-sm text-code-sm">'
+              + esc(v.access.window || DASH) + '</td>'
+              + '<td class="py-2.5 px-space-md">'
+              + (v.access.recording
+                ? '<span title="recording expected" class="material-symbols-outlined text-[16px] text-tertiary">videocam</span>'
+                : '<span class="text-outline">' + DASH + '</span>')
+              + '</td>'
+              + '<td class="py-2.5 px-space-md"><div class="flex gap-1.5">' + open + reinv
+              + '</div></td>'
+              + '</tr>';
+          }).join('');
+        }
+
+        function renderDash() {
+          const v = state.detail;
+          const empty = f('dashEmpty');
+          if (!v) {
+            ['dashName', 'dashContact', 'dashWindow', 'dashRecording', 'dashExpires']
+              .forEach(function (id) { put(f(id), DASH); });
+            f('dashAllowed').innerHTML = '';
+            f('dashDenied').innerHTML = '';
+            if (empty) empty.classList.remove('hidden');
+            return;
+          }
+          if (empty) empty.classList.add('hidden');
+          put(f('dashName'), 'Vendor: ' + v.name);
+          put(f('dashContact'), (v.contact || DASH) + ' \u2014 status ' + v.status);
+          const li = function (t) {
+            return '<li class="flex gap-1.5"><span class="material-symbols-outlined text-[14px] text-tertiary">check</span><span>'
+              + esc(t) + '</span></li>';
+          };
+          const liX = function (t) {
+            return '<li class="flex gap-1.5"><span class="material-symbols-outlined text-[14px] text-error">block</span><span>'
+              + esc(t) + '</span></li>';
+          };
+          f('dashAllowed').innerHTML = v.access.allowed.length
+            ? v.access.allowed.map(li).join('')
+            : '<li class="text-outline">allow list empty \u2014 nothing is reachable</li>';
+          f('dashDenied').innerHTML = v.access.denied.length
+            ? v.access.denied.map(liX).join('')
+            : '<li class="text-outline">deny list empty (the allow list still bounds access)</li>';
+          put(f('dashWindow'), v.access.window || 'any hour (no valid window set)');
+          put(f('dashRecording'), v.access.recording
+            ? 'ENABLED \u2014 forced server-side on every vendor session'
+            : 'not expected by policy (sessions still land on the ledger)');
+          put(f('dashExpires'), v.access.expires_at
+            ? fmtTime(v.access.expires_at) : 'no account expiry set');
+        }
+
+        function renderChain() {
+          const list = f('chainList');
+          if (!list) return;
+          const v = state.detail;
+          if (!v) {
+            list.innerHTML = '<li class="text-outline">Select a vendor to walk its chain.</li>';
+            return;
+          }
+          const s = v.steps;
+          const invited = v.status === 'invited';
+          const approved = v.status === 'approved';
+          const btn = function (step, label, cls) {
+            return ' <button data-step="' + step + '" data-id="' + v.id
+              + '" class="ml-2 px-space-sm py-1 rounded font-semibold transition-colors '
+              + cls + '">' + label + '</button>';
+          };
+          const ok = '<span title="done" class="material-symbols-outlined text-[14px] text-tertiary align-middle">task_alt</span>';
+          const todo = '<span class="text-outline align-middle">\u25cb</span>';
+          const no = '<span title="denied" class="material-symbols-outlined text-[14px] text-error align-middle">cancel</span>';
+          const rows = [];
+          rows.push('<li>' + ok + ' <span class="text-on-surface font-semibold">1. Invite</span> \u2014 by '
+            + esc(v.invited_by) + ' at ' + fmtTime(v.created_at) + '</li>');
+          rows.push('<li>' + (s.mfa === 'verified' ? ok : todo)
+            + ' <span class="text-on-surface font-semibold">2. MFA (TOTP)</span> \u2014 '
+            + (s.mfa === 'verified'
+              ? 'verified ' + fmtTime(v.mfa_verified_at)
+              : 'seed sealed at invite, shown once \u2014 awaiting the vendor\u2019s code'
+                + (invited ? btn('mfa', 'Verify code', 'bg-primary hover:bg-primary/90 text-on-primary') : ''))
+            + '</li>');
+          rows.push('<li>' + (s.nda === 'signed' ? ok : todo)
+            + ' <span class="text-on-surface font-semibold">3. NDA / agreement</span> \u2014 '
+            + (s.nda === 'signed'
+              ? 'signed' + (v.nda.ref ? ' (' + esc(v.nda.ref) + ')' : '') + ' '
+                + fmtTime(v.nda.signed_at)
+              : 'not signed'
+                + (invited ? btn('nda', 'Record NDA', 'bg-primary hover:bg-primary/90 text-on-primary') : ''))
+            + '</li>');
+          rows.push('<li>' + (s.ticket === 'verified' ? ok : todo)
+            + ' <span class="text-on-surface font-semibold">4. ITSM ticket</span> \u2014 '
+            + (s.ticket === 'verified'
+              ? esc(v.ticket) + ' verified ' + fmtTime(v.ticket_verified_at)
+              : 'no verified ticket (a real ITSM check \u2014 unconfigured ITSM is refused honestly)'
+                + (invited ? btn('ticket', 'Verify ticket', 'bg-primary hover:bg-primary/90 text-on-primary') : ''))
+            + '</li>');
+          rows.push('<li>' + (s.approval === 'approved' ? ok : s.approval === 'denied' ? no : todo)
+            + ' <span class="text-on-surface font-semibold">5. Approval</span> \u2014 '
+            + (s.approval === 'approved'
+              ? 'approved by ' + esc(v.approved_by) + ' ' + fmtTime(v.approved_at)
+              : s.approval === 'denied'
+                ? 'denied' + (v.denied_reason ? ': ' + esc(v.denied_reason) : '')
+                : 'every step above must be complete \u2014 the gate names what is missing'
+                  + (invited
+                    ? btn('approve', 'Approve', 'bg-primary hover:bg-primary/90 text-on-primary')
+                      + btn('deny', 'Deny', 'bg-surface-container hover:bg-surface-container-high text-on-surface')
+                    : ''))
+            + '</li>');
+          rows.push('<li><span class="align-middle ' + (approved ? 'text-tertiary' : 'text-outline')
+            + '">' + (approved ? '\u2192' : '\u25cb') + '</span>'
+            + ' <span class="text-on-surface font-semibold">6. JIT request</span> \u2014 '
+            + v.request_count + ' raised through this account'
+            + (approved
+              ? btn('request', 'Request access', 'bg-error hover:bg-error/90 text-on-error')
+              : '')
+            + '</li>');
+          rows.push('<li>' + ok + ' <span class="text-on-surface font-semibold">7. Session recording</span> \u2014 '
+            + 'forced server-side (record=true) on every session this account starts; the flag is not a preference.</li>');
+          rows.push('<li>' + todo + ' <span class="text-on-surface font-semibold">8. Expiry</span> \u2014 '
+            + (v.access.expires_at
+              ? 'account expires ' + fmtTime(v.access.expires_at)
+                + ' (lazy: the row turns expired on its next touch)'
+              : 'no account expiry set \u2014 JIT grants still expire on their own clock')
+            + (approved
+              ? btn('revoke', 'Revoke vendor', 'bg-error hover:bg-error/90 text-on-error')
+              : '')
+            + '</li>');
+          list.innerHTML = rows.join('');
+        }
+
+        function renderRequests() {
+          const tbody = f('reqTbody');
+          const empty = f('reqEmpty');
+          if (!tbody || !empty) return;
+          const v = state.detail;
+          const rows = (v && v.requests) || [];
+          if (!rows.length) {
+            tbody.innerHTML = '';
+            empty.classList.remove('hidden');
+            empty.textContent = v
+              ? 'No JIT requests raised through this account yet.'
+              : 'Select a vendor to list its access requests.';
+            return;
+          }
+          empty.classList.add('hidden');
+          const itemById = {};
+          state.items.forEach(function (it) { itemById[it.id] = it; });
+          tbody.innerHTML = rows.map(function (r) {
+            const item = itemById[r.item_id];
+            const target = item ? item.target : 'item #' + r.item_id;
+            return '<tr class="border-t border-outline-variant/30 hover:bg-surface-container-low/60">'
+              + '<td class="py-2.5 px-space-md font-code-sm text-code-sm font-semibold">#' + r.id
+              + '</td>'
+              + '<td class="py-2.5 px-space-md font-code-sm text-code-sm">' + esc(target) + '</td>'
+              + '<td class="py-2.5 px-space-md font-code-sm text-code-sm">' + esc(r.risk.level)
+              + ' (' + r.risk.score + ')</td>'
+              + '<td class="py-2.5 px-space-md"><span class="font-code-sm text-code-sm px-2 py-1 rounded '
+              + (REQ_CLASS[r.status] || 'bg-surface-container text-outline') + '">'
+              + esc(r.status) + '</span></td>'
+              + '<td class="py-2.5 px-space-md font-code-sm text-code-sm">'
+              + (r.session_ref ? esc(r.session_ref) : DASH) + '</td>'
+              + '</tr>';
+          }).join('');
+        }
+
+        function renderTrail() {
+          const list = f('trailList');
+          const empty = f('trailEmpty');
+          if (!list || !empty) return;
+          const v = state.detail;
+          const rows = (v && v.events) || [];
+          if (!rows.length) {
+            list.innerHTML = '';
+            empty.classList.remove('hidden');
+            empty.textContent = v
+              ? 'No lifecycle events recorded for this vendor yet.'
+              : 'Select a vendor to read its lifecycle trail.';
+            return;
+          }
+          empty.classList.add('hidden');
+          list.innerHTML = rows.map(function (e) {
+            const keys = Object.keys(e.detail || {});
+            return '<div class="flex items-start justify-between gap-2 py-1.5 border-t border-outline-variant/30 first:border-t-0">'
+              + '<div><span class="font-code-sm text-code-sm text-on-surface font-semibold">'
+              + esc(e.action) + '</span>'
+              + '<div class="text-outline">' + esc(keys.join(', ') || 'no detail fields')
+              + '</div></div>'
+              + '<div class="text-right shrink-0"><div class="font-code-sm text-code-sm">'
+              + esc(e.actor) + '</div><div class="text-outline">' + fmtTime(e.created_at)
+              + '</div></div>'
+              + '</div>';
+          }).join('');
+        }
+
+        function renderAll() {
+          renderMetrics();
+          renderList();
+          renderDash();
+          renderChain();
+          renderRequests();
+          renderTrail();
+        }
+
+        // ---- footer -------------------------------------------------------
+        function fillFooter(data) {
+          put(f('footVendors'), '(' + state.total
+            + (state.total === 1 ? ' vendor' : ' vendors') + ')');
+          put(f('footItsm'), state.itsm
+            ? (state.itsm.configured ? 'ITSM: configured' : 'ITSM: not connected')
+            : 'ITSM: ' + DASH);
+          const headerAuth = (function () {
+            const header = document.querySelector('header');
+            if (!header) return null;
+            return Array.from(header.querySelectorAll('span'))
+              .find(function (s) { return s.textContent.trim().toLowerCase().indexOf('auth:') === 0; });
+          })();
+          if (!data) {
+            put(f('footServer'), 'License server: not connected');
+            put(f('footAuth'), 'Auth: ' + DASH);
+            put(f('footAudit'), 'Audit: ' + DASH + ' events');
+            if (headerAuth) headerAuth.textContent = 'auth: ' + DASH;
+            return;
+          }
+          put(f('footServer'), 'License server: '
+            + (data.health && data.health.status === 'ok'
+              ? 'Healthy' : (data.health || {}).status || DASH));
+          put(f('footAuth'), 'Auth: ' + (data.health ? data.health.auth : DASH));
+          put(f('footAudit'), 'Audit: '
+            + (data.counters ? data.counters.total_events.toLocaleString() : DASH)
+            + ' events');
+          if (headerAuth) {
+            headerAuth.textContent = 'auth: ' + (data.health ? data.health.auth : DASH);
+          }
+        }
+
+        // ---- load ---------------------------------------------------------
+        async function load() {
+          if (FILE_MODE) {
+            state.connected = false;
+            state.vendors = [];
+            state.total = 0;
+            state.detail = null;
+            state.items = [];
+            fillFooter(null);
+            renderAll();
+            return;
+          }
+          try {
+            const qs = '?limit=200'
+              + (filterStatus ? '&status=' + encodeURIComponent(filterStatus) : '');
+            const page = await call('vendors' + qs);
+            state.vendors = page.vendors || [];
+            state.total = page.total || 0;
+            state.connected = true;
+            if (!state.vendors.some(function (v) { return v.id === state.selectedId; })) {
+              state.selectedId = state.vendors.length ? state.vendors[0].id : null;
+            }
+          } catch (err) {
+            state.connected = false;
+            state.vendors = [];
+            state.total = 0;
+            state.detail = null;
+          }
+          if (state.selectedId) {
+            try {
+              state.detail = await call('vendors/' + state.selectedId);
+            } catch (err) {
+              state.detail = null;
+            }
+          } else {
+            state.detail = null;
+          }
+          try {
+            const items = await call('vault/items?limit=100');
+            state.items = items.items || [];
+          } catch (err) {
+            state.items = [];
+          }
+          try {
+            const status = await call('integrations/status');
+            state.itsm = status.itsm || null;
+          } catch (err) {
+            state.itsm = null;
+          }
+          try {
+            const overview = await call('overview');
+            fillFooter(overview);
+          } catch (err) {
+            fillFooter(null);
+          }
+          renderAll();
+        }
+
+        // ---- invite modal --------------------------------------------------
+        function lineValues(el) {
+          return el.value.split(/\r?\n/).map(function (s) { return s.trim(); })
+            .filter(Boolean);
+        }
+        function openInvite(prefill) {
+          const modal = f('invModal');
+          if (!modal) return;
+          f('invName').value = prefill || '';
+          f('invContact').value = '';
+          f('invAllowed').value = '';
+          f('invDenied').value = '';
+          f('invWinStart').value = '';
+          f('invWinEnd').value = '';
+          f('invExpires').value = '';
+          f('invRecording').checked = true;
+          const err = f('invError');
+          if (err) err.classList.add('hidden');
+          modal.classList.remove('hidden');
+          f('invName').focus();
+        }
+        function closeInvite() {
+          const modal = f('invModal');
+          if (modal) modal.classList.add('hidden');
+        }
+        async function submitInvite() {
+          const errBox = f('invError');
+          errBox.classList.add('hidden');
+          if (FILE_MODE) {
+            toast('File mode \u2014 not connected to the license server.', true);
+            return;
+          }
+          const name = f('invName').value.trim();
+          if (name.length < 2) {
+            errBox.textContent = 'A vendor name of at least 2 characters is required.';
+            errBox.classList.remove('hidden');
+            return;
+          }
+          const ws = f('invWinStart').value;
+          const we = f('invWinEnd').value;
+          if ((ws && !we) || (!ws && we)) {
+            errBox.textContent = 'A valid window needs both a start and an end (or neither).';
+            errBox.classList.remove('hidden');
+            return;
+          }
+          const body = {
+            name: name,
+            contact: f('invContact').value.trim(),
+            allowed_targets: lineValues(f('invAllowed')),
+            denied_targets: lineValues(f('invDenied')),
+            recording: f('invRecording').checked,
+          };
+          if (ws && we) {
+            body.window_start = ws;
+            body.window_end = we;
+          }
+          const exp = f('invExpires').value;
+          if (exp) body.expires_at = exp;
+          try {
+            const out = await call('vendors', 'POST', body);
+            closeInvite();
+            showSecret(out.vendor, out.mfa);
+            await load();
+          } catch (e) {
+            errBox.textContent = e.message;
+            errBox.classList.remove('hidden');
+          }
+        }
+        function showSecret(vendor, mfa) {
+          put(f('secName'), vendor.name + ' \u2014 ' + (vendor.contact || 'no contact'));
+          put(f('secSecret'), mfa.secret);
+          put(f('secUri'), mfa.otpauth_uri);
+          const modal = f('secModal');
+          if (modal) modal.classList.remove('hidden');
+        }
+
+        // ---- step modals ---------------------------------------------------
+        let pendingId = null;
+        function openStepModal(prefix, vendor) {
+          pendingId = vendor.id;
+          put(f(prefix + 'Name'), vendor.name + ' \u2014 status ' + vendor.status);
+          const err = f(prefix + 'Error');
+          if (err) err.classList.add('hidden');
+          const modal = f(prefix + 'Modal');
+          if (modal) modal.classList.remove('hidden');
+        }
+        function closeStepModal(prefix) {
+          pendingId = null;
+          const modal = f(prefix + 'Modal');
+          if (modal) modal.classList.add('hidden');
+        }
+        async function postStep(prefix, path, body, success) {
+          const errBox = f(prefix + 'Error');
+          if (errBox) errBox.classList.add('hidden');
+          if (FILE_MODE) {
+            toast('File mode \u2014 not connected to the license server.', true);
+            return;
+          }
+          try {
+            const out = await call('vendors/' + pendingId + '/' + path, 'POST', body);
+            toast(out.message || success);
+            closeStepModal(prefix);
+            await load();
+          } catch (e) {
+            if (errBox) {
+              errBox.textContent = e.message;
+              errBox.classList.remove('hidden');
+            }
+          }
+        }
+        function submitMfa() {
+          const code = f('mfaCode').value.trim();
+          if (!/^\d{6}$/.test(code)) {
+            const errBox = f('mfaError');
+            errBox.textContent = 'The vendor\u2019s authenticator app produces a 6-digit code.';
+            errBox.classList.remove('hidden');
+            return;
+          }
+          postStep('mfa', 'mfa', { code: code }, 'MFA verified.');
+        }
+        function submitNda() {
+          const ref = f('ndaRef').value.trim();
+          postStep('nda', 'nda', ref ? { ref: ref } : {}, 'NDA recorded.');
+        }
+        function submitTicket() {
+          postStep('tkt', 'ticket', { ticket: f('tktTicket').value.trim() }, 'Ticket verified.');
+        }
+        function submitDeny() {
+          const reason = f('denyReason').value.trim();
+          postStep('deny', 'deny', reason ? { reason: reason } : {}, 'Vendor denied.');
+        }
+        async function submitRevoke() {
+          const errBox = f('revError');
+          if (errBox) errBox.classList.add('hidden');
+          if (FILE_MODE) {
+            toast('File mode \u2014 not connected to the license server.', true);
+            return;
+          }
+          const reason = f('revReason').value.trim();
+          try {
+            const out = await call('vendors/' + pendingId + '/revoke', 'POST',
+              reason ? { reason: reason } : {});
+            toast(out.message || 'Vendor revoked.');
+            closeStepModal('rev');
+            await load();
+          } catch (e) {
+            if (errBox) {
+              errBox.textContent = e.message;
+              errBox.classList.remove('hidden');
+            }
+          }
+        }
+        async function submitApprove(id) {
+          if (FILE_MODE) {
+            toast('File mode \u2014 not connected to the license server.', true);
+            return;
+          }
+          try {
+            const out = await call('vendors/' + id + '/approve', 'POST', {});
+            toast(out.message || 'Vendor approved.');
+            await load();
+          } catch (e) {
+            const missing = e.details && e.details.missing
+              ? ' \u2014 missing: ' + e.details.missing.join(', ') : '';
+            toast(e.message + missing, true);
+          }
+        }
+
+        // ---- request access modal -------------------------------------------
+        async function openRequestModal(vendor) {
+          openStepModal('req', vendor);
+          const select = f('reqItem');
+          const errBox = f('reqError');
+          select.innerHTML = '';
+          f('reqMinutes').value = '15';
+          f('reqReason').value = '';
+          try {
+            const items = await call('vault/items?limit=100');
+            state.items = items.items || [];
+          } catch (err) {
+            state.items = [];
+          }
+          if (!state.items.length) {
+            select.innerHTML = '<option value="">No vault credentials on file</option>';
+            errBox.textContent = 'No credentials to request \u2014 onboard one in the Credential Vault first.';
+            errBox.classList.remove('hidden');
+            f('reqSubmit').disabled = true;
+            f('reqSubmit').classList.add('opacity-40', 'cursor-not-allowed');
+            return;
+          }
+          f('reqSubmit').disabled = false;
+          f('reqSubmit').classList.remove('opacity-40', 'cursor-not-allowed');
+          select.innerHTML = state.items.map(function (it) {
+            return '<option value="' + it.id + '">' + esc(it.target) + ' ('
+              + esc(it.secret_type || 'credential') + ')</option>';
+          }).join('');
+        }
+        function submitRequest() {
+          const errBox = f('reqError');
+          if (errBox) errBox.classList.add('hidden');
+          const itemId = Number(f('reqItem').value);
+          if (!itemId) return;
+          const minutes = Math.max(1, Math.min(720, Number(f('reqMinutes').value) || 15));
+          const body = { item_id: itemId, minutes: minutes };
+          const reason = f('reqReason').value.trim();
+          if (reason) body.reason = reason;
+          postStep('req', 'requests', body, 'Access request filed.');
+        }
+
+        // ---- events --------------------------------------------------------
+        function stepAction(step, id) {
+          const v = state.detail;
+          if (!v) return;
+          if (FILE_MODE) {
+            toast('File mode \u2014 not connected to the license server.', true);
+            return;
+          }
+          if (step === 'mfa') {
+            openStepModal('mfa', v);
+            f('mfaCode').value = '';
+            f('mfaCode').focus();
+            return;
+          }
+          if (step === 'nda') {
+            openStepModal('nda', v);
+            f('ndaRef').value = '';
+            return;
+          }
+          if (step === 'ticket') {
+            openStepModal('tkt', v);
+            f('tktTicket').value = '';
+            return;
+          }
+          if (step === 'deny') {
+            openStepModal('deny', v);
+            f('denyReason').value = '';
+            return;
+          }
+          if (step === 'revoke') {
+            openStepModal('rev', v);
+            f('revReason').value = '';
+            return;
+          }
+          if (step === 'request') {
+            openRequestModal(v);
+            return;
+          }
+          if (step === 'approve') {
+            submitApprove(id || v.id);
+          }
+        }
+
+        function bind() {
+          document.addEventListener('click', function (ev) {
+            const btn = ev.target.closest && ev.target.closest('button');
+            if (!btn) return;
+            if (btn.id === 'inviteBtn') { openInvite(''); return; }
+            if (btn.id === 'invClose' || btn.id === 'invCancel') { closeInvite(); return; }
+            if (btn.id === 'invSubmit') { submitInvite(); return; }
+            if (btn.id === 'secClose' || btn.id === 'secDone') {
+              const modal = f('secModal');
+              if (modal) modal.classList.add('hidden');
+              return;
+            }
+            if (btn.id === 'mfaClose' || btn.id === 'mfaCancel') { closeStepModal('mfa'); return; }
+            if (btn.id === 'mfaSubmit') { submitMfa(); return; }
+            if (btn.id === 'ndaClose' || btn.id === 'ndaCancel') { closeStepModal('nda'); return; }
+            if (btn.id === 'ndaSubmit') { submitNda(); return; }
+            if (btn.id === 'tktClose' || btn.id === 'tktCancel') { closeStepModal('tkt'); return; }
+            if (btn.id === 'tktSubmit') { submitTicket(); return; }
+            if (btn.id === 'denyClose' || btn.id === 'denyCancel') { closeStepModal('deny'); return; }
+            if (btn.id === 'denySubmit') { submitDeny(); return; }
+            if (btn.id === 'revClose' || btn.id === 'revCancel') { closeStepModal('rev'); return; }
+            if (btn.id === 'revSubmit') { submitRevoke(); return; }
+            if (btn.id === 'reqClose' || btn.id === 'reqCancel') { closeStepModal('req'); return; }
+            if (btn.id === 'reqSubmit') { submitRequest(); return; }
+            const step = btn.getAttribute('data-step');
+            if (step) {
+              stepAction(step, Number(btn.getAttribute('data-id')));
+              return;
+            }
+            const action = btn.getAttribute('data-action');
+            if (action === 'open') {
+              state.selectedId = Number(btn.getAttribute('data-id'));
+              state.detail = null;
+              load();
+              return;
+            }
+            if (action === 'reinvite') {
+              const row = state.vendors.find(function (x) {
+                return x.id === Number(btn.getAttribute('data-id'));
+              });
+              openInvite(row ? row.name : '');
+            }
+          });
+          const filter = f('statusFilter');
+          if (filter) {
+            filter.addEventListener('change', function () {
+              filterStatus = filter.value;
+              load();
+            });
+          }
+          const code = f('mfaCode');
+          if (code) {
+            code.addEventListener('keydown', function (ev) {
+              if (ev.key === 'Enter') submitMfa();
+            });
+          }
+        }
+
+        // ---- boot ----------------------------------------------------------
+        function boot() {
+          renderAll();
+          fillFooter(null);
+          bind();
+          load();
+          setInterval(function () { if (state.connected) load(); }, 60000);
+        }
+        if (document.readyState === 'loading') {
+          document.addEventListener('DOMContentLoaded', boot);
+        } else {
+          boot();
+        }
+      })();
+    </script>
+</main><footer class="fixed bottom-0 left-64 right-0 h-10 bg-surface-container-lowest/95 backdrop-blur-sm border-t border-outline-variant/30 z-30 flex items-center justify-between px-space-xl text-on-surface-variant font-code-sm text-code-sm shadow-[0_-1px_4px_rgba(0,0,0,0.02)]"><div class="flex items-center gap-space-md"><div class="flex items-center gap-1.5"><span class="w-2 h-2 rounded-full bg-tertiary"></span><span id="footServer" class="text-on-surface font-medium">License server: not connected</span><span id="footVendors" class="text-outline">(&mdash; vendors)</span></div><span class="text-outline-variant">•</span><span id="footItsm" class="text-on-surface font-semibold">ITSM: &mdash;</span></div><div class="flex items-center gap-space-lg text-outline"><span id="footAuth">Auth: &mdash;</span><span id="footAudit">Audit: &mdash; events</span></div></footer></div></body></html>

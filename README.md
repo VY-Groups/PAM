@@ -24,7 +24,7 @@ PAM/
 │   ├── screens/<name>/          #   one folder per screen: code.html + screen.png
 │   └── README.md                #   layout + how to add a screen (the contract)
 ├── apis/                            # HTTP contract for every backend service
-│   ├── openapi.yaml             #   OpenAPI 3.1: all 87 paths (synced by a test)
+│   ├── openapi.yaml             #   OpenAPI 3.1: all 96 paths (synced by a test)
 │   └── README.md                #   conventions + how to view
 ├── backend/
 │   ├── ipam_licensing/              # Phase 1: library + CLIs
@@ -93,7 +93,7 @@ python -m pam_master.keygen                      # RSA + Ed25519 + registry PII 
 python -m pam_master                             # http://127.0.0.1:5400
 
 # Tests (shared core + shipped API contract + vendor tool)
-python -m pytest backend -q                      # 440 tests
+python -m pytest backend -q                      # 461 tests
 python -m pytest pam_master -q                   # 46 tests (vendor tool)
 ```
 
@@ -129,12 +129,12 @@ python -m pytest pam_master -q                   # 46 tests (vendor tool)
 - The console lives in `frontend/` — a copy of the frozen design reference in
   `stitch_pam_suite_dashboard_ui/`. Every screen carries the same sidebar with
   real links, `frontend/index.html` is the launcher. Served by Phase 2, all
-  ten sidebar screens are **live**: licensing (`/`), platform settings (`/settings`,
+  eleven sidebar screens are **live**: licensing (`/`), platform settings (`/settings`,
   backed by `GET/PUT /api/v1/settings` with an audit changelog, plus the §20
   Enterprise Integrations cards over `GET /api/v1/integrations/status`), the Command
   Center and Compliance screens (backed by `GET /api/v1/overview` and the
-  unified `GET /api/v1/events` feed — an eleven-source trail filter that
-  includes the `integration` trail, plus a live SIEM-push chip — and the
+  unified `GET /api/v1/events` feed — a twelve-source trail filter that
+  includes the `integration` and `vendor` trails, plus a live SIEM-push chip — and the
   Command Center's §10 PAM
   bypass detection section over `GET/POST /api/v1/bypass/*` — real auth-log
   ingest, correlation against managed targets and recorded sessions,
@@ -162,7 +162,12 @@ python -m pytest pam_master -q                   # 46 tests (vendor tool)
   (`GET/POST /api/v1/break-glass/*` — emergency requests with dual approval
   from two distinct approvers, a recorded session that releases a real vault
   credential, and forced rotation plus a required review note at close —
-  with the §20 MFA gate at open whenever a TOTP factor is enrolled).
+  with the §20 MFA gate at open whenever a TOTP factor is enrolled), and the
+  Vendor Access screen (`GET/POST /api/v1/vendors/*` — the §13 third-party
+  chain: invite with a one-time per-vendor MFA seed, NDA, a real ITSM
+  ticket check, an approval that names any missing step, scope- and
+  window-checked JIT requests, deny/revoke with the grant-close cascade,
+  and the dashboard's access/denied lists, valid window and recording flag).
   The two remaining cards are `spec` design-reference pages under
   `/screens/`.
 
