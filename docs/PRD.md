@@ -80,6 +80,7 @@ never drift apart.
 | 18 | §12 Dynamic Watermarking | Contextual overlay `USER/SESSION/TARGET/TIME/TICKET/SOURCE` assembled only from the session's own rows (actor, custody ref, target, latest-event clock, linked grant's ticket, source address recorded at start); moves with pause/resume/terminate; the watermark control gates the painted text (data stays, `—` for absent facts); console overlay in the Live Session Hub, protocol-level pixel overlays labelled `not connected` pending gateway work | Built | additive `watermark` field on `GET /api/v1/sessions/{session_id}` (`SessionWatermark` schema), `test_watermark.py` (6) |
 | 19 | §13 Third-Party / Vendor PAM | Per-vendor TOTP (sealed at rest, shown once at invite), NDA, real ITSM ticket check, strict approval gate (refused 409 naming the missing steps), vendor-scoped JIT requests (scope + window checked pre-creation, deny beats allow), forced session recording, lazy account expiry, deny/revoke with the grant close cascade, re-invite on the same row; the vendor dashboard (access/denied lists, valid window, recording) renders the account's own row | Built | 9 vendor paths / 11 ops, `test_vendor_pam.py` (21) |
 | 20 | §14 Cloud PAM | AWS/Azure/GCP/Kubernetes connectors with honest states (`not connected`/`configured`/`connected`/`error`, only a real probe moves them), credential federated into the vault (revealed per call, audited, never returned), real inventory from the cloud's own API under `source=cloud` (failed/unanswered runs record the honest reason and invent nothing), K8s *RBAC → JIT → ephemeral privilege → audit* (the grant applies a real RoleBinding, close/expiry removes it, deletion refused while grants are open) | Built | 6 cloud paths / 9 ops, `test_cloud.py` (27) |
+| 21 | §15 DevSecOps PAM | CI/CD credential broker: pipeline identities (Jenkins/GitLab/GitHub/Azure DevOps/Terraform/Ansible/ArgoCD/Docker) authenticate with an API token shown once and stored as a sha256 hash — **no static secrets in pipelines**; `auto` policies release a time-boxed vault credential in one call, `manual` ones queue for admin approval; the grant is checked out under the pipeline, expires on the real clock and rotates through the §5 pipeline exactly like a JIT grant; scope (`allowed_targets`), TTL cap and revoke-close-cascade are enforced with evidence on the `broker` trail | Built | 9 broker paths / 13 ops, `test_broker.py` (24) |
 
 ## 5. Scope — explicitly NOT built yet (pending requirements)
 
@@ -89,7 +90,6 @@ from the architecture doc, phase assigned in `IMPLEMENTATION_PLAN.md`:
 
 | Arch. section | Pending requirement (target behavior) | Current state | Phase |
 |---|---|---|---|
-| §15 DevSecOps PAM | CI/CD JIT credential broker (Jenkins/GitLab/GitHub/Terraform/Ansible/ArgoCD) — **no static secrets in pipelines** | Not started | 5c |
 | §16 AI-Agent PAM | Agent identity → task verification → risk → JIT credential → task-scoped command restrictions → monitoring → expiry | Not started | 5d |
 | §18 HA / DC / DR | Active-active/passive, load balancer, vault/audit/session replication, failover, health checks | Not started (SQLite single-node today) | 6a |
 | §20 Enterprise Integrations | IAM/MFA/ITSM/SIEM/SOAR/EDR connectors — real verification/push when configured, `not connected` otherwise | Not started (NDJSON export is the only seam) | 4i |
@@ -170,15 +170,15 @@ from the architecture doc, phase assigned in `IMPLEMENTATION_PLAN.md`:
 | Data honesty | No fabricated values anywhere in the product | Live-data wiring + FORBIDDEN-string sweep (`shots_tool/__verify_live.mjs`, 9 screens × HTTP/file) |
 | Portability | Installs directly on a machine | Pure Python deps; SQLite files; Docker only under `pam_master/` and `backend/phase2_license_server/` for development |
 | Tamper evidence | Audit trail provable | sha256 chain + append-only triggers + `/audit/verify` |
-| Least privilege | Admin actions authenticated | 64 admin operations require `Bearer`/`X-Admin-Token` when `LICENSE_ADMIN_TOKEN` is set; open dev mode is explicit (`X-Auth-Mode: open`) |
+| Least privilege | Admin actions authenticated | 74 admin operations require `Bearer`/`X-Admin-Token` when `LICENSE_ADMIN_TOKEN` is set; open dev mode is explicit (`X-Auth-Mode: open`); pipeline `/broker` operations require the broker API token and are never waived |
 | Bounded resource use | Scans and lists bounded | Scan ≤256 hosts × ≤24 ports, single-flight; pagination `limit` max 200 |
 | Contract stability | API evolution controlled | OpenAPI 3.1, both-direction contract test, `/api/v1` version segment |
-| Testability | Every phase ships tests | 488 backend + 46 vendor-tool tests; UI verifiers; 17-step smoke |
+| Testability | Every phase ships tests | 512 backend + 46 vendor-tool tests; UI verifiers; 17-step smoke |
 | Offline crypto | Verification without network | Phase 1 validator verifies envelope/JWS offline (signature → structure → expiry) |
 
 ## 8. Success criteria (per release)
 
-1. `python -m pytest backend -q` green (currently **488**) and
+1. `python -m pytest backend -q` green (currently **512**) and
    `python -m pytest pam_master -q` green (**46**).
 2. Contract test green: **102** documented paths both directions, **64**
    admin operations carrying security schemes.
@@ -193,8 +193,8 @@ from the architecture doc, phase assigned in `IMPLEMENTATION_PLAN.md`:
 The full phase-wise backlog (4i → 6c), scope, dependencies and
 definition-of-done per phase live in **`docs/IMPLEMENTATION_PLAN.md`**;
 execution checkpoints are logged in
-`VY-PAM_MASTER_and_PAM_Workflow.md`. Next phase: **5c — §15 DevSecOps
-PAM** (Phases 4 and 5a/5b complete).
+`VY-PAM_MASTER_and_PAM_Workflow.md`. Next phase: **5d — §16 AI-Agent
+PAM** (Phases 4 and 5a/5b/5c complete).
 
 ## 10. Target end-state (final output after full development)
 
@@ -214,6 +214,6 @@ DevOps and AI environments"*):
 | **Threat response** | Bypass detection, UEBA anomalies, and risk banding all drive the *real* response machinery — session cascade, forced rotation, incidents with preserved evidence |
 | **Integrations** | IAM, MFA, ITSM, SIEM, SOAR, EDR, cloud and DevSecOps connectors — each either verified working against a real endpoint or explicitly `not connected` |
 | **Scale** | §18 replicated deployment (load balancer, vault/audit replication, failover) with runbooks; single-node install remains Docker-free |
-| **Contracts** | `apis/openapi.yaml` (102 paths today, `—` at completion) enforced both-ways; vendor tool contract likewise; zero dark endpoints |
-| **Quality** | Backend suite (488 today) grows per phase with real counts recorded in READMEs; pam_master 46 stays green; smoke + both UI verifiers green at every boundary |
+| **Contracts** | `apis/openapi.yaml` (111 paths today, `—` at completion) enforced both-ways; vendor tool contract likewise; zero dark endpoints |
+| **Quality** | Backend suite (512 today) grows per phase with real counts recorded in READMEs; pam_master 46 stays green; smoke + both UI verifiers green at every boundary |
 | **Honesty invariant** | Unchanged and non-negotiable: every displayed number comes from an API at render time — the product never fabricates, complete or not |

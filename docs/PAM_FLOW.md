@@ -263,6 +263,31 @@ Register connector (aws/azure/gcp/kubernetes): endpoint https (http
     (13th source); Compliance gains the 14th chip
 ```
 
+### CI/CD credential broker (§15 — built in 5c)
+
+```
+Admin registers a pipeline identity (jenkins/gitlab/github/azure_devops/
+  terraform/ansible/argocd/docker): API token `vypam-ci1.<id>.<secret>`
+  shown exactly once, stored as a sha256 hash — the pipeline itself holds
+  no static secret
+  → Pipeline requests a credential with its own token (X-Actor ignored —
+    the actor on the trail is the policy name): reason + ITSM ticket +
+    window ≤ the policy's max_ttl_minutes (higher → 400 details.cap),
+    target inside allowed_targets (outside → 403 + `refused` on the trail)
+  → Policy decides: `auto` approves inline (approved_by `broker-policy`),
+    `manual` queues the request for an admin approval or denial
+  → Release (pipeline token): a real vault checkout under the pipeline's
+    name; the decrypted secret appears in this response exactly once and
+    expires at the returned timestamp
+  → Close (the pipeline's own token or an admin) or real-clock expiry:
+    the checkout is released and the credential rotates through the §5
+    pipeline like any JIT grant (session_ref `broker-<id>`)
+  → Revoke identity: open credentials are closed first (released ones
+    rotate), then the token stops authenticating — 401 on the next use
+  → every action folds into the ledger as source `broker` (14th source);
+    Compliance gains the 15th chip
+```
+
 ## 3. Cross-cutting interaction rules
 
 1. **Reveal-on-click only.** Secrets, audit payloads, and other sensitive
@@ -309,6 +334,16 @@ CloudConnector.status: not connected → configured (endpoint set)
                      error → connected                (successful re-probe)
                      (endpoint cleared → not connected; status is honest
                       state, never a decoration)
+
+BrokerPolicy.status:  active → revoked   (revoke closes open credentials
+                      first — released ones rotate)
+                     active → expired    (real clock; closes open ones)
+
+BrokerCredential.status:
+                     pending → approved | denied | closed
+                     approved → released | closed
+                     released → closed | expired   (both release the
+                       checkout and rotate the credential)
 ```
 
 ## 5. Roles & separation of duties
@@ -320,15 +355,18 @@ CloudConnector.status: not connected → configured (endpoint set)
 | Reveal secret | authenticated admin; actor recorded; plaintext never logged |
 | License import/revoke | authenticated admin; ledger `license` |
 | Break-glass emergency access | two distinct approvers sign (requester excluded, 403); the closer must file the review note |
+| Release a pipeline credential | the owning pipeline's broker API token only — the admin token never substitutes and open/dev mode never waives it |
+| Close a pipeline credential | the owning pipeline's token, or an admin (dual-auth route; another pipeline's row is a 404) |
+| Register / revoke a pipeline identity | authenticated admin; the API token is shown exactly once and is never recoverable |
 
 ## 6. Future flows (planned — see `IMPLEMENTATION_PLAN.md`)
 
 Flows below are **not implemented yet**; they show the target journeys the
 console will gain, quoted from the architecture doc.
 
-### 6.1 DevSecOps & AI-agent access (§15/§16 → phases 5c/5d)
+### 6.1 AI-agent access (§16 → phase 5d)
 ```
-Pipeline/Agent → request credential or task access
+Agent → request task access
   → identity verification → risk evaluation → JIT token
   → task-scoped command restrictions (ALLOW restart / DROP → BLOCK)
   → monitored session → token expiry (no static secrets left behind)

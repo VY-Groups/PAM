@@ -39,7 +39,7 @@ Supported wire formats and algorithms:
 | `tests/test_jit.py` | JIT access: deterministic risk bands, approvals, time-boxed grants, expiry rotation |
 | `tests/test_sessions.py` | Privileged sessions: start/attach, channel events, control gating, lifecycle + cascades |
 | `tests/test_command_control.py` | Zero-trust command policy: rule CRUD, dry-run decisions, approval queue, incident escalation |
-| `tests/test_audit.py` | Immutable §19 ledger: thirteen-source fan-in, hash chain, append-only triggers, backfill, verify/export, drift guard |
+| `tests/test_audit.py` | Immutable §19 ledger: fourteen-source fan-in, hash chain, append-only triggers, backfill, verify/export, drift guard |
 | `tests/test_risk.py` | §7 risk-based access engine: the eight scored components, bands/decisions, the session-start gate, ledger fan-in |
 | `tests/test_bypass.py` | §10 PAM bypass detection: log/JSON ingest, dedupe, correlation (candidate/covered/out_of_scope), incidents with forced rotation + honest `not_connected`, closure, stats, ledger fan-in |
 | `tests/test_break_glass.py` | §17 break-glass: request lifecycle, dual approval (self/second-signature rules), risk-gated open → recorded session → close with forced rotation + review, stats, ledger fan-in |
@@ -48,6 +48,7 @@ Supported wire formats and algorithms:
 | `tests/test_watermark.py` | §12 dynamic watermark: six fields from the session's own row, pause/resume/terminate movement, control gating |
 | `tests/test_vendor_pam.py` | §13 third-party PAM: invite → one-time seed → MFA → NDA → real ITSM ticket → approval gate → scoped JIT; refusals + §13 dashboard |
 | `tests/test_cloud.py` | §14 cloud PAM: connector lifecycle + honest states, endpoint rules, real probes, inventory upsert/refusals, K8s RBAC → JIT → real RoleBinding apply/remove, delete guard, stats, ledger fan-in |
+| `tests/test_broker.py` | §15 CI/CD credential broker: pipeline token auth (shown once, sha256, never waived), auto/manual policies, TTL cap + target scope refusals, approval queue, release (secret once) → close/expiry rotation, revoke cascade, stats, ledger fan-in |
 | `tests/test_openapi_contract.py` | `apis/openapi.yaml` ↔ live route map (both directions) |
 
 ## Quick start
@@ -112,9 +113,9 @@ bundle, run the correlation scan, review/close incidents; the Compliance
 screen also reads
 `GET /api/v1/audit/stats` for the immutable digest, runs `GET /api/v1/audit/verify`
 on its **Verify Hash Chain** button, exports `GET /api/v1/audit/export`, and its
-per-trail filter fetches one of the thirteen sources — license, settings, vault,
+per-trail filter fetches one of the fourteen sources — license, settings, vault,
 discovery, jit, session, command, risk, bypass, break-glass, integration,
-vendor, cloud — on
+vendor, cloud, broker — on
 click, and its header chip reads the §20 SIEM push state), the **Credential Vault**
 (`GET/POST /api/v1/vault/*` — onboarding via **Onboard New Credential**, rotation
 SLA, type/status filters, JIT checkouts and an audit trail), the
@@ -123,7 +124,10 @@ scan, adopt, ignore, plus the §14 cloud connectors over
 `GET/POST /api/v1/cloud/*`: honest connector states from real probes,
 inventory from the cloud's own API under the `cloud` trail, and Kubernetes
 RBAC → JIT grants that apply and remove a real RoleBinding), the **JIT access** console (`GET/POST /api/v1/jit/*` —
-requests, risk, approvals, time-boxed grants), the **live session hub**
+requests, risk, approvals, time-boxed grants — plus the §15 Pipeline
+Credential Broker over `GET/POST /api/v1/broker/*`: pipeline identities
+with a one-time API token, the auto/manual credential queue, and the
+release → close/rotate cascade), the **live session hub**
 (`GET/POST /api/v1/sessions/*` — start a session against a vault credential or
 an active grant, replay its append-only recording, gate controls, and end it
 through the release-and-rotate cascade) and the **zero-trust policy console**
@@ -156,8 +160,8 @@ is no seed inventory: every credential enters through **Onboard New Credential**
 "not connected" states instead of sample rows.
 
 ```bash
-python -m pytest tests -q     # 406 tests (from backend/phase2_license_server)
-python -m pytest backend -q   # 488 tests from the repo root (+ shared crypto core)
+python -m pytest tests -q     # 430 tests (from backend/phase2_license_server)
+python -m pytest backend -q   # 512 tests from the repo root (+ shared crypto core)
 ```
 
 **Docker (development/runtime testing only — never a shipping instruction):**
@@ -223,7 +227,7 @@ cross-checked against these routes by `tests/test_openapi_contract.py`.
 | GET | `/settings/audit?limit=` | – | Configuration changelog, newest first |
 | PUT | `/settings/<group>` | admin | Merge-update one group, returns the per-field change diff (secrets seal AES-256-GCM → changelog `<set>`/`<cleared>`; readonly `mfa.*` factor fields → 400 with `details.fields` + the `POST /mfa/enroll` hint; URL fields must be `https` unless flagged `allow_http` — `itsm.base_url`/`siem.webhook_url` accept plain http for internal instances — bad shape → 400 with `details.field`/`details.scheme`) |
 | GET | `/overview` | – | Dashboard aggregate: health, license posture, vault stats, settings, counters, computed control posture, recent activity |
-| GET | `/events?limit=&source=` | - | Unified audit feed across all thirteen trails (license, settings, vault, discovery, jit, session, command, risk, bypass, break-glass, integration, vendor, cloud), newest first |
+| GET | `/events?limit=&source=` | - | Unified audit feed across all fourteen trails (license, settings, vault, discovery, jit, session, command, risk, bypass, break-glass, integration, vendor, cloud, broker), newest first |
 | GET | `/vault/stats` | – | Inventory aggregates: totals by type/status, rotation compliance, `secrets` coverage (`managed`/`unmanaged`/`versions`), checkouts, today's events |
 | GET | `/vault/items?…` | – | List inventory (`q`, `type`, `status`, `limit`, `offset`) |
 | POST | `/vault/items` | admin | Onboard a credential (201, strictly validated; optional `secret`, else a real type-appropriate value is generated — sealed with AES-256-GCM either way) |
@@ -316,7 +320,20 @@ cross-checked against these routes by `tests/test_openapi_contract.py`.
 | POST | `/cloud/connectors/<id>/discover` | admin | Real inventory from the cloud's own API (assets under `source=cloud`, method = provider API; failed/unrecognized answer records the honest reason and invents nothing) |
 | POST | `/cloud/connectors/<id>/rbac/requests` | admin | K8s path (201): section-6 JIT request with `cloud_binding`; the grant applies a real RoleBinding `vypam-jit-<id>`, close/expiry removes it |
 | GET | `/cloud/stats` | – | §14 aggregates: connectors by provider/state, trail size, RBAC grants, cloud-discovered assets |
-| GET | `/audit/stats` | - | Immutable ledger aggregates (§19): `total`, per-source counts for all thirteen trails, `last_seq`, `head_hash`, oldest/newest, `trigger_protection` |
+| POST | `/broker/policies` | admin | Register a pipeline identity (201; `vypam-ci1.<id>.<secret>` returned exactly once, stored as a sha256 hash) |
+| GET | `/broker/policies?ci_system=&status=&q=&limit=&offset=` | admin | Pipeline identities, newest first (§15) |
+| GET | `/broker/policies/<id>` | admin | One policy with its open credential count and latest trail |
+| PATCH | `/broker/policies/<id>` | admin | Edit approval mode / TTL cap / allowed targets / contact / expiry (never name, CI system or token; revoked → 409 frozen) |
+| DELETE | `/broker/policies/<id>` | admin | Revoke: open credentials closed first (released ones rotate), then the token stops authenticating |
+| POST | `/broker/credentials` | pipeline | Request a time-boxed credential with the API token (201; `auto` releases the secret in this response, `manual` queues it; target outside `allowed_targets` → 403 + `refused`) |
+| GET | `/broker/credentials?status=&policy_id=&limit=&offset=` | admin | Every pipeline credential, newest first (never the secret — `secret_released` flag only) |
+| GET | `/broker/credentials/<id>` | admin | One credential with its policy and full §15 trail |
+| POST | `/broker/credentials/<id>/approve` | admin | Sign off a queued request; the pipeline then releases it with its own token |
+| POST | `/broker/credentials/<id>/deny` | admin | Refuse a queued request (reason recorded; nothing released) |
+| POST | `/broker/credentials/<id>/release` | pipeline | Real vault checkout under the pipeline's name; the secret appears in this response exactly once |
+| POST | `/broker/credentials/<id>/close` | pipeline or admin | End the grant early: checkout released and the credential rotated (`session_ref broker-<id>`) |
+| GET | `/broker/stats` | admin | §15 aggregates: policies by state/CI system, credentials by state, trail size |
+| GET | `/audit/stats` | - | Immutable ledger aggregates (§19): `total`, per-source counts for all fourteen trails, `last_seq`, `head_hash`, oldest/newest, `trigger_protection` |
 | GET | `/audit/verify` | – | Walk the whole chain: recomputes every record's hash and reports `intact`, `checked`, `head_hash` plus the first `broken_at`/`reason` (sequence gap, content change, re-link) |
 | GET | `/audit/export` | – | The full ledger in chain order as NDJSON (`application/x-ndjson`, `vy-pam-audit.ndjson`) — one record per line for SIEM ingest |
 
@@ -454,8 +471,9 @@ curl -s "http://127.0.0.1:5000/api/v1/settings/audit?limit=20"
 # dashboard aggregate powering the Command Center / Compliance screens
 curl -s http://127.0.0.1:5000/api/v1/overview
 
-# unified audit feed (all thirteen trails: license, settings, vault, discovery,
-# jit, session, command, risk, bypass, break-glass, integration, vendor, cloud - newest first, each row chain-linked with seq + hash)
+# unified audit feed (all fourteen trails: license, settings, vault, discovery,
+# jit, session, command, risk, bypass, break-glass, integration, vendor, cloud,
+# broker - newest first, each row chain-linked with seq + hash)
 curl -s "http://127.0.0.1:5000/api/v1/events?limit=10"
 
 # inventory aggregates: rotation compliance, checkouts, attention list

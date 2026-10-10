@@ -38,6 +38,7 @@ from models import (
     AnomalyEvent,
     AuditEvent,
     BreakGlassEvent,
+    BrokerEvent,
     BypassEvent,
     CloudEvent,
     CommandIncident,
@@ -54,7 +55,7 @@ from models import (
     VendorEvent,
 )
 
-# the thirteen trails folded into the ledger (the unified feed reads these)
+# the fourteen trails folded into the ledger (the unified feed reads these)
 AUDIT_SOURCES = (
     "license",
     "settings",
@@ -69,6 +70,7 @@ AUDIT_SOURCES = (
     "integration",
     "vendor",
     "cloud",
+    "broker",
 )
 SOURCE_RANK = {name: index for index, name in enumerate(AUDIT_SOURCES)}
 
@@ -433,6 +435,24 @@ def _map_cloud(event: CloudEvent, db_session) -> Dict[str, Any]:
     )
 
 
+def _map_broker(event: BrokerEvent, db_session) -> Dict[str, Any]:
+    """Pipeline identity lifecycle, credential requests, approvals, denials,
+    releases, closes, expiry and scope refusals under the fourteenth trail
+    `broker` (architecture section 15) - the auditable trail of the CI/CD
+    credential broker itself, never the API token or the released secret,
+    only the outcome."""
+    return _entry(
+        source="broker",
+        event_ref=f"broker:{event.id}",
+        action=_value(event, "action"),
+        actor=_value(event, "actor"),
+        subject=_value(event, "subject"),
+        detail=_value(event, "detail") or {},
+        created_at=event.created_at,
+        sort_id=event.id,
+    )
+
+
 # every event model that must reach the ledger, in a stable backfill order
 LEDGER_MODELS = (
     LicenseEvent,
@@ -449,6 +469,7 @@ LEDGER_MODELS = (
     AnomalyEvent,
     VendorEvent,
     CloudEvent,
+    BrokerEvent,
 )
 
 MAPPERS = {
@@ -466,6 +487,7 @@ MAPPERS = {
     AnomalyEvent: _map_anomaly,
     VendorEvent: _map_vendor,
     CloudEvent: _map_cloud,
+    BrokerEvent: _map_broker,
 }
 
 

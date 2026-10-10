@@ -54,6 +54,8 @@ tags:
     description: Third-Party / Vendor PAM - invite lifecycle (MFA/NDA/ticket/approval), scoped JIT access, vendor dashboard (architecture 13)
   - name: cloud
     description: Cloud PAM - AWS/Azure/GCP/Kubernetes connectors, real probes and inventory, K8s ephemeral RBAC grants through JIT (architecture 14)
+  - name: broker
+    description: CI/CD credential broker - pipeline API tokens, approval policies and time-boxed credentials for CI systems (architecture 15)
 paths:
   /health:
     get:
@@ -3147,6 +3149,362 @@ paths:
             application/json:
               schema: {$ref: "#/components/schemas/CloudStats"}
 
+  /api/v1/broker/policies:
+    get:
+      tags: [broker]
+      summary: Pipeline identities and their approval policies, newest first
+      description: The section-15 registry of CI/CD identities; the API token is never returned here - only its hash prefix.
+      security:
+        - bearerAuth: []
+        - adminTokenHeader: []
+        - {}
+      parameters:
+        - name: ci_system
+          in: query
+          schema: {type: string, enum: [jenkins, gitlab, github, azure_devops, terraform, ansible, argocd, docker, other]}
+        - name: status
+          in: query
+          schema: {type: string, enum: [active, revoked, expired]}
+        - name: q
+          in: query
+          description: Substring match on name or contact.
+          schema: {type: string}
+        - {$ref: "#/components/parameters/Limit"}
+        - {$ref: "#/components/parameters/Offset"}
+      responses:
+        "200":
+          description: Paged broker policies
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/BrokerPolicyList"}
+        "400": {$ref: "#/components/responses/BadRequest"}
+    post:
+      tags: [broker]
+      summary: Register a CI/CD pipeline identity (architecture 15)
+      description: |
+        One Jenkins/GitLab/GitHub/Azure DevOps (or Terraform/Ansible/
+        ArgoCD/Docker) identity plus its approval policy. The API token is
+        generated here, returned exactly once and stored only as a sha256
+        hash - the pipeline presents it as
+        `Authorization: Bearer vypam-ci1.<id>.<secret>`. An `auto` policy
+        releases credentials on request; a `manual` policy queues them for
+        an admin approval. No static secret ever lives in the pipeline.
+      security:
+        - bearerAuth: []
+        - adminTokenHeader: []
+        - {}
+      parameters:
+        - name: X-Actor
+          in: header
+          schema: {type: string, maxLength: 64}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: "#/components/schemas/BrokerPolicyCreate"}
+      responses:
+        "201":
+          description: Policy registered - `token` is shown exactly once
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/BrokerPolicyResponse"}
+        "400": {$ref: "#/components/responses/BadRequest"}
+        "401": {$ref: "#/components/responses/Unauthorized"}
+        "409": {$ref: "#/components/responses/Conflict"}
+
+  /api/v1/broker/policies/{policy_id}:
+    get:
+      tags: [broker]
+      summary: Broker policy console payload (architecture 15)
+      description: The policy, its open credential count and its latest `broker` trail entries.
+      security:
+        - bearerAuth: []
+        - adminTokenHeader: []
+        - {}
+      parameters:
+        - name: policy_id
+          in: path
+          required: true
+          schema: {type: integer, minimum: 1}
+      responses:
+        "200":
+          description: Policy detail
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/BrokerPolicyDetailResponse"}
+        "404": {$ref: "#/components/responses/NotFound"}
+    patch:
+      tags: [broker]
+      summary: Edit a broker policy's knobs
+      description: Approval mode, TTL cap, allowed targets, contact or expiry - never the name, the CI system or the token. A revoked policy's settings are frozen (409).
+      security:
+        - bearerAuth: []
+        - adminTokenHeader: []
+        - {}
+      parameters:
+        - name: policy_id
+          in: path
+          required: true
+          schema: {type: integer, minimum: 1}
+        - name: X-Actor
+          in: header
+          schema: {type: string, maxLength: 64}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: "#/components/schemas/BrokerPolicyUpdate"}
+      responses:
+        "200":
+          description: Policy updated
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/BrokerPolicyMessageResponse"}
+        "400": {$ref: "#/components/responses/BadRequest"}
+        "401": {$ref: "#/components/responses/Unauthorized"}
+        "404": {$ref: "#/components/responses/NotFound"}
+        "409": {$ref: "#/components/responses/Conflict"}
+    delete:
+      tags: [broker]
+      summary: Revoke a pipeline identity
+      description: Every credential the identity still holds is closed first (released grants release the checkout and rotate like a JIT expiry), then the token stops authenticating. The `broker` trail stays in the ledger.
+      security:
+        - bearerAuth: []
+        - adminTokenHeader: []
+        - {}
+      parameters:
+        - name: policy_id
+          in: path
+          required: true
+          schema: {type: integer, minimum: 1}
+        - name: X-Actor
+          in: header
+          schema: {type: string, maxLength: 64}
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema: {$ref: "#/components/schemas/BrokerReasonRequest"}
+      responses:
+        "200":
+          description: Policy revoked
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/BrokerPolicyRevokeResponse"}
+        "401": {$ref: "#/components/responses/Unauthorized"}
+        "404": {$ref: "#/components/responses/NotFound"}
+        "409": {$ref: "#/components/responses/Conflict"}
+
+  /api/v1/broker/credentials:
+    get:
+      tags: [broker]
+      summary: Every pipeline credential, newest first
+      description: The section-15 queue and history. The secret is never here - the row records only that it was released (`secret_released`).
+      security:
+        - bearerAuth: []
+        - adminTokenHeader: []
+        - {}
+      parameters:
+        - name: status
+          in: query
+          schema: {type: string, enum: [pending, approved, released, denied, closed, expired]}
+        - name: policy_id
+          in: query
+          schema: {type: integer, minimum: 1}
+        - {$ref: "#/components/parameters/Limit"}
+        - {$ref: "#/components/parameters/Offset"}
+      responses:
+        "200":
+          description: Paged broker credentials
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/BrokerCredentialList"}
+        "400": {$ref: "#/components/responses/BadRequest"}
+    post:
+      tags: [broker]
+      summary: Request one short-lived credential (the pipeline calls this)
+      description: |
+        The pipeline authenticates with its broker API token - never the
+        admin token, never `X-Actor`. The policy decides what happens: an
+        `auto` policy approves the request and this same response carries
+        the released credential (201, secret exactly once, expiring at the
+        returned timestamp); a `manual` policy lands the request in the
+        approval queue and the pipeline releases it later with
+        POST /api/v1/broker/credentials/{credential_id}/release. A target
+        outside the policy's `allowed_targets` is refused 403 with the
+        refusal recorded on the `broker` trail.
+      security:
+        - brokerToken: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: "#/components/schemas/BrokerCredentialRequest"}
+      responses:
+        "201":
+          description: Requested (manual policy) or approved and released once (auto policy)
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/BrokerCredentialCreateResponse"}
+        "400": {$ref: "#/components/responses/BadRequest"}
+        "401": {$ref: "#/components/responses/Unauthorized"}
+        "403": {$ref: "#/components/responses/Forbidden"}
+        "404": {$ref: "#/components/responses/NotFound"}
+
+  /api/v1/broker/credentials/{credential_id}:
+    get:
+      tags: [broker]
+      summary: Broker credential console payload (architecture 15)
+      description: The credential, its policy and its full `broker` trail (never the secret).
+      security:
+        - bearerAuth: []
+        - adminTokenHeader: []
+        - {}
+      parameters:
+        - name: credential_id
+          in: path
+          required: true
+          schema: {type: integer, minimum: 1}
+      responses:
+        "200":
+          description: Credential detail
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/BrokerCredentialDetailResponse"}
+        "404": {$ref: "#/components/responses/NotFound"}
+
+  /api/v1/broker/credentials/{credential_id}/approve:
+    post:
+      tags: [broker]
+      summary: Approve a queued pipeline credential request
+      description: An admin signs off; the pipeline then releases the credential with its own API token. Only a `pending` request can be approved.
+      security:
+        - bearerAuth: []
+        - adminTokenHeader: []
+        - {}
+      parameters:
+        - name: credential_id
+          in: path
+          required: true
+          schema: {type: integer, minimum: 1}
+        - name: X-Actor
+          in: header
+          schema: {type: string, maxLength: 64}
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema: {$ref: "#/components/schemas/BrokerReasonRequest"}
+      responses:
+        "200":
+          description: Approved
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/BrokerCredentialResponse"}
+        "400": {$ref: "#/components/responses/BadRequest"}
+        "401": {$ref: "#/components/responses/Unauthorized"}
+        "404": {$ref: "#/components/responses/NotFound"}
+
+  /api/v1/broker/credentials/{credential_id}/deny:
+    post:
+      tags: [broker]
+      summary: Deny a queued pipeline credential request
+      description: Nothing was released; the refusal and its reason stay on the `broker` trail. Only a `pending` request can be denied.
+      security:
+        - bearerAuth: []
+        - adminTokenHeader: []
+        - {}
+      parameters:
+        - name: credential_id
+          in: path
+          required: true
+          schema: {type: integer, minimum: 1}
+        - name: X-Actor
+          in: header
+          schema: {type: string, maxLength: 64}
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema: {$ref: "#/components/schemas/BrokerReasonRequest"}
+      responses:
+        "200":
+          description: Denied
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/BrokerCredentialResponse"}
+        "400": {$ref: "#/components/responses/BadRequest"}
+        "401": {$ref: "#/components/responses/Unauthorized"}
+        "404": {$ref: "#/components/responses/NotFound"}
+
+  /api/v1/broker/credentials/{credential_id}/release:
+    post:
+      tags: [broker]
+      summary: Release the approved credential to the pipeline (the pipeline calls this)
+      description: |
+        A real vault checkout under the pipeline's name; the decrypted
+        secret appears in this response exactly once and the window starts
+        now (expiring at the returned timestamp, rotating through the
+        section-5 pipeline like any JIT grant). Another pipeline's request
+        is a 404 with this token; a request that is not `approved` is a
+        400 with its current state.
+      security:
+        - brokerToken: []
+      parameters:
+        - name: credential_id
+          in: path
+          required: true
+          schema: {type: integer, minimum: 1}
+      responses:
+        "200":
+          description: Released once (the secret exists only in this response)
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/BrokerReleaseResponse"}
+        "400": {$ref: "#/components/responses/BadRequest"}
+        "401": {$ref: "#/components/responses/Unauthorized"}
+        "404": {$ref: "#/components/responses/NotFound"}
+
+  /api/v1/broker/credentials/{credential_id}/close:
+    post:
+      tags: [broker]
+      summary: End a pipeline credential early (deploy finished or cancelled)
+      description: The pipeline closes its own credential with its API token; an admin closes any with the admin token. A released grant releases its checkout and rotates the credential like a JIT close.
+      security:
+        - bearerAuth: []
+        - adminTokenHeader: []
+        - {}
+        - brokerToken: []
+      parameters:
+        - name: credential_id
+          in: path
+          required: true
+          schema: {type: integer, minimum: 1}
+        - name: X-Actor
+          in: header
+          schema: {type: string, maxLength: 64}
+      responses:
+        "200":
+          description: Closed
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/BrokerCredentialResponse"}
+        "400": {$ref: "#/components/responses/BadRequest"}
+        "401": {$ref: "#/components/responses/Unauthorized"}
+        "404": {$ref: "#/components/responses/NotFound"}
+
+  /api/v1/broker/stats:
+    get:
+      tags: [broker]
+      summary: Real broker aggregates
+      description: Policies by state and CI system, credentials by state with the open count, and the size of the `broker` trail.
+      responses:
+        "200":
+          description: Broker aggregates
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/BrokerStats"}
+
 components:
   securitySchemes:
     bearerAuth:
@@ -3158,6 +3516,10 @@ components:
       in: header
       name: X-Admin-Token
       description: The same admin token in a custom header (either is accepted).
+    brokerToken:
+      type: http
+      scheme: bearer
+      description: "A pipeline's broker API token as `Authorization: Bearer vypam-ci1.<id>.<secret>` (or the `X-Broker-Token` header). Issued once per pipeline identity, stored hashed, and never waived in open/dev mode."
   parameters:
     LicenseKey:
       name: license_key
@@ -3202,7 +3564,7 @@ components:
         application/json:
           schema: {$ref: "#/components/schemas/Error"}
     Forbidden:
-      description: Refused by policy - self-approval attempted (requesters cannot approve their own access), or a vendor request/session outside the vendor's scope or valid window.
+      description: Refused by policy - self-approval attempted (requesters cannot approve their own access), a vendor request/session outside the vendor's scope or valid window, or a pipeline credential request outside the broker policy's allowed targets.
       content:
         application/json:
           schema: {$ref: "#/components/schemas/Error"}
@@ -5591,3 +5953,224 @@ components:
           type: object
           additionalProperties: {type: integer}
         discovered_assets: {type: integer}
+
+    BrokerPolicy:
+      type: object
+      required: [id, name, ci_system, approval_mode, max_ttl_minutes, status, created_at]
+      properties:
+        id: {type: integer}
+        name: {type: string, maxLength: 128}
+        ci_system: {type: string, enum: [jenkins, gitlab, github, azure_devops, terraform, ansible, argocd, docker, other]}
+        contact: {type: string, maxLength: 160}
+        approval_mode: {type: string, enum: [auto, manual], description: "`auto` releases on request (policy-granted), `manual` queues for an admin approval."}
+        max_ttl_minutes: {type: integer, minimum: 1, maximum: 480, description: Hard cap on this pipeline's requested windows (a higher request is refused 400).}
+        allowed_targets:
+          type: array
+          items: {type: string}
+          description: Exact vault targets this pipeline may request (empty = any). A miss is refused 403 and recorded.
+        token_hash: {type: string, description: "`sha256:<prefix>` - proves a token exists; the token itself is shown exactly once, at creation."}
+        status: {type: string, enum: [active, revoked, expired]}
+        expires_at: {type: [string, "null"], description: When the identity itself lapses (real clock, refused on use).}
+        revoked_at: {type: [string, "null"]}
+        revoked_reason: {type: [string, "null"]}
+        last_used_at: {type: [string, "null"], description: Set by every successful token authentication.}
+        use_count: {type: integer}
+        created_at: {type: string}
+        created_by: {type: string}
+
+    BrokerCredential:
+      type: object
+      required: [id, policy_id, item_id, reason, ticket, minutes, status, secret_released, created_at]
+      properties:
+        id: {type: integer}
+        policy_id: {type: integer}
+        item_id: {type: integer, description: The vault credential being requested - no static secret lives in the pipeline.}
+        reason: {type: string, maxLength: 255}
+        ticket: {type: string, maxLength: 64}
+        minutes: {type: integer}
+        minutes_left: {type: [integer, "null"], description: Remaining window while `released`.}
+        status: {type: string, enum: [pending, approved, released, denied, closed, expired]}
+        build_ref: {type: string, maxLength: 255, description: The pipeline build/job that asked - optional context, never a credential.}
+        approved_by: {type: [string, "null"], description: "The admin, or `broker-policy` for an auto approval."}
+        approved_at: {type: [string, "null"]}
+        denied_reason: {type: [string, "null"]}
+        released_at: {type: [string, "null"]}
+        released_version: {type: [integer, "null"], description: Which vault secret version was handed out.}
+        secret_released: {type: boolean, description: True once the secret was handed out - the value itself never lands on the row.}
+        expires_at: {type: [string, "null"]}
+        closed_at: {type: [string, "null"]}
+        session_ref: {type: [string, "null"]}
+        created_at: {type: string}
+
+    BrokerEvent:
+      type: object
+      required: [id, action, actor, subject, detail, created_at]
+      properties:
+        id: {type: integer}
+        policy_id: {type: [integer, "null"]}
+        credential_id: {type: [integer, "null"]}
+        action:
+          type: string
+          enum: [policy-created, policy-updated, policy-revoked, policy-expired, requested, approved, denied, refused, released, closed, expired]
+        actor: {type: string}
+        subject: {type: string}
+        detail: {type: object, additionalProperties: true}
+        created_at: {type: string}
+
+    BrokerPolicyCreate:
+      type: object
+      required: [name]
+      properties:
+        name: {type: string, minLength: 1, maxLength: 128, description: Unique pipeline identity name (e.g. `jenkins-deploy-prod`).}
+        ci_system: {type: string, enum: [jenkins, gitlab, github, azure_devops, terraform, ansible, argocd, docker, other], default: other}
+        contact: {type: string, maxLength: 160}
+        approval_mode: {type: string, enum: [auto, manual], default: manual}
+        max_ttl_minutes: {type: integer, minimum: 1, maximum: 480, default: 30}
+        allowed_targets: {type: array, items: {type: string, maxLength: 255}}
+        expires_at: {type: [string, "null"], description: ISO 8601 - when the identity itself lapses.}
+
+    BrokerPolicyUpdate:
+      type: object
+      description: At least one editable field. `name`, `ci_system` and the token are never editable.
+      properties:
+        approval_mode: {type: string, enum: [auto, manual]}
+        max_ttl_minutes: {type: integer, minimum: 1, maximum: 480}
+        allowed_targets: {type: array, items: {type: string, maxLength: 255}}
+        contact: {type: string, maxLength: 160}
+        expires_at: {type: [string, "null"]}
+
+    BrokerReasonRequest:
+      type: object
+      properties:
+        reason: {type: string, maxLength: 255, description: Optional note - approval context, denial reason or revocation reason.}
+
+    BrokerPolicyList:
+      type: object
+      required: [policies, total, limit, offset]
+      properties:
+        policies: {type: array, items: {$ref: "#/components/schemas/BrokerPolicy"}}
+        total: {type: integer}
+        limit: {type: integer}
+        offset: {type: integer}
+
+    BrokerPolicyResponse:
+      type: object
+      required: [policy, token, message]
+      properties:
+        policy: {$ref: "#/components/schemas/BrokerPolicy"}
+        token: {type: string, description: "`vypam-ci1.<id>.<secret>` - returned exactly once, at creation; stored only as its sha256 hash."}
+        message: {type: string}
+
+    BrokerPolicyMessageResponse:
+      type: object
+      required: [policy, message]
+      properties:
+        policy: {$ref: "#/components/schemas/BrokerPolicy"}
+        message: {type: string}
+
+    BrokerPolicyDetailResponse:
+      type: object
+      required: [policy, open_credentials, events]
+      properties:
+        policy: {$ref: "#/components/schemas/BrokerPolicy"}
+        open_credentials: {type: integer, description: Credentials still pending, approved or released under this identity.}
+        events:
+          type: array
+          items: {$ref: "#/components/schemas/BrokerEvent"}
+
+    BrokerPolicyRevokeResponse:
+      type: object
+      required: [policy, credentials_closed, message]
+      properties:
+        policy: {$ref: "#/components/schemas/BrokerPolicy"}
+        credentials_closed: {type: integer, description: Open credentials closed with the identity (released ones rotated like a JIT expiry).}
+        message: {type: string}
+
+    BrokerCredentialRequest:
+      type: object
+      required: [item_id, reason, ticket]
+      properties:
+        item_id: {type: integer, minimum: 1}
+        reason: {type: string, minLength: 8, maxLength: 255}
+        ticket: {type: string, maxLength: 64, description: "ITSM reference such as DEP-4471."}
+        minutes: {type: integer, minimum: 1, maximum: 480, description: "Default min(15, policy cap); a value above the policy's max_ttl_minutes is refused 400."}
+        build_ref: {type: string, maxLength: 255, description: The pipeline build/job URL - context, never a credential.}
+
+    BrokerCredentialList:
+      type: object
+      required: [credentials, total, limit, offset]
+      properties:
+        credentials: {type: array, items: {$ref: "#/components/schemas/BrokerCredential"}}
+        total: {type: integer}
+        limit: {type: integer}
+        offset: {type: integer}
+
+    BrokerCredentialResponse:
+      type: object
+      required: [credential, message]
+      properties:
+        credential: {$ref: "#/components/schemas/BrokerCredential"}
+        message: {type: string}
+
+    BrokerCredentialDetailResponse:
+      type: object
+      required: [credential, policy, events]
+      properties:
+        credential: {$ref: "#/components/schemas/BrokerCredential"}
+        policy: {type: [object, "null"], additionalProperties: true, description: The pipeline identity the credential was requested under.}
+        events:
+          type: array
+          items: {$ref: "#/components/schemas/BrokerEvent"}
+
+    BrokerCredentialCreateResponse:
+      type: object
+      required: [credential, message]
+      properties:
+        credential: {$ref: "#/components/schemas/BrokerCredential"}
+        secret:
+          allOf: [{$ref: "#/components/schemas/BrokerReleasedSecret"}]
+          description: Present only for an `auto` policy - the credential released in this same response, exactly once.
+        message: {type: string}
+
+    BrokerReleasedSecret:
+      type: object
+      description: "The decrypted credential - returned exactly once, in the release response; every later read shows `secret_released: true` and no value."
+      required: [item_id, item_name, value, expires_at]
+      properties:
+        item_id: {type: integer}
+        item_name: {type: string}
+        principal: {type: string}
+        target: {type: string}
+        version: {type: integer}
+        value: {type: string}
+        algorithm: {type: [string, "null"]}
+        entropy_bits: {type: [number, "null"]}
+        expires_at: {type: string}
+
+    BrokerReleaseResponse:
+      type: object
+      required: [credential, secret, message]
+      properties:
+        credential: {$ref: "#/components/schemas/BrokerCredential"}
+        secret: {$ref: "#/components/schemas/BrokerReleasedSecret"}
+        message: {type: string}
+
+    BrokerStats:
+      type: object
+      required: [policies, credentials, events]
+      properties:
+        policies:
+          type: object
+          required: [total, by_status]
+          properties:
+            total: {type: integer}
+            by_status: {type: object, additionalProperties: {type: integer}}
+            by_ci_system: {type: object, additionalProperties: {type: integer}, description: Only CI systems with at least one policy appear.}
+        credentials:
+          type: object
+          required: [total, by_status, open]
+          properties:
+            total: {type: integer}
+            by_status: {type: object, additionalProperties: {type: integer}}
+            open: {type: integer, description: "pending + approved + released."}
+        events: {type: integer}

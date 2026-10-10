@@ -46,6 +46,10 @@ from models import (
     BREAK_GLASS_ACTIONS,
     BREAK_GLASS_SEVERITIES,
     BREAK_GLASS_STATUSES,
+    BROKER_APPROVAL_MODES,
+    BROKER_CI_SYSTEMS,
+    BROKER_CREDENTIAL_STATUSES,
+    BROKER_POLICY_STATUSES,
     BYPASS_INCIDENT_STATUSES,
     BYPASS_SIGNAL_CANDIDATE,
     BYPASS_SIGNAL_COVERED,
@@ -131,6 +135,9 @@ from models import (
     BreakGlassApproval,
     BreakGlassEvent,
     BreakGlassRequest,
+    BrokerCredential,
+    BrokerEvent,
+    BrokerPolicy,
     BypassEvent,
     BypassIncident,
     BypassSignal,
@@ -8965,4 +8972,821 @@ def cloud_stats() -> Dict[str, Any]:
         "discovered_assets": DiscoveredAsset.query.filter_by(
             source=DISCOVERY_SOURCE_CLOUD
         ).count(),
+    }
+
+
+# ---------------------------------------------------------------------------
+# section 15: DevSecOps PAM - the CI/CD credential broker
+# ---------------------------------------------------------------------------
+# The pipeline's API token is `vypam-ci1.<policy id>.<secret>`; only its
+# sha256 hash is stored, compared in constant time, and refused once the
+# policy is revoked or past its expires_at. There is no other way in.
+BROKER_TOKEN_PREFIX = "vypam-ci1"
+_BROKER_MIN_MINUTES = 1
+_BROKER_MAX_MINUTES = 480
+_BROKER_OPEN_STATUSES = ("pending", "approved", "released")
+
+
+def _broker_token_hash(secret: str) -> str:
+    return hashlib.sha256(secret.encode("utf-8")).hexdigest()
+
+
+def _broker_event(
+    action: str,
+    *,
+    actor: str,
+    policy: Optional[BrokerPolicy] = None,
+    credential: Optional[BrokerCredential] = None,
+    subject: str = "",
+    detail: Optional[Dict[str, Any]] = None,
+) -> BrokerEvent:
+    """Queue one section-15 action record; the flush listener folds it into
+    the audit ledger under the fourteenth source `broker` in the same
+    commit. The API token and the released secret never enter `detail` -
+    the outcome does."""
+    if policy is None and credential is not None:
+        policy = BrokerPolicy.query.filter_by(id=credential.policy_id).first()
+    event = BrokerEvent(
+        policy_id=policy.id if policy is not None else None,
+        credential_id=credential.id if credential is not None else None,
+        action=action,
+        actor=actor,
+        subject=subject or (policy.name if policy is not None else ""),
+        detail=detail or {},
+    )
+    db.session.add(event)
+    return event
+
+
+def get_broker_policy(policy_id: int) -> BrokerPolicy:
+    policy = BrokerPolicy.query.filter_by(id=policy_id).first()
+    if policy is None:
+        raise NotFound(f"No broker policy with id {policy_id}")
+    return policy
+
+
+def _broker_ttl(value: Any, *, field: str, default: Optional[int] = None) -> int:
+    minutes = default if value is None else value
+    if (
+        isinstance(minutes, bool)
+        or not isinstance(minutes, int)
+        or not _BROKER_MIN_MINUTES <= minutes <= _BROKER_MAX_MINUTES
+    ):
+        raise ValidationFailed(
+            f"'{field}' must be an integer between {_BROKER_MIN_MINUTES} and {_BROKER_MAX_MINUTES}",
+            {"field": field, "min": _BROKER_MIN_MINUTES, "max": _BROKER_MAX_MINUTES},
+        )
+    return minutes
+
+
+def _broker_targets(value: Any) -> List[str]:
+    """Allowed vault targets: exact target strings, no duplicates."""
+    if value is None:
+        return []
+    if not isinstance(value, list):
+        raise ValidationFailed(
+            "'allowed_targets' must be a list of target strings",
+            {"field": "allowed_targets"},
+        )
+    targets: List[str] = []
+    for entry in value:
+        if not isinstance(entry, str) or not entry.strip():
+            raise ValidationFailed(
+                "'allowed_targets' entries must be non-empty strings",
+                {"field": "allowed_targets"},
+            )
+        entry = entry.strip()[:255]
+        if entry not in targets:
+            targets.append(entry)
+    return targets
+
+
+def _broker_datetime(value: Any, *, field: str) -> Optional[datetime]:
+    if value is None or value == "":
+        return None
+    if not isinstance(value, str):
+        raise ValidationFailed(
+            f"'{field}' must be an ISO 8601 string", {"field": field}
+        )
+    try:
+        return datetime.fromisoformat(value.strip())
+    except ValueError:
+        raise ValidationFailed(
+            f"'{field}' must be an ISO 8601 timestamp", {"field": field}
+        ) from None
+
+
+def create_broker_policy(payload: Any, *, actor: str) -> Tuple[BrokerPolicy, str]:
+    """Register a CI/CD pipeline identity (architecture section 15): the
+    API token is generated here, hashed for storage and returned exactly
+    once - the pipeline keeps the token, the vault keeps the credential."""
+    if not isinstance(payload, dict):
+        raise ValidationFailed("Request body must be a JSON object")
+    name = payload.get("name")
+    if not isinstance(name, str) or not name.strip():
+        raise ValidationFailed("'name' is required", {"field": "name"})
+    name = name.strip()[:128]
+    if BrokerPolicy.query.filter_by(name=name).first() is not None:
+        raise Conflict(f"A broker policy named '{name}' already exists")
+    ci_system = payload.get("ci_system", "other")
+    if ci_system not in BROKER_CI_SYSTEMS:
+        raise ValidationFailed(
+            "'ci_system' is not a supported CI system",
+            {"field": "ci_system", "allowed": list(BROKER_CI_SYSTEMS)},
+        )
+    approval_mode = payload.get("approval_mode", "manual")
+    if approval_mode not in BROKER_APPROVAL_MODES:
+        raise ValidationFailed(
+            "'approval_mode' must be 'auto' or 'manual'",
+            {"field": "approval_mode", "allowed": list(BROKER_APPROVAL_MODES)},
+        )
+    max_ttl = _broker_ttl(
+        payload.get("max_ttl_minutes"), field="max_ttl_minutes", default=30
+    )
+    targets = _broker_targets(payload.get("allowed_targets"))
+    expires_at = _broker_datetime(payload.get("expires_at"), field="expires_at")
+    if expires_at is not None and expires_at <= datetime.now():
+        raise ValidationFailed(
+            "'expires_at' must be in the future", {"field": "expires_at"}
+        )
+    contact = payload.get("contact", "")
+    if contact is None:
+        contact = ""
+    if not isinstance(contact, str):
+        raise ValidationFailed("'contact' must be a string", {"field": "contact"})
+    contact = contact.strip()[:160]
+    secret = secrets.token_urlsafe(32)
+    policy = BrokerPolicy(
+        name=name,
+        ci_system=ci_system,
+        contact=contact,
+        approval_mode=approval_mode,
+        max_ttl_minutes=max_ttl,
+        allowed_targets=targets,
+        token_hash=_broker_token_hash(secret),
+        expires_at=expires_at,
+        created_by=actor,
+    )
+    db.session.add(policy)
+    db.session.flush()
+    _broker_event(
+        "policy-created",
+        policy=policy,
+        actor=actor,
+        detail={
+            "ci_system": ci_system,
+            "approval_mode": approval_mode,
+            "max_ttl_minutes": max_ttl,
+            "allowed_targets": targets,
+        },
+    )
+    db.session.commit()
+    return policy, f"{BROKER_TOKEN_PREFIX}.{policy.id}.{secret}"
+
+
+def list_broker_policies(
+    *,
+    ci_system: Optional[str] = None,
+    status: Optional[str] = None,
+    q: Optional[str] = None,
+    limit: int = 50,
+    offset: int = 0,
+) -> Tuple[List[BrokerPolicy], int]:
+    if ci_system is not None and ci_system not in BROKER_CI_SYSTEMS:
+        raise ValidationFailed(
+            "Unknown CI system",
+            {"field": "ci_system", "allowed": list(BROKER_CI_SYSTEMS)},
+        )
+    if status is not None and status not in BROKER_POLICY_STATUSES:
+        raise ValidationFailed(
+            "Unknown broker policy status",
+            {"field": "status", "allowed": list(BROKER_POLICY_STATUSES)},
+        )
+    refresh_broker_policies()
+    query = BrokerPolicy.query
+    if ci_system:
+        query = query.filter(BrokerPolicy.ci_system == ci_system)
+    if status:
+        query = query.filter(BrokerPolicy.status == status)
+    if q:
+        query = query.filter(
+            db.or_(
+                BrokerPolicy.name.ilike(f"%{q}%"),
+                BrokerPolicy.contact.ilike(f"%{q}%"),
+            )
+        )
+    total = query.count()
+    rows = query.order_by(BrokerPolicy.id.desc()).limit(limit).offset(offset).all()
+    return rows, total
+
+
+def broker_policy_detail(policy_id: int) -> Dict[str, Any]:
+    """One policy plus its open credential count and latest trail entries."""
+    refresh_broker_policies()
+    policy = get_broker_policy(policy_id)
+    open_credentials = BrokerCredential.query.filter(
+        BrokerCredential.policy_id == policy.id,
+        BrokerCredential.status.in_(_BROKER_OPEN_STATUSES),
+    ).count()
+    events = (
+        BrokerEvent.query.filter_by(policy_id=policy.id)
+        .order_by(BrokerEvent.id.desc())
+        .limit(20)
+        .all()
+    )
+    return {
+        "policy": policy.to_dict(),
+        "open_credentials": open_credentials,
+        "events": [event.to_dict() for event in events],
+    }
+
+
+def update_broker_policy(
+    policy_id: int, payload: Any, *, actor: str
+) -> Dict[str, Any]:
+    """Edit the policy knobs (approval mode, TTL cap, scope, contact,
+    expiry) - never the identity, and never a revoked policy's settings."""
+    if not isinstance(payload, dict):
+        raise ValidationFailed("Request body must be a JSON object")
+    policy = get_broker_policy(policy_id)
+    if policy.revoked_at is not None:
+        raise Conflict("Broker policy is revoked; its settings are frozen")
+    changed: Dict[str, Any] = {}
+    if "approval_mode" in payload:
+        mode = payload.get("approval_mode")
+        if mode not in BROKER_APPROVAL_MODES:
+            raise ValidationFailed(
+                "'approval_mode' must be 'auto' or 'manual'",
+                {"field": "approval_mode", "allowed": list(BROKER_APPROVAL_MODES)},
+            )
+        policy.approval_mode = mode
+        changed["approval_mode"] = mode
+    if "max_ttl_minutes" in payload:
+        minutes = _broker_ttl(payload.get("max_ttl_minutes"), field="max_ttl_minutes")
+        policy.max_ttl_minutes = minutes
+        changed["max_ttl_minutes"] = minutes
+    if "allowed_targets" in payload:
+        targets = _broker_targets(payload.get("allowed_targets"))
+        policy.allowed_targets = targets
+        changed["allowed_targets"] = targets
+    if "contact" in payload:
+        contact = payload.get("contact")
+        if contact is None:
+            contact = ""
+        if not isinstance(contact, str):
+            raise ValidationFailed("'contact' must be a string", {"field": "contact"})
+        policy.contact = contact.strip()[:160]
+        changed["contact"] = policy.contact
+    if "expires_at" in payload:
+        expires_at = _broker_datetime(payload.get("expires_at"), field="expires_at")
+        if expires_at is not None and expires_at <= datetime.now():
+            raise ValidationFailed(
+                "'expires_at' must be in the future", {"field": "expires_at"}
+            )
+        policy.expires_at = expires_at
+        changed["expires_at"] = expires_at.isoformat() if expires_at else None
+    if not changed:
+        raise ValidationFailed(
+            "No editable field in the payload (allowed: approval_mode, "
+            "max_ttl_minutes, allowed_targets, contact, expires_at)"
+        )
+    _broker_event(
+        "policy-updated", policy=policy, actor=actor, detail={"fields": changed}
+    )
+    db.session.commit()
+    return policy.to_dict()
+
+
+def _close_policy_credentials(
+    policy: BrokerPolicy, *, actor: str, reason: str
+) -> int:
+    """End every credential the identity still holds: released grants go
+    through the real close path (checkout release + rotation), pending or
+    approved rows are closed without a release. Returns how many ended."""
+    open_credentials = BrokerCredential.query.filter(
+        BrokerCredential.policy_id == policy.id,
+        BrokerCredential.status.in_(_BROKER_OPEN_STATUSES),
+    ).order_by(BrokerCredential.id).all()
+    ended = 0
+    for credential in open_credentials:
+        if credential.status == "released":
+            _end_broker_credential(credential, actor=actor, action="closed")
+        else:
+            credential.status = "closed"
+            credential.closed_at = datetime.now()
+            _broker_event(
+                "closed",
+                policy=policy,
+                credential=credential,
+                actor=actor,
+                detail={"released": False, "reason": reason},
+            )
+        ended += 1
+    return ended
+
+
+def revoke_broker_policy(
+    policy_id: int, *, actor: str, payload: Any = None
+) -> Dict[str, Any]:
+    """Withdraw the pipeline identity: every credential it still holds is
+    closed first (with the real rotation for released grants), then the
+    token stops authenticating."""
+    policy = get_broker_policy(policy_id)
+    if policy.revoked_at is not None:
+        raise Conflict("Broker policy is already revoked")
+    reason = None
+    if isinstance(payload, dict):
+        note = payload.get("reason")
+        if note is not None:
+            if not isinstance(note, str) or not note.strip():
+                raise ValidationFailed(
+                    "'reason' must be a non-empty string when present",
+                    {"field": "reason"},
+                )
+            reason = note.strip()[:255]
+    elif payload is not None:
+        raise ValidationFailed("Request body must be a JSON object")
+    ended = _close_policy_credentials(policy, actor=actor, reason="policy revoked")
+    policy.status = "revoked"
+    policy.revoked_at = datetime.now()
+    policy.revoked_reason = reason
+    _broker_event(
+        "policy-revoked",
+        policy=policy,
+        actor=actor,
+        detail={"credentials_closed": ended, "reason": reason},
+    )
+    db.session.commit()
+    view = policy.to_dict()
+    view["credentials_closed"] = ended
+    return view
+
+
+def refresh_broker_policies() -> int:
+    """The real clock over policy rows: a policy past its expires_at stops
+    authenticating, closes its open credentials and records why. Called
+    from every policy/credential read, so expiry never depends on someone
+    remembering."""
+    now = datetime.now()
+    expired = 0
+    for policy in BrokerPolicy.query.filter_by(status="active").all():
+        if policy.expires_at is None or policy.expires_at > now:
+            continue
+        ended = _close_policy_credentials(
+            policy, actor="system", reason="policy expired"
+        )
+        policy.status = "expired"
+        _broker_event(
+            "policy-expired",
+            policy=policy,
+            actor="system",
+            detail={"credentials_closed": ended},
+        )
+        expired += 1
+    if expired:
+        db.session.commit()
+    return expired
+
+
+def verify_broker_token(token: Any) -> BrokerPolicy:
+    """Authenticate a pipeline by its API token. The hash comparison is
+    constant time; revocation and expiry are real refusals, and a valid
+    call records the use on the policy row (last used + count)."""
+    if not isinstance(token, str) or not token.strip():
+        raise Unauthorized(
+            "Broker API token required "
+            "(Authorization: Bearer vypam-ci1.<id>.<secret>)"
+        )
+    parts = token.strip().split(".")
+    if len(parts) != 3 or parts[0] != BROKER_TOKEN_PREFIX:
+        raise Unauthorized(
+            "Not a broker API token (expected vypam-ci1.<id>.<secret>)"
+        )
+    raw_id, secret = parts[1], parts[2]
+    policy = (
+        BrokerPolicy.query.filter_by(id=int(raw_id)).first()
+        if raw_id.isdigit()
+        else None
+    )
+    if policy is None:
+        raise Unauthorized("Unknown broker API token")
+    if policy.revoked_at is not None or policy.status == "revoked":
+        raise Unauthorized("Broker policy revoked")
+    now = datetime.now()
+    if policy.expires_at is not None and policy.expires_at <= now:
+        if policy.status == "active":
+            policy.status = "expired"
+            _broker_event(
+                "policy-expired",
+                policy=policy,
+                actor="system",
+                detail={"credentials_closed": 0, "reason": "token presented after expiry"},
+            )
+            db.session.commit()
+        raise Unauthorized("Broker policy expired")
+    if not hmac.compare_digest(_broker_token_hash(secret), policy.token_hash or ""):
+        raise Unauthorized("Invalid broker API token")
+    policy.last_used_at = now
+    policy.use_count = (policy.use_count or 0) + 1
+    db.session.commit()
+    return policy
+
+
+def get_broker_credential(credential_id: int) -> BrokerCredential:
+    credential = BrokerCredential.query.filter_by(id=credential_id).first()
+    if credential is None:
+        raise NotFound(f"No broker credential with id {credential_id}")
+    return credential
+
+
+def refresh_broker_credentials() -> int:
+    """The real clock ends released credentials: the checkout is released
+    and the credential rotates through the section-5 pipeline, exactly
+    like a JIT grant. Called from every credential read."""
+    now = datetime.now()
+    expired = 0
+    for credential in BrokerCredential.query.filter_by(status="released").all():
+        if credential.expires_at is not None and credential.expires_at <= now:
+            _end_broker_credential(credential, actor="system", action="expired")
+            expired += 1
+    return expired
+
+
+def create_broker_credential(
+    payload: Any, *, policy: BrokerPolicy
+) -> Tuple[BrokerCredential, bool]:
+    """One pipeline credential request (architecture section 15). The
+    policy decides the state: `auto` grants immediately (the route then
+    releases the secret in the same call), `manual` lands in the approval
+    queue. Returns (credential, auto)."""
+    if not isinstance(payload, dict):
+        raise ValidationFailed("Request body must be a JSON object")
+    item_id = payload.get("item_id")
+    if isinstance(item_id, bool) or not isinstance(item_id, int):
+        raise ValidationFailed("'item_id' is required", {"field": "item_id"})
+    item = get_vault_item(item_id)
+    reason = payload.get("reason")
+    if not isinstance(reason, str) or not reason.strip():
+        raise ValidationFailed("'reason' is required", {"field": "reason"})
+    reason = reason.strip()[:255]
+    if len(reason) < 8:
+        raise ValidationFailed(
+            "'reason' must be at least 8 characters", {"field": "reason"}
+        )
+    ticket = payload.get("ticket")
+    if not isinstance(ticket, str) or not ticket.strip():
+        raise ValidationFailed(
+            "'ticket' is required (an ITSM reference such as DEP-4471)",
+            {"field": "ticket"},
+        )
+    ticket = ticket.strip()[:64]
+    minutes = _broker_ttl(
+        payload.get("minutes"),
+        field="minutes",
+        default=min(15, policy.max_ttl_minutes),
+    )
+    if minutes > policy.max_ttl_minutes:
+        raise ValidationFailed(
+            f"'minutes' exceeds this pipeline's cap of {policy.max_ttl_minutes}",
+            {"field": "minutes", "cap": policy.max_ttl_minutes},
+        )
+    build_ref = payload.get("build_ref", "")
+    if build_ref is None:
+        build_ref = ""
+    if not isinstance(build_ref, str):
+        raise ValidationFailed("'build_ref' must be a string", {"field": "build_ref"})
+    build_ref = build_ref.strip()[:255]
+    allowed = list(policy.allowed_targets or [])
+    if allowed and item.target not in allowed:
+        _broker_event(
+            "refused",
+            policy=policy,
+            actor=policy.name,
+            subject=item.name,
+            detail={
+                "item_id": item.id,
+                "target": item.target,
+                "reason": "target outside the pipeline's allowed_targets",
+            },
+        )
+        db.session.commit()
+        raise APIError(
+            403,
+            "Target is outside this pipeline's allowed scope",
+            {"field": "target", "allowed": allowed},
+        )
+    status = "approved" if policy.approval_mode == "auto" else "pending"
+    credential = BrokerCredential(
+        policy_id=policy.id,
+        item_id=item.id,
+        reason=reason,
+        ticket=ticket,
+        minutes=minutes,
+        status=status,
+        build_ref=build_ref,
+    )
+    db.session.add(credential)
+    db.session.flush()
+    _broker_event(
+        "requested",
+        policy=policy,
+        credential=credential,
+        actor=policy.name,
+        subject=item.name,
+        detail={
+            "item_id": item.id,
+            "target": item.target,
+            "minutes": minutes,
+            "build_ref": build_ref,
+            "approval_mode": policy.approval_mode,
+        },
+    )
+    if status == "approved":
+        credential.approved_by = "broker-policy"
+        credential.approved_at = datetime.now()
+        _broker_event(
+            "approved",
+            policy=policy,
+            credential=credential,
+            actor="broker-policy",
+            subject=item.name,
+            detail={"auto": True, "policy": policy.name},
+        )
+    db.session.commit()
+    return credential, status == "approved"
+
+
+def approve_broker_credential(
+    credential_id: int, *, actor: str, payload: Any = None
+) -> BrokerCredential:
+    """An admin signs off a queued request; the pipeline then releases the
+    credential with its own token."""
+    refresh_broker_credentials()
+    credential = get_broker_credential(credential_id)
+    if credential.status != "pending":
+        raise ValidationFailed(
+            f"Credential is {credential.status}, not awaiting approval",
+            {"field": "status", "status": credential.status},
+        )
+    detail: Dict[str, Any] = {"auto": False}
+    if isinstance(payload, dict):
+        note = payload.get("reason")
+        if note is not None:
+            if not isinstance(note, str) or not note.strip():
+                raise ValidationFailed(
+                    "'reason' must be a non-empty string when present",
+                    {"field": "reason"},
+                )
+            detail["note"] = note.strip()[:255]
+    elif payload is not None:
+        raise ValidationFailed("Request body must be a JSON object")
+    item = get_vault_item(credential.item_id)
+    credential.status = "approved"
+    credential.approved_by = actor
+    credential.approved_at = datetime.now()
+    _broker_event(
+        "approved",
+        credential=credential,
+        actor=actor,
+        subject=item.name,
+        detail=detail,
+    )
+    db.session.commit()
+    return credential
+
+
+def deny_broker_credential(
+    credential_id: int, *, actor: str, payload: Any = None
+) -> BrokerCredential:
+    refresh_broker_credentials()
+    credential = get_broker_credential(credential_id)
+    if credential.status != "pending":
+        raise ValidationFailed(
+            f"Credential is {credential.status}, not awaiting approval",
+            {"field": "status", "status": credential.status},
+        )
+    detail: Dict[str, Any] = {}
+    if isinstance(payload, dict):
+        note = payload.get("reason")
+        if note is not None:
+            if not isinstance(note, str) or not note.strip():
+                raise ValidationFailed(
+                    "'reason' must be a non-empty string when present",
+                    {"field": "reason"},
+                )
+            detail["reason"] = note.strip()[:255]
+    elif payload is not None:
+        raise ValidationFailed("Request body must be a JSON object")
+    item = get_vault_item(credential.item_id)
+    credential.status = "denied"
+    credential.denied_reason = detail.get("reason")
+    _broker_event(
+        "denied", credential=credential, actor=actor, subject=item.name, detail=detail
+    )
+    db.session.commit()
+    return credential
+
+
+def release_broker_credential(
+    credential_id: int, *, policy: BrokerPolicy
+) -> Dict[str, Any]:
+    """Hand the credential to the pipeline exactly once: a real vault
+    checkout under the pipeline's name, and the decrypted secret in this
+    response - only in this response. The window starts now."""
+    refresh_broker_credentials()
+    credential = get_broker_credential(credential_id)
+    if credential.policy_id != policy.id:
+        # another pipeline's row is not observable with this token
+        raise NotFound("Broker credential not found")
+    if credential.status != "approved":
+        raise ValidationFailed(
+            f"Credential is {credential.status}; only an approved request can be released",
+            {"field": "status", "status": credential.status},
+        )
+    item = get_vault_item(credential.item_id)
+    checkout_vault_item(
+        item.id,
+        actor=policy.name,
+        reason=f"Broker credential #{credential.id} ({credential.ticket})",
+    )
+    revealed = reveal_vault_secret(item.id, actor=policy.name)
+    now = datetime.now()
+    credential.status = "released"
+    credential.released_at = now
+    credential.released_version = revealed.get("version")
+    credential.expires_at = now + timedelta(minutes=credential.minutes)
+    credential.session_ref = f"broker-{credential.id}"
+    _broker_event(
+        "released",
+        policy=policy,
+        credential=credential,
+        actor=policy.name,
+        subject=item.name,
+        detail={
+            "item_id": item.id,
+            "version": revealed.get("version"),
+            "minutes": credential.minutes,
+            "expires_at": credential.expires_at.isoformat(),
+            "session_ref": credential.session_ref,
+        },
+    )
+    db.session.commit()
+    return {
+        "credential": credential.to_dict(),
+        "secret": {
+            "item_id": item.id,
+            "item_name": item.name,
+            "principal": item.principal,
+            "target": item.target,
+            "version": revealed.get("version"),
+            "value": revealed.get("secret"),
+            "algorithm": revealed.get("alg"),
+            "entropy_bits": revealed.get("entropy_bits"),
+            "expires_at": credential.expires_at.isoformat(),
+        },
+    }
+
+
+def _end_broker_credential(
+    credential: BrokerCredential, *, actor: str, action: str
+) -> BrokerCredential:
+    """Shared close/expiry path: release our checkout, then rotate the
+    credential through the section-5 pipeline (session ends -> rotate ->
+    audit), exactly like a JIT grant."""
+    item = get_vault_item(credential.item_id)
+    policy = BrokerPolicy.query.filter_by(id=credential.policy_id).first()
+    holder = policy.name if policy is not None else ""
+    detail: Dict[str, Any] = {"session_ref": credential.session_ref}
+    try:
+        if item.status == VAULT_STATUS_CHECKED_OUT and item.checked_out_by == holder:
+            _, rotation = rotation_session_end(
+                {"item_id": item.id, "session_id": credential.session_ref},
+                actor=actor,
+            )
+            detail["checkout_released"] = True
+        else:
+            _, rotation = rotate_vault_item(
+                item.id,
+                actor=actor,
+                trigger="session_end",
+                session_ref=credential.session_ref,
+            )
+            detail["checkout_released"] = False
+        detail["rotated"] = True
+        detail["secret_version"] = rotation["secret_version"]
+    except APIError as exc:
+        # the credential may be held by someone else or mid-rotation; the
+        # grant still ends, and the reason is recorded instead of hidden.
+        detail["rotated"] = False
+        detail["rotation_error"] = exc.message
+    credential.status = "expired" if action == "expired" else "closed"
+    credential.closed_at = datetime.now()
+    _broker_event(action, credential=credential, actor=actor, subject=item.name, detail=detail)
+    db.session.commit()
+    return credential
+
+
+def close_broker_credential(
+    credential_id: int, *, actor: str, policy: Optional[BrokerPolicy] = None
+) -> BrokerCredential:
+    """End the grant early (the deploy finished, or was cancelled). The
+    pipeline may close its own credential; an admin may close any."""
+    refresh_broker_credentials()
+    credential = get_broker_credential(credential_id)
+    if policy is not None and credential.policy_id != policy.id:
+        raise NotFound("Broker credential not found")
+    if credential.status in ("pending", "approved"):
+        item = get_vault_item(credential.item_id)
+        credential.status = "closed"
+        credential.closed_at = datetime.now()
+        _broker_event(
+            "closed",
+            credential=credential,
+            actor=actor,
+            subject=item.name,
+            detail={"released": False},
+        )
+        db.session.commit()
+        return credential
+    if credential.status != "released":
+        raise ValidationFailed(
+            f"Credential is {credential.status}; only an open grant can be closed",
+            {"field": "status", "status": credential.status},
+        )
+    return _end_broker_credential(credential, actor=actor, action="closed")
+
+
+def list_broker_credentials(
+    *,
+    status: Optional[str] = None,
+    policy_id: Optional[int] = None,
+    limit: int = 50,
+    offset: int = 0,
+) -> Tuple[List[BrokerCredential], int]:
+    if status is not None and status not in BROKER_CREDENTIAL_STATUSES:
+        raise ValidationFailed(
+            "Unknown broker credential status",
+            {"field": "status", "allowed": list(BROKER_CREDENTIAL_STATUSES)},
+        )
+    refresh_broker_credentials()
+    query = BrokerCredential.query
+    if status:
+        query = query.filter(BrokerCredential.status == status)
+    if policy_id is not None:
+        query = query.filter(BrokerCredential.policy_id == policy_id)
+    total = query.count()
+    rows = (
+        query.order_by(BrokerCredential.id.desc()).limit(limit).offset(offset).all()
+    )
+    return rows, total
+
+
+def broker_credential_detail(credential_id: int) -> Dict[str, Any]:
+    """One credential with its policy and full trail (never the secret -
+    the row only records that it was released)."""
+    refresh_broker_credentials()
+    credential = get_broker_credential(credential_id)
+    policy = BrokerPolicy.query.filter_by(id=credential.policy_id).first()
+    events = (
+        BrokerEvent.query.filter_by(credential_id=credential.id)
+        .order_by(BrokerEvent.id.desc())
+        .all()
+    )
+    return {
+        "credential": credential.to_dict(),
+        "policy": policy.to_dict() if policy is not None else None,
+        "events": [event.to_dict() for event in events],
+    }
+
+
+def broker_stats() -> Dict[str, Any]:
+    """Real aggregates: policies by state and CI system, credentials by
+    state, the section-15 trail's size. Nothing is precomputed."""
+    refresh_broker_policies()
+    refresh_broker_credentials()
+    by_policy_status = {
+        status: BrokerPolicy.query.filter_by(status=status).count()
+        for status in BROKER_POLICY_STATUSES
+    }
+    by_status = {
+        status: BrokerCredential.query.filter_by(status=status).count()
+        for status in BROKER_CREDENTIAL_STATUSES
+    }
+    by_ci_system: Dict[str, int] = {}
+    for system in BROKER_CI_SYSTEMS:
+        count = BrokerPolicy.query.filter_by(ci_system=system).count()
+        if count:
+            by_ci_system[system] = count
+    return {
+        "policies": {
+            "total": sum(by_policy_status.values()),
+            "by_status": by_policy_status,
+            "by_ci_system": by_ci_system,
+        },
+        "credentials": {
+            "total": sum(by_status.values()),
+            "by_status": by_status,
+            "open": by_status["pending"] + by_status["approved"] + by_status["released"],
+        },
+        "events": BrokerEvent.query.count(),
     }

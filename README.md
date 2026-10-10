@@ -24,7 +24,7 @@ PAM/
 │   ├── screens/<name>/          #   one folder per screen: code.html + screen.png
 │   └── README.md                #   layout + how to add a screen (the contract)
 ├── apis/                            # HTTP contract for every backend service
-│   ├── openapi.yaml             #   OpenAPI 3.1: all 102 paths (synced by a test)
+│   ├── openapi.yaml             #   OpenAPI 3.1: all 111 paths (synced by a test)
 │   └── README.md                #   conventions + how to view
 ├── backend/
 │   ├── ipam_licensing/              # Phase 1: library + CLIs
@@ -95,7 +95,7 @@ python -m pam_master.keygen                      # RSA + Ed25519 + registry PII 
 python -m pam_master                             # http://127.0.0.1:5400
 
 # Tests (shared core + shipped API contract + vendor tool)
-python -m pytest backend -q                      # 488 tests
+python -m pytest backend -q                      # 512 tests
 python -m pytest pam_master -q                   # 46 tests (vendor tool)
 ```
 
@@ -135,8 +135,8 @@ python -m pytest pam_master -q                   # 46 tests (vendor tool)
   backed by `GET/PUT /api/v1/settings` with an audit changelog, plus the §20
   Enterprise Integrations cards over `GET /api/v1/integrations/status`), the Command
   Center and Compliance screens (backed by `GET /api/v1/overview` and the
-  unified `GET /api/v1/events` feed — a thirteen-source trail filter that
-  includes the `integration`, `vendor` and `cloud` trails, plus a live SIEM-push chip — and the
+  unified `GET /api/v1/events` feed — a fourteen-source trail filter that
+  includes the `integration`, `vendor`, `cloud` and `broker` trails, plus a live SIEM-push chip — and the
   Command Center's §10 PAM
   bypass detection section over `GET/POST /api/v1/bypass/*` — real auth-log
   ingest, correlation against managed targets and recorded sessions,

@@ -1972,3 +1972,181 @@ class CloudEvent(db.Model):
             "detail": self.detail or {},
             "created_at": self.created_at.isoformat(),
         }
+
+
+# ---------------------------------------------------------------------------
+# section 15: DevSecOps PAM - the CI/CD credential broker
+# ---------------------------------------------------------------------------
+BROKER_CI_SYSTEMS = (
+    "jenkins",
+    "gitlab",
+    "github",
+    "azure_devops",
+    "terraform",
+    "ansible",
+    "argocd",
+    "docker",
+    "other",
+)
+BROKER_APPROVAL_MODES = ("auto", "manual")
+BROKER_POLICY_STATUSES = ("active", "revoked", "expired")
+BROKER_CREDENTIAL_STATUSES = (
+    "pending",   # manual policy: waiting for an admin approval
+    "approved",  # approved - waiting for the pipeline's release call
+    "released",  # credential handed out once; expires like a JIT grant
+    "denied",    # the approval was refused
+    "closed",    # ended early (deploy finished or cancelled)
+    "expired",   # the real clock ended it; the credential was rotated
+)
+
+
+class BrokerPolicy(db.Model):
+    """One CI/CD pipeline identity plus its approval policy (architecture
+    section 15): the pipeline authenticates with the API token issued here
+    - shown exactly once, stored as a sha256 hash - and requests
+    short-lived credentials instead of holding a static secret of its own
+    (no AWS keys or DB passwords inside Jenkins). The policy decides how
+    (auto vs admin approval), how long (TTL cap) and what for (the allowed
+    vault targets)."""
+
+    __tablename__ = "broker_policies"
+
+    id = db.Column(db.Integer, primary_key=True)
+    name = db.Column(db.String(128), nullable=False, unique=True, index=True)
+    ci_system = db.Column(db.String(32), nullable=False, index=True)
+    contact = db.Column(db.String(160), nullable=False, default="")
+    approval_mode = db.Column(db.String(16), nullable=False, default="manual")
+    max_ttl_minutes = db.Column(db.Integer, nullable=False, default=30)
+    # Exact vault targets this pipeline may request (empty list = any
+    # target); a miss is refused with evidence on the trail, never allowed
+    # silently.
+    allowed_targets = db.Column(db.JSON, nullable=False, default=list)
+    token_hash = db.Column(db.String(64), nullable=False)
+    status = db.Column(db.String(16), nullable=False, default="active", index=True)
+    expires_at = db.Column(db.DateTime, nullable=True)
+    revoked_at = db.Column(db.DateTime, nullable=True)
+    revoked_reason = db.Column(db.String(255), nullable=True)
+    last_used_at = db.Column(db.DateTime, nullable=True)
+    use_count = db.Column(db.Integer, nullable=False, default=0)
+    created_at = db.Column(
+        db.DateTime, nullable=False, default=datetime.now, index=True
+    )
+    created_by = db.Column(db.String(64), nullable=False, default="system")
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "id": self.id,
+            "name": self.name,
+            "ci_system": self.ci_system,
+            "contact": self.contact,
+            "approval_mode": self.approval_mode,
+            "max_ttl_minutes": self.max_ttl_minutes,
+            "allowed_targets": list(self.allowed_targets or []),
+            # a hash prefix proves a token exists; the token itself is
+            # shown exactly once, at creation.
+            "token_hash": f"sha256:{self.token_hash[:12]}",
+            "status": self.status,
+            "expires_at": self.expires_at.isoformat() if self.expires_at else None,
+            "revoked_at": self.revoked_at.isoformat() if self.revoked_at else None,
+            "revoked_reason": self.revoked_reason,
+            "last_used_at": (
+                self.last_used_at.isoformat() if self.last_used_at else None
+            ),
+            "use_count": self.use_count,
+            "created_at": self.created_at.isoformat(),
+            "created_by": self.created_by,
+        }
+
+
+class BrokerCredential(db.Model):
+    """One time-boxed credential released to a pipeline (architecture
+    section 15): request -> approval policy -> release (the secret is
+    revealed exactly once and checked out under the pipeline) -> early
+    close or real expiry, which rotates through the section-5 pipeline
+    like any JIT grant. The secret never lands on this row."""
+
+    __tablename__ = "broker_credentials"
+
+    id = db.Column(db.Integer, primary_key=True)
+    policy_id = db.Column(db.Integer, nullable=False, index=True)
+    item_id = db.Column(db.Integer, nullable=False, index=True)
+    reason = db.Column(db.String(255), nullable=False)
+    ticket = db.Column(db.String(64), nullable=False)
+    minutes = db.Column(db.Integer, nullable=False, default=15)
+    status = db.Column(db.String(16), nullable=False, default="pending", index=True)
+    # the pipeline build that asked (a URL or job ref) - optional context
+    # that stays evidence, never a credential.
+    build_ref = db.Column(db.String(255), nullable=False, default="")
+    approved_by = db.Column(db.String(64), nullable=True)
+    approved_at = db.Column(db.DateTime, nullable=True)
+    denied_reason = db.Column(db.String(255), nullable=True)
+    released_at = db.Column(db.DateTime, nullable=True)
+    released_version = db.Column(db.Integer, nullable=True)
+    expires_at = db.Column(db.DateTime, nullable=True)
+    closed_at = db.Column(db.DateTime, nullable=True)
+    session_ref = db.Column(db.String(64), nullable=True)
+    created_at = db.Column(
+        db.DateTime, nullable=False, default=datetime.now, index=True
+    )
+
+    def to_dict(self) -> Dict[str, Any]:
+        minutes_left = None
+        if self.status == "released" and self.expires_at is not None:
+            seconds = (self.expires_at - datetime.now()).total_seconds()
+            minutes_left = max(0, int(seconds // 60))
+        return {
+            "id": self.id,
+            "policy_id": self.policy_id,
+            "item_id": self.item_id,
+            "reason": self.reason,
+            "ticket": self.ticket,
+            "minutes": self.minutes,
+            "minutes_left": minutes_left,
+            "status": self.status,
+            "build_ref": self.build_ref,
+            "approved_by": self.approved_by,
+            "approved_at": self.approved_at.isoformat() if self.approved_at else None,
+            "denied_reason": self.denied_reason,
+            "released_at": self.released_at.isoformat() if self.released_at else None,
+            "released_version": self.released_version,
+            # True once the secret was revealed to the pipeline - the row
+            # records that it happened, never the value itself.
+            "secret_released": self.released_at is not None,
+            "expires_at": self.expires_at.isoformat() if self.expires_at else None,
+            "closed_at": self.closed_at.isoformat() if self.closed_at else None,
+            "session_ref": self.session_ref,
+            "created_at": self.created_at.isoformat(),
+        }
+
+
+class BrokerEvent(db.Model):
+    """Module action log for section 15: policy lifecycle, credential
+    requests, approvals, denials, releases, closes, expiry and scope
+    refusals - folded into the section-19 ledger as the fourteenth source
+    (`broker`). The API token and the released secret never appear in
+    `detail`; the outcome does."""
+
+    __tablename__ = "broker_events"
+
+    id = db.Column(db.Integer, primary_key=True)
+    policy_id = db.Column(db.Integer, nullable=True, index=True)
+    credential_id = db.Column(db.Integer, nullable=True, index=True)
+    action = db.Column(db.String(32), nullable=False)
+    actor = db.Column(db.String(64), nullable=False, default="system")
+    subject = db.Column(db.String(128), nullable=False, default="")
+    detail = db.Column(db.JSON, nullable=False, default=dict)
+    created_at = db.Column(
+        db.DateTime, nullable=False, default=datetime.now, index=True
+    )
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "id": self.id,
+            "policy_id": self.policy_id,
+            "credential_id": self.credential_id,
+            "action": self.action,
+            "actor": self.actor,
+            "subject": self.subject,
+            "detail": self.detail or {},
+            "created_at": self.created_at.isoformat(),
+        }

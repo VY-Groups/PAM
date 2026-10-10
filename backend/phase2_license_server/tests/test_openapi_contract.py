@@ -90,6 +90,16 @@ ADMIN_OPERATIONS = [
     ("post", "/api/v1/cloud/connectors/{connector_id}/test"),
     ("post", "/api/v1/cloud/connectors/{connector_id}/discover"),
     ("post", "/api/v1/cloud/connectors/{connector_id}/rbac/requests"),
+    ("post", "/api/v1/broker/policies"),
+    ("get", "/api/v1/broker/policies"),
+    ("get", "/api/v1/broker/policies/{policy_id}"),
+    ("patch", "/api/v1/broker/policies/{policy_id}"),
+    ("delete", "/api/v1/broker/policies/{policy_id}"),
+    ("get", "/api/v1/broker/credentials"),
+    ("get", "/api/v1/broker/credentials/{credential_id}"),
+    ("post", "/api/v1/broker/credentials/{credential_id}/approve"),
+    ("post", "/api/v1/broker/credentials/{credential_id}/deny"),
+    ("post", "/api/v1/broker/credentials/{credential_id}/close"),
 ]
 
 

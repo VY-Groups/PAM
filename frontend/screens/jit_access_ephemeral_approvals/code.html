@@ -489,6 +489,82 @@
 </div>
 </div>
 </div>
+<!-- Pipeline Credential Broker (architecture section 15) -->
+<div class="bg-surface-container-lowest p-space-lg rounded-xl shadow-sm flex flex-col gap-space-md mt-space-lg" data-role="broker-section">
+<div class="flex items-start justify-between gap-space-sm flex-wrap">
+<div class="flex items-center gap-space-xs">
+<span class="material-symbols-outlined text-primary text-[20px]">cable</span>
+<h2 class="font-headline-sm text-headline-sm text-on-surface">Pipeline Credential Broker</h2>
+<span class="font-label-badge text-label-badge text-on-surface-variant bg-surface-container px-2 py-0.5 rounded font-semibold">JENKINS · GITLAB · GITHUB · AZURE DEVOPS · TERRAFORM · ANSIBLE · ARGOCD</span>
+</div>
+<div class="flex items-center gap-space-sm flex-wrap">
+<span class="font-code-sm text-code-sm text-on-surface-variant" data-role="broker-summary">— pipelines · — open credentials · — broker events</span>
+<button class="flex items-center gap-1.5 px-space-md py-2 rounded-lg bg-primary-container text-on-primary font-label-md text-label-md font-semibold hover:bg-primary transition-all shadow-sm" data-role="btn-broker-add">
+<span class="material-symbols-outlined text-[18px]">add_circle</span>
+<span>Register Pipeline</span>
+</button>
+</div>
+</div>
+<div class="flex items-start gap-space-sm p-space-sm rounded-lg bg-surface-container-low/60">
+<span class="material-symbols-outlined text-outline text-[16px]">hub</span>
+<span class="font-code-sm text-code-sm text-on-surface-variant">No static secrets in CI: a pipeline authenticates with its broker API token (shown once at registration), requests a short-lived credential under its approval policy, and holds it only until the window expires — then it rotates like any JIT grant.</span>
+</div>
+<div class="grid grid-cols-2 xl:grid-cols-4 gap-space-sm" data-role="broker-tiles">
+<div class="p-space-sm rounded-lg bg-surface-container-low flex flex-col gap-1">
+<span class="font-code-sm text-code-sm text-outline">PIPELINES</span>
+<span class="font-headline-sm text-headline-sm text-on-surface font-bold" data-role="broker-tile-pipelines">—</span>
+<span class="font-code-sm text-code-sm text-on-surface-variant" data-role="broker-tile-pipelines-sub">— active</span>
+</div>
+<div class="p-space-sm rounded-lg bg-surface-container-low flex flex-col gap-1">
+<span class="font-code-sm text-code-sm text-outline">AWAITING APPROVAL</span>
+<span class="font-headline-sm text-headline-sm text-on-surface font-bold" data-role="broker-tile-pending">—</span>
+<span class="font-code-sm text-code-sm text-on-surface-variant">admin sign-off queue</span>
+</div>
+<div class="p-space-sm rounded-lg bg-surface-container-low flex flex-col gap-1">
+<span class="font-code-sm text-code-sm text-outline">RELEASED NOW</span>
+<span class="font-headline-sm text-headline-sm text-on-surface font-bold" data-role="broker-tile-released">—</span>
+<span class="font-code-sm text-code-sm text-on-surface-variant" data-role="broker-tile-released-sub">— expired (rotated)</span>
+</div>
+<div class="p-space-sm rounded-lg bg-surface-container-low flex flex-col gap-1">
+<span class="font-code-sm text-code-sm text-outline">BROKER TRAIL</span>
+<span class="font-headline-sm text-headline-sm text-on-surface font-bold" data-role="broker-tile-events">—</span>
+<span class="font-code-sm text-code-sm text-on-surface-variant">ledger source: broker</span>
+</div>
+</div>
+<div class="overflow-x-auto rounded-lg border border-outline-variant/40">
+<table class="w-full text-left">
+<thead>
+<tr class="bg-surface-container-low text-on-surface-variant font-code-sm text-code-sm uppercase tracking-wider">
+<th class="py-2.5 px-4">Pipeline Identity</th>
+<th class="py-2.5 px-4">CI System</th>
+<th class="py-2.5 px-4">Approval Policy</th>
+<th class="py-2.5 px-4">Scope / TTL Cap</th>
+<th class="py-2.5 px-4">Last Used</th>
+<th class="py-2.5 px-4 text-right">State / Actions</th>
+</tr>
+</thead>
+<tbody data-role="broker-policy-rows" class="divide-y divide-outline-variant/30 text-body-sm font-body-sm text-on-surface">
+<tr><td class="py-5 px-4 text-center text-on-surface-variant font-body-sm" colspan="6">No pipeline identities registered — register Jenkins/GitLab/GitHub/Terraform, hand it the API token once, and it never holds a static secret again.</td></tr>
+</tbody>
+</table>
+</div>
+<div class="overflow-x-auto rounded-lg border border-outline-variant/40">
+<table class="w-full text-left">
+<thead>
+<tr class="bg-surface-container-low text-on-surface-variant font-code-sm text-code-sm uppercase tracking-wider">
+<th class="py-2.5 px-4">Credential Request</th>
+<th class="py-2.5 px-4">Pipeline / Credential</th>
+<th class="py-2.5 px-4">Window</th>
+<th class="py-2.5 px-4">State</th>
+<th class="py-2.5 px-4 text-right">Actions</th>
+</tr>
+</thead>
+<tbody data-role="broker-cred-rows" class="divide-y divide-outline-variant/30 text-body-sm font-body-sm text-on-surface">
+<tr><td class="py-5 px-4 text-center text-on-surface-variant font-body-sm" colspan="5">No credential requests yet — a pipeline posts one with its API token; auto policies release it immediately, manual ones wait here for approval.</td></tr>
+</tbody>
+</table>
+</div>
+</div>
 <!-- Inline Script for Card Interaction and Dynamic Feedback -->
 <script>
     // -------------------------------------------------------------------------
@@ -1355,14 +1431,400 @@
       if (rejectBtn) rejectBtn.addEventListener('click', secondary);
       if (requestBtn) requestBtn.addEventListener('click', openRequestModal);
 
+      // ---------------------------------------------------- broker (15) --
+      // The CI/CD credential broker: pipeline identities with their API
+      // token (shown once, stored hashed), the credential queue with real
+      // approve/deny/close actions, and honest empty states when the
+      // license server is not reachable.
+      const brokerState = { policies: [], credentials: [], stats: null, connected: false };
+      const CI_SYSTEMS = [
+        ['jenkins', 'Jenkins'], ['gitlab', 'GitLab'], ['github', 'GitHub'],
+        ['azure_devops', 'Azure DevOps'], ['terraform', 'Terraform'],
+        ['ansible', 'Ansible'], ['argocd', 'ArgoCD'], ['docker', 'Docker'],
+        ['other', 'Other'],
+      ];
+      const ciLabel = (id) => {
+        const found = CI_SYSTEMS.find((c) => c[0] === id);
+        return found ? found[1] : id;
+      };
+      const brokerPill = (status) => {
+        const tone = {
+          active: 'bg-tertiary-container/20 text-tertiary',
+          released: 'bg-tertiary-container/20 text-tertiary',
+          pending: 'bg-primary-container/15 text-primary',
+          approved: 'bg-primary-container/15 text-primary',
+          denied: 'bg-error-container/50 text-error',
+          revoked: 'bg-error-container/50 text-error',
+        }[status] || 'bg-surface-container text-on-surface-variant';
+        return '<span class="px-2 py-0.5 rounded font-label-badge text-label-badge '
+          + 'font-semibold ' + tone + '">' + esc(status) + '</span>';
+      };
+      const IDLE_BTN = 'px-2 py-1 rounded bg-surface-container '
+        + 'hover:bg-surface-container-high font-label-md text-label-md';
+
+      function renderBrokerPolicies() {
+        const tbody = document.querySelector('[data-role="broker-policy-rows"]');
+        if (!tbody) return;
+        if (!brokerState.policies.length) {
+          tbody.innerHTML = '<tr><td class="py-5 px-4 text-center '
+            + 'text-on-surface-variant font-body-sm" colspan="6">'
+            + 'No pipeline identities registered \u2014 register Jenkins/GitLab/'
+            + 'GitHub/Terraform, hand it the API token once, and it never holds '
+            + 'a static secret again.</td></tr>';
+          return;
+        }
+        tbody.innerHTML = brokerState.policies.map((p) => {
+          const scope = (p.allowed_targets && p.allowed_targets.length)
+            ? p.allowed_targets.join(', ') : 'any vault target';
+          const actions = p.status === 'active'
+            ? '<button class="px-2 py-1 rounded bg-error-container/50 text-error '
+              + 'hover:bg-error hover:text-on-error font-label-md text-label-md" '
+              + 'data-act="revoke">Revoke</button>'
+            : '';
+          return '<tr data-broker-policy="' + p.id + '" '
+            + 'class="hover:bg-surface-container-low/40">'
+            + '<td class="py-2.5 px-4"><div class="flex flex-col">'
+            + '<span class="font-semibold">' + esc(p.name) + '</span>'
+            + '<span class="font-code-sm text-code-sm text-outline">'
+            + esc(p.token_hash) + ' \u00b7 used ' + p.use_count
+            + '\u00d7</span></div></td>'
+            + '<td class="py-2.5 px-4">' + esc(ciLabel(p.ci_system)) + '</td>'
+            + '<td class="py-2.5 px-4">'
+            + (p.approval_mode === 'auto'
+              ? 'auto (policy-granted)' : 'manual approval') + '</td>'
+            + '<td class="py-2.5 px-4">cap ' + p.max_ttl_minutes
+            + ' min<div class="font-code-sm text-code-sm text-outline">'
+            + esc(scope) + '</div></td>'
+            + '<td class="py-2.5 px-4 font-code-sm text-code-sm">'
+            + (p.last_used_at ? ago(p.last_used_at) : DASH) + '</td>'
+            + '<td class="py-2.5 px-4 text-right whitespace-nowrap">'
+            + brokerPill(p.status) + ' ' + actions + '</td></tr>';
+        }).join('');
+      }
+
+      function renderBrokerCredentials() {
+        const tbody = document.querySelector('[data-role="broker-cred-rows"]');
+        if (!tbody) return;
+        if (!brokerState.credentials.length) {
+          tbody.innerHTML = '<tr><td class="py-5 px-4 text-center '
+            + 'text-on-surface-variant font-body-sm" colspan="5">'
+            + 'No credential requests yet \u2014 a pipeline posts one with its API '
+            + 'token; auto policies release it immediately, manual ones wait '
+            + 'here for approval.</td></tr>';
+          return;
+        }
+        const names = {};
+        brokerState.policies.forEach((p) => { names[p.id] = p.name; });
+        tbody.innerHTML = brokerState.credentials.map((c) => {
+          let actions = '';
+          if (c.status === 'pending') {
+            actions = '<button class="' + IDLE_BTN + '" data-act="approve">'
+              + 'Approve</button> '
+              + '<button class="px-2 py-1 rounded bg-error-container/50 text-error '
+              + 'hover:bg-error hover:text-on-error font-label-md text-label-md" '
+              + 'data-act="deny">Deny</button>';
+          } else if (c.status === 'released') {
+            actions = '<button class="' + IDLE_BTN + '" data-act="close">'
+              + 'Close now</button>';
+          }
+          const window = c.status === 'released' && c.expires_at
+            ? c.minutes + ' min \u00b7 expires ' + c.expires_at
+            : c.minutes + ' min';
+          const left = c.minutes_left != null
+            ? '<div class="font-code-sm text-code-sm text-tertiary">'
+              + c.minutes_left + ' min left</div>' : '';
+          const released = c.secret_released
+            ? '<div class="font-code-sm text-code-sm text-outline">'
+              + 'secret released once</div>' : '';
+          return '<tr data-broker-cred="' + c.id + '" '
+            + 'class="hover:bg-surface-container-low/40">'
+            + '<td class="py-2.5 px-4"><span class="font-semibold">#' + c.id
+            + '</span> <span class="font-code-sm text-code-sm text-outline">'
+            + esc(c.ticket) + '</span>'
+            + (c.build_ref
+              ? '<div class="font-code-sm text-code-sm text-outline truncate '
+                + 'max-w-[220px]" title="' + esc(c.build_ref) + '">'
+                + esc(c.build_ref) + '</div>' : '')
+            + '</td>'
+            + '<td class="py-2.5 px-4">' + esc(names[c.policy_id] || 'policy #'
+              + c.policy_id)
+            + '<div class="font-code-sm text-code-sm text-outline">vault item #'
+            + c.item_id + '</div>' + released + '</td>'
+            + '<td class="py-2.5 px-4 font-code-sm text-code-sm">'
+            + esc(window) + left + '</td>'
+            + '<td class="py-2.5 px-4">' + brokerPill(c.status) + '</td>'
+            + '<td class="py-2.5 px-4 text-right whitespace-nowrap">' + actions
+            + '</td></tr>';
+        }).join('');
+      }
+
+      function renderBroker() {
+        const sec = document.querySelector('[data-role="broker-section"]');
+        if (!sec) return;
+        const set = (role, value) => {
+          const node = sec.querySelector('[data-role="' + role + '"]');
+          if (node) node.textContent = value;
+        };
+        if (!brokerState.connected) {
+          ['broker-tile-pipelines', 'broker-tile-pending', 'broker-tile-released',
+            'broker-tile-events'].forEach((role) => set(role, DASH));
+          set('broker-tile-pipelines-sub', ROOT === ''
+            ? 'file preview \u2014 license server not reachable'
+            : 'license server not connected');
+          set('broker-tile-released-sub', DASH);
+          set('broker-summary', ROOT === ''
+            ? 'file preview \u2014 broker data loads from the license server'
+            : 'license server not connected');
+          renderBrokerPolicies();
+          renderBrokerCredentials();
+          return;
+        }
+        const stats = brokerState.stats;
+        set('broker-summary', brokerState.policies.length + ' pipelines \u00b7 '
+          + stats.credentials.open + ' open credential(s) \u00b7 '
+          + stats.events + ' broker events');
+        set('broker-tile-pipelines', String(stats.policies.total));
+        set('broker-tile-pipelines-sub',
+          stats.policies.by_status.active + ' active \u00b7 '
+          + stats.policies.by_status.revoked + ' revoked \u00b7 '
+          + stats.policies.by_status.expired + ' expired');
+        set('broker-tile-pending', String(stats.credentials.by_status.pending));
+        set('broker-tile-released', String(stats.credentials.by_status.released));
+        set('broker-tile-released-sub',
+          stats.credentials.by_status.expired + ' expired (rotated)');
+        set('broker-tile-events', String(stats.events));
+        renderBrokerPolicies();
+        renderBrokerCredentials();
+      }
+
+      async function loadBroker() {
+        if (ROOT === '') { brokerState.connected = false; renderBroker(); return; }
+        const j = async (path) => {
+          const res = await fetch(API + path, { headers: headers() });
+          if (!res.ok) throw new Error(path + ' -> ' + res.status);
+          return res.json();
+        };
+        try {
+          const [policies, credentials, stats] = await Promise.all([
+            j('/broker/policies?limit=100'),
+            j('/broker/credentials?limit=100'),
+            j('/broker/stats'),
+          ]);
+          brokerState.policies = policies.policies || [];
+          brokerState.credentials = credentials.credentials || [];
+          brokerState.stats = stats;
+          brokerState.connected = true;
+        } catch (err) {
+          brokerState.connected = false;
+          brokerState.policies = [];
+          brokerState.credentials = [];
+          brokerState.stats = null;
+        }
+        renderBroker();
+      }
+
+      // ---- register pipeline modal (the API token is shown exactly once) ----
+      function openBrokerModal() {
+        if (document.querySelector('[data-broker-modal]')) return;
+        const overlay = document.createElement('div');
+        overlay.setAttribute('data-broker-modal', '1');
+        overlay.className = 'fixed inset-0 z-50 bg-black/40 flex items-center justify-center p-4';
+        overlay.innerHTML =
+          '<div class="bg-surface-container-lowest rounded-xl p-space-xl shadow-xl '
+          + 'w-full max-w-md flex flex-col gap-3">'
+          + '<div class="flex items-center justify-between">'
+          + '<span class="font-headline-sm text-headline-sm text-on-surface font-bold">'
+          + 'Register Pipeline Identity</span>'
+          + '<button class="p-1 rounded hover:bg-surface-container text-on-surface-variant" data-role="close">'
+          + '<span class="material-symbols-outlined text-[18px]">close</span></button></div>'
+          + '<div class="flex flex-col gap-1.5"><label class="font-label-md text-label-md '
+          + 'text-on-surface font-medium">Pipeline name (unique)</label>'
+          + '<input data-role="name" class="p-2 rounded-lg bg-surface-container-low '
+          + 'font-body-sm text-body-sm text-on-surface focus:outline-none" '
+          + 'placeholder="jenkins-deploy-prod"/></div>'
+          + '<div class="grid grid-cols-2 gap-3">'
+          + '<div class="flex flex-col gap-1.5"><label class="font-label-md text-label-md '
+          + 'text-on-surface font-medium">CI system</label>'
+          + '<select data-role="ci" class="bg-surface-container-low p-2 rounded-lg '
+          + 'font-body-sm text-body-sm text-on-surface focus:outline-none">'
+          + CI_SYSTEMS.map((c) => '<option value="' + c[0] + '">' + c[1] + '</option>').join('')
+          + '</select></div>'
+          + '<div class="flex flex-col gap-1.5"><label class="font-label-md text-label-md '
+          + 'text-on-surface font-medium">Approval policy</label>'
+          + '<select data-role="mode" class="bg-surface-container-low p-2 rounded-lg '
+          + 'font-body-sm text-body-sm text-on-surface focus:outline-none">'
+          + '<option value="manual">manual approval</option>'
+          + '<option value="auto">auto (policy-granted)</option></select></div></div>'
+          + '<div class="grid grid-cols-2 gap-3">'
+          + '<div class="flex flex-col gap-1.5"><label class="font-label-md text-label-md '
+          + 'text-on-surface font-medium">TTL cap (minutes)</label>'
+          + '<input data-role="ttl" type="number" min="1" max="480" value="30" '
+          + 'class="p-2 rounded-lg bg-surface-container-low font-code-sm text-code-sm '
+          + 'text-on-surface focus:outline-none"/></div>'
+          + '<div class="flex flex-col gap-1.5"><label class="font-label-md text-label-md '
+          + 'text-on-surface font-medium">Allowed targets (optional)</label>'
+          + '<input data-role="targets" class="p-2 rounded-lg bg-surface-container-low '
+          + 'font-code-sm text-code-sm text-on-surface focus:outline-none" '
+          + 'placeholder="db.prod:5432 (comma-separated)"/></div></div>'
+          + '<p class="font-body-sm text-body-sm text-error hidden" data-role="error"></p>'
+          + '<div class="flex justify-end gap-2 pt-1">'
+          + '<button class="px-3 py-2 rounded-lg bg-surface-container '
+          + 'text-on-surface-variant font-label-md text-label-md" data-role="close">Cancel</button>'
+          + '<button class="px-3 py-2 rounded-lg bg-primary text-on-primary '
+          + 'font-label-md text-label-md font-semibold" data-role="submit">Register</button>'
+          + '</div></div>';
+        document.body.appendChild(overlay);
+        const errorEl = overlay.querySelector('[data-role="error"]');
+        const submitBtn = overlay.querySelector('[data-role="submit"]');
+        overlay.addEventListener('click', (ev) => {
+          if (ev.target === overlay || ev.target.closest('[data-role="close"]')) overlay.remove();
+        });
+        submitBtn.addEventListener('click', async () => {
+          errorEl.classList.add('hidden');
+          const targets = overlay.querySelector('[data-role="targets"]').value
+            .split(',').map((t) => t.trim()).filter((t) => t.length);
+          const payload = {
+            name: overlay.querySelector('[data-role="name"]').value.trim(),
+            ci_system: overlay.querySelector('[data-role="ci"]').value,
+            approval_mode: overlay.querySelector('[data-role="mode"]').value,
+            max_ttl_minutes: Number(overlay.querySelector('[data-role="ttl"]').value),
+            allowed_targets: targets,
+          };
+          if (!payload.name) {
+            errorEl.textContent = 'A pipeline name is required.';
+            errorEl.classList.remove('hidden');
+            return;
+          }
+          submitBtn.disabled = true;
+          try {
+            const res = await fetch(API + '/broker/policies', {
+              method: 'POST', headers: headers(), body: JSON.stringify(payload),
+            });
+            const json = await res.json().catch(() => ({}));
+            if (!res.ok) throw new Error(json.error || ('HTTP ' + res.status));
+            overlay.innerHTML =
+              '<div class="bg-surface-container-lowest rounded-xl p-space-xl shadow-xl '
+              + 'w-full max-w-lg flex flex-col gap-3">'
+              + '<span class="font-headline-sm text-headline-sm text-on-surface font-bold">'
+              + 'Pipeline registered \u2014 API token (shown once)</span>'
+              + '<p class="font-body-sm text-body-sm text-on-surface-variant">'
+              + 'Store this token in the pipeline\u2019s secret store now. It is kept '
+              + 'only as a sha256 hash \u2014 it can never be shown again.</p>'
+              + '<code data-role="broker-token" class="block p-3 rounded-lg bg-surface-container '
+              + 'font-code-sm text-code-sm text-on-surface break-all select-all">'
+              + esc(json.token) + '</code>'
+              + '<div class="flex justify-end gap-2 pt-1">'
+              + '<button class="px-3 py-2 rounded-lg bg-surface-container text-on-surface-variant '
+              + 'font-label-md text-label-md" data-role="copy">Copy</button>'
+              + '<button class="px-3 py-2 rounded-lg bg-primary text-on-primary '
+              + 'font-label-md text-label-md font-semibold" data-role="close">Done</button>'
+              + '</div></div>';
+            overlay.querySelector('[data-role="copy"]').addEventListener('click', () => {
+              if (navigator.clipboard) {
+                navigator.clipboard.writeText(json.token)
+                  .then(() => toast('API token copied to clipboard.'))
+                  .catch(() => toast('Copy failed \u2014 select the token text manually.'));
+              } else {
+                toast('Select the token text and copy it manually.');
+              }
+            });
+            toast(json.message || 'Pipeline identity registered.');
+            loadBroker();
+          } catch (err) {
+            errorEl.textContent = err.message;
+            errorEl.classList.remove('hidden');
+            submitBtn.disabled = false;
+          }
+        });
+      }
+
+      const brokerPolicyTbody = document.querySelector('[data-role="broker-policy-rows"]');
+      if (brokerPolicyTbody) {
+        brokerPolicyTbody.addEventListener('click', (e) => {
+          const btn = e.target.closest('button[data-act="revoke"]');
+          if (!btn) return;
+          const tr = btn.closest('tr[data-broker-policy]');
+          const policy = tr
+            ? brokerState.policies.find(
+              (p) => p.id === parseInt(tr.dataset.brokerPolicy, 10))
+            : null;
+          if (!policy) return;
+          const reason = window.prompt(
+            'Revoke pipeline identity "' + policy.name + '"? Its open '
+            + 'credentials are closed and rotated first (recorded in the audit trail):',
+            'pipeline retired');
+          if (reason === null) return;
+          btn.disabled = true;
+          fetch(API + '/broker/policies/' + policy.id, {
+            method: 'DELETE', headers: headers(), body: JSON.stringify({ reason: reason }),
+          }).then(async (res) => {
+            const body = await res.json().catch(() => ({}));
+            if (!res.ok) { toast(body.error || ('HTTP ' + res.status)); btn.disabled = false; return; }
+            toast(body.message || 'Pipeline identity revoked.');
+            loadBroker();
+          }).catch(() => {
+            toast('Broker API unreachable \u2014 server not running.');
+            btn.disabled = false;
+          });
+        });
+      }
+
+      const brokerCredTbody = document.querySelector('[data-role="broker-cred-rows"]');
+      if (brokerCredTbody) {
+        brokerCredTbody.addEventListener('click', (e) => {
+          const btn = e.target.closest('button[data-act]');
+          if (!btn) return;
+          const tr = btn.closest('tr[data-broker-cred]');
+          const cred = tr
+            ? brokerState.credentials.find(
+              (c) => c.id === parseInt(tr.dataset.brokerCred, 10))
+            : null;
+          if (!cred) return;
+          const act = btn.dataset.act;
+          let reason = null;
+          if (act === 'deny') {
+            reason = window.prompt(
+              'Deny pipeline credential #' + cred.id
+              + ' (recorded in the audit trail):',
+              'Outside the change window');
+            if (reason === null) return;
+          }
+          if (act === 'close' && !window.confirm(
+            'End credential #' + cred.id + ' now? The checkout is released and '
+            + 'the credential rotates.')) return;
+          btn.disabled = true;
+          fetch(API + '/broker/credentials/' + cred.id + '/' + act, {
+            method: 'POST',
+            headers: headers(),
+            body: (act === 'deny' && reason)
+              ? JSON.stringify({ reason: reason }) : undefined,
+          }).then(async (res) => {
+            const body = await res.json().catch(() => ({}));
+            if (!res.ok) { toast(body.error || ('HTTP ' + res.status)); btn.disabled = false; return; }
+            toast(body.message || ('Credential #' + cred.id + ' ' + act + ' \u2014 recorded.'));
+            loadBroker();
+          }).catch(() => {
+            toast('Broker API unreachable \u2014 server not running.');
+            btn.disabled = false;
+          });
+        });
+      }
+      const brokerAddBtn = document.querySelector('[data-role="btn-broker-add"]');
+      if (brokerAddBtn) brokerAddBtn.addEventListener('click', openBrokerModal);
+
       // initial honest paint (wipes the design's fake content in both modes)
       renderAll();
       load();
-      setInterval(() => { if (state.connected) load(); }, 60000);
+      renderBroker();
+      loadBroker();
+      setInterval(() => {
+        if (state.connected) load();
+        if (brokerState.connected) loadBroker();
+      }, 60000);
 
       window.jitLive = {
         load: load, select: select, openRequestModal: openRequestModal,
-        state: state,
+        state: state, broker: { load: loadBroker, state: brokerState },
       };
     })();
 

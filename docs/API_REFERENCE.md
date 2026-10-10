@@ -1,7 +1,7 @@
 # VY-PAM — API Reference
 
-**Status:** as-built for Phase 5b
-**Contract:** `apis/openapi.yaml` (OpenAPI 3.1) - **102 paths / 116
+**Status:** as-built for Phase 5c
+**Contract:** `apis/openapi.yaml` (OpenAPI 3.1) - **111 paths / 129
 operations**, enforced in both directions by
 `backend/phase2_license_server/tests/test_openapi_contract.py`. If this page
 and the YAML ever disagree, the YAML wins.
@@ -15,13 +15,13 @@ and the YAML ever disagree, the YAML wins.
 | Base URL (dev) | `http://127.0.0.1:5000` (`LICENSE_SERVER_HOST`/`LICENSE_SERVER_PORT`) |
 | Version | `/api/v1/…` (`/health`, `/api/v1/meta` unversioned) |
 | Content type | `application/json` (license import also accepts multipart upload / raw body) |
-| Auth | When `LICENSE_ADMIN_TOKEN` is set: `Authorization: Bearer <token>` **or** `X-Admin-Token: <token>` on the **64 admin operations**. When unset: open dev mode - responses carry `X-Auth-Mode: open` (explicit, never silent). |
+| Auth | When `LICENSE_ADMIN_TOKEN` is set: `Authorization: Bearer <token>` **or** `X-Admin-Token: <token>` on the **74 admin operations**. When unset: open dev mode - responses carry `X-Auth-Mode: open` (explicit, never silent). Pipeline `/broker` operations are the exception: they require the broker API token and are never waived. |
 | Actor | `X-Actor: <name>` recorded verbatim in the audit ledger on every audited write |
 | Errors | `{"error": "<message>", "details"?: {…}}` — 400 validation · 401 auth · 403 policy refusal (risk gate) · 404 · 409 conflict/state · 422 unprocessable shape · 503 fail-closed dependency |
 | Pagination | `limit` (≤200) + `offset`, newest first |
 | Ordering | Ledger/session streams ascending `seq`; listings newest-first |
 
-## 2. Operations by tag (16 tags)
+## 2. Operations by tag (17 tags)
 
 ### `ops` — unversioned
 | Method | Path | Summary |
@@ -196,6 +196,24 @@ and the YAML ever disagree, the YAML wins.
 | POST | `/api/v1/cloud/connectors/{connector_id}/rbac/requests` | Kubernetes path (201): files a section-6 JIT request with `cloud_binding`; the grant applies a real RoleBinding `vypam-jit-<id>`, close/expiry removes it |
 | GET | `/api/v1/cloud/stats` | aggregates: connectors by provider/state, §14 trail size, RBAC grants, cloud-discovered assets |
 
+### `broker` — §15 CI/CD credential broker (Phase 5c, 9 paths / 13 operations)
+
+| Method | Path | Summary |
+|---|---|---|
+| POST | `/api/v1/broker/policies` | register a pipeline identity (201): the API token `vypam-ci1.<id>.<secret>` is shown exactly once and stored as a sha256 hash |
+| GET | `/api/v1/broker/policies` | list identities (`ci_system`/`status` filters, `q` search, paging) |
+| GET | `/api/v1/broker/policies/{policy_id}` | console payload: policy, open credential count, latest §15 trail |
+| PATCH | `/api/v1/broker/policies/{policy_id}` | edit approval mode / TTL cap / allowed targets / contact / expiry (never name, CI system or token; revoked → 409 frozen) |
+| DELETE | `/api/v1/broker/policies/{policy_id}` | revoke: open credentials are closed first (released ones rotate like a JIT expiry), then the token stops authenticating |
+| POST | `/api/v1/broker/credentials` | **pipeline token** (201): request a short-lived credential; an `auto` policy releases the secret in this same response (once), a `manual` policy lands it in the approval queue; a target outside `allowed_targets` → 403 + `refused` on the trail |
+| GET | `/api/v1/broker/credentials` | list every pipeline credential (`status`/`policy_id` filters, paging; never the secret — only the `secret_released` flag) |
+| GET | `/api/v1/broker/credentials/{credential_id}` | console payload: credential, its policy, full §15 trail |
+| POST | `/api/v1/broker/credentials/{credential_id}/approve` | admin sign-off (only `pending`); the pipeline then releases with its own token |
+| POST | `/api/v1/broker/credentials/{credential_id}/deny` | refuse a queued request (reason recorded; nothing released) |
+| POST | `/api/v1/broker/credentials/{credential_id}/release` | **pipeline token**: a real vault checkout under the pipeline's name; the secret appears exactly once and expires at the returned timestamp |
+| POST | `/api/v1/broker/credentials/{credential_id}/close` | dual auth (own pipeline token or admin): ends the grant early; a released credential releases its checkout and rotates |
+| GET | `/api/v1/broker/stats` | aggregates: policies by state/CI system, credentials by state, §15 trail size |
+
 ### Ledger (Compliance feeds)
 | Method | Path | Summary |
 |---|---|---|
@@ -222,6 +240,11 @@ and the YAML ever disagree, the YAML wins.
   `block_source: not_connected`. Re-scanning never duplicates an incident.
 - **`X-Auth-Mode: open`** on responses when no admin token is configured —
   development-only by construction.
+- **Pipeline auth** (`POST /broker/credentials`, `…/{id}/release` and the
+  pipeline side of `…/{id}/close`): the broker API token is the only
+  credential — the admin token never substitutes for it and open dev mode
+  does not waive it; `X-Actor` is ignored and the actor on the trail is
+  the policy name.
 
 ## 4. Vendor tool API (separate contract, `pam_master`, port 5400)
 
@@ -242,12 +265,11 @@ keys only via `python -m pam_master.keygen`.
 
 ## 5. Planned endpoints (NOT in the contract — see `IMPLEMENTATION_PLAN.md`)
 
-These do **not** exist today; the contract's **102 paths / 116 operations**
+These do **not** exist today; the contract's **111 paths / 129 operations**
 are the complete current surface. Each lands in `openapi.yaml` + ADMIN
 security + tests in the same commit when its phase starts (counts `—`):
 
 | Phase | Planned additions |
 |---|---|
-| 5c §15 | `POST /api/v1/broker/credentials` (+ list/revoke) |
 | 5d §16 | agent identity CRUD + task-scoped request endpoints |
 | 6b | security schemes gain role requirements across existing admin ops |

@@ -783,6 +783,17 @@
         'cloud:rbac-closed': 'K8s RBAC binding removed (closed)',
         'cloud:rbac-expired': 'K8s RBAC binding removed (expired)',
         'cloud:rbac-aborted': 'K8s RBAC binding removed (aborted)',
+        'broker:policy-created': 'Pipeline identity registered',
+        'broker:policy-updated': 'Pipeline policy updated',
+        'broker:policy-revoked': 'Pipeline identity revoked (credentials closed)',
+        'broker:policy-expired': 'Pipeline identity expired (credentials closed)',
+        'broker:requested': 'Pipeline credential requested',
+        'broker:approved': 'Pipeline credential approved',
+        'broker:denied': 'Pipeline credential denied',
+        'broker:refused': 'Pipeline request refused (scope)',
+        'broker:released': 'Pipeline credential released (once)',
+        'broker:closed': 'Pipeline credential closed (rotated)',
+        'broker:expired': 'Pipeline credential expired (rotated)',
       };
       const SOURCE_ICONS = {
         license: 'workspace_premium', settings: 'tune', vault: 'key',
@@ -899,10 +910,10 @@
         }
       }
 
-      // ---- 13-source filter: click-to-fetch per trail (reveal on click) ---
+      // ---- 14-source filter: click-to-fetch per trail (reveal on click) ---
       const SOURCES = ['all', 'license', 'settings', 'vault', 'discovery',
         'jit', 'session', 'command', 'risk', 'bypass', 'break-glass',
-        'integration', 'vendor', 'cloud'];
+        'integration', 'vendor', 'cloud', 'broker'];
       let activeSource = 'all';
       const filterWrap = document.createElement('div');
       filterWrap.className = 'flex flex-wrap gap-1.5 pb-1';

@@ -6,7 +6,7 @@ import json
 from functools import wraps
 from typing import Any, Dict
 
-from flask import Blueprint, Response, current_app, jsonify, request
+from flask import Blueprint, Response, current_app, g, jsonify, request
 
 import service
 from config import Config
@@ -46,8 +46,8 @@ def _int_param(name: str, default: int, *, minimum: int = 0) -> int:
     return value
 
 
-def require_admin(view):
-    """Reject the request unless a valid admin credential is presented.
+def _require_admin_credential() -> None:
+    """Raise Unauthorized unless a valid admin credential is presented.
 
     The admin token is the default credential. In token mode a signed LDAP
     login ticket (minted by POST /api/v1/auth/ldap after a real bind) is
@@ -56,21 +56,58 @@ def require_admin(view):
     open/dev mode and every route is allowed (the response header reports
     this).
     """
+    config = _config()
+    if not config.admin_token:
+        return
+    token = request.headers.get("X-Admin-Token")
+    auth_header = request.headers.get("Authorization", "")
+    if auth_header.lower().startswith("bearer "):
+        token = auth_header[7:].strip()
+    if not token or not hmac.compare_digest(token, config.admin_token):
+        identity = service.verify_ldap_ticket(token, config=config)
+        if identity is None:
+            raise Unauthorized(
+                "Admin token required (Authorization: Bearer <token> or X-Admin-Token)"
+            )
+
+
+def require_admin(view):
+    """Reject the request unless a valid admin credential is presented
+    (see _require_admin_credential for the accepted credentials)."""
 
     @wraps(view)
     def wrapped(*args, **kwargs):
-        config = _config()
-        if config.admin_token:
-            token = request.headers.get("X-Admin-Token")
-            auth_header = request.headers.get("Authorization", "")
-            if auth_header.lower().startswith("bearer "):
-                token = auth_header[7:].strip()
-            if not token or not hmac.compare_digest(token, config.admin_token):
-                identity = service.verify_ldap_ticket(token, config=config)
-                if identity is None:
-                    raise Unauthorized(
-                        "Admin token required (Authorization: Bearer <token> or X-Admin-Token)"
-                    )
+        _require_admin_credential()
+        return view(*args, **kwargs)
+
+    return wrapped
+
+
+def _pipeline_token() -> str:
+    """A pipeline's broker API token: the X-Broker-Token header, or a
+    `vypam-ci1.` bearer value in Authorization - a plain bearer token stays
+    the admin credential, so the two are never confused on dual-auth
+    routes."""
+    token = (request.headers.get("X-Broker-Token") or "").strip()
+    if token:
+        return token
+    auth_header = request.headers.get("Authorization", "")
+    if auth_header.lower().startswith("bearer "):
+        bearer = auth_header[7:].strip()
+        if bearer.startswith(service.BROKER_TOKEN_PREFIX + "."):
+            return bearer
+    return ""
+
+
+def require_pipeline(view):
+    """Reject the request unless a valid broker API token authenticates the
+    pipeline (architecture section 15). Unlike the admin token this is
+    never waived in open/dev mode: the machine identity is the point - the
+    pipeline *is* its policy row, and X-Actor is not consulted."""
+
+    @wraps(view)
+    def wrapped(*args, **kwargs):
+        g.broker_policy = service.verify_broker_token(_pipeline_token())
         return view(*args, **kwargs)
 
     return wrapped
@@ -1655,3 +1692,234 @@ def cloud_stats():
     """Real aggregates: connectors by provider and state, the section-14
     trail's size, RBAC grants, cloud-discovered assets."""
     return jsonify(service.cloud_stats())
+
+
+# ---------------------------------------------------------------------------
+# CI/CD credential broker (architecture section 15: pipelines request
+# short-lived credentials with an API token - no static secrets in CI)
+# ---------------------------------------------------------------------------
+@api.post("/broker/policies")
+@require_admin
+def create_broker_policy():
+    """Register a pipeline identity (201). The API token is returned
+    exactly once - it is stored as a sha256 hash and cannot be recovered."""
+    policy, token = service.create_broker_policy(_json_body(), actor=_actor())
+    return (
+        jsonify(
+            {
+                "policy": policy.to_dict(),
+                "token": token,
+                "message": (
+                    f"Broker policy {policy.name} registered "
+                    f"({policy.ci_system}, {policy.approval_mode} approval) - "
+                    "the API token is shown once"
+                ),
+            }
+        ),
+        201,
+    )
+
+
+@api.get("/broker/policies")
+@require_admin
+def list_broker_policies():
+    """Pipeline identities and their policies, newest first."""
+    limit = min(_int_param("limit", 50), MAX_PAGE_SIZE)
+    offset = _int_param("offset", 0)
+    rows, total = service.list_broker_policies(
+        ci_system=request.args.get("ci_system"),
+        status=request.args.get("status"),
+        q=request.args.get("q"),
+        limit=limit,
+        offset=offset,
+    )
+    return jsonify(
+        {
+            "policies": [row.to_dict() for row in rows],
+            "total": total,
+            "limit": limit,
+            "offset": offset,
+        }
+    )
+
+
+@api.get("/broker/policies/<int:policy_id>")
+@require_admin
+def broker_policy_detail(policy_id: int):
+    """One policy with its open credential count and latest trail."""
+    return jsonify(service.broker_policy_detail(policy_id))
+
+
+@api.patch("/broker/policies/<int:policy_id>")
+@require_admin
+def update_broker_policy(policy_id: int):
+    """Edit the policy knobs (approval mode, TTL cap, scope, contact,
+    expiry); a revoked policy's settings are frozen."""
+    view = service.update_broker_policy(policy_id, _json_body(), actor=_actor())
+    return jsonify(
+        {"policy": view, "message": f"Broker policy {view['name']} updated"}
+    )
+
+
+@api.delete("/broker/policies/<int:policy_id>")
+@require_admin
+def revoke_broker_policy(policy_id: int):
+    """Withdraw the identity: open credentials are closed first (released
+    grants rotate like a JIT expiry), then the token stops authenticating."""
+    view = service.revoke_broker_policy(
+        policy_id, actor=_actor(), payload=_json_body(required=False)
+    )
+    closed_count = view.pop("credentials_closed", 0)
+    return jsonify(
+        {
+            "policy": view,
+            "credentials_closed": closed_count,
+            "message": (
+                f"Broker policy {view['name']} revoked "
+                f"({closed_count} credential(s) closed)"
+            ),
+        }
+    )
+
+
+@api.post("/broker/credentials")
+@require_pipeline
+def create_broker_credential():
+    """One credential request from the pipeline (201). An `auto` policy
+    releases the secret in this same response; a `manual` policy lands the
+    request in the approval queue and the pipeline releases it later."""
+    policy = g.broker_policy
+    credential, auto = service.create_broker_credential(_json_body(), policy=policy)
+    if auto:
+        released = service.release_broker_credential(credential.id, policy=policy)
+        return (
+            jsonify(
+                {
+                    "credential": released["credential"],
+                    "secret": released["secret"],
+                    "message": (
+                        f"Credential {credential.id} approved by policy and "
+                        "released once - it expires at the timestamp above"
+                    ),
+                }
+            ),
+            201,
+        )
+    return (
+        jsonify(
+            {
+                "credential": credential.to_dict(),
+                "message": (
+                    f"Credential {credential.id} requested - awaiting admin approval"
+                ),
+            }
+        ),
+        201,
+    )
+
+
+@api.get("/broker/credentials")
+@require_admin
+def list_broker_credentials():
+    """Every pipeline credential, newest first (never the secret - the
+    row records only that it was released)."""
+    limit = min(_int_param("limit", 50), MAX_PAGE_SIZE)
+    offset = _int_param("offset", 0)
+    policy_id = None
+    if request.args.get("policy_id") is not None:
+        policy_id = _int_param("policy_id", 0)
+    rows, total = service.list_broker_credentials(
+        status=request.args.get("status"),
+        policy_id=policy_id,
+        limit=limit,
+        offset=offset,
+    )
+    return jsonify(
+        {
+            "credentials": [row.to_dict() for row in rows],
+            "total": total,
+            "limit": limit,
+            "offset": offset,
+        }
+    )
+
+
+@api.get("/broker/credentials/<int:credential_id>")
+@require_admin
+def broker_credential_detail(credential_id: int):
+    """One credential with its policy and full trail."""
+    return jsonify(service.broker_credential_detail(credential_id))
+
+
+@api.post("/broker/credentials/<int:credential_id>/approve")
+@require_admin
+def approve_broker_credential(credential_id: int):
+    """Sign off a queued request; the pipeline then releases it."""
+    view = service.approve_broker_credential(
+        credential_id, actor=_actor(), payload=_json_body(required=False)
+    )
+    return jsonify(
+        {
+            "credential": view.to_dict(),
+            "message": (
+                f"Credential {view.id} approved - the pipeline can now release it"
+            ),
+        }
+    )
+
+
+@api.post("/broker/credentials/<int:credential_id>/deny")
+@require_admin
+def deny_broker_credential(credential_id: int):
+    """Refuse a queued request; nothing was released."""
+    view = service.deny_broker_credential(
+        credential_id, actor=_actor(), payload=_json_body(required=False)
+    )
+    return jsonify(
+        {"credential": view.to_dict(), "message": f"Credential {view.id} denied"}
+    )
+
+
+@api.post("/broker/credentials/<int:credential_id>/release")
+@require_pipeline
+def release_broker_credential(credential_id: int):
+    """The pipeline fetches its approved credential: the secret appears in
+    this response exactly once and expires at the timestamp returned."""
+    released = service.release_broker_credential(
+        credential_id, policy=g.broker_policy
+    )
+    return jsonify(
+        {
+            "credential": released["credential"],
+            "secret": released["secret"],
+            "message": "Credential released once - it expires at the timestamp above",
+        }
+    )
+
+
+@api.post("/broker/credentials/<int:credential_id>/close")
+def close_broker_credential(credential_id: int):
+    """End the grant early (deploy finished or cancelled). The pipeline
+    closes its own credential with its API token; an admin closes any."""
+    token = _pipeline_token()
+    if token:
+        policy = service.verify_broker_token(token)
+        view = service.close_broker_credential(
+            credential_id, actor=policy.name, policy=policy
+        )
+    else:
+        _require_admin_credential()
+        view = service.close_broker_credential(credential_id, actor=_actor())
+    return jsonify(
+        {
+            "credential": view.to_dict(),
+            "message": f"Credential {view.id} {view.status}",
+        }
+    )
+
+
+@api.get("/broker/stats")
+def broker_stats():
+    """Real aggregates: policies by state and CI system, credentials by
+    state, the section-15 trail's size."""
+    return jsonify(service.broker_stats())

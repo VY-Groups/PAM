@@ -1,6 +1,6 @@
 # VY-PAM — Implementation Plan (remaining architecture coverage)
 
-**Status:** maintained through Phase 5b — remaining backlog starts at 5c
+**Status:** maintained through Phase 5c — remaining backlog starts at 5d
 **Authoritative spec:** `VY-PAM_Enterprise_PAM_Architecture.md`
 **Execution log:** `VY-PAM_MASTER_and_PAM_Workflow.md` (checkpoint rows — the
 resumable source of truth while working)
@@ -26,7 +26,7 @@ resumable source of truth while working)
 | §7 Risk-Based Access | 8-component engine + session gate | ✅ built | 4f |
 | §8 Privileged Sessions | recording, controls, cascade | ✅ built | 4c |
 | §9 Command Control | default-allow rules, holds, incidents | ✅ built | 4d |
-| §19 Immutable Audit | hash chain, 13 sources, verify/export | ✅ built | 4e |
+| §19 Immutable Audit | hash chain, 14 sources, verify/export | ✅ built | 4e |
 | §10 PAM Bypass Detection | direct-access detection | ✅ built | **4g** |
 | §17 Break Glass | emergency protocol (dual approval → recorded session → rotation) | ✅ built | **4h** |
 | §20 Enterprise Integrations | TOTP MFA gate, ITSM verify, SIEM push, LDAP bind | ✅ built | **4i** |
@@ -34,7 +34,7 @@ resumable source of truth while working)
 | §12 Dynamic Watermarking | contextual session overlay | ✅ built | **4k** |
 | §13 Third-Party / Vendor PAM | vendor invite → JIT flow, §13 dashboard | ✅ built | **5a** |
 | §14 Cloud PAM | AWS/Azure/GCP/K8s connectors, K8s RBAC → JIT grants | ✅ built | **5b** |
-| §15 DevSecOps PAM | CI/CD JIT credential broker | ⛔ pending | **5c** |
+| §15 DevSecOps PAM | CI/CD JIT credential broker | ✅ built | **5c** |
 | §16 AI-Agent PAM | agent identity + task-scoped access | ⛔ pending | **5d** |
 | §18 HA / DC / DR | multi-node, replication, failover | ⛔ pending | **6a** |
 | RBAC / ABAC | multi-role model (single admin today) | ⛔ pending | **6b** |
@@ -366,11 +366,24 @@ probe/inventory/RBAC/add actions; `file://` → dashes). Contract
 **102 paths / 116 ops / 16 tags / 64 admin / 178 schemas**;
 `test_cloud.py` **27** + full backend **488** (in-container **406**).
 
-### 5c — DevSecOps PAM (§15)
-JIT credential broker for pipelines: CI systems (Jenkins/GitLab/GitHub/
-Azure DevOps) request short-lived credentials via API token + approval policy;
-**no static secrets in CI** — response is a time-boxed credential that
-expires like any JIT grant; Terraform/Ansible/ArgoCD use the same broker.
+### 5c — DevSecOps PAM (§15) — ✅ shipped
+CI/CD credential broker: pipeline identities (Jenkins/GitLab/GitHub/Azure
+DevOps/Terraform/Ansible/ArgoCD/Docker) authenticate with an API token
+`vypam-ci1.<id>.<secret>` shown once and stored as a sha256 hash;
+**no static secrets in CI** — an `auto` policy releases the time-boxed
+vault credential in the same call (secret exactly once), a `manual` one
+queues the request for an admin approval the pipeline then releases with
+its own token. The grant is checked out under the pipeline, expires on the
+real clock and rotates through the §5 pipeline exactly like a JIT grant;
+`allowed_targets` scope (403 + `refused` on the trail), TTL cap (400
+`details.cap`), another pipeline's row → 404, revoke closes open
+credentials (released ones rotate) before the token stops authenticating.
+Ledger source `broker` (**13→14**, 14th mapper `_map_broker`), Compliance
+chips **14→15**, JIT Access screen gains the Pipeline Credential Broker
+section (policy table with one-time token reveal, credential queue with
+approve/deny/close, real stat tiles). Contract
+**111 paths / 129 ops / 17 tags / 74 admin / 197 schemas**;
+`test_broker.py` **24** + full backend **512** (in-container **430**).
 
 ### 5d — AI-Agent PAM (§16)
 Agent identities (`agent_identities`), task-scoped requests:
@@ -394,7 +407,7 @@ procedures in `docs/DEPLOYMENT_RUNBOOK.md` extend to replication runbooks.
 ### 6b — RBAC / ABAC
 Multi-role model (today: single admin token + open dev mode): roles
 (admin / approver / operator / auditor / auditor-read-only), policy bindings
-on the 64 admin operations, attribute rules on vault items and targets.
+on the 74 admin operations, attribute rules on vault items and targets.
 Contract lockstep: security schemes gain role requirements.
 
 ### 6c — SSO + HSM enforcement
@@ -408,7 +421,7 @@ keys where configured. Posture widget then counts them honestly as active.
 
 ```
 4k §12 ✓ (Phase 4 complete)
-        → 5a §13 → 5b §14 → 5c §15 → 5d §16     (expansion)
+        → 5a §13 ✓ → 5b §14 ✓ → 5c §15 ✓ → 5d §16     (expansion)
         → 6a §18 → 6b RBAC → 6c SSO/HSM          (scale)
 ```
 
@@ -433,7 +446,7 @@ real numbers collected at that time, `—` until then**:
    SIEM when configured.
 4. **Contracts:** `apis/openapi.yaml` (path count `—`, today 96) and the
    vendor tool contract both enforced both-ways; zero dark endpoints.
-5. **Quality gates:** backend suite (today **488**) grows per phase with real
+5. **Quality gates:** backend suite (today **512**) grows per phase with real
    counts recorded in the READMEs; pam_master stays green (**46**); smoke,
    both UI verifiers, leak check all green at every boundary.
 6. **Operations:** single-node install stays Docker-free; §18 adds replicated

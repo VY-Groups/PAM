@@ -11,7 +11,7 @@ external migration tool.
 
 ---
 
-## 1. Shipped runtime - 32 tables
+## 1. Shipped runtime - 35 tables
 
 ### ERD (logical)
 
@@ -36,6 +36,8 @@ break_glass_events                             (emergency actions → ledger sou
 integration_events                             (connector actions → ledger source `integration`)
 vendor_accounts ─1:n─ vendor_events           (vendor_id → vendor_accounts; lifecycle actions → ledger source `vendor`)
 cloud_connectors ─1:n─ cloud_events           (connector_id → cloud_connectors; §14 actions → ledger source `cloud`)
+broker_policies ─1:n─ broker_credentials      (policy_id → broker_policies; item_id → vault_items; §15 pipeline identities + time-boxed credentials)
+broker_events                                 (policy/credential actions → ledger source `broker`)
 audit_events                                    (hash chain over all of the above)
 ```
 
@@ -404,6 +406,61 @@ name captured at the time — renames never rewrite history) · `detail` JSON.
   appears in `detail`; the outcome does. Folded into the §19 ledger by
   `_map_cloud` (ref `cloud:<id>`) as the **thirteenth** source.
 
+### 1.33 `broker_policies` — §15 CI/CD pipeline identity + approval policy
+| Column | Type | Null | Default |
+|---|---|---|---|
+| id | PK | ✗ | |
+| name | String(128) | ✗ | unique indexed (pipeline identity, e.g. `jenkins-deploy-prod`) |
+| ci_system | String(32) | ✗ | indexed (`jenkins\|gitlab\|github\|azure_devops\|terraform\|ansible\|argocd\|docker\|other`) |
+| contact | String(160) | ✗ | `""` |
+| approval_mode | String(16) | ✗ | `manual` (`manual\|auto`) — `auto` releases on request, `manual` queues for an admin approval |
+| max_ttl_minutes | Integer | ✗ | `30` — hard cap on this pipeline's windows (1–480; a higher request is refused 400 `details.cap`) |
+| allowed_targets | JSON | ✗ | `[]` exact vault targets this pipeline may request (empty = any; a miss is refused 403 + `refused` on the trail) |
+| token_hash | String(64) | ✗ | sha256 hex of the token secret; the API token `vypam-ci1.<id>.<secret>` is shown exactly once at creation and is never recoverable |
+| status | String(16) | ✗ | `active`, indexed (`active\|revoked\|expired`) |
+| expires_at | DateTime | ✓ | identity expiry; the lazy refresh marks `expired` and closes open credentials |
+| revoked_at / revoked_reason | DateTime / String(255) | ✓ | revoke moment + note; open credentials are closed (released ones rotated) before the token stops authenticating |
+| last_used_at | DateTime | ✓ | set by every successful token authentication |
+| use_count | Integer | ✗ | `0` — successful authentications |
+| created_at | DateTime | ✗ | indexed |
+| created_by | String(64) | ✗ | `system` |
+
+### 1.34 `broker_credentials` — §15 one time-boxed credential for a pipeline
+| Column | Type | Null | Default |
+|---|---|---|---|
+| id | PK | ✗ | |
+| policy_id | Integer | ✗ | indexed → `broker_policies.id` |
+| item_id | Integer | ✗ | indexed → `vault_items.id` (the credential being requested — no static secret ever lives in CI) |
+| reason | String(255) | ✗ | ≥ 8 characters |
+| ticket | String(64) | ✗ | ITSM reference, non-empty |
+| minutes | Integer | ✗ | `15` — window length, capped by the policy |
+| status | String(16) | ✗ | `pending`, indexed (`pending\|approved\|released\|denied\|closed\|expired`) |
+| build_ref | String(255) | ✗ | `""` — the pipeline build/job that asked; context, never a credential |
+| approved_by / approved_at | String(64) / DateTime | ✓ | the admin, or `broker-policy` for an auto approval |
+| denied_reason | String(255) | ✓ | refusal note, recorded verbatim |
+| released_at | DateTime | ✓ | the moment the secret was handed out (exactly once) |
+| released_version | Integer | ✓ | which vault secret version was released |
+| expires_at | DateTime | ✓ | `released_at + minutes`; the lazy refresh ends the grant and rotates |
+| closed_at | DateTime | ✓ | early close or rotation end |
+| session_ref | String(64) | ✓ | `broker-<id>` — the checkout/rotation reference, the same machinery as a JIT grant |
+| created_at | DateTime | ✗ | indexed |
+- The secret never lands on this row; `released_at` records only that it
+  happened. Close/expiry release the checkout and rotate the credential
+  through the §5 pipeline (`session_end` trigger), exactly like a JIT
+  grant.
+
+### 1.35 `broker_events` — §15 module action log (ledger source `broker`)
+`id` PK · `policy_id` Integer indexed · `credential_id` Integer indexed ·
+`created_at` DateTime indexed · `action` String(32) · `actor` String(64) ·
+`subject` String(128) (display name captured at the time) · `detail` JSON.
+- actions: `policy-created` · `policy-updated` · `policy-revoked` ·
+  `policy-expired` · `requested` · `approved` · `denied` · `refused` ·
+  `released` · `closed` · `expired`. The API token and the released secret
+  never appear in `detail`; the outcome does. On pipeline-authenticated
+  actions the actor is the policy name — the pipeline *is* its identity
+  row. Folded into the §19 ledger by `_map_broker` (ref `broker:<id>`) as
+  the **fourteenth** source.
+
 ---
 
 ## 2. Vendor tool - `pam_master/master.db` (4 tables)
@@ -477,7 +534,6 @@ column sets land with the code + contract commit; counts are `—` until then.
 
 | Phase | Tables | Notes |
 |---|---|---|
-| 5c §15 | `broker_policies`, `broker_credentials` | JIT semantics; expiry enforced like grants |
 | 5d §16 | `agent_identities`, `agent_task_scopes` | command restrictions reference `command_rules` |
 | 6a §18 | replication topology (external store decision) | may replace SQLite — design item of the phase |
 | 6b | `roles`, `role_bindings` | attribute rules as JSON policy rows |

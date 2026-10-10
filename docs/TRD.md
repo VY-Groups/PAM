@@ -51,7 +51,7 @@ repo.
 | Store | SQLite (`licenses.db`, git-ignored) | append-only enforced by triggers on `audit_events` |
 | Crypto | `cryptography` lib | RSA-PSS-SHA256 (default) / Ed25519 envelopes; AES-256-GCM secrets |
 | Frontend | Static HTML + Tailwind (CDN build) + vanilla JS | 11 sidebar screens, no bundler, works from `file://` |
-| Tests | pytest | 488 backend + 46 pam_master |
+| Tests | pytest | 512 backend + 46 pam_master |
 | UI verification | Node + `playwright-core` (`shots_tool/`) | viewport 1920×1600, never `fullPage` |
 | Vendor tool | Flask + raw `sqlite3` | `pam_master` package, `python -m pam_master` |
 
@@ -230,7 +230,7 @@ Rules enforced by tests/conventions:
 - `BreakGlassEvent` actions (`requested`, `approved`, `denied`, `opened`,
   `closed`) fan into the §19 chain as the **tenth** source `break-glass`
   (eleven with 4i's `integration`, twelve with 5a's `vendor`, thirteen with
-  5b's `cloud`); `bg-` request refs, stats and the
+  5b's `cloud`, fourteen with 5c's `broker`); `bg-` request refs, stats and the
   compliance feed stay generic. The emergency path runs the §20 MFA gate at
   open: a factor enrolled demands a `mfa_code` (401 `details.mfa`), no
   factor says so honestly.
@@ -387,12 +387,51 @@ Rules enforced by tests/conventions:
   `file://` falls back to dashes); Compliance gains the 14th chip (source
   `cloud`).
 
+### 4.18 CI/CD credential broker (§15) — Phase 5c
+- **Data**: `broker_policies` (unique `name`, `ci_system` from the §15
+  surface `jenkins|gitlab|github|azure_devops|terraform|ansible|argocd|
+  docker|other`, `approval_mode` `manual` (default) `|auto`,
+  `max_ttl_minutes` 1–480 cap, `allowed_targets` JSON scope, `token_hash`
+  sha256, honest `status`/`expires_at`/`last_used_at`/`use_count`) +
+  `broker_credentials` (`policy_id` + `item_id`, reason/ticket/window,
+  `build_ref`, `status pending|approved|released|denied|closed|expired`,
+  `released_version`/`expires_at`/`session_ref broker-<id>`) +
+  `broker_events` folded into the ledger as source `broker`, the
+  **fourteenth**.
+- **Identity**: the pipeline's API token is `vypam-ci1.<id>.<secret>`
+  (`secrets.token_urlsafe(32)`), shown exactly once at creation and stored
+  only as its sha256 hash; `verify_broker_token` compares in constant time
+  and refuses revoked/expired identities honestly, recording the use on
+  the policy. Pipeline routes (`POST /broker/credentials`, `…/{id}/release`,
+  the pipeline side of `…/{id}/close`) authenticate with this token alone —
+  the admin token never substitutes, open dev mode never waives it, and
+  `X-Actor` is ignored (the actor on the trail is the policy name).
+  `close` is dual-auth: `Authorization: Bearer vypam-ci1.…` or
+  `X-Broker-Token` → pipeline (own rows only), otherwise the admin check.
+- **Chain**: request → the policy decides (`auto` grants inline, `manual`
+  queues for an admin approval) → release is a real vault checkout under
+  the pipeline's name with the decrypted secret in that one response only
+  → the window expires on the real clock (lazy refresh on every read), and
+  close/expiry release the checkout and rotate the credential through the
+  §5 pipeline (`session_end` trigger, `session_ref broker-<id>`), exactly
+  like a JIT grant. Refusals are honest and evidenced: TTL above the
+  policy cap → 400 `details.cap`, target outside `allowed_targets` → 403
+  with a `refused` event on the trail, another pipeline's credential → 404,
+  an `auto` release whose item is already checked out → 400 with the
+  request left `approved`. Revoking a policy closes its open credentials
+  first (released ones rotate), then the token stops authenticating.
+- **Console**: the JIT Access screen gains the full-width Pipeline
+  Credential Broker section (policy table with one-time token reveal at
+  registration, credential queue with approve / deny / close, real stat
+  tiles, `file://` falls back to dashes); Compliance gains the 15th chip
+  (source `broker`).
+
 ## 5. API conventions
 
 | Concern | Rule |
 |---|---|
 | Versioning | Everything under `/api/v1` (health/meta unversioned) |
-| Auth | `LICENSE_ADMIN_TOKEN` set → `Authorization: Bearer …` or `X-Admin-Token: …` on the 64 admin operations; unset → explicit open dev mode (`X-Auth-Mode: open` response header) |
+| Auth | `LICENSE_ADMIN_TOKEN` set → `Authorization: Bearer …` or `X-Admin-Token: …` on the 74 admin operations; unset → explicit open dev mode (`X-Auth-Mode: open` response header); pipeline `/broker` operations require the broker API token and are never waived |
 | Actor | `X-Actor` header recorded on every audited write |
 | Errors | `{"error": {"code", "message", "details?"}}`; 400 validation, 401 auth, 403 policy refusal, 404, 409 conflict/state, 422 shape, 503 fail-closed dependency |
 | Pagination | `limit` (max 200) + `offset`, newest first |
@@ -449,10 +488,9 @@ its phase starts (plan > code > docs, in that order).
 
 | Phase / section | Data additions | API additions | Runtime behavior |
 |---|---|---|---|
-| 5c §15 DevSecOps | broker policy rows | `POST /broker/credentials` | time-boxed pipeline credentials (JIT semantics), no static CI secrets |
 | 5d §16 AI-Agent | `agent_identities`, task scopes | agent request endpoints + task-scoped rule evaluation | identity → task → risk → JIT → restricted commands → expiry |
 | 6a §18 HA | replication/failover topology | health/failover endpoints | multi-node; storage engine decision = core design item |
-| 6b RBAC | `roles`, `role_bindings` | security schemes gain role requirements | attribute checks on the 64 admin ops + vault/target scoping |
+| 6b RBAC | `roles`, `role_bindings` | security schemes gain role requirements | attribute checks on the 74 admin ops + vault/target scoping |
 | 6c SSO/HSM | SSO/HSM config state | SAML/OIDC login path, PKCS#11/KMS key ops | settings schema becomes enforcement; posture counts flip honestly |
 
 Standing constraints that carry into all of these: ledger emission inside
