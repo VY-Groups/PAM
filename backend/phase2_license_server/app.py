@@ -23,7 +23,8 @@ from licensing_bridge import sig
 from models import ensure_schema
 from routes import api
 from rotation_scheduler import start as start_rotation_scheduler
-from service import ensure_command_rules
+from cluster_monitor import start as start_cluster_monitor
+from service import cluster_self_role, ensure_cluster_self, ensure_command_rules
 from audit import ensure_audit_chain
 
 logger = logging.getLogger(__name__)
@@ -88,10 +89,24 @@ def create_app(config: Optional[Config] = None) -> Flask:
         except Exception:  # pragma: no cover - only when the DB is down
             logger.exception("Database connectivity check failed")
             database = "error"
+        # HA / DC / DR (section 18): this node's deployment identity, so a
+        # peer's real probe and an operator's `curl` both see which node
+        # answered. The role comes from this node's own registry row; when
+        # the database is down the row cannot be read, so it says `unknown`
+        # rather than guessing a default.
+        role = "unknown"
+        if database == "ok":
+            try:
+                role = cluster_self_role()
+            except Exception:  # pragma: no cover - defensive, still honest
+                logger.exception("Cluster role read failed")
         payload = {
             "status": "ok" if database == "ok" else "degraded",
             "database": database,
             "auth": "token" if config.admin_token else "open",
+            "node": config.node_name,
+            "site": config.node_site,
+            "role": role,
             "private_key": str(config.private_key_path),
             "algorithms": list(sig.SUPPORTED_ALGORITHMS),
             "formats": list(sig.SUPPORTED_FORMATS),
@@ -154,11 +169,23 @@ def create_app(config: Optional[Config] = None) -> Flask:
         backfilled = ensure_audit_chain()
         if backfilled:
             logger.info("Audit ledger: backfilled %d historical events", backfilled)
+        # HA / DC / DR (section 18): this node's own registry row, seeded
+        # once from PAM_NODE_NAME / PAM_SITE. A restart never resets the
+        # role - a promoted node stays promoted until an operator demotes.
+        registered = ensure_cluster_self()
+        if registered:
+            logger.info("Cluster: registered this node as '%s'", registered)
 
     # Optional real-clock rotation scheduler (ROTATION_SCHEDULER=1); off in
     # tests and dev unless explicitly enabled, never fabricated when quiet.
     if config.rotation_scheduler:
         start_rotation_scheduler(app, config.rotation_scheduler_interval)
+
+    # Optional automatic-failover monitor (CLUSTER_MONITOR=1): while this
+    # node is passive it probes the registered active peers on a real
+    # clock and promotes with the failures as the reason.
+    if config.cluster_monitor:
+        start_cluster_monitor(app, config.cluster_monitor_interval)
 
     return app
 

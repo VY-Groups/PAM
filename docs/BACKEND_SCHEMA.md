@@ -1,6 +1,6 @@
 # VY-PAM — Backend Schema
 
-**Status:** as-built for Phase 5b
+**Status:** as-built for Phase 6a
 Two databases: the **shipped runtime DB** (`backend/phase2_license_server/
 licenses.db`, SQLAlchemy/Flask-SQLAlchemy) and the **vendor-tool DB**
 (`pam_master/master.db`, raw `sqlite3`). Both are SQLite, both git-ignored.
@@ -11,7 +11,7 @@ external migration tool.
 
 ---
 
-## 1. Shipped runtime - 38 tables
+## 1. Shipped runtime - 44 tables
 
 ### ERD (logical)
 
@@ -40,6 +40,11 @@ broker_policies ─1:n─ broker_credentials      (policy_id → broker_policies
 broker_events                                 (policy/credential actions → ledger source `broker`)
 agent_identities ─1:n─ agent_task_scopes      (agent_id → agent_identities; §16 declared tasks with their allowed_commands allow-list)
 agent_identities ─1:n─ agent_events           (agent/task/request ids captured at write time; agent actions → ledger source `agent`)
+cluster_nodes ─1:n─ cluster_events            (node_id → cluster_nodes; §18 actions → ledger source `cluster`)
+cluster_nodes ─1:n─ cluster_audit_replicas    (peer chain evidence re-hashed here - never merged into audit_events)
+cluster_nodes ─1:n─ cluster_secret_replicas   (peer vault ciphertext stored sealed; plaintext_here flags a local key match)
+cluster_nodes ─1:n─ cluster_session_replicas  (peer session metadata as evidence, not a merge)
+cluster_backups                              (verified SQLite copies: path + sha256 + audit_seq)
 audit_events                                    (hash chain over all of the above)
 ```
 
@@ -344,9 +349,9 @@ DateTime indexed
   Preserved evidence, never rewritten. Folded into the §19 ledger by
   `_map_anomaly` under the existing `risk` source (`action:
   anomaly-incident`, ref `anom:<id>`), so the anomaly rows added no new
-  ledger source (11 sources at 4j; **15** today — the §13 `vendor` source
+  ledger source (11 sources at 4j; **16** today - the §13 `vendor` source
   joined in 5a, the §14 `cloud` source in 5b, the §15 `broker` source in
-  5c and the §16 `agent` source in 5d).
+  5c, the §16 `agent` source in 5d and the §18 `cluster` source in 6a).
   The model class is named `AnomalyEvent` deliberately: the audit drift
   guard requires every `*Event` table to join the ledger.
 
@@ -513,6 +518,95 @@ DateTime indexed.
   actions the actor is the agent's own name. Folded into the §19 ledger
   by `_map_agent` (ref `agent:<id>`) as the **fifteenth** source.
 
+### 1.39 `cluster_nodes` — §18 node registry (this node + peers)
+
+| Column | Type | Null | Default | Index/Notes |
+|---|---|---|---|---|
+| id | INTEGER PK | ✗ | | |
+| name | String(64) | ✗ | | unique, indexed · this node's row is created at startup from `PAM_NODE_NAME`, never re-created by a restart |
+| site | String(8) | ✗ | `dc` | `dc` or `dr` (validated on write; `PAM_SITE` for self) |
+| role | String(8) | ✗ | `active` | `active` or `passive` — the row *is* the passive gate's source of truth; a restart never resets it |
+| base_url | String(255) | ✗ | `''` | peer base URL — `https` unless loopback; empty on self |
+| health | String(16) | ✗ | `unknown` | `unknown\|healthy\|degraded\|unreachable` — only ever set by a real probe or sync, never assumed |
+| last_probe_at | DateTime | ✓ | | last probe/sync measurement |
+| last_latency_ms | Integer | ✓ | | measured round-trip; `null` before the first probe |
+| last_error | String(255) | ✗ | `''` | verbatim transport error of the last failure |
+| consecutive_failures | Integer | ✗ | `0` | probe failures since the last success; ≥ 3 feeds auto-failover |
+| created_at | DateTime | ✗ | now | indexed |
+| created_by | String(64) | ✗ | `system` | startup self-registration vs the admin who added the peer |
+
+### 1.40 `cluster_events` — §18 topology trail (ledger source `cluster`)
+
+`id` PK · `node_id` Integer indexed nullable · `action` String(32) ·
+`actor` String(64) · `subject` String(128) · `detail` JSON · `created_at`
+DateTime indexed.
+- actions: `node-registered` · `node-updated` · `node-removed` · `probe` ·
+  `synced` · `sync-failed` · `promoted` · `demoted` · `backup`. A `probe`
+  event is recorded only when health **state changes** (repeat probes stay
+  off the trail); an automatic monitor promotion carries
+  `detail.automatic: true`. Folded into the §19 ledger by `_map_cluster`
+  (ref `cluster:<id>`) as the **sixteenth** source.
+
+### 1.41 `cluster_audit_replicas` — §18 pulled chain evidence (per peer)
+
+| Column | Type | Null | Default | Index/Notes |
+|---|---|---|---|---|
+| id | INTEGER PK | ✗ | | |
+| node_id | Integer | ✗ | | indexed → `cluster_nodes.id` |
+| seq | Integer | ✗ | | the peer's ledger sequence |
+| prev_hash | String(64) | ✗ | `''` | as the peer published it |
+| event_hash | String(64) | ✗ | | re-hashed locally on pull |
+| source | String(32) | ✗ | `''` | |
+| event_ref | String(128) | ✗ | `''` | |
+| action | String(64) | ✗ | `''` | |
+| actor | String(64) | ✗ | `''` | |
+| subject | String(255) | ✗ | `''` | |
+| detail | JSON | ✗ | `{}` | |
+| created_at | DateTime | ✗ | now | |
+| verified | Boolean | ✗ | `false` | true only when the local re-hash matched the published chain — a break stores the rest as `verified: false` with `first_break_seq` on the response |
+| synced_at | DateTime | ✗ | now | indexed |
+- Evidence, never merged: these rows live only under `node_id`; this
+  node's own `audit_events` chain is untouched by every sync.
+
+### 1.42 `cluster_secret_replicas` — §18 sealed vault ciphertext (per peer)
+
+| Column | Type | Null | Default | Index/Notes |
+|---|---|---|---|---|
+| id | INTEGER PK | ✗ | | |
+| node_id | Integer | ✗ | | indexed → `cluster_nodes.id` |
+| item_id | Integer | ✗ | | the peer's item id — not a local FK, the item need not exist here |
+| name | String(160) | ✗ | `''` | |
+| target | String(255) | ✗ | `''` | |
+| secret_type | String(64) | ✗ | `''` | |
+| version | Integer | ✗ | `1` | |
+| sealed_blob | Text | ✗ | | stored exactly as the peer sealed it |
+| plaintext_here | Boolean | ✗ | `false` | true only when a real decrypt under **this** node's vault key succeeded — a foreign key keeps it sealed |
+| synced_at | DateTime | ✗ | now | indexed |
+
+### 1.43 `cluster_session_replicas` — §18 session metadata (per peer)
+
+| Column | Type | Null | Default | Index/Notes |
+|---|---|---|---|---|
+| id | INTEGER PK | ✗ | | |
+| node_id | Integer | ✗ | | indexed → `cluster_nodes.id` |
+| session_id | String(64) | ✗ | | indexed · the peer's session reference |
+| payload | JSON | ✗ | `{}` | metadata only — ids, targets, times; never recording content |
+| synced_at | DateTime | ✗ | now | indexed |
+
+### 1.44 `cluster_backups` — §18 verified SQLite backup ledger
+
+| Column | Type | Null | Default | Index/Notes |
+|---|---|---|---|---|
+| id | INTEGER PK | ✗ | | |
+| path | String(255) | ✗ | | file under `CLUSTER_BACKUP_DIR` |
+| sha256 | String(64) | ✗ | `''` | of the copied file |
+| size_bytes | Integer | ✗ | `0` | |
+| audit_seq | Integer | ✗ | `0` | chain head at backup time |
+| verified | Boolean | ✗ | `false` | the copy was re-opened read-only and its chain re-walked before the 201 |
+| verify_detail | String(255) | ✗ | `''` | honest reason whenever verification fails |
+| created_at | DateTime | ✗ | now | |
+| created_by | String(64) | ✗ | `system` | |
+
 ---
 
 ## 2. Vendor tool - `pam_master/master.db` (4 tables)
@@ -586,8 +680,6 @@ column sets land with the code + contract commit; counts are `—` until then.
 
 | Phase | Tables | Notes |
 |---|---|---|
-| 5d §16 | `agent_identities`, `agent_task_scopes` | command restrictions reference `command_rules` |
-| 6a §18 | replication topology (external store decision) | may replace SQLite — design item of the phase |
 | 6b | `roles`, `role_bindings` | attribute rules as JSON policy rows |
 | 6c | SSO/HSM state columns in existing settings groups | |
 

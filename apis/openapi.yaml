@@ -58,12 +58,14 @@ tags:
     description: CI/CD credential broker - pipeline API tokens, approval policies and time-boxed credentials for CI systems (architecture 15)
   - name: agent
     description: AI-Agent PAM - agent identities and API tokens, task-scoped allowed-command lists, risk-scored access requests and monitored sessions (architecture 16)
+  - name: cluster
+    description: HA / DC / DR - node registry with real health probes, pull replication (hash-verified audit chain, sealed vault ciphertext, session metadata), role-enforced failover, automatic-failover monitor and real backups (architecture 18)
 paths:
   /health:
     get:
       tags: [ops]
       summary: Health probe
-      description: Liveness plus database connectivity, configured key paths, supported algorithms and formats.
+      description: Liveness plus database connectivity, configured key paths, supported algorithms and formats, and this node's HA identity (name, site, role - architecture 18).
       responses:
         "200":
           description: Service healthy
@@ -3949,6 +3951,391 @@ paths:
             application/json:
               schema: {$ref: "#/components/schemas/AgentStats"}
 
+  /api/v1/cluster:
+    get:
+      tags: [cluster]
+      summary: Cluster overview (architecture 18)
+      description: This node's deployment identity and role, the peer table with each node's last real probe, replica posture (audit records held and how many verified locally, replicated secrets, sessions) and the backup ledger.
+      security:
+        - bearerAuth: []
+        - adminTokenHeader: []
+        - {}
+      responses:
+        "200":
+          description: Cluster overview
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/ClusterOverview"}
+        "401": {$ref: "#/components/responses/Unauthorized"}
+
+  /api/v1/cluster/nodes:
+    get:
+      tags: [cluster]
+      summary: Registered nodes
+      description: This node first, then every registered peer by name - each with the honest health state of its last real probe (`unknown` until the first probe).
+      security:
+        - bearerAuth: []
+        - adminTokenHeader: []
+        - {}
+      responses:
+        "200":
+          description: Registered nodes
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/ClusterNodeList"}
+        "401": {$ref: "#/components/responses/Unauthorized"}
+    post:
+      tags: [cluster]
+      summary: Register a peer node
+      description: |
+        One peer: its site (`dc`/`dr`), its role in the topology
+        (`active`/`passive`) and where its `/health` answers. The node
+        starts `unknown` - health is never assumed, only measured by a
+        real probe. Plain http is accepted only for loopback addresses;
+        anything else must be https.
+      security:
+        - bearerAuth: []
+        - adminTokenHeader: []
+        - {}
+      parameters:
+        - name: X-Actor
+          in: header
+          schema: {type: string, maxLength: 64}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: "#/components/schemas/ClusterNodeCreate"}
+      responses:
+        "201":
+          description: Registered
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/ClusterNodeResponse"}
+        "400": {$ref: "#/components/responses/BadRequest"}
+        "401": {$ref: "#/components/responses/Unauthorized"}
+        "409": {$ref: "#/components/responses/Conflict"}
+
+  /api/v1/cluster/nodes/{node_id}:
+    get:
+      tags: [cluster]
+      summary: One registered node
+      security:
+        - bearerAuth: []
+        - adminTokenHeader: []
+        - {}
+      parameters:
+        - name: node_id
+          in: path
+          required: true
+          schema: {type: integer, minimum: 1}
+      responses:
+        "200":
+          description: The node with its last probe state
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/ClusterNodeResponse"}
+        "401": {$ref: "#/components/responses/Unauthorized"}
+        "404": {$ref: "#/components/responses/NotFound"}
+    patch:
+      tags: [cluster]
+      summary: Update a registered node
+      description: Topology changes (name, site, role, base_url) - each accepted change lands on the cluster trail with the value it replaced. This node's deployment name cannot be reassigned.
+      security:
+        - bearerAuth: []
+        - adminTokenHeader: []
+        - {}
+      parameters:
+        - name: node_id
+          in: path
+          required: true
+          schema: {type: integer, minimum: 1}
+        - name: X-Actor
+          in: header
+          schema: {type: string, maxLength: 64}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: "#/components/schemas/ClusterNodeUpdate"}
+      responses:
+        "200":
+          description: Updated
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/ClusterNodeResponse"}
+        "400": {$ref: "#/components/responses/BadRequest"}
+        "401": {$ref: "#/components/responses/Unauthorized"}
+        "404": {$ref: "#/components/responses/NotFound"}
+        "409": {$ref: "#/components/responses/Conflict"}
+    delete:
+      tags: [cluster]
+      summary: Unregister a peer
+      description: The peer's registry row goes; its replicated evidence stays (this node's own DR record) and the response reports how much stays behind. This node cannot unregister itself.
+      security:
+        - bearerAuth: []
+        - adminTokenHeader: []
+        - {}
+      parameters:
+        - name: node_id
+          in: path
+          required: true
+          schema: {type: integer, minimum: 1}
+        - name: X-Actor
+          in: header
+          schema: {type: string, maxLength: 64}
+      responses:
+        "200":
+          description: Removed, with the replica counts left behind
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/ClusterNodeRemoved"}
+        "401": {$ref: "#/components/responses/Unauthorized"}
+        "404": {$ref: "#/components/responses/NotFound"}
+        "409": {$ref: "#/components/responses/Conflict"}
+
+  /api/v1/cluster/nodes/{node_id}/probe:
+    post:
+      tags: [cluster]
+      summary: Probe a peer's real /health
+      description: |
+        A real HTTP GET against the peer's `/health` with a measured
+        latency. An unreachable peer is recorded `unreachable` with the
+        transport error verbatim, a 200 whose body is not healthy is
+        `degraded` - never a fabricated healthy state. The cluster trail
+        records health *changes* only.
+      security:
+        - bearerAuth: []
+        - adminTokenHeader: []
+        - {}
+      parameters:
+        - name: node_id
+          in: path
+          required: true
+          schema: {type: integer, minimum: 1}
+        - name: X-Actor
+          in: header
+          schema: {type: string, maxLength: 64}
+      responses:
+        "200":
+          description: Probe result and the updated node
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/ClusterProbeResponse"}
+        "400": {$ref: "#/components/responses/BadRequest"}
+        "401": {$ref: "#/components/responses/Unauthorized"}
+        "404": {$ref: "#/components/responses/NotFound"}
+
+  /api/v1/cluster/nodes/{node_id}/sync:
+    post:
+      tags: [cluster]
+      summary: Pull replication from a peer
+      description: |
+        Replication is a pull from the peer's own endpoints: its immutable
+        audit chain (every record re-hashed here, so a tampered or broken
+        chain is stored as unverified evidence with the first break named),
+        its sealed vault ciphertext (this node cannot decrypt a blob sealed
+        under a different vault key - `plaintext_here` says whether this
+        node's key could, and that is all it says) and its session
+        metadata. A `peer_token` in the body authenticates the outbound
+        calls only: it is never stored, never echoed and never recorded.
+        A transport failure is reported with the error verbatim and the
+        kinds already applied stay applied.
+      security:
+        - bearerAuth: []
+        - adminTokenHeader: []
+        - {}
+      parameters:
+        - name: node_id
+          in: path
+          required: true
+          schema: {type: integer, minimum: 1}
+        - name: X-Actor
+          in: header
+          schema: {type: string, maxLength: 64}
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema: {$ref: "#/components/schemas/ClusterSyncRequest"}
+      responses:
+        "200":
+          description: Per-kind sync result (ok true or an honest error)
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/ClusterSyncResponse"}
+        "400": {$ref: "#/components/responses/BadRequest"}
+        "401": {$ref: "#/components/responses/Unauthorized"}
+        "404": {$ref: "#/components/responses/NotFound"}
+
+  /api/v1/cluster/replicas:
+    get:
+      tags: [cluster]
+      summary: Replicated evidence held here
+      description: |
+        Per peer: audit records pulled and how many verified under local
+        re-walk, replicated secrets (and how many this node's own key
+        could open), sessions mirrored, last sync time. Replica rows are
+        evidence - they never merge into the live tables.
+      security:
+        - bearerAuth: []
+        - adminTokenHeader: []
+        - {}
+      responses:
+        "200":
+          description: Replica posture per node
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/ClusterReplicas"}
+        "401": {$ref: "#/components/responses/Unauthorized"}
+
+  /api/v1/cluster/failover:
+    post:
+      tags: [cluster]
+      summary: Promote or demote this node (failover)
+      description: |
+        The section-18 failover action: a real role flip on this node's own
+        registry row, recorded with the role it replaced. While `passive`,
+        the app-level gate refuses every mutation outside
+        `/api/v1/cluster/*` with 409 - the role is enforced, not a
+        dashboard label. Failback (demote) is an operator decision; the
+        automatic monitor only ever promotes.
+      security:
+        - bearerAuth: []
+        - adminTokenHeader: []
+        - {}
+      parameters:
+        - name: X-Actor
+          in: header
+          schema: {type: string, maxLength: 64}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: "#/components/schemas/ClusterFailoverRequest"}
+      responses:
+        "200":
+          description: Role flipped
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/ClusterFailoverResponse"}
+        "400": {$ref: "#/components/responses/BadRequest"}
+        "401": {$ref: "#/components/responses/Unauthorized"}
+        "409": {$ref: "#/components/responses/Conflict"}
+
+  /api/v1/cluster/monitor/tick:
+    post:
+      tags: [cluster]
+      summary: Run one automatic-failover tick now
+      description: |
+        The same function the opt-in `CLUSTER_MONITOR` thread runs: while
+        this node is passive, probe every registered active peer; when all
+        of them have failed 3 consecutive real probes, promote this node
+        with those failures recorded as the reason. An active node is a
+        no-op; the tick never auto-demotes.
+      security:
+        - bearerAuth: []
+        - adminTokenHeader: []
+        - {}
+      parameters:
+        - name: X-Actor
+          in: header
+          schema: {type: string, maxLength: 64}
+      responses:
+        "200":
+          description: Tick outcome (probed peers, whether this node promoted)
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/ClusterMonitorTick"}
+        "401": {$ref: "#/components/responses/Unauthorized"}
+
+  /api/v1/cluster/backups:
+    get:
+      tags: [cluster]
+      summary: Recorded backups
+      description: |
+        Every real backup of this node's database, newest first: path,
+        sha256, size, ledger head at backup time and the re-walk verdict
+        from the copy itself.
+      security:
+        - bearerAuth: []
+        - adminTokenHeader: []
+        - {}
+      responses:
+        "200":
+          description: Backup ledger
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/ClusterBackupList"}
+        "401": {$ref: "#/components/responses/Unauthorized"}
+    post:
+      tags: [cluster]
+      summary: Take a real backup now
+      description: |
+        SQLite's online backup API copies the live file without stopping
+        writes; the copy is hashed (sha256) and re-opened read-only to
+        re-walk its audit chain. A backup that cannot be verified records
+        why, honestly. The storage engine must be SQLite - other engines
+        answer 503 rather than pretending.
+      security:
+        - bearerAuth: []
+        - adminTokenHeader: []
+        - {}
+      parameters:
+        - name: X-Actor
+          in: header
+          schema: {type: string, maxLength: 64}
+      responses:
+        "201":
+          description: Backup taken
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/ClusterBackupResponse"}
+        "401": {$ref: "#/components/responses/Unauthorized"}
+        "503": {$ref: "#/components/responses/ServiceUnavailable"}
+
+  /api/v1/cluster/export/vault:
+    get:
+      tags: [cluster]
+      summary: Sealed vault export for replication
+      description: |
+        This node's vault ciphertext for a peer's replication pull: each
+        item's current version with the blob exactly as stored
+        (`{"v", "alg", "nonce", "ct"}`). The plaintext never crosses this
+        endpoint - only the AES-GCM wire form does, and it only opens
+        under the shared vault key.
+      security:
+        - bearerAuth: []
+        - adminTokenHeader: []
+        - {}
+      responses:
+        "200":
+          description: Sealed items only
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/ClusterVaultExport"}
+        "401": {$ref: "#/components/responses/Unauthorized"}
+
+  /api/v1/cluster/export/sessions:
+    get:
+      tags: [cluster]
+      summary: Session metadata export for replication
+      description: |
+        This node's privileged-session rows for a peer's replication pull:
+        who had access to what, when, and how it ended. Recording content
+        stays in this node's append-only recording store.
+      security:
+        - bearerAuth: []
+        - adminTokenHeader: []
+        - {}
+      responses:
+        "200":
+          description: Session metadata only
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/ClusterSessionExport"}
+        "401": {$ref: "#/components/responses/Unauthorized"}
+
 components:
   securitySchemes:
     bearerAuth:
@@ -4034,6 +4421,12 @@ components:
         status: {type: string, enum: [ok, degraded]}
         database: {type: string, enum: [ok, error]}
         auth: {type: string, enum: [token, open]}
+        node: {type: string, description: "This node's deployment name (PAM_NODE_NAME), so a peer probe sees which node answered."}
+        site: {type: string, enum: [dc, dr], description: "Deployment site (PAM_SITE)."}
+        role:
+          type: string
+          enum: [active, passive, unknown]
+          description: "This node's cluster role from its own registry row; `unknown` only when the database is unreadable."
         private_key: {type: string, description: Configured RSA key path}
         algorithms:
           type: array
@@ -6872,3 +7265,290 @@ components:
             by_status: {type: object, additionalProperties: {type: integer}}
             open: {type: integer, description: "pending + approved + active."}
         events: {type: integer}
+
+    ClusterNode:
+      type: object
+      required: [id, name, site, role, base_url, health, consecutive_failures]
+      properties:
+        id: {type: integer}
+        name: {type: string, maxLength: 64, description: "Node name; for this node it comes from PAM_NODE_NAME."}
+        site: {type: string, enum: [dc, dr]}
+        role: {type: string, enum: [active, passive], description: "Topology role. While this node is `passive` the write gate refuses every mutation outside /api/v1/cluster/*."}
+        base_url: {type: string, description: "Peer base URL (empty for this node). https required except loopback."}
+        health:
+          type: string
+          enum: [unknown, healthy, degraded, unreachable]
+          description: Honest state of the last real probe; `unknown` until the first probe.
+        last_probe_at: {type: [string, "null"]}
+        last_latency_ms: {type: [integer, "null"], description: Measured round trip of the last probe or sync.}
+        last_error: {type: string, description: "Transport error verbatim (empty when healthy)."}
+        consecutive_failures: {type: integer, description: "Failed probes since the last healthy one."}
+        created_at: {type: string}
+        created_by: {type: string}
+
+    ClusterNodeCreate:
+      type: object
+      required: [name, base_url]
+      properties:
+        name: {type: string, minLength: 1, maxLength: 64}
+        site: {type: string, enum: [dc, dr], default: dc}
+        role: {type: string, enum: [active, passive], default: active}
+        base_url: {type: string, description: "http(s) base URL. Plain http only to loopback."}
+
+    ClusterNodeUpdate:
+      type: object
+      properties:
+        name: {type: string, minLength: 1, maxLength: 64}
+        site: {type: string, enum: [dc, dr]}
+        role: {type: string, enum: [active, passive]}
+        base_url: {type: string}
+
+    ClusterNodeResponse:
+      type: object
+      required: [node]
+      properties:
+        node: {$ref: "#/components/schemas/ClusterNode"}
+        message: {type: string}
+
+    ClusterNodeList:
+      type: object
+      required: [nodes]
+      properties:
+        nodes: {type: array, items: {$ref: "#/components/schemas/ClusterNode"}}
+
+    ClusterNodeRemoved:
+      type: object
+      required: [removed, replicas_left]
+      properties:
+        removed: {type: string}
+        replicas_left:
+          type: object
+          description: Replica rows that stay behind after unregistering (evidence outlives the registry entry).
+          properties:
+            audit: {type: integer}
+            vault: {type: integer}
+            sessions: {type: integer}
+
+    ClusterSelf:
+      type: object
+      required: [name, site, role, auth]
+      properties:
+        name: {type: string, description: "PAM_NODE_NAME."}
+        site: {type: string, enum: [dc, dr], description: "PAM_SITE."}
+        role: {type: string, enum: [active, passive]}
+        auth: {type: string, enum: [token, open]}
+
+    ClusterOverview:
+      type: object
+      required: [self, nodes, peers, replication, backups, monitor]
+      properties:
+        self: {$ref: "#/components/schemas/ClusterSelf"}
+        nodes: {type: array, items: {$ref: "#/components/schemas/ClusterNode"}}
+        peers:
+          type: object
+          properties:
+            total: {type: integer}
+            by_health: {type: object, additionalProperties: {type: integer}}
+        replication: {$ref: "#/components/schemas/ClusterReplicas"}
+        backups:
+          type: object
+          properties:
+            total: {type: integer}
+            verified: {type: integer}
+            latest:
+              oneOf:
+                - {$ref: "#/components/schemas/ClusterBackup"}
+                - {type: "null"}
+        monitor:
+          type: object
+          properties:
+            failover_failures: {type: integer, description: "Consecutive failed probes before automatic promotion (3)."}
+            probe_timeout_seconds: {type: integer}
+            sync_timeout_seconds: {type: integer}
+
+    ClusterProbeResponse:
+      type: object
+      required: [node, probe]
+      properties:
+        node: {$ref: "#/components/schemas/ClusterNode"}
+        probe:
+          type: object
+          required: [url, health, latency_ms, error, state_changed]
+          properties:
+            url: {type: string}
+            health: {type: string, enum: [unknown, healthy, degraded, unreachable]}
+            latency_ms: {type: integer}
+            error: {type: string, description: "Transport error verbatim, or empty."}
+            state_changed: {type: boolean, description: "Whether this probe changed the recorded health (the trail only logs changes)."}
+            peer:
+              type: object
+              description: The peer's own /health fields when it answered (status, database, auth, node).
+              additionalProperties: true
+
+    ClusterSyncRequest:
+      type: object
+      properties:
+        kinds:
+          type: array
+          items: {type: string, enum: [audit, vault, sessions]}
+          default: [audit, vault, sessions]
+        peer_token:
+          type: string
+          description: "Bearer token for the outbound calls to the peer - used once, never stored, never echoed, never recorded."
+        timeout_seconds: {type: integer, minimum: 1, maximum: 120, default: 30}
+
+    ClusterSyncResponse:
+      type: object
+      required: [node, kinds]
+      properties:
+        node: {type: string}
+        ok: {type: boolean, description: "False with `error` set when the pull failed; applied kinds stay applied."}
+        error: {type: string, description: "Transport error verbatim (only when ok is false)."}
+        elapsed_ms: {type: integer}
+        kinds:
+          type: object
+          description: Honest per-kind counts.
+          properties:
+            audit:
+              type: object
+              properties:
+                pulled: {type: integer}
+                new: {type: integer}
+                verified: {type: integer}
+                unverified: {type: integer}
+                first_break_seq: {type: [integer, "null"], description: "First record whose re-hashed link failed, or null when intact."}
+                intact: {type: boolean}
+            vault:
+              type: object
+              properties:
+                pulled: {type: integer}
+                new: {type: integer}
+                decryptable_here: {type: integer, description: "Blobs this node's own vault key could open (shared-key deployments)."}
+            sessions:
+              type: object
+              properties:
+                pulled: {type: integer}
+                new: {type: integer}
+
+    ClusterReplicas:
+      type: object
+      required: [nodes, totals]
+      properties:
+        nodes:
+          type: object
+          additionalProperties:
+            type: object
+            properties:
+              audit:
+                type: object
+                properties:
+                  records: {type: integer}
+                  verified: {type: integer}
+                  unverified: {type: integer}
+                  head_seq: {type: integer}
+                  head_hash: {type: string}
+              vault:
+                type: object
+                properties:
+                  secrets: {type: integer}
+                  decryptable_here: {type: integer}
+              sessions: {type: integer}
+              last_synced_at: {type: [string, "null"]}
+        totals:
+          type: object
+          properties:
+            audit: {type: integer}
+            vault: {type: integer}
+            sessions: {type: integer}
+
+    ClusterFailoverRequest:
+      type: object
+      required: [action]
+      properties:
+        action: {type: string, enum: [promote, demote]}
+        reason: {type: string, maxLength: 255, description: "Optional context recorded on the trail."}
+
+    ClusterFailoverResponse:
+      type: object
+      required: [node, from, to]
+      properties:
+        node: {type: string}
+        from: {type: string, enum: [active, passive]}
+        to: {type: string, enum: [active, passive]}
+
+    ClusterMonitorTick:
+      type: object
+      required: [role, probed, promoted]
+      properties:
+        role: {type: string, enum: [unknown, active, passive]}
+        probed:
+          type: array
+          description: One entry per registered active peer actually probed (or empty when this node is active).
+          items:
+            type: object
+            properties:
+              node: {type: string}
+              health: {type: string}
+              consecutive_failures: {type: integer}
+              error: {type: string}
+        promoted: {type: boolean}
+        reason: {type: string, description: "Why this node promoted (only when promoted is true)."}
+        note: {type: string}
+
+    ClusterBackup:
+      type: object
+      required: [id, path, sha256, size_bytes, audit_seq, verified, verify_detail, created_at, created_by]
+      properties:
+        id: {type: integer}
+        path: {type: string}
+        sha256: {type: string, minLength: 64, maxLength: 64}
+        size_bytes: {type: integer}
+        audit_seq: {type: integer, description: "Ledger head captured at backup time."}
+        verified: {type: boolean, description: "Whether the copy's own audit chain re-walked clean."}
+        verify_detail: {type: string, description: "e.g. 'chain intact over 184 records' or the first break."}
+        created_at: {type: string}
+        created_by: {type: string}
+
+    ClusterBackupList:
+      type: object
+      required: [backups]
+      properties:
+        backups: {type: array, items: {$ref: "#/components/schemas/ClusterBackup"}}
+
+    ClusterBackupResponse:
+      type: object
+      required: [backup, message]
+      properties:
+        backup: {$ref: "#/components/schemas/ClusterBackup"}
+        message: {type: string}
+
+    ClusterVaultExport:
+      type: object
+      required: [items, count]
+      properties:
+        count: {type: integer}
+        items:
+          type: array
+          description: Sealed ciphertext only - the AES-GCM wire form, never the plaintext.
+          items:
+            type: object
+            required: [item_id, name, version, blob]
+            properties:
+              item_id: {type: integer}
+              name: {type: string}
+              target: {type: string}
+              secret_type: {type: string}
+              version: {type: integer}
+              blob:
+                type: object
+                description: 'The stored wire form {"v", "alg", "nonce", "ct"}.'
+                additionalProperties: true
+
+    ClusterSessionExport:
+      type: object
+      required: [sessions, count]
+      properties:
+        count: {type: integer}
+        sessions:
+          type: array
+          items: {type: object, additionalProperties: true}

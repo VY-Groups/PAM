@@ -1239,8 +1239,8 @@ def test_agent_trail_reaches_the_ledger_as_the_fifteenth_source(client, monkeypa
     request = ask(client, token, item["id"]).get_json()["request"]
     open_access(client, token, request["id"])
 
-    assert len(audit_module.AUDIT_SOURCES) == 15
-    assert audit_module.AUDIT_SOURCES[-1] == "agent"
+    assert len(audit_module.AUDIT_SOURCES) == 16
+    assert audit_module.AUDIT_SOURCES[-1] == "cluster"
     events = client.get(
         "/api/v1/events?source=agent&limit=50"
     ).get_json()["events"]

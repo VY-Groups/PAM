@@ -1,6 +1,6 @@
 # VY-PAM — Implementation Plan (remaining architecture coverage)
 
-**Status:** maintained through Phase 5d — remaining backlog starts at 6a
+**Status:** maintained through Phase 6a — remaining backlog starts at 6b
 **Authoritative spec:** `VY-PAM_Enterprise_PAM_Architecture.md`
 **Execution log:** `VY-PAM_MASTER_and_PAM_Workflow.md` (checkpoint rows — the
 resumable source of truth while working)
@@ -26,7 +26,7 @@ resumable source of truth while working)
 | §7 Risk-Based Access | 8-component engine + session gate | ✅ built | 4f |
 | §8 Privileged Sessions | recording, controls, cascade | ✅ built | 4c |
 | §9 Command Control | default-allow rules, holds, incidents | ✅ built | 4d |
-| §19 Immutable Audit | hash chain, 15 sources, verify/export | ✅ built | 4e |
+| §19 Immutable Audit | hash chain, 16 sources, verify/export | ✅ built | 4e |
 | §10 PAM Bypass Detection | direct-access detection | ✅ built | **4g** |
 | §17 Break Glass | emergency protocol (dual approval → recorded session → rotation) | ✅ built | **4h** |
 | §20 Enterprise Integrations | TOTP MFA gate, ITSM verify, SIEM push, LDAP bind | ✅ built | **4i** |
@@ -36,7 +36,7 @@ resumable source of truth while working)
 | §14 Cloud PAM | AWS/Azure/GCP/K8s connectors, K8s RBAC → JIT grants | ✅ built | **5b** |
 | §15 DevSecOps PAM | CI/CD JIT credential broker | ✅ built | **5c** |
 | §16 AI-Agent PAM | agent identity + task-scoped access | ✅ built | **5d** |
-| §18 HA / DC / DR | multi-node, replication, failover | ⛔ pending | **6a** |
+| §18 HA / DC / DR | multi-node, replication, failover | ✅ built | **6a** |
 | RBAC / ABAC | multi-role model (single admin today) | ⛔ pending | **6b** |
 | SSO / HSM enforcement | settings schema → real enforcement | ⛔ pending (schema only) | **6c** |
 | §21 Admin Dashboard | all widgets live | 🟡 partial | closes per phase |
@@ -426,17 +426,44 @@ to dashes). `test_agent.py` **29** + full backend **541** (in-container
 
 ## 9. Phase 6 — platform & scale
 
-### 6a — HA / DC / DR (§18)
-Active-active/passive nodes behind a load balancer, vault cluster with
-encrypted replication, audit/session replication to immutable storage,
-automatic failover + health checks. Storage engine decision (SQLite
-single-node → replicated store) is the core design item; backup/restore
-procedures in `docs/DEPLOYMENT_RUNBOOK.md` extend to replication runbooks.
+### 6a - HA / DC / DR (§18) - ✅ shipped
+Honest single-binary HA/DC/DR: a multi-node registry where each node is
+active or passive (`PAM_NODE_NAME`/`PAM_SITE`, self seeded at startup
+without a trail row), real `GET {base}/health` probes against every
+registered peer (https unless loopback, errors verbatim on the trail,
+events only on state change), pull replication that re-hashes the peer's
+chain record-by-record (`intact`/`verified`/`unverified`/
+`first_break_seq` — vault ciphertext stays sealed unless this node's key
+opens it → `decryptable_here`, replicas held as evidence and never
+merged, self sync → 400), `_passive_node_gate` refusing every write
+outside `/cluster/*` + `/auth/*` with 409 *before* auth while passive
+(promote re-enables writes immediately), promote/demote failover
+carrying `from`/`to` on the trail, opt-in `CLUSTER_MONITOR` where the
+monitor thread runs the same tick as `POST /cluster/monitor/tick`: while
+passive it probes every registered active peer and promotes this node
+once all of them reached 3 consecutive real failures
+(`detail.automatic` + the failing probes recorded; an active node never
+auto-demotes — failback is an operator decision, a quiet clock produces
+no events), and SQLite online backups copied then verified from the copy
+(`chain intact over N records`, non-SQLite → 503). `/health` gained
+`node`/`site`/`role`. Tables **38→44** (`cluster_nodes`,
+`cluster_events`, `cluster_audit_replicas`, `cluster_secret_replicas`,
+`cluster_session_replicas`, `cluster_backups`). 15 operations / 11 path
+keys + openapi (**131 paths / 159 ops / 19 tags / 101 admin / 238
+schemas** — ADMIN_OPERATIONS 86→101) lockstep. Ledger source `cluster`
+(**15→16**, 16th mapper `_map_cluster`), Compliance chips **16→17**,
+Platform Settings gains the HA / DC / DR section (registry +
+register/probe/sync/remove, promote/demote, replica posture, backup
+ledger, all live over `/api/v1/cluster/*`) with the gate at **33**
+checks (live register → probe → sync → remove against an unreachable
+peer asserting verbatim failures); runbooks in
+`docs/DEPLOYMENT_RUNBOOK.md` §7. `test_cluster.py` **36** + full backend
+**577** (in-container **495**).
 
 ### 6b — RBAC / ABAC
 Multi-role model (today: single admin token + open dev mode): roles
 (admin / approver / operator / auditor / auditor-read-only), policy bindings
-on the 86 admin operations, attribute rules on vault items and targets.
+on the 101 admin operations, attribute rules on vault items and targets.
 Contract lockstep: security schemes gain role requirements.
 
 ### 6c — SSO + HSM enforcement
@@ -451,7 +478,7 @@ keys where configured. Posture widget then counts them honestly as active.
 ```
 4k §12 ✓ (Phase 4 complete)
         → 5a §13 ✓ → 5b §14 ✓ → 5c §15 ✓ → 5d §16 ✓   (expansion)
-        → 6a §18 → 6b RBAC → 6c SSO/HSM          (scale)
+        → 6a §18 ✓ → 6b RBAC → 6c SSO/HSM          (scale)
 ```
 
 - **4i next:** UEBA step-up responses and vendor flows both consume MFA/
@@ -470,12 +497,12 @@ real numbers collected at that time, `—` until then**:
 2. **Console:** all 11 sidebar screens live (including Break-Glass), zero
    `data-kind="static"` surfaces, zero FORBIDDEN strings, `file://` fallback
    intact.
-3. **Evidence:** one append-only ledger covering every module source (13+
+3. **Evidence:** one append-only ledger covering every module source (16
    sources), chain verified in CI, NDJSON + webhook export flowing to a real
    SIEM when configured.
-4. **Contracts:** `apis/openapi.yaml` (path count `—`, today 96) and the
+4. **Contracts:** `apis/openapi.yaml` (path count `-`, today 131) and the
    vendor tool contract both enforced both-ways; zero dark endpoints.
-5. **Quality gates:** backend suite (today **541**) grows per phase with real
+5. **Quality gates:** backend suite (today **577**) grows per phase with real
    counts recorded in the READMEs; pam_master stays green (**46**); smoke,
    both UI verifiers, leak check all green at every boundary.
 6. **Operations:** single-node install stays Docker-free; §18 adds replicated

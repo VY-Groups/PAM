@@ -545,6 +545,111 @@
 </div>
 </div>
 </section>
+<!-- SECTION 6: HA / DC / DR (architecture section 18) -->
+<section class="bg-surface-container-lowest rounded-xl p-space-lg shadow-sm" data-role="cluster-section">
+<div class="flex flex-wrap items-start justify-between gap-space-sm pb-space-sm mb-space-md border-b border-surface-container">
+<div class="max-w-3xl">
+<div class="flex items-center gap-2">
+<span class="material-symbols-outlined text-primary text-[20px]">dns</span>
+<h2 class="font-headline-sm text-headline-sm text-on-surface">HA / DC / DR Cluster</h2>
+<span class="px-2 py-0.5 rounded bg-surface-container font-code-sm text-code-sm font-semibold uppercase tracking-wider" data-role="cluster-role">&mdash;</span>
+</div>
+<p class="font-body-sm text-body-sm text-on-surface-variant mt-1">Active/passive topology across DC and DR sites. Health comes from a real probe of <span class="font-code-sm text-code-sm">{base}/health</span>, replication is a hash-verified pull of the peer's own chain (<span class="font-code-sm text-code-sm">POST /api/v1/cluster/nodes/{id}/sync</span>), and failover flips this node's role for real: while passive, every write outside <span class="font-code-sm text-code-sm">/api/v1/cluster/*</span> (authentication excepted) is refused with 409. Aggregate: <span class="font-code-sm text-code-sm">GET /api/v1/cluster</span>.</p>
+</div>
+<div class="flex items-center gap-space-sm shrink-0">
+<button class="flex items-center gap-1.5 px-space-md py-2 rounded-lg bg-surface-container hover:bg-surface-container-high text-on-surface font-label-md text-label-md font-semibold shadow-sm" data-role="btn-cluster-backup" type="button">
+<span class="material-symbols-outlined text-[16px] text-tertiary">database</span>
+<span>New Backup</span>
+</button>
+<button class="flex items-center gap-1.5 px-space-md py-2 rounded-lg bg-primary-container text-on-primary-container hover:bg-primary font-label-md text-label-md font-semibold shadow-sm" data-role="btn-cluster-failover" type="button">
+<span class="material-symbols-outlined text-[16px]">swap_horiz</span>
+<span data-role="cluster-failover-label">&mdash;</span>
+</button>
+</div>
+</div>
+<p class="font-code-sm text-code-sm text-on-surface-variant mb-space-md" data-role="cluster-summary">loading cluster state...</p>
+<!-- four posture tiles, all numbers from the aggregate -->
+<div class="grid grid-cols-2 md:grid-cols-4 gap-space-sm mb-space-md">
+<div class="p-space-sm rounded-lg bg-surface-container-low flex flex-col gap-1">
+<span class="font-label-badge text-label-badge text-outline">THIS NODE</span>
+<span class="font-code-sm text-code-sm font-semibold text-on-surface" data-role="cluster-tile-self">&mdash;</span>
+<span class="font-code-sm text-code-sm text-on-surface-variant" data-role="cluster-tile-self-sub">&mdash;</span>
+</div>
+<div class="p-space-sm rounded-lg bg-surface-container-low flex flex-col gap-1">
+<span class="font-label-badge text-label-badge text-outline">PEERS</span>
+<span class="font-headline-sm text-[15px] text-on-surface font-semibold" data-role="cluster-tile-peers">&mdash;</span>
+<span class="font-code-sm text-code-sm text-on-surface-variant" data-role="cluster-tile-peers-sub">&mdash;</span>
+</div>
+<div class="p-space-sm rounded-lg bg-surface-container-low flex flex-col gap-1">
+<span class="font-label-badge text-label-badge text-outline">REPLICATION HELD</span>
+<span class="font-headline-sm text-[15px] text-on-surface font-semibold" data-role="cluster-tile-replication">&mdash;</span>
+<span class="font-code-sm text-code-sm text-on-surface-variant" data-role="cluster-tile-replication-sub">&mdash;</span>
+</div>
+<div class="p-space-sm rounded-lg bg-surface-container-low flex flex-col gap-1">
+<span class="font-label-badge text-label-badge text-outline">BACKUPS</span>
+<span class="font-headline-sm text-[15px] text-on-surface font-semibold" data-role="cluster-tile-backups">&mdash;</span>
+<span class="font-code-sm text-code-sm text-on-surface-variant" data-role="cluster-tile-backups-sub">&mdash;</span>
+</div>
+</div>
+<!-- register a peer (this node seeds itself at startup and is never re-added) -->
+<div class="p-space-sm rounded-lg bg-surface-container-low border border-outline-variant/30 mb-space-md flex flex-wrap items-end gap-space-sm">
+<label class="flex flex-col gap-1 font-headline-sm text-[13px] text-on-surface font-medium">Node name
+<input class="px-3 py-2 rounded bg-surface-container-lowest text-on-surface font-body-sm text-body-sm focus:outline-none focus:ring-1 focus:ring-primary-container" data-role="cluster-input-name" placeholder="pam-dr-2" type="text"/>
+</label>
+<label class="flex flex-col gap-1 font-headline-sm text-[13px] text-on-surface font-medium">Site
+<select class="px-3 py-2 rounded bg-surface-container-lowest text-on-surface font-body-sm text-body-sm focus:outline-none focus:ring-1 focus:ring-primary-container" data-role="cluster-input-site"><option value="dc">dc</option><option value="dr">dr</option></select>
+</label>
+<label class="flex flex-col gap-1 font-headline-sm text-[13px] text-on-surface font-medium">Role
+<select class="px-3 py-2 rounded bg-surface-container-lowest text-on-surface font-body-sm text-body-sm focus:outline-none focus:ring-1 focus:ring-primary-container" data-role="cluster-input-role"><option value="active">active</option><option value="passive">passive</option></select>
+</label>
+<label class="flex flex-col grow-[2] min-w-[240px] gap-1 font-headline-sm text-[13px] text-on-surface font-medium">Base URL
+<input class="px-3 py-2 rounded bg-surface-container-lowest text-on-surface font-body-sm text-body-sm focus:outline-none focus:ring-1 focus:ring-primary-container" data-role="cluster-input-url" placeholder="https://dr.example/pam" type="url"/>
+</label>
+<button class="px-space-md py-2 rounded-lg bg-tertiary/15 text-tertiary hover:bg-tertiary/25 font-label-md text-label-md font-semibold shadow-sm" data-role="btn-cluster-register" type="button">Register Peer</button>
+</div>
+<!-- registered nodes: registry row + the honest result of the last real probe -->
+<div class="overflow-x-auto mb-space-md">
+<table class="w-full text-left border-collapse">
+<thead>
+<tr class="font-label-badge text-label-badge text-outline border-b border-surface-container">
+<th class="py-2 pr-space-sm">NODE</th><th class="py-2 pr-space-sm">SITE</th><th class="py-2 pr-space-sm">ROLE</th><th class="py-2 pr-space-sm">BASE URL</th><th class="py-2 pr-space-sm">HEALTH</th><th class="py-2 pr-space-sm">LAST PROBE</th><th class="py-2 pr-space-sm">LATENCY</th><th class="py-2 pr-space-sm">FAILS</th><th class="py-2">ACTIONS</th>
+</tr>
+</thead>
+<tbody data-role="cluster-rows">
+<tr><td class="py-2 font-body-sm text-body-sm text-on-surface-variant" colspan="9">loading registered nodes...</td></tr>
+</tbody>
+</table>
+</div>
+<!-- replica posture (what this node pulled) + the backup ledger -->
+<div class="grid grid-cols-1 xl:grid-cols-2 gap-space-md">
+<div class="p-space-sm rounded-lg bg-surface-container-low border border-outline-variant/30">
+<span class="font-label-badge text-label-badge text-outline">REPLICA POSTURE (evidence pulled from peers, never merged)</span>
+<table class="w-full text-left border-collapse mt-2">
+<thead>
+<tr class="font-label-badge text-label-badge text-outline border-b border-surface-container">
+<th class="py-1.5 pr-space-sm">PEER</th><th class="py-1.5 pr-space-sm">AUDIT</th><th class="py-1.5 pr-space-sm">VAULT</th><th class="py-1.5 pr-space-sm">SESSIONS</th><th class="py-1.5">SYNCED</th>
+</tr>
+</thead>
+<tbody data-role="cluster-replica-rows">
+<tr><td class="py-2 font-body-sm text-body-sm text-on-surface-variant" colspan="5">loading replica posture...</td></tr>
+</tbody>
+</table>
+</div>
+<div class="p-space-sm rounded-lg bg-surface-container-low border border-outline-variant/30">
+<span class="font-label-badge text-label-badge text-outline">BACKUP LEDGER (sqlite online backup, chain re-verified from the copy)</span>
+<table class="w-full text-left border-collapse mt-2">
+<thead>
+<tr class="font-label-badge text-label-badge text-outline border-b border-surface-container">
+<th class="py-1.5 pr-space-sm">FILE</th><th class="py-1.5 pr-space-sm">SIZE</th><th class="py-1.5 pr-space-sm">SHA-256</th><th class="py-1.5 pr-space-sm">SEQ</th><th class="py-1.5">STATE</th>
+</tr>
+</thead>
+<tbody data-role="cluster-backup-rows">
+<tr><td class="py-2 font-body-sm text-body-sm text-on-surface-variant" colspan="5">loading backups...</td></tr>
+</tbody>
+</table>
+</div>
+</div>
+</section>
 </div>
 <!-- Right Rail: System Health Diagnostics & Config Audit Stream (4 of 12 columns) -->
 <div class="xl:col-span-4 flex flex-col gap-space-lg">
@@ -996,6 +1101,294 @@
     }
   }
 
+  /* ------------------------------------------------- cluster (HA / DC / DR) */
+  var clusterLive = {
+    reachable: false, role: 'unknown', self: null, nodes: [],
+    peers: {}, replication: {}, backups: { total: 0, verified: 0, latest: null }
+  };
+
+  function clusterText(role, text) {
+    var node = document.querySelector('[data-role="' + role + '"]');
+    if (node) node.textContent = text;
+  }
+
+  function clusterHealthChip(health) {
+    var tone = health === 'healthy' ? 'bg-tertiary'
+      : health === 'degraded' ? 'bg-primary'
+      : health === 'unreachable' ? 'bg-error' : 'bg-outline';
+    return '<span class="inline-flex items-center gap-1.5 font-code-sm text-code-sm">' +
+      '<span class="w-1.5 h-1.5 rounded-full ' + tone + '"></span>' + esc(health) + '</span>';
+  }
+
+  function clusterEmptyRow(message, columns) {
+    return '<tr><td class="py-2 font-body-sm text-body-sm text-on-surface-variant" colspan="' +
+      columns + '">' + esc(message) + '</td></tr>';
+  }
+
+  function renderCluster(data) {
+    var self = data.self || {};
+    var peers = data.peers || {};
+    var byHealth = peers.by_health || {};
+    var replication = data.replication || {};
+    var totals = replication.totals || { audit: 0, vault: 0, sessions: 0 };
+    var backups = data.backups || { total: 0, verified: 0, latest: null };
+    var nodes = data.nodes || [];
+
+    clusterLive.reachable = true;
+    clusterLive.role = self.role || 'active';
+    clusterLive.self = self;
+    clusterLive.nodes = nodes;
+    clusterLive.peers = peers;
+    clusterLive.replication = replication;
+    clusterLive.backups = backups;
+
+    clusterText('cluster-role', String(self.role || 'unknown'));
+    clusterText('cluster-failover-label', self.role === 'active' ? 'Demote' : 'Promote');
+    clusterText('cluster-summary',
+      self.name + ' (' + self.site + ') · ' + (self.role || 'unknown') +
+      ' · ' + (peers.total || 0) + ' peer' + (peers.total === 1 ? '' : 's') +
+      ' · ' + (byHealth.healthy || 0) + ' healthy' +
+      ' · audit ' + (totals.audit || 0) +
+      ' · vault ' + (totals.vault || 0) +
+      ' · sessions ' + (totals.sessions || 0) +
+      ' · backups ' + (backups.total || 0));
+
+    clusterText('cluster-tile-self', (self.name || '\u2014') +
+      (self.site ? ' · ' + self.site : ''));
+    clusterText('cluster-tile-self-sub',
+      (self.role || '\u2014') + ' · auth ' + (self.auth || '\u2014'));
+    clusterText('cluster-tile-peers', String(peers.total || 0));
+    clusterText('cluster-tile-peers-sub',
+      (byHealth.healthy || 0) + ' healthy · ' + (byHealth.degraded || 0) +
+      ' degraded · ' + (byHealth.unreachable || 0) + ' unreachable · ' +
+      (byHealth.unknown || 0) + ' unknown');
+    clusterText('cluster-tile-replication', String(totals.audit || 0));
+    clusterText('cluster-tile-replication-sub',
+      'audit rows · vault ' + (totals.vault || 0) +
+      ' · sessions ' + (totals.sessions || 0));
+    clusterText('cluster-tile-backups', String(backups.total || 0));
+    clusterText('cluster-tile-backups-sub', (backups.verified || 0) + ' verified');
+
+    var rows = document.querySelector('[data-role="cluster-rows"]');
+    if (rows) {
+      rows.innerHTML = nodes.length ? nodes.map(function (node) {
+        var isSelf = !!self.name && node.name === self.name;
+        var latency = (node.last_latency_ms === null || node.last_latency_ms === undefined)
+          ? '\u2014' : node.last_latency_ms + ' ms';
+        var actions = isSelf
+          ? '<span class="font-code-sm text-code-sm text-outline">this node</span>'
+          : '<button class="px-2 py-1 rounded font-label-md text-label-md text-primary hover:bg-surface-container font-semibold" data-cluster-action="probe" data-node-id="' + node.id + '" type="button">Probe</button>' +
+            '<button class="px-2 py-1 rounded font-label-md text-label-md text-primary hover:bg-surface-container font-semibold" data-cluster-action="sync" data-node-id="' + node.id + '" type="button">Sync</button>' +
+            '<button class="px-2 py-1 rounded font-label-md text-label-md text-error hover:bg-surface-container font-semibold" data-cluster-action="remove" data-node-id="' + node.id + '" data-node-name="' + esc(node.name) + '" type="button">Remove</button>';
+        return '<tr class="border-b border-surface-container/60">' +
+          '<td class="py-2 pr-space-sm font-code-sm text-code-sm text-on-surface font-medium whitespace-nowrap">' + esc(node.name) +
+          (isSelf ? ' <span class="px-1.5 py-0.5 rounded bg-primary/10 text-primary font-label-badge text-label-badge">SELF</span>' : '') + '</td>' +
+          '<td class="py-2 pr-space-sm font-body-sm text-body-sm">' + esc(node.site) + '</td>' +
+          '<td class="py-2 pr-space-sm font-body-sm text-body-sm">' + esc(node.role) + '</td>' +
+          '<td class="py-2 pr-space-sm font-code-sm text-code-sm text-on-surface-variant max-w-[180px] truncate">' + esc(node.base_url || '\u2014') + '</td>' +
+          '<td class="py-2 pr-space-sm">' + clusterHealthChip(node.health) + '</td>' +
+          '<td class="py-2 pr-space-sm font-body-sm text-body-sm text-on-surface-variant whitespace-nowrap">' + esc(ago(node.last_probe_at)) + '</td>' +
+          '<td class="py-2 pr-space-sm font-code-sm text-code-sm">' + esc(latency) + '</td>' +
+          '<td class="py-2 pr-space-sm font-code-sm text-code-sm">' + esc(String(node.consecutive_failures)) + '</td>' +
+          '<td class="py-2"><span class="flex items-center gap-1">' + actions + '</span></td>' +
+          '</tr>';
+      }).join('') : clusterEmptyRow('No peers registered yet - this node seeds itself at startup.', 9);
+    }
+
+    var replicaRows = document.querySelector('[data-role="cluster-replica-rows"]');
+    if (replicaRows) {
+      var names = Object.keys(replication.nodes || {});
+      replicaRows.innerHTML = names.length ? names.map(function (name) {
+        var held = replication.nodes[name];
+        var audit = held.audit || {};
+        var vault = held.vault || {};
+        var unverified = audit.unverified || 0;
+        return '<tr class="border-b border-surface-container/60">' +
+          '<td class="py-1.5 pr-space-sm font-code-sm text-code-sm text-on-surface font-medium">' + esc(name) + '</td>' +
+          '<td class="py-1.5 pr-space-sm font-code-sm text-code-sm ' + (unverified ? 'text-error font-medium' : 'text-on-surface-variant') + '">' +
+          (audit.verified || 0) + '/' + (audit.records || 0) + ' verified' +
+          (unverified ? ' · ' + unverified + ' unverified' : '') + '</td>' +
+          '<td class="py-1.5 pr-space-sm font-code-sm text-code-sm text-on-surface-variant">' +
+          (vault.decryptable_here || 0) + '/' + (vault.secrets || 0) + ' openable here</td>' +
+          '<td class="py-1.5 pr-space-sm font-code-sm text-code-sm text-on-surface-variant">' + esc(String(held.sessions || 0)) + '</td>' +
+          '<td class="py-1.5 font-body-sm text-body-sm text-on-surface-variant">' + esc(ago(held.last_synced_at)) + '</td>' +
+          '</tr>';
+      }).join('') : clusterEmptyRow('No replicas pulled yet - run a sync against a registered peer.', 5);
+    }
+  }
+
+  async function loadClusterBackups() {
+    var box = document.querySelector('[data-role="cluster-backup-rows"]');
+    if (!box) return;
+    try {
+      var res = await fetch(API + 'cluster/backups', { headers: headers(false) });
+      if (res.status === 401) {
+        box.innerHTML = clusterEmptyRow('Admin token required to list backups.', 5);
+        return;
+      }
+      if (!res.ok) throw new Error('HTTP ' + res.status);
+      var data = await res.json();
+      var backups = data.backups || [];
+      box.innerHTML = backups.length ? backups.map(function (backup) {
+        var file = String(backup.path || '').split(/[\\/]/).pop();
+        var size = backup.size_bytes >= 1048576
+          ? (backup.size_bytes / 1048576).toFixed(1) + ' MB'
+          : Math.max(1, Math.round(backup.size_bytes / 1024)) + ' KB';
+        var state = backup.verified
+          ? '<span class="inline-flex items-center gap-1.5 font-code-sm text-code-sm text-tertiary font-semibold"><span class="w-1.5 h-1.5 rounded-full bg-tertiary"></span>verified</span>'
+          : '<span class="inline-flex items-center gap-1.5 font-code-sm text-code-sm text-error font-medium"><span class="w-1.5 h-1.5 rounded-full bg-error"></span>' +
+            esc(String(backup.verify_detail || 'unverified').slice(0, 64)) + '</span>';
+        return '<tr class="border-b border-surface-container/60">' +
+          '<td class="py-1.5 pr-space-sm font-code-sm text-code-sm text-on-surface font-medium">' + esc(file) + '</td>' +
+          '<td class="py-1.5 pr-space-sm font-code-sm text-code-sm text-on-surface-variant">' + esc(size) + '</td>' +
+          '<td class="py-1.5 pr-space-sm font-code-sm text-code-sm text-on-surface-variant">' + esc(String(backup.sha256 || '').slice(0, 16)) + '…</td>' +
+          '<td class="py-1.5 pr-space-sm font-code-sm text-code-sm text-on-surface-variant">' + esc(String(backup.audit_seq)) + '</td>' +
+          '<td class="py-1.5">' + state + '</td>' +
+          '</tr>';
+      }).join('') : clusterEmptyRow('No backups taken yet - New Backup copies the database and re-walks its chain.', 5);
+    } catch (error) {
+      box.innerHTML = clusterEmptyRow('Backup ledger unavailable (license server not reachable).', 5);
+    }
+  }
+
+  async function loadCluster() {
+    try {
+      var res = await fetch(API + 'cluster', { headers: headers(false) });
+      if (res.status === 401) {
+        clusterText('cluster-role', 'locked');
+        clusterText('cluster-failover-label', '\u2014');
+        clusterText('cluster-summary',
+          'Admin token required to read cluster state - set it with the Token button.');
+        return;
+      }
+      if (!res.ok) throw new Error('HTTP ' + res.status);
+      var data = await res.json();
+      renderCluster(data);
+      await loadClusterBackups();
+    } catch (error) {
+      clusterLive.reachable = false;
+      clusterText('cluster-role', '\u2014');
+      clusterText('cluster-failover-label', '\u2014');
+      clusterText('cluster-summary', 'Cluster state unavailable (license server not reachable).');
+    }
+  }
+
+  async function clusterAction(path, options) {
+    var res;
+    try {
+      res = await fetch(API + path, Object.assign({ headers: headers(true) }, options || {}));
+    } catch (error) {
+      banner('error', 'Could not reach the license server - the cluster action did not run.');
+      return null;
+    }
+    var body = {};
+    try { body = await res.json(); } catch (parseError) { body = {}; }
+    if (res.status === 401) {
+      banner('error', body.error || 'Admin token required for cluster actions.');
+      openToken();
+      return null;
+    }
+    if (!res.ok) {
+      banner('error', body.error || ('Cluster action failed (HTTP ' + res.status + ')'));
+      return null;
+    }
+    return body;
+  }
+
+  async function clusterProbe(nodeId) {
+    var body = await clusterAction('cluster/nodes/' + nodeId + '/probe', { method: 'POST' });
+    if (!body) return;
+    var probe = body.probe || {};
+    var node = body.node || {};
+    toast('Probe: ' + (node.name || 'node') + ' is ' + (probe.health || 'unknown'),
+      (probe.latency_ms === null || probe.latency_ms === undefined ? '' : probe.latency_ms + ' ms') +
+      (probe.error ? ' - ' + probe.error
+        : (probe.peer && probe.peer.node ? ' - peer reports ' + probe.peer.node : '')));
+    await loadCluster();
+  }
+
+  async function clusterSync(nodeId) {
+    var body = await clusterAction('cluster/nodes/' + nodeId + '/sync',
+      { method: 'POST', body: '{}' });
+    if (!body) return;
+    if (body.ok) {
+      var kinds = body.kinds || {};
+      var parts = [];
+      if (kinds.audit) parts.push('audit ' + kinds.audit.pulled + ' pulled · ' +
+        kinds.audit.verified + ' verified' +
+        (kinds.audit.intact === false ? ' · break at seq ' + kinds.audit.first_break_seq : ''));
+      if (kinds.vault) parts.push('vault ' + kinds.vault.pulled + ' sealed · ' +
+        kinds.vault.decryptable_here + ' openable here');
+      if (kinds.sessions) parts.push('sessions ' + kinds.sessions.pulled);
+      toast('Replication pulled', parts.join(' · ') || 'no new records');
+    } else {
+      toast('Replication failed', body.error || 'the peer did not answer');
+    }
+    await loadCluster();
+  }
+
+  async function clusterRemove(nodeId, name) {
+    if (!window.confirm('Remove "' + name + '" from the registry? Replicated evidence this node holds is kept (re-register the peer to resume syncs).')) return;
+    var body = await clusterAction('cluster/nodes/' + nodeId, { method: 'DELETE' });
+    if (!body) return;
+    toast('Node removed', body.removed + ' deregistered - replica rows kept as this node\u2019s DR evidence.');
+    await loadCluster();
+  }
+
+  async function clusterRegister() {
+    var nameInput = document.querySelector('[data-role="cluster-input-name"]');
+    var urlInput = document.querySelector('[data-role="cluster-input-url"]');
+    var siteInput = document.querySelector('[data-role="cluster-input-site"]');
+    var roleInput = document.querySelector('[data-role="cluster-input-role"]');
+    var name = nameInput ? nameInput.value.trim() : '';
+    var url = urlInput ? urlInput.value.trim() : '';
+    if (!name || !url) {
+      banner('error', 'Node name and base URL are required to register a peer.');
+      return;
+    }
+    var body = await clusterAction('cluster/nodes', {
+      method: 'POST',
+      body: JSON.stringify({
+        name: name, site: siteInput.value, role: roleInput.value, base_url: url
+      })
+    });
+    if (!body) return;
+    if (nameInput) nameInput.value = '';
+    if (urlInput) urlInput.value = '';
+    toast('Peer registered', body.node.name + ' added as ' + body.node.role + ' at ' +
+      body.node.site + ' - health stays unknown until the first probe.');
+    await loadCluster();
+  }
+
+  async function clusterFailover() {
+    var action = clusterLive.role === 'active' ? 'demote' : 'promote';
+    var question = action === 'demote'
+      ? 'Demote THIS node to passive? Every product write outside /api/v1/cluster/* (authentication excepted) will be refused with 409 until it is promoted.'
+      : 'Promote THIS node to active? It will take over serving product writes.';
+    if (!window.confirm(question)) return;
+    var body = await clusterAction('cluster/failover', {
+      method: 'POST',
+      body: JSON.stringify({ action: action, reason: 'platform settings ui' })
+    });
+    if (!body) return;
+    toast('Role changed', body.node + ': ' + body.from + ' → ' + body.to +
+      ' - /health now reports ' + body.to + '.');
+    await health();
+    await loadCluster();
+  }
+
+  async function clusterBackup() {
+    var body = await clusterAction('cluster/backups', { method: 'POST' });
+    if (!body) return;
+    var backup = body.backup || {};
+    var file = String(backup.path || '').split(/[\\/]/).pop();
+    toast('Backup taken', file + ' · ' + backup.size_bytes + ' bytes · sha256 ' +
+      String(backup.sha256 || '').slice(0, 12) + '… · ' +
+      (backup.verified ? 'chain verified over ' + backup.audit_seq + ' records'
+        : String(backup.verify_detail || 'unverified')));
+    await loadCluster();
+  }
+
   async function enrollMfa() {
     try {
       var res = await fetch(API + 'mfa/enroll', {
@@ -1051,6 +1444,7 @@
     await health();
     await loadAudit();
     await loadIntegrations();
+    await loadCluster();
   }
 
   async function health() {
@@ -1260,6 +1654,28 @@
     event.preventDefault();
     window.open(API + 'settings/audit', '_blank', 'noopener');
   });
+
+  /* --------------------------------------------- cluster (HA / DC / DR) UI */
+  function clusterBind(role, handler) {
+    var node = document.querySelector('[data-role="' + role + '"]');
+    if (node) node.addEventListener('click', handler);
+  }
+  clusterBind('btn-cluster-backup', clusterBackup);
+  clusterBind('btn-cluster-failover', clusterFailover);
+  clusterBind('btn-cluster-register', clusterRegister);
+  var clusterRowsBox = document.querySelector('[data-role="cluster-rows"]');
+  if (clusterRowsBox) {
+    clusterRowsBox.addEventListener('click', function (event) {
+      var button = event.target.closest('[data-cluster-action]');
+      if (!button) return;
+      var id = button.getAttribute('data-node-id');
+      var action = button.getAttribute('data-cluster-action');
+      if (action === 'probe') clusterProbe(id);
+      else if (action === 'sync') clusterSync(id);
+      else if (action === 'remove') clusterRemove(id, button.getAttribute('data-node-name') || 'node');
+    });
+  }
+  window.settingsLive = { cluster: { load: loadCluster, state: clusterLive } };
 
   updateTokenUi();
   setState('idle', 'Connecting...');

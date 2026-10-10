@@ -16,15 +16,26 @@ import json
 import re
 import secrets
 import socket
+import sqlite3
 import threading
 import time
+import urllib.error
 import urllib.parse
+import urllib.request
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta
+from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
 from config import Config
-from errors import APIError, Conflict, NotFound, Unauthorized, ValidationFailed
+from errors import (
+    APIError,
+    Conflict,
+    NotFound,
+    ServiceUnavailable,
+    Unauthorized,
+    ValidationFailed,
+)
 from licensing_bridge import (
     DEFAULT_TIERS,
     ENFORCEMENT_LEVELS,
@@ -150,6 +161,12 @@ from models import (
     classify_account_kind,
     CloudConnector,
     CloudEvent,
+    ClusterAuditReplica,
+    ClusterBackup,
+    ClusterEvent,
+    ClusterNode,
+    ClusterSecretReplica,
+    ClusterSessionReplica,
     CommandIncident,
     CommandRule,
     log_event,
@@ -10761,4 +10778,1080 @@ def agent_stats() -> Dict[str, Any]:
             ),
         },
         "events": AgentEvent.query.count(),
+    }
+
+
+# ---------------------------------------------------------------------------
+# HA / DC / DR (architecture section 18): a node registry with real health
+# probes, pull replication (audit chain hash-verified record by record,
+# vault ciphertext, session metadata), role-enforced failover, an opt-in
+# automatic-failover monitor and real SQLite backups.
+#
+# The shipped server is one node (SQLite, one process); what section 18
+# asks for is delivered as the honest single-binary halves:
+#
+#   - `cluster_nodes` holds this node (its identity comes from the
+#     deployment env: PAM_NODE_NAME / PAM_SITE) and every registered peer.
+#   - Probes are real HTTP GETs against the peer's /health: an unreachable
+#     peer is recorded as unreachable with the transport error verbatim -
+#     never a fabricated healthy state.
+#   - Replication is a PULL from the peer's own endpoints: the immutable
+#     audit chain (every record re-hashed here, so a tampered or broken
+#     chain is stored as exactly that), the sealed vault ciphertext (this
+#     node cannot decrypt a blob sealed under a different vault key - the
+#     `plaintext_here` flag says whether this node's key could, and that is
+#     all it says) and session metadata. Replica rows are evidence: they
+#     never merge into the live tables and nothing local ever writes them.
+#   - Failover is a real role flip on this node's own row: while `passive`
+#     every mutation outside /api/v1/cluster/* is refused with 409 (a
+#     passive DR node answers reads and runs replication, nothing else).
+#     The opt-in monitor (CLUSTER_MONITOR=1) probes registered active
+#     peers; when every one of them has failed
+#     CLUSTER_FAILOVER_FAILURES consecutive probes, the passive node
+#     promotes itself with the failures recorded as the reason.
+#   - Backups use SQLite's own online backup API against the live file,
+#     then re-open the copy read-only and re-walk its audit chain - a
+#     backup that cannot be verified says so.
+# ---------------------------------------------------------------------------
+CLUSTER_ROLES = ("active", "passive")
+CLUSTER_SITES = ("dc", "dr")
+CLUSTER_HEALTHS = ("unknown", "healthy", "degraded", "unreachable")
+CLUSTER_SYNC_KINDS = ("audit", "vault", "sessions")
+# consecutive failed probes against every registered active peer before an
+# opt-in passive monitor promotes this node (automatic failover).
+CLUSTER_FAILOVER_FAILURES = 3
+# outbound probe/sync timeouts (seconds) unless a caller overrides them
+CLUSTER_PROBE_TIMEOUT = 5
+CLUSTER_SYNC_TIMEOUT = 30
+
+
+def _cluster_event(
+    action: str,
+    *,
+    actor: str,
+    node: Optional[ClusterNode] = None,
+    node_id: Optional[int] = None,
+    subject: str = "",
+    detail: Optional[Dict[str, Any]] = None,
+) -> ClusterEvent:
+    """Queue one section-18 action record; the flush listener folds it into
+    the audit ledger under the sixteenth source `cluster` in the same
+    commit. A sealed blob or a peer token never enters `detail`."""
+    event = ClusterEvent(
+        node_id=node.id if node is not None else node_id,
+        action=action,
+        actor=actor,
+        subject=subject or (node.name if node is not None else ""),
+        detail=detail or {},
+    )
+    db.session.add(event)
+    return event
+
+
+def cluster_self() -> Optional[ClusterNode]:
+    """This node's own registry row (identity comes from the deployment)."""
+    config = _vault_config()
+    return ClusterNode.query.filter_by(name=config.node_name).first()
+
+
+def cluster_self_role() -> str:
+    """This node's role for the passive-write gate: `passive` only when the
+    own row says so; a node without a registry row (pre-6a database before
+    startup ensure ran) is honestly active - the shipped default."""
+    node = cluster_self()
+    return node.role if node is not None else "active"
+
+
+def ensure_cluster_self() -> Optional[str]:
+    """Create this node's registry row at startup when it does not exist
+    yet (the deployment env is the identity). Site follows the deployment
+    env; role is runtime state and is never reset by a restart - a
+    promoted node stays promoted until an operator demotes it. The row
+    carries `created_by="deployment"` as its provenance; it does not emit a
+    ledger event (startup is not an admin action - the trail records what
+    operators and the monitor do). Returns the name when a row was created."""
+    config = _vault_config()
+    node = ClusterNode.query.filter_by(name=config.node_name).first()
+    if node is None:
+        node = ClusterNode(
+            name=config.node_name,
+            site=config.node_site,
+            role="active",
+            base_url="",
+            created_by="deployment",
+        )
+        db.session.add(node)
+        db.session.commit()
+        return node.name
+    if node.site != config.node_site:
+        node.site = config.node_site
+        db.session.commit()
+    return None
+
+
+def _cluster_node_or_404(node_id: int) -> ClusterNode:
+    node = ClusterNode.query.filter_by(id=node_id).first()
+    if node is None:
+        raise NotFound(f"Cluster node {node_id} not found")
+    return node
+
+
+def get_cluster_node(node_id: int) -> ClusterNode:
+    """One registered node by id (404 when it is not registered)."""
+    return _cluster_node_or_404(node_id)
+
+
+def _cluster_url_or_fail(value: Any, *, field: str) -> str:
+    """An http(s) base URL for a peer - https required unless loopback, the
+    same rule the cloud connectors follow (an internal DR link may be
+    plain http; the public one should not be)."""
+    if not isinstance(value, str) or not value.strip():
+        raise ValidationFailed(f"'{field}' is required", {"field": field})
+    url = value.strip().rstrip("/")
+    if "://" not in url:
+        raise ValidationFailed(f"'{field}' must be an http(s) URL", {"field": field})
+    scheme, rest = url.split("://", 1)
+    host = rest.split("/", 1)[0].split(":", 1)[0]
+    if scheme not in ("http", "https") or not host:
+        raise ValidationFailed(f"'{field}' must be an http(s) URL", {"field": field})
+    if scheme == "http":
+        try:
+            is_loopback = ipaddress.ip_address(host).is_loopback
+        except ValueError:
+            is_loopback = host == "localhost"
+        if not is_loopback:
+            raise ValidationFailed(
+                f"'{field}' must be https (plain http is only allowed to loopback)",
+                {"field": field, "scheme": "https"},
+            )
+    return url
+
+
+def list_cluster_nodes() -> List[ClusterNode]:
+    """Every registered node, self first, then by name."""
+    self_node = cluster_self()
+    nodes = ClusterNode.query.order_by(ClusterNode.name).all()
+    if self_node is None:
+        return nodes
+    return [self_node] + [n for n in nodes if n.id != self_node.id]
+
+
+def register_cluster_node(payload: Any, *, actor: str) -> ClusterNode:
+    """Register a peer node (architecture section 18): its site, its role
+    in the topology and where its /health answers. The node is `unknown`
+    until the first real probe - no health is ever assumed."""
+    if not isinstance(payload, dict):
+        raise ValidationFailed("Request body must be a JSON object")
+    name = payload.get("name")
+    if not isinstance(name, str) or not name.strip():
+        raise ValidationFailed("'name' is required", {"field": "name"})
+    name = name.strip()[:64]
+    if ClusterNode.query.filter_by(name=name).first() is not None:
+        raise Conflict(f"A cluster node named '{name}' already exists")
+    config = _vault_config()
+    if name == config.node_name:
+        raise Conflict(
+            f"'{name}' is this node (it is registered automatically at startup)"
+        )
+    site = payload.get("site", "dc")
+    if site not in CLUSTER_SITES:
+        raise ValidationFailed(
+            f"'site' must be one of {', '.join(CLUSTER_SITES)}",
+            {"field": "site", "allowed": list(CLUSTER_SITES)},
+        )
+    role = payload.get("role", "active")
+    if role not in CLUSTER_ROLES:
+        raise ValidationFailed(
+            f"'role' must be one of {', '.join(CLUSTER_ROLES)}",
+            {"field": "role", "allowed": list(CLUSTER_ROLES)},
+        )
+    base_url = _cluster_url_or_fail(payload.get("base_url"), field="base_url")
+    node = ClusterNode(
+        name=name,
+        site=site,
+        role=role,
+        base_url=base_url,
+        created_by=actor,
+    )
+    db.session.add(node)
+    db.session.flush()
+    _cluster_event(
+        "node-registered",
+        actor=actor,
+        node=node,
+        detail={"site": site, "role": role, "base_url": base_url},
+    )
+    db.session.commit()
+    return node
+
+
+def update_cluster_node(node_id: int, payload: Any, *, actor: str) -> ClusterNode:
+    """Update a registered node. Site/role/base_url are topology, not
+    history: the change lands on the trail with the values it replaced."""
+    node = _cluster_node_or_404(node_id)
+    if not isinstance(payload, dict):
+        raise ValidationFailed("Request body must be a JSON object")
+    config = _vault_config()
+    changed: Dict[str, Any] = {}
+    if "name" in payload:
+        name = payload["name"]
+        if not isinstance(name, str) or not name.strip():
+            raise ValidationFailed("'name' must be a non-empty string", {"field": "name"})
+        name = name.strip()[:64]
+        if name != node.name:
+            if name == config.node_name:
+                raise Conflict(f"'{name}' is this node's deployment name")
+            if ClusterNode.query.filter_by(name=name).first() is not None:
+                raise Conflict(f"A cluster node named '{name}' already exists")
+            changed["name"] = {"from": node.name, "to": name}
+            node.name = name
+    if "site" in payload:
+        site = payload["site"]
+        if site not in CLUSTER_SITES:
+            raise ValidationFailed(
+                f"'site' must be one of {', '.join(CLUSTER_SITES)}",
+                {"field": "site", "allowed": list(CLUSTER_SITES)},
+            )
+        if site != node.site:
+            changed["site"] = {"from": node.site, "to": site}
+            node.site = site
+    if "role" in payload:
+        role = payload["role"]
+        if role not in CLUSTER_ROLES:
+            raise ValidationFailed(
+                f"'role' must be one of {', '.join(CLUSTER_ROLES)}",
+                {"field": "role", "allowed": list(CLUSTER_ROLES)},
+            )
+        if role != node.role:
+            changed["role"] = {"from": node.role, "to": role}
+            node.role = role
+    if "base_url" in payload:
+        base_url = _cluster_url_or_fail(payload["base_url"], field="base_url")
+        if base_url != node.base_url:
+            changed["base_url"] = {"from": node.base_url, "to": base_url}
+            node.base_url = base_url
+    if changed:
+        _cluster_event(
+            "node-updated",
+            actor=actor,
+            node=node,
+            detail={"changed": changed},
+        )
+        db.session.commit()
+    return node
+
+
+def delete_cluster_node(node_id: int, *, actor: str) -> Dict[str, Any]:
+    """Remove a peer node. Replicated evidence stays: this node's replica
+    rows are its own DR record and outlive the registry entry (the runbook
+    covers re-registering the peer to resume syncs)."""
+    node = _cluster_node_or_404(node_id)
+    config = _vault_config()
+    if node.name == config.node_name:
+        raise Conflict(
+            "This node cannot be removed from its own registry "
+            "(change PAM_NODE_NAME to rename it)"
+        )
+    replicas = {
+        "audit": ClusterAuditReplica.query.filter_by(node_id=node.id).count(),
+        "vault": ClusterSecretReplica.query.filter_by(node_id=node.id).count(),
+        "sessions": ClusterSessionReplica.query.filter_by(node_id=node.id).count(),
+    }
+    _cluster_event(
+        "node-removed",
+        actor=actor,
+        node=node,
+        detail={"site": node.site, "role": node.role, "replicas_left": replicas},
+    )
+    db.session.delete(node)
+    db.session.commit()
+    return {"removed": node.name, "replicas_left": replicas}
+
+
+def probe_cluster_node(node_id: int, *, actor: str) -> Dict[str, Any]:
+    """Probe a peer's real /health endpoint now: latency is measured, an
+    unreachable peer is `unreachable` with the transport error verbatim,
+    a 200 with a degraded body is `degraded`. The cluster trail only
+    records health *changes* (a quiet healthy clock adds no rows)."""
+    node = _cluster_node_or_404(node_id)
+    if not node.base_url:
+        raise ValidationFailed(
+            f"Node '{node.name}' has no base_url to probe", {"field": "base_url"}
+        )
+    url = f"{node.base_url}/health"
+    started = time.monotonic()
+    health = "unreachable"
+    error = ""
+    payload: Dict[str, Any] = {}
+    request = urllib.request.Request(
+        url, headers={"Accept": "application/json", "User-Agent": "VY-PAM/1"}, method="GET"
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=CLUSTER_PROBE_TIMEOUT) as response:
+            status = getattr(response, "status", 200)
+            body = response.read(65536).decode("utf-8", errors="replace")
+        try:
+            parsed = json.loads(body)
+            payload = parsed if isinstance(parsed, dict) else {}
+        except ValueError:
+            payload = {}
+        if status == 200 and payload.get("status") == "ok":
+            health = "healthy"
+        elif status == 200:
+            health = "degraded"
+            error = "peer reported no healthy status"
+        else:
+            health = "degraded"
+            error = f"HTTP {status}"
+    except urllib.error.HTTPError as exc:
+        health = "degraded" if exc.code >= 500 else "unreachable"
+        error = f"HTTP {exc.code}"
+    except urllib.error.URLError as exc:
+        reason = getattr(exc, "reason", exc)
+        error = f"connection failed: {reason}"
+    except (TimeoutError, socket.timeout):
+        error = f"request timed out after {CLUSTER_PROBE_TIMEOUT:g}s"
+    except Exception as exc:  # pragma: no cover - defensive, still honest
+        error = f"{type(exc).__name__}: {exc}"
+    latency_ms = int((time.monotonic() - started) * 1000)
+    previous = node.health
+    node.health = health
+    node.last_probe_at = datetime.now()
+    node.last_latency_ms = latency_ms
+    node.last_error = error[:255]
+    if health == "healthy":
+        node.consecutive_failures = 0
+    else:
+        node.consecutive_failures = (node.consecutive_failures or 0) + 1
+    if previous != health:
+        _cluster_event(
+            "probe",
+            actor=actor,
+            node=node,
+            detail={
+                "health": health,
+                "from": previous,
+                "latency_ms": latency_ms,
+                **({"error": error[:255]} if error else {}),
+            },
+        )
+    db.session.commit()
+    return {
+        "node": node.to_dict(),
+        "probe": {
+            "url": url,
+            "health": health,
+            "latency_ms": latency_ms,
+            "error": error[:255],
+            "state_changed": previous != health,
+            "peer": {
+                key: payload.get(key)
+                for key in ("status", "database", "auth", "node")
+                if key in payload
+            },
+        },
+    }
+
+
+def sync_cluster_node(
+    node_id: int, payload: Any, *, actor: str
+) -> Dict[str, Any]:
+    """Pull replication from a peer (architecture section 18): its
+    immutable audit chain (re-hashed record by record here), its sealed
+    vault ciphertext and its session metadata. A `peer_token` in the body
+    is used for the outbound call only - never stored, never echoed, never
+    on the trail. Every failure is reported with the transport error
+    verbatim; a broken peer chain is stored as unverified evidence, never
+    as a healthy mirror."""
+    node = _cluster_node_or_404(node_id)
+    if not node.base_url:
+        raise ValidationFailed(
+            f"Node '{node.name}' has no base_url to sync from", {"field": "base_url"}
+        )
+    config = _vault_config()
+    if node.name == config.node_name:
+        raise ValidationFailed(
+            "This node cannot sync from itself", {"field": "node_id"}
+        )
+    if payload is None:
+        payload = {}
+    if not isinstance(payload, dict):
+        raise ValidationFailed("Request body must be a JSON object")
+    peer_token = payload.get("peer_token") or ""
+    if peer_token is not None and not isinstance(peer_token, str):
+        raise ValidationFailed("'peer_token' must be a string", {"field": "peer_token"})
+    kinds = payload.get("kinds") or list(CLUSTER_SYNC_KINDS)
+    if not isinstance(kinds, list) or not kinds:
+        raise ValidationFailed(
+            f"'kinds' must be a non-empty list of {', '.join(CLUSTER_SYNC_KINDS)}",
+            {"field": "kinds", "allowed": list(CLUSTER_SYNC_KINDS)},
+        )
+    for kind in kinds:
+        if kind not in CLUSTER_SYNC_KINDS:
+            raise ValidationFailed(
+                f"unknown sync kind '{kind}'",
+                {"field": "kinds", "allowed": list(CLUSTER_SYNC_KINDS)},
+            )
+    timeout = payload.get("timeout_seconds", CLUSTER_SYNC_TIMEOUT)
+    if not isinstance(timeout, int) or isinstance(timeout, bool) or not 1 <= timeout <= 120:
+        raise ValidationFailed(
+            "'timeout_seconds' must be an integer between 1 and 120",
+            {"field": "timeout_seconds"},
+        )
+
+    headers = {"Accept": "application/json", "User-Agent": "VY-PAM/1"}
+    if peer_token:
+        headers["Authorization"] = f"Bearer {peer_token}"
+
+    started = time.monotonic()
+    summary: Dict[str, Any] = {"node": node.name, "kinds": {}}
+
+    def _get(path: str) -> Tuple[int, str]:
+        request = urllib.request.Request(
+            f"{node.base_url}{path}", headers=headers, method="GET"
+        )
+        with urllib.request.urlopen(request, timeout=timeout) as response:
+            return (
+                getattr(response, "status", 200),
+                response.read(64 * 1024 * 1024).decode("utf-8", errors="replace"),
+            )
+
+    try:
+        if "audit" in kinds:
+            summary["kinds"]["audit"] = _sync_audit_chain(node, _get("/api/v1/audit/export"))
+        if "vault" in kinds:
+            summary["kinds"]["vault"] = _sync_vault_secrets(node, _get("/api/v1/cluster/export/vault"))
+        if "sessions" in kinds:
+            summary["kinds"]["sessions"] = _sync_sessions(node, _get("/api/v1/cluster/export/sessions"))
+    except urllib.error.HTTPError as exc:
+        detail = f"HTTP {exc.code} from {node.base_url}"
+        summary["ok"] = False
+        summary["error"] = detail
+        _record_sync_failure(node, actor=actor, detail=detail, summary=summary, started=started)
+        return summary
+    except urllib.error.URLError as exc:
+        reason = getattr(exc, "reason", exc)
+        detail = f"connection failed: {reason}"
+        summary["ok"] = False
+        summary["error"] = detail
+        _record_sync_failure(node, actor=actor, detail=detail, summary=summary, started=started)
+        return summary
+    except (TimeoutError, socket.timeout):
+        detail = f"request timed out after {timeout:g}s"
+        summary["ok"] = False
+        summary["error"] = detail
+        _record_sync_failure(node, actor=actor, detail=detail, summary=summary, started=started)
+        return summary
+    except ValidationFailed:
+        raise
+    except Exception as exc:  # pragma: no cover - defensive, still honest
+        detail = f"{type(exc).__name__}: {exc}"
+        summary["ok"] = False
+        summary["error"] = detail
+        _record_sync_failure(node, actor=actor, detail=detail, summary=summary, started=started)
+        return summary
+
+    # a successful sync is real evidence the peer answered: record it as
+    # reachability (this is what the health column is for).
+    elapsed_ms = int((time.monotonic() - started) * 1000)
+    previous = node.health
+    node.health = "healthy"
+    node.last_probe_at = datetime.now()
+    node.last_latency_ms = elapsed_ms
+    node.last_error = ""
+    node.consecutive_failures = 0
+    summary["ok"] = True
+    summary["elapsed_ms"] = elapsed_ms
+    if previous != "healthy":
+        _cluster_event(
+            "probe",
+            actor=actor,
+            node=node,
+            detail={"health": "healthy", "from": previous, "latency_ms": elapsed_ms},
+        )
+    _cluster_event(
+        "synced",
+        actor=actor,
+        node=node,
+        detail={
+            "kinds": list(kinds),
+            "elapsed_ms": elapsed_ms,
+            **{
+                f"{kind}_{key}": value
+                for kind, part in summary["kinds"].items()
+                for key, value in part.items()
+                if isinstance(value, (int, bool, str))
+            },
+        },
+    )
+    db.session.commit()
+    return summary
+
+
+def _record_sync_failure(
+    node: ClusterNode, *, actor: str, detail: str, summary: Dict[str, Any], started: float
+) -> None:
+    """A failed sync is recorded on the node (unreachable + failure count)
+    and on the trail - the partial kinds already applied stay applied and
+    are listed in the event, never rolled back silently."""
+    elapsed_ms = int((time.monotonic() - started) * 1000)
+    node.health = "unreachable"
+    node.last_probe_at = datetime.now()
+    node.last_latency_ms = elapsed_ms
+    node.last_error = detail[:255]
+    node.consecutive_failures = (node.consecutive_failures or 0) + 1
+    _cluster_event(
+        "sync-failed",
+        actor=actor,
+        node=node,
+        detail={
+            "error": detail[:255],
+            "elapsed_ms": elapsed_ms,
+            "applied": list(summary.get("kinds", {})),
+        },
+    )
+    db.session.commit()
+
+
+def _sync_audit_chain(node: ClusterNode, response: Tuple[int, str]) -> Dict[str, Any]:
+    """Pull the peer's NDJSON audit export and re-hash every record here,
+    in chain order. `verified` on each stored row is the local
+    recomputation: a record whose recomputed sha256 does not match, or
+    whose link to its predecessor does not hold, is stored unverified -
+    and so is everything after it, because chain trust is transitive."""
+    _status, body = response
+    records: List[Dict[str, Any]] = []
+    for line in body.splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            record = json.loads(line)
+        except ValueError:
+            raise ValidationFailed(
+                "Peer audit export is not valid NDJSON", {"field": "kinds"}
+            )
+        if not isinstance(record, dict):
+            raise ValidationFailed(
+                "Peer audit export record is not an object", {"field": "kinds"}
+            )
+        records.append(record)
+    existing = {
+        seq for (seq,) in db.session.query(ClusterAuditReplica.seq).filter_by(
+            node_id=node.id
+        ).all()
+    }
+    inserted = 0
+    verified_count = 0
+    unverified_count = 0
+    first_break: Optional[int] = None
+    previous_hash = audit.AUDIT_GENESIS_HASH
+    trust = True
+    for record in records:
+        seq = record.get("seq")
+        if not isinstance(seq, int) or seq < 1:
+            raise ValidationFailed(
+                "Peer audit export record has no valid seq", {"field": "kinds"}
+            )
+        try:
+            created_at = datetime.fromisoformat(str(record.get("created_at")))
+        except ValueError:
+            raise ValidationFailed(
+                f"Peer audit record seq {seq} has an unparseable created_at",
+                {"field": "kinds"},
+            )
+        detail = record.get("detail") or {}
+        recomputed = audit.compute_hash(
+            seq=seq,
+            created_at=created_at,
+            event_ref=str(record.get("event_ref", "")),
+            source=str(record.get("source", "")),
+            action=str(record.get("action", "")),
+            actor=str(record.get("actor", "")),
+            subject=str(record.get("subject", "")),
+            detail=detail if isinstance(detail, dict) else {},
+            prev_hash=str(record.get("prev_hash", "")),
+        )
+        linked = str(record.get("prev_hash", "")) == previous_hash
+        intact = linked and recomputed == str(record.get("event_hash", ""))
+        if not intact and first_break is None:
+            first_break = seq
+            trust = False
+        if seq not in existing:
+            row = ClusterAuditReplica(
+                node_id=node.id,
+                seq=seq,
+                prev_hash=str(record.get("prev_hash", ""))[:64],
+                event_hash=str(record.get("event_hash", ""))[:64],
+                source=str(record.get("source", ""))[:32],
+                event_ref=str(record.get("event_ref", ""))[:64],
+                action=str(record.get("action", ""))[:32],
+                actor=str(record.get("actor", ""))[:64],
+                subject=str(record.get("subject", ""))[:255],
+                detail=detail if isinstance(detail, dict) else {},
+                created_at=created_at,
+                verified=intact and trust,
+            )
+            db.session.add(row)
+            inserted += 1
+            if intact and trust:
+                verified_count += 1
+            else:
+                unverified_count += 1
+        previous_hash = str(record.get("event_hash", ""))
+    return {
+        "pulled": len(records),
+        "new": inserted,
+        "verified": verified_count,
+        "unverified": unverified_count,
+        "first_break_seq": first_break,
+        "intact": first_break is None,
+    }
+
+
+def _sync_vault_secrets(node: ClusterNode, response: Tuple[int, str]) -> Dict[str, Any]:
+    """Pull the peer's sealed vault ciphertext. The blob is stored exactly
+    as the peer sealed it; `plaintext_here` is set only when this node's
+    own vault key could actually decrypt it (shared-key deployments) -
+    the ciphertext itself is never decrypted for storage, never echoed."""
+    _status, body = response
+    try:
+        parsed = json.loads(body)
+    except ValueError:
+        raise ValidationFailed("Peer vault export is not valid JSON", {"field": "kinds"})
+    items = parsed.get("items") if isinstance(parsed, dict) else None
+    if not isinstance(items, list):
+        raise ValidationFailed(
+            "Peer vault export has no 'items' list", {"field": "kinds"}
+        )
+    config = _vault_config()
+    inserted = 0
+    decryptable = 0
+    for entry in items:
+        if not isinstance(entry, dict):
+            continue
+        blob = entry.get("blob")
+        item_id = entry.get("item_id")
+        version = entry.get("version", 1)
+        if not isinstance(item_id, int) or not isinstance(blob, dict):
+            continue
+        if not isinstance(version, int) or version < 1:
+            version = 1
+        exists = (
+            ClusterSecretReplica.query.filter_by(
+                node_id=node.id, item_id=item_id, version=version
+            ).first()
+            is not None
+        )
+        if exists:
+            continue
+        can_decrypt = False
+        try:
+            unseal(blob, item_id, config)
+            can_decrypt = True
+            decryptable += 1
+        except Exception:
+            # a blob sealed under another vault key - or tampered with -
+            # simply does not open here. That is the honest answer.
+            can_decrypt = False
+        db.session.add(
+            ClusterSecretReplica(
+                node_id=node.id,
+                item_id=item_id,
+                name=str(entry.get("name", ""))[:160],
+                target=str(entry.get("target", ""))[:255],
+                secret_type=str(entry.get("secret_type", ""))[:64],
+                version=version,
+                sealed_blob=json.dumps(blob, sort_keys=True, separators=(",", ":")),
+                plaintext_here=can_decrypt,
+            )
+        )
+        inserted += 1
+    return {
+        "pulled": len(items),
+        "new": inserted,
+        "decryptable_here": decryptable,
+    }
+
+
+def _sync_sessions(node: ClusterNode, response: Tuple[int, str]) -> Dict[str, Any]:
+    """Pull the peer's session metadata (who had access to what, when, how
+    it ended) - the DR visibility half of section 18's session-storage
+    replication. Recording content stays with the peer's recording store."""
+    _status, body = response
+    try:
+        parsed = json.loads(body)
+    except ValueError:
+        raise ValidationFailed("Peer session export is not valid JSON", {"field": "kinds"})
+    sessions = parsed.get("sessions") if isinstance(parsed, dict) else None
+    if not isinstance(sessions, list):
+        raise ValidationFailed(
+            "Peer session export has no 'sessions' list", {"field": "kinds"}
+        )
+    inserted = 0
+    for entry in sessions:
+        if not isinstance(entry, dict):
+            continue
+        session_ref = entry.get("session_ref")
+        if not isinstance(session_ref, str) or not session_ref:
+            continue
+        exists = (
+            ClusterSessionReplica.query.filter_by(
+                node_id=node.id, session_id=session_ref
+            ).first()
+            is not None
+        )
+        if exists:
+            continue
+        db.session.add(
+            ClusterSessionReplica(
+                node_id=node.id, session_id=session_ref[:64], payload=entry
+            )
+        )
+        inserted += 1
+    return {"pulled": len(sessions), "new": inserted}
+
+
+def cluster_replica_summary() -> Dict[str, Any]:
+    """Replica posture per registered PEER: what this DR node pulled from
+    each peer, how much of the audit mirror verified locally, and whether
+    any of the replicated ciphertext opens under this node's vault key.
+    This node is never a source of its own replication (a sync from
+    yourself is refused), so its own row is not listed here - the totals
+    still count every replica row this node holds."""
+    per_node: Dict[str, Any] = {}
+    config = _vault_config()
+    for node in ClusterNode.query.order_by(ClusterNode.name).all():
+        if node.name == config.node_name:
+            continue
+        audits = ClusterAuditReplica.query.filter_by(node_id=node.id).all()
+        secrets = ClusterSecretReplica.query.filter_by(node_id=node.id).all()
+        sessions = ClusterSessionReplica.query.filter_by(node_id=node.id).count()
+        newest = max((row.synced_at for row in audits + secrets), default=None)
+        per_node[node.name] = {
+            "audit": {
+                "records": len(audits),
+                "verified": sum(1 for row in audits if row.verified),
+                "unverified": sum(1 for row in audits if not row.verified),
+                "head_seq": max((row.seq for row in audits), default=0),
+                "head_hash": next(
+                    (
+                        row.event_hash
+                        for row in sorted(audits, key=lambda r: r.seq, reverse=True)
+                    ),
+                    "",
+                ),
+            },
+            "vault": {
+                "secrets": len(secrets),
+                "decryptable_here": sum(1 for row in secrets if row.plaintext_here),
+            },
+            "sessions": sessions,
+            "last_synced_at": newest.isoformat() if newest else None,
+        }
+    return {
+        "nodes": per_node,
+        "totals": {
+            "audit": ClusterAuditReplica.query.count(),
+            "vault": ClusterSecretReplica.query.count(),
+            "sessions": ClusterSessionReplica.query.count(),
+        },
+    }
+
+
+def failover_cluster(action: str, payload: Any, *, actor: str) -> Dict[str, str]:
+    """Promote or demote THIS node (architecture section 18's failover):
+    a real role flip on the own registry row, recorded with the role it
+    replaced. While passive, every mutation outside /api/v1/cluster/* is
+    refused with 409 by the app-level gate - the role is enforced, not
+    decoration. `reason` is optional context for the trail."""
+    node = cluster_self()
+    if node is None:
+        raise Conflict(
+            "This node has no registry row yet (startup ensure has not run)"
+        )
+    if action not in ("promote", "demote"):
+        raise ValidationFailed(
+            "'action' must be 'promote' or 'demote'", {"field": "action"}
+        )
+    if payload is None:
+        payload = {}
+    if not isinstance(payload, dict):
+        raise ValidationFailed("Request body must be a JSON object")
+    reason = payload.get("reason", "")
+    if reason is None:
+        reason = ""
+    if not isinstance(reason, str):
+        raise ValidationFailed("'reason' must be a string", {"field": "reason"})
+    reason = reason.strip()[:255]
+    target = "active" if action == "promote" else "passive"
+    if node.role == target:
+        raise Conflict(f"This node is already {target}")
+    previous = node.role
+    node.role = target
+    _cluster_event(
+        f"{action}d" if action == "promote" else "demoted",
+        actor=actor,
+        node=node,
+        detail={"from": previous, "to": target, **({"reason": reason} if reason else {})},
+    )
+    db.session.commit()
+    return {"node": node.name, "from": previous, "to": target}
+
+
+def run_cluster_monitor(*, actor: str = "cluster-monitor") -> Dict[str, Any]:
+    """One automatic-failover tick (the opt-in CLUSTER_MONITOR thread and
+    POST /cluster/monitor/tick run this same function): while this node is
+    passive, probe every registered active peer; when ALL of them have
+    failed CLUSTER_FAILOVER_FAILURES consecutive real probes, promote this
+    node with those failures as the reason. An active node never
+    auto-demotes - failback is an operator decision."""
+    node = cluster_self()
+    if node is None:
+        return {"role": "unknown", "probed": [], "promoted": False}
+    if node.role != "passive":
+        return {"role": "active", "probed": [], "promoted": False}
+    peers = [
+        n
+        for n in ClusterNode.query.filter(ClusterNode.role == "active").all()
+        if n.id != node.id and n.base_url
+    ]
+    if not peers:
+        return {
+            "role": "passive",
+            "probed": [],
+            "promoted": False,
+            "note": "no active peer with a base_url is registered",
+        }
+    probes: List[Dict[str, Any]] = []
+    for peer in peers:
+        probe_cluster_node(peer.id, actor=actor)
+        probes.append(
+            {
+                "node": peer.name,
+                "health": peer.health,
+                "consecutive_failures": peer.consecutive_failures,
+                **({"error": peer.last_error} if peer.last_error else {}),
+            }
+        )
+    all_failed = all(
+        (peer.consecutive_failures or 0) >= CLUSTER_FAILOVER_FAILURES for peer in peers
+    )
+    if not all_failed:
+        db.session.commit()
+        return {"role": "passive", "probed": probes, "promoted": False}
+    previous = node.role
+    node.role = "active"
+    _cluster_event(
+        "promoted",
+        actor=actor,
+        node=node,
+        detail={
+            "from": previous,
+            "to": "active",
+            "automatic": True,
+            "threshold": CLUSTER_FAILOVER_FAILURES,
+            "peers": probes,
+        },
+    )
+    db.session.commit()
+    return {
+        "role": "active",
+        "probed": probes,
+        "promoted": True,
+        "reason": (
+            f"{len(peers)} active peer(s) failed "
+            f"{CLUSTER_FAILOVER_FAILURES} consecutive probes"
+        ),
+    }
+
+
+def export_vault_secrets() -> Dict[str, Any]:
+    """This node's sealed vault ciphertext for a peer's replication pull:
+    each item's current version with the blob exactly as stored. The
+    plaintext never crosses this endpoint - only the AES-GCM wire form
+    does, and it only opens under the shared vault key."""
+    items: List[Dict[str, Any]] = []
+    for item in VaultItem.query.order_by(VaultItem.id).all():
+        version = (
+            VaultSecretVersion.query.filter_by(item_id=item.id)
+            .order_by(VaultSecretVersion.version.desc())
+            .first()
+        )
+        if version is None:
+            continue
+        items.append(
+            {
+                "item_id": item.id,
+                "name": item.name,
+                "target": item.target,
+                "secret_type": item.secret_type,
+                "version": version.version,
+                "blob": version.blob,
+            }
+        )
+    return {"items": items, "count": len(items)}
+
+
+def export_sessions() -> Dict[str, Any]:
+    """This node's session metadata for a peer's replication pull."""
+    sessions = [
+        row.to_dict()
+        for row in PrivilegedSession.query.order_by(PrivilegedSession.id).all()
+    ]
+    return {"sessions": sessions, "count": len(sessions)}
+
+
+def create_cluster_backup(*, actor: str) -> ClusterBackup:
+    """Take a real, verified backup of this node's database (section 18's
+    Backup requirement): SQLite's online backup API copies the live file
+    without stopping writes, the copy is hashed, then re-opened read-only
+    and its audit chain re-walked from the copy itself - a backup that
+    cannot be verified records why, honestly."""
+    config = _vault_config()
+    uri = config.database_uri
+    if not uri.startswith("sqlite:///"):
+        raise ServiceUnavailable(
+            "Backups are implemented for the SQLite storage engine",
+            {"scheme": uri.split("://", 1)[0] if "://" in uri else uri},
+        )
+    source_path = uri[len("sqlite:///"):]
+    if not source_path or source_path == ":memory:":
+        raise ServiceUnavailable(
+            "This node's database has no file to back up", {"database": uri}
+        )
+    directory = config.cluster_backup_dir
+    directory.mkdir(parents=True, exist_ok=True)
+    head = audit.chain_stats()
+    stamp = datetime.now().strftime("%Y%m%dT%H%M%S%f")
+    destination = directory / f"pam-backup-{stamp}-seq{head['last_seq']}.db"
+    source = sqlite3.connect(source_path)
+    try:
+        copy = sqlite3.connect(str(destination))
+        try:
+            source.backup(copy)
+        finally:
+            copy.close()
+    finally:
+        source.close()
+    raw = destination.read_bytes()
+    digest = hashlib.sha256(raw).hexdigest()
+    verified, detail = _verify_backup_chain(destination)
+    backup = ClusterBackup(
+        path=str(destination),
+        sha256=digest,
+        size_bytes=len(raw),
+        audit_seq=head["last_seq"],
+        verified=verified,
+        verify_detail=detail[:255],
+        created_by=actor,
+    )
+    db.session.add(backup)
+    db.session.flush()
+    _cluster_event(
+        "backup",
+        actor=actor,
+        subject=destination.name,
+        detail={
+            "path": str(destination),
+            "sha256": digest,
+            "size_bytes": len(raw),
+            "audit_seq": head["last_seq"],
+            "verified": verified,
+            **({} if verified else {"verify_detail": detail[:255]}),
+        },
+    )
+    db.session.commit()
+    return backup
+
+
+def _verify_backup_chain(path: Path) -> Tuple[bool, str]:
+    """Re-walk the audit chain inside a backup file (read-only open, the
+    same recomputation /audit/verify performs against the live store)."""
+    connection = sqlite3.connect(f"file:{path.as_posix()}?mode=ro", uri=True)
+    try:
+        rows = connection.execute(
+            "SELECT seq, prev_hash, event_hash, event_ref, source, action, "
+            "actor, subject, detail, created_at FROM audit_events ORDER BY seq"
+        ).fetchall()
+    except sqlite3.Error as exc:
+        return False, f"backup has no readable audit_events table: {exc}"
+    finally:
+        connection.close()
+    previous_hash = audit.AUDIT_GENESIS_HASH
+    expected = 1
+    for seq, prev_hash, event_hash, event_ref, source, action, actor, subject, detail_json, created_at_raw in rows:
+        if seq != expected:
+            return False, f"chain break at seq {seq} (expected {expected})"
+        if prev_hash != previous_hash:
+            return False, f"chain link broken at seq {seq}"
+        try:
+            created_at = datetime.fromisoformat(str(created_at_raw))
+            detail = json.loads(detail_json) if detail_json else {}
+        except (ValueError, TypeError) as exc:
+            return False, f"unreadable record at seq {seq}: {exc}"
+        recomputed = audit.compute_hash(
+            seq=seq,
+            created_at=created_at,
+            event_ref=event_ref,
+            source=source,
+            action=action,
+            actor=actor,
+            subject=subject,
+            detail=detail,
+            prev_hash=prev_hash,
+        )
+        if recomputed != event_hash:
+            return False, f"content hash mismatch at seq {seq}"
+        previous_hash = event_hash
+        expected = seq + 1
+    return True, f"chain intact over {len(rows)} records"
+
+
+def list_cluster_backups() -> List[ClusterBackup]:
+    """Every recorded backup, newest first."""
+    return ClusterBackup.query.order_by(ClusterBackup.id.desc()).all()
+
+
+def cluster_overview() -> Dict[str, Any]:
+    """One aggregate for the cluster screen: this node's identity and
+    role, the peer table with each node's last real probe, replica
+    posture and the backup ledger."""
+    config = _vault_config()
+    self_node = cluster_self()
+    nodes = list_cluster_nodes()
+    replicas = cluster_replica_summary()
+    backups = list_cluster_backups()
+    role = self_node.role if self_node is not None else "active"
+    return {
+        "self": {
+            "name": config.node_name,
+            "site": config.node_site,
+            "role": role,
+            "auth": "token" if config.admin_token else "open",
+        },
+        "nodes": [node.to_dict() for node in nodes],
+        "peers": {
+            "total": len(nodes) - (1 if self_node is not None else 0),
+            "by_health": {
+                health: sum(
+                    1
+                    for n in nodes
+                    if n.id != (self_node.id if self_node else -1)
+                    and n.health == health
+                )
+                for health in CLUSTER_HEALTHS
+            },
+        },
+        "replication": replicas,
+        "backups": {
+            "total": len(backups),
+            "verified": sum(1 for backup in backups if backup.verified),
+            "latest": backups[0].to_dict() if backups else None,
+        },
+        "monitor": {
+            "failover_failures": CLUSTER_FAILOVER_FAILURES,
+            "probe_timeout_seconds": CLUSTER_PROBE_TIMEOUT,
+            "sync_timeout_seconds": CLUSTER_SYNC_TIMEOUT,
+        },
     }

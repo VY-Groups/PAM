@@ -39,7 +39,7 @@ Supported wire formats and algorithms:
 | `tests/test_jit.py` | JIT access: deterministic risk bands, approvals, time-boxed grants, expiry rotation |
 | `tests/test_sessions.py` | Privileged sessions: start/attach, channel events, control gating, lifecycle + cascades |
 | `tests/test_command_control.py` | Zero-trust command policy: rule CRUD, dry-run decisions, approval queue, incident escalation |
-| `tests/test_audit.py` | Immutable §19 ledger: fifteen-source fan-in, hash chain, append-only triggers, backfill, verify/export, drift guard |
+| `tests/test_audit.py` | Immutable §19 ledger: sixteen-source fan-in, hash chain, append-only triggers, backfill, verify/export, drift guard |
 | `tests/test_risk.py` | §7 risk-based access engine: the eight scored components, bands/decisions, the session-start gate, ledger fan-in |
 | `tests/test_bypass.py` | §10 PAM bypass detection: log/JSON ingest, dedupe, correlation (candidate/covered/out_of_scope), incidents with forced rotation + honest `not_connected`, closure, stats, ledger fan-in |
 | `tests/test_break_glass.py` | §17 break-glass: request lifecycle, dual approval (self/second-signature rules), risk-gated open → recorded session → close with forced rotation + review, stats, ledger fan-in |
@@ -50,6 +50,7 @@ Supported wire formats and algorithms:
 | `tests/test_cloud.py` | §14 cloud PAM: connector lifecycle + honest states, endpoint rules, real probes, inventory upsert/refusals, K8s RBAC → JIT → real RoleBinding apply/remove, delete guard, stats, ledger fan-in |
 | `tests/test_broker.py` | §15 CI/CD credential broker: pipeline token auth (shown once, sha256, never waived), auto/manual policies, TTL cap + target scope refusals, approval queue, release (secret once) → close/expiry rotation, revoke cascade, stats, ledger fan-in |
 | `tests/test_agent.py` | §16 AI-agent PAM: identity lifecycle + agent token auth (shown once, sha256, never waived), task allow-list CRUD + refusals (unknown task/out-of-target/cap), risk landings (low auto-approve with binding snapshot, medium sign-off, critical block), open/close with forced recording, revoke + task-delete cascades, expiry, stats, ledger fan-in |
+| `tests/test_cluster.py` | §18 HA/DC/DR: node registry + real probes, hash-verified pull replication (audit/vault/sessions), passive write gate (409 before auth), role failover + opt-in monitor, verified SQLite backups, admin-401 |
 | `tests/test_openapi_contract.py` | `apis/openapi.yaml` ↔ live route map (both directions) |
 
 ## Quick start
@@ -103,7 +104,11 @@ controls (readonly factor fields disabled with a badge, secrets as
 sealed `not set` boxes), tracks dirty fields, saves through the admin token,
 shows the live configuration changelog and the §20 **Enterprise Integrations**
 cards with live chips over `GET /api/v1/integrations/status` (including
-**Enroll MFA Factor**, whose secret is shown once).
+**Enroll MFA Factor**, whose secret is shown once) plus the §18 **HA / DC /
+DR Cluster** section over `GET /api/v1/cluster` (this node's identity and
+role, the registry with real probe results, replica posture, the backup
+ledger, register / probe / sync / remove, promote / demote, take a
+backup).
 
 More screens render from their own APIs: the **Command Center** and
 **Compliance** screens (`GET /api/v1/overview` + the unified
@@ -114,9 +119,9 @@ bundle, run the correlation scan, review/close incidents; the Compliance
 screen also reads
 `GET /api/v1/audit/stats` for the immutable digest, runs `GET /api/v1/audit/verify`
 on its **Verify Hash Chain** button, exports `GET /api/v1/audit/export`, and its
-per-trail filter fetches one of the fifteen sources — license, settings, vault,
+per-trail filter fetches one of the sixteen sources — license, settings, vault,
 discovery, jit, session, command, risk, bypass, break-glass, integration,
-vendor, cloud, broker, agent — on
+vendor, cloud, broker, agent, cluster — on
 click, and its header chip reads the §20 SIEM push state), the **Credential Vault**
 (`GET/POST /api/v1/vault/*` — onboarding via **Onboard New Credential**, rotation
 SLA, type/status filters, JIT checkouts and an audit trail), the
@@ -165,7 +170,7 @@ is no seed inventory: every credential enters through **Onboard New Credential**
 
 ```bash
 python -m pytest tests -q     # 459 tests (from backend/phase2_license_server)
-python -m pytest backend -q   # 541 tests from the repo root (+ shared crypto core)
+python -m pytest backend -q   # 577 tests from the repo root (+ shared crypto core)
 ```
 
 **Docker (development/runtime testing only — never a shipping instruction):**
@@ -211,7 +216,7 @@ cross-checked against these routes by `tests/test_openapi_contract.py`.
 
 | Method | Path | Auth | Purpose |
 | --- | --- | --- | --- |
-| GET | `/health` | – | Liveness + DB check, key paths, algorithms, formats |
+| GET | `/health` | – | Liveness + DB check + this node's §18 identity (`node`, `site`, `role` for peers to identify each other), key paths, algorithms, formats |
 | GET | `/meta` | – | Capabilities: algorithms, formats, tiers, quota/usage fields, module catalog |
 | POST | `/licenses/import` | admin | Import a vendor-signed license file (201; 400 malformed/foreign/expired/invalid claims, 409 already installed) |
 | GET | `/licenses` | – | List/filter licenses (`status`, `license_type`, `issued_to`, `tier`, `q`, `limit`, `offset`) |
@@ -231,7 +236,7 @@ cross-checked against these routes by `tests/test_openapi_contract.py`.
 | GET | `/settings/audit?limit=` | – | Configuration changelog, newest first |
 | PUT | `/settings/<group>` | admin | Merge-update one group, returns the per-field change diff (secrets seal AES-256-GCM → changelog `<set>`/`<cleared>`; readonly `mfa.*` factor fields → 400 with `details.fields` + the `POST /mfa/enroll` hint; URL fields must be `https` unless flagged `allow_http` — `itsm.base_url`/`siem.webhook_url` accept plain http for internal instances — bad shape → 400 with `details.field`/`details.scheme`) |
 | GET | `/overview` | – | Dashboard aggregate: health, license posture, vault stats, settings, counters, computed control posture, recent activity |
-| GET | `/events?limit=&source=` | - | Unified audit feed across all fifteen trails (license, settings, vault, discovery, jit, session, command, risk, bypass, break-glass, integration, vendor, cloud, broker, agent), newest first |
+| GET | `/events?limit=&source=` | - | Unified audit feed across all sixteen trails (license, settings, vault, discovery, jit, session, command, risk, bypass, break-glass, integration, vendor, cloud, broker, agent, cluster), newest first |
 | GET | `/vault/stats` | – | Inventory aggregates: totals by type/status, rotation compliance, `secrets` coverage (`managed`/`unmanaged`/`versions`), checkouts, today's events |
 | GET | `/vault/items?…` | – | List inventory (`q`, `type`, `status`, `limit`, `offset`) |
 | POST | `/vault/items` | admin | Onboard a credential (201, strictly validated; optional `secret`, else a real type-appropriate value is generated — sealed with AES-256-GCM either way) |
@@ -352,7 +357,22 @@ cross-checked against these routes by `tests/test_openapi_contract.py`.
 | POST | `/agent-access/requests/<id>/open` | agent | Consume the approved grant: vault checkout under the agent + forced recorded session (201; a §7 gate refusal releases + rotates again) |
 | POST | `/agent-access/requests/<id>/close` | agent or admin | End the grant early: checkout released, credential rotated, session ends |
 | GET | `/agent-access/stats` | - | §16 aggregates: identities by state, tasks, requests by state, trail size |
-| GET | `/audit/stats` | - | Immutable ledger aggregates (§19): `total`, per-source counts for all fifteen trails, `last_seq`, `head_hash`, oldest/newest, `trigger_protection` |
+| GET | `/cluster` | admin | §18 aggregate: this node's identity/role, the registry with probe posture, peers by health, replica totals, backup counts, monitor config |
+| GET | `/cluster/nodes` | admin | Registered nodes (this node first); health is the last real measurement, `unknown` until then |
+| POST | `/cluster/nodes` | admin | Register a peer (201; unique name, `dc`/`dr`, `active`/`passive`, base URL `https` unless loopback; this node's own name → 409; no probe implied) |
+| GET | `/cluster/nodes/<id>` | admin | One node's registry row (honest `null`s before the first probe) |
+| PATCH | `/cluster/nodes/<id>` | admin | Edit name/site/role/base URL (duplicates and the self-name refused like create) |
+| DELETE | `/cluster/nodes/<id>` | admin | Deregister (self → 409); replica rows stay as DR evidence (`replicas_left`) |
+| POST | `/cluster/nodes/<id>/probe` | admin | Real `GET {base}/health` (5 s): peer identity, latency, error verbatim; the trail records health **state changes** only |
+| POST | `/cluster/nodes/<id>/sync` | admin | Pull replication: NDJSON chain re-hashed record-by-record (`verified`/`unverified`/`first_break_seq`), sealed vault ciphertext (`decryptable_here` under this node's key), session metadata; body `kinds`/`peer_token`/`timeout_seconds`; self → 400, transport failure verbatim - evidence, never merged |
+| GET | `/cluster/replicas` | admin | Replica posture per peer: audit verified/unverified + head, vault openable-here, sessions, last sync (never self) |
+| POST | `/cluster/failover` | admin | `{"action":"promote"\|"demote"}` flips this node's role (already there → 409), `from`/`to` on the §19 trail |
+| POST | `/cluster/monitor/tick` | admin | One auto-failover decision: no-op while active; promotes only after 3 consecutive failures **and** every active peer failed |
+| GET | `/cluster/backups` | admin | Backup ledger: path, size, sha256, audit seq, verification result |
+| POST | `/cluster/backups` | admin | SQLite online backup into `CLUSTER_BACKUP_DIR` (201): copy re-opened read-only + chain re-walked; non-SQLite engine → 503 |
+| GET | `/cluster/export/vault` | admin | Replicated ciphertext + metadata only (never plaintext) |
+| GET | `/cluster/export/sessions` | admin | Session metadata stream (ids, targets, times - no recording content) |
+| GET | `/audit/stats` | - | Immutable ledger aggregates (§19): `total`, per-source counts for all sixteen trails, `last_seq`, `head_hash`, oldest/newest, `trigger_protection` |
 | GET | `/audit/verify` | – | Walk the whole chain: recomputes every record's hash and reports `intact`, `checked`, `head_hash` plus the first `broken_at`/`reason` (sequence gap, content change, re-link) |
 | GET | `/audit/export` | – | The full ledger in chain order as NDJSON (`application/x-ndjson`, `vy-pam-audit.ndjson`) — one record per line for SIEM ingest |
 
@@ -490,9 +510,9 @@ curl -s "http://127.0.0.1:5000/api/v1/settings/audit?limit=20"
 # dashboard aggregate powering the Command Center / Compliance screens
 curl -s http://127.0.0.1:5000/api/v1/overview
 
-# unified audit feed (all fifteen trails: license, settings, vault, discovery,
+# unified audit feed (all sixteen trails: license, settings, vault, discovery,
 # jit, session, command, risk, bypass, break-glass, integration, vendor, cloud,
-# broker, agent - newest first, each row chain-linked with seq + hash)
+# broker, agent, cluster - newest first, each row chain-linked with seq + hash)
 curl -s "http://127.0.0.1:5000/api/v1/events?limit=10"
 
 # inventory aggregates: rotation compliance, checkouts, attention list
@@ -917,6 +937,62 @@ curl -s http://127.0.0.1:5000/api/v1/integrations/status
   mode. All four connectors report honestly through
   `GET /integrations/status`; every gate decision, enrollment, verification
   and login fans into the §19 chain as the `integration` source.
+
+### HA / DC / DR cluster (§18)
+
+This node registers itself at boot (`PAM_NODE_NAME`/`PAM_SITE`); peers are
+added by hand and then measured and pulled for real:
+
+```bash
+# aggregate: who am I, who is registered, what is held, what is backed up
+curl -s http://127.0.0.1:5000/api/v1/cluster
+# -> {"self": {"name": "pam-node-1", "site": "dc", "role": "active", ...},
+#     "peers": {"total": 1, "by_health": {"unknown": 1, "healthy": 0, ...}},
+#     "replication": {"totals": {"audit": 0, "vault": 0, "sessions": 0}, ...},
+#     "backups": {"total": 0, "verified": 0, "latest": null}, ...}
+
+# register the DR peer, then measure it - health stays `unknown` until probed
+curl -s -X POST http://127.0.0.1:5000/api/v1/cluster/nodes \
+  -H 'Content-Type: application/json' -H 'X-Actor: runbook' \
+  -d '{"name":"pam-dr-2","site":"dr","role":"passive","base_url":"https://dr.example/pam"}'
+# -> {"node": {"id": 2, "health": "unknown", "consecutive_failures": 0, ...}}  (201)
+
+curl -s -X POST http://127.0.0.1:5000/api/v1/cluster/nodes/2/probe \
+  -H 'Content-Type: application/json' -H 'X-Actor: runbook' -d '{}'
+# -> {"node": {...}, "probe": {"url": ".../health", "health": "healthy",
+#     "latency_ms": 7, "error": "", "state_changed": true,
+#     "peer": {"status": "ok", "node": "pam-dr-2", ...}}}
+# a dead peer answers honestly: "error": "connection failed: ..." -> health
+# `unreachable`; the trail records the state change only, not every try
+
+# pull: the peer's chain re-hashed here record by record, vault ciphertext
+# kept sealed unless this node's key opens it, session metadata as evidence
+curl -s -X POST http://127.0.0.1:5000/api/v1/cluster/nodes/2/sync \
+  -H 'Content-Type: application/json' -H 'X-Actor: runbook' -d '{}'
+# -> {"node": "pam-dr-2", "ok": true, "elapsed_ms": 12,
+#     "kinds": {"audit": {"pulled": 67, "new": 67, "verified": 67,
+#       "unverified": 0, "first_break_seq": null, "intact": true},
+#       "vault": {"pulled": 5, "new": 5, "decryptable_here": 5},
+#       "sessions": {"pulled": 3, "new": 3}}}
+# failure is honest: {"ok": false, "error": "connection failed: ..."} with
+# whatever kinds already applied kept and listed on the trail event
+
+# failover: flip this node's role for real - while passive every product
+# write outside /api/v1/cluster/* (auth excepted) answers 409 first
+curl -s -X POST http://127.0.0.1:5000/api/v1/cluster/failover \
+  -H 'Content-Type: application/json' -H 'X-Actor: runbook' \
+  -d '{"action":"demote","reason":"planned handover to pam-dr-2"}'
+# -> {"node": "pam-node-1", "from": "active", "to": "passive"}
+
+# a verified backup: SQLite online backup API, then the copy is re-opened
+# read-only and its chain re-walked before the 201 returns
+curl -s -X POST http://127.0.0.1:5000/api/v1/cluster/backups \
+  -H 'X-Actor: runbook'
+# -> {"backup": {"path": ".../pam-backup-20261010T...-seq67.db",
+#     "sha256": "...", "size_bytes": 245760, "audit_seq": 67,
+#     "verified": true, "verify_detail": "chain intact over 67 records"},
+#     "message": "Backup created"}  (201)
+```
 
 ## Design notes
 

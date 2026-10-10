@@ -18,6 +18,62 @@ api = Blueprint("api", __name__, url_prefix="/api/v1")
 MAX_PAGE_SIZE = 200
 
 
+@api.before_request
+def _passive_node_gate():
+    """HA / DC / DR (architecture section 18): while this node's registry
+    role is `passive`, every write outside the cluster module itself is
+    refused with 409.
+
+    That is what active-passive honestly means for this product: a passive
+    DR node answers reads (the screens, the ledger, the evidence - that is
+    what a standby is for) and runs its own cluster operations (probe,
+    sync, backup, promote - a standby must be able to prove its peers are
+    dead and take over), but it never takes a product write: not vault, not
+    sessions, not settings, not licenses, not agent tasks. The gate is
+    method-based and deliberately blunt - every POST/PUT/PATCH/DELETE
+    outside those exemptions, including read-shaped ones like license
+    validation: the load balancer keeps traffic on the active node, and a
+    request that reaches the standby is told the truth (promote it) rather
+    than answered from state this node does not replicate (licenses are
+    not part of the pull replication - only the audit chain, the sealed
+    vault and session metadata are).
+
+    Two exemptions, both deliberate:
+    - `/api/v1/auth/*` is how a caller proves who they are, and reads need
+      credentials in token mode - gating authentication would lock
+      operators out of the very node they must inspect (or promote), and
+      6c's SSO login lands here too.
+    - Cluster operations stay writable because they are the standby's own
+      job: evidence, backups and the promote action itself.
+
+    The check runs before auth on purpose: it consults nothing but this
+    node's own row, and a 409 naming the promote route leaks no data - it
+    tells a caller exactly why the write was refused and how to lift it.
+    """
+    if request.method in ("GET", "HEAD", "OPTIONS"):
+        return None
+    if request.path.startswith(("/api/v1/cluster/", "/api/v1/auth/")):
+        return None
+    if service.cluster_self_role() != "passive":
+        return None
+    return (
+        jsonify(
+            {
+                "error": (
+                    "This node is passive (DR standby): every write outside "
+                    "/api/v1/cluster/* (authentication excepted) is refused "
+                    "until it is promoted"
+                ),
+                "details": {
+                    "role": "passive",
+                    "promote": "POST /api/v1/cluster/failover",
+                },
+            }
+        ),
+        409,
+    )
+
+
 def _config() -> Config:
     return current_app.config["LICENSE_CONFIG"]
 
@@ -2195,3 +2251,153 @@ def agent_stats():
     """Real aggregates: identities by state, declared tasks, agent access
     requests by state with the open count, the section-16 trail's size."""
     return jsonify(service.agent_stats())
+
+
+# ---------------------------------------------------------------------------
+# HA / DC / DR (architecture section 18): node registry with real health
+# probes, pull replication (hash-verified audit chain, sealed vault
+# ciphertext, session metadata), role-enforced failover, backups.
+# ---------------------------------------------------------------------------
+@api.get("/cluster")
+@require_admin
+def cluster_overview_route():
+    """One aggregate for the cluster screen: this node's identity and role,
+    the peer table with each node's last real probe, replica posture (what
+    this DR node holds and how much of it verified) and the backup ledger."""
+    return jsonify(service.cluster_overview())
+
+
+@api.get("/cluster/nodes")
+@require_admin
+def list_cluster_nodes_route():
+    """Every registered node - this one first, then peers by name - each
+    with the honest health state of its last real probe."""
+    return jsonify({"nodes": [node.to_dict() for node in service.list_cluster_nodes()]})
+
+
+@api.post("/cluster/nodes")
+@require_admin
+def register_cluster_node_route():
+    """Register a peer node (201): its site (dc/dr), its role in the
+    topology (active/passive) and where its /health answers. The node is
+    `unknown` until the first real probe - health is never assumed."""
+    node = service.register_cluster_node(_json_body(), actor=_actor())
+    return jsonify({"node": node.to_dict(), "message": "Node registered"}), 201
+
+
+@api.get("/cluster/nodes/<int:node_id>")
+@require_admin
+def get_cluster_node_route(node_id: int):
+    """One registered node with its last probe state."""
+    return jsonify({"node": service.get_cluster_node(node_id).to_dict()})
+
+
+@api.patch("/cluster/nodes/<int:node_id>")
+@require_admin
+def update_cluster_node_route(node_id: int):
+    """Update a registered node's topology (site, role, base_url, name).
+    Each change lands on the cluster trail with the value it replaced."""
+    node = service.update_cluster_node(node_id, _json_body(), actor=_actor())
+    return jsonify({"node": node.to_dict(), "message": "Node updated"})
+
+
+@api.delete("/cluster/nodes/<int:node_id>")
+@require_admin
+def delete_cluster_node_route(node_id: int):
+    """Unregister a peer. Replicated evidence stays (it is this node's own
+    DR record); the response says exactly how much stays behind."""
+    return jsonify(service.delete_cluster_node(node_id, actor=_actor()))
+
+
+@api.post("/cluster/nodes/<int:node_id>/probe")
+@require_admin
+def probe_cluster_node_route(node_id: int):
+    """Probe the peer's real /health now: measured latency, honest
+    unreachable (with the transport error verbatim) or degraded. The
+    cluster trail only records health *changes*."""
+    return jsonify(service.probe_cluster_node(node_id, actor=_actor()))
+
+
+@api.post("/cluster/nodes/<int:node_id>/sync")
+@require_admin
+def sync_cluster_node_route(node_id: int):
+    """Pull replication from the peer: its immutable audit chain (re-hashed
+    record by record here), its sealed vault ciphertext and its session
+    metadata. A `peer_token` body field authenticates the outbound calls
+    only - never stored, never echoed, never on the trail. The response is
+    the honest per-kind result, including a broken peer chain or the
+    transport error verbatim."""
+    return jsonify(
+        service.sync_cluster_node(node_id, _json_body(required=False), actor=_actor())
+    )
+
+
+@api.get("/cluster/replicas")
+@require_admin
+def cluster_replicas_route():
+    """Replica posture per peer: audit records held and how many verified
+    locally, replicated secrets (and whether this node's own key could
+    open them), sessions mirrored, last sync time."""
+    return jsonify(service.cluster_replica_summary())
+
+
+@api.post("/cluster/failover")
+@require_admin
+def cluster_failover_route():
+    """Promote or demote THIS node (section 18's failover): a real role
+    flip on the own registry row, recorded with the role it replaced.
+    While passive, the app-level gate refuses every write outside
+    /api/v1/cluster/* with 409 - the role is enforced, not decorative."""
+    body = _json_body(required=False)
+    action = body.get("action", "promote")
+    if not isinstance(action, str) or action not in ("promote", "demote"):
+        raise ValidationFailed(
+            "'action' must be 'promote' or 'demote'", {"field": "action"}
+        )
+    return jsonify(service.failover_cluster(action, body, actor=_actor()))
+
+
+@api.post("/cluster/monitor/tick")
+@require_admin
+def cluster_monitor_tick_route():
+    """Run one automatic-failover tick synchronously (the CLUSTER_MONITOR
+    thread runs this same function): while this node is passive, probe
+    every registered active peer; when all of them have failed enough real
+    consecutive probes, promote with those failures as the reason."""
+    return jsonify(service.run_cluster_monitor(actor=_actor(default="admin-monitor")))
+
+
+@api.get("/cluster/backups")
+@require_admin
+def list_cluster_backups_route():
+    """Every recorded backup of this node's database, newest first - path,
+    sha256, size, ledger head at backup time and the re-walk verdict."""
+    return jsonify({"backups": [b.to_dict() for b in service.list_cluster_backups()]})
+
+
+@api.post("/cluster/backups")
+@require_admin
+def create_cluster_backup_route():
+    """Take a real backup now (201): SQLite's online backup API copies the
+    live file without stopping writes, the copy is hashed and re-opened
+    read-only to re-walk its audit chain - a backup that cannot be
+    verified says why, honestly."""
+    backup = service.create_cluster_backup(actor=_actor())
+    return jsonify({"backup": backup.to_dict(), "message": "Backup created"}), 201
+
+
+@api.get("/cluster/export/vault")
+@require_admin
+def cluster_export_vault_route():
+    """This node's sealed vault ciphertext for a peer's replication pull:
+    each item's current version with the blob exactly as stored. The
+    plaintext never crosses this endpoint - only the AES-GCM wire form."""
+    return jsonify(service.export_vault_secrets())
+
+
+@api.get("/cluster/export/sessions")
+@require_admin
+def cluster_export_sessions_route():
+    """This node's session metadata for a peer's replication pull: who had
+    access to what, when, and how it ended."""
+    return jsonify(service.export_sessions())

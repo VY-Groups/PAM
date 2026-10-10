@@ -1,6 +1,6 @@
 # VY-PAM — PAM Flow (Application Flow)
 
-**Status:** as-built for Phase 5b
+**Status:** as-built for Phase 6a
 Maps navigation, user journeys, and state machines across the console.
 Screen files live in `frontend/screens/<slug>/code.html`; the canonical
 navigation is the 11-item sidebar rendered on every screen.
@@ -23,7 +23,7 @@ Sidebar order (slugs = `data-path`, labels = nav text, icons = Material Symbols)
 | 8 | `license-entitlement-center` | Licensing & Entitlements | `workspace_premium` | ✅ `/licenses/*` |
 | 9 | `break-glass-emergency-protocol` | Emergency Break-Glass | `emergency_home` (rendered in `text-error`) | ✅ `/break-glass/*` |
 | 10 | `vendor-access-third-party-lifecycle` | Vendor Access | `handshake` | ✅ `/vendors/*` |
-| 11 | `platform-settings-center` | Settings | `tune` | ✅ `/settings/*` |
+| 11 | `platform-settings-center` | Settings | `tune` | ✅ `/settings/*`, `/cluster/*` |
 
 Plus the **launcher** (`frontend/launcher.html`) — a link hub, and the static
 spec screens (`enterprise_licensing_…`, `platform_settings_idp_hsm_…`) used as
@@ -155,7 +155,7 @@ Command Center → bypass section → paste an auth-log bundle → Ingest
       failures recorded) · block source "not connected" (no connector yet)
   → analyst closes with a note (who + when)     GET /bypass/incidents…
   → every ingest/scan/detect/close fans into the ledger (source `bypass`)
-  → Compliance screen: `bypass` chip in the 15-source filter
+  → Compliance screen: `bypass` chip in the 16-source filter
 ```
 
 ### 2.9 Break-glass emergency (§17)
@@ -177,7 +177,7 @@ Break-Glass screen → Initiate emergency (target + reason + severity +
         trigger `break-glass`), cascade recorded on the request
   → every request/approve/deny/open/close fans into the ledger
       (source `break-glass`, ref `bg-…`)
-  → Compliance screen: `break-glass` chip in the 15-source filter
+  → Compliance screen: `break-glass` chip in the 16-source filter
 ```
 
 ### 2.10 Enterprise integrations (§20)
@@ -323,6 +323,37 @@ Admin registers an agent identity: API token `vypam-agt1.<id>.<secret>`
     settings and task scopes are frozen at 409
   → every action folds into the ledger as source `agent` (15th source);
     Compliance gains the 16th chip
+```
+
+### HA / DC / DR (§18 - built in 6a)
+
+```
+Admin registers the DR peer (name / site / role / base URL - https unless
+  loopback); this node itself is registered at startup from PAM_NODE_NAME
+  Probe (POST /cluster/nodes/<id>/probe): a real GET {base}/health -
+    peer identity (node/site/role from its own /health), latency, error
+    verbatim; health starts `unknown` and the trail records state CHANGES
+    only - `unknown → unreachable` for a dead peer, never a row per probe
+  Sync (POST /cluster/nodes/<id>/sync): pull the peer's NDJSON chain and
+    re-hash every record here (verified/unverified, first_break_seq on a
+    tampered link), pull sealed vault ciphertext (plaintext_here only when
+    this node's key opens it) + session metadata - evidence under the
+    peer, never merged into this node's own ledger
+  Replica posture + backup ledger render on Platform Settings (honest
+    zeros / empty states until the first sync or backup)
+  Failover: Promote/Demote flips THIS node's role for real - while
+    passive every product write outside /api/v1/cluster/* (auth excepted)
+    is refused 409 with details.promote, so failback stays possible from
+    the same screen
+  opt-in auto-failover (CLUSTER_MONITOR): a passive node probes every
+    active peer each tick and promotes itself only after 3 consecutive
+    failures AND all active peers failed; an active node never demotes
+    itself - failback is an operator decision
+  New Backup (POST /cluster/backups): SQLite online backup + sha256 +
+    chain re-walked from the copy; restore is file put-back + /health +
+    /audit/verify per the deployment runbook
+  every action fans into the ledger as source `cluster` (16th source);
+    Compliance gains the 17th chip
 ```
 
 ## 3. Cross-cutting interaction rules

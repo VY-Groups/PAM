@@ -24,7 +24,7 @@ PAM/
 │   ├── screens/<name>/          #   one folder per screen: code.html + screen.png
 │   └── README.md                #   layout + how to add a screen (the contract)
 ├── apis/                            # HTTP contract for every backend service
-│   ├── openapi.yaml             #   OpenAPI 3.1: all 120 paths (synced by a test)
+│   ├── openapi.yaml             #   OpenAPI 3.1: all 131 paths (synced by a test)
 │   └── README.md                #   conventions + how to view
 ├── backend/
 │   ├── ipam_licensing/              # Phase 1: library + CLIs
@@ -54,6 +54,9 @@ PAM/
 │       ├── tests/test_watermark.py    # §12 dynamic watermark overlay (6 tests)
 │       ├── tests/test_vendor_pam.py   # §13 third-party vendor PAM (21 tests)
 │       ├── tests/test_cloud.py        # §14 cloud PAM connectors (27 tests)
+│       ├── tests/test_broker.py       # §15 CI/CD credential broker (24 tests)
+│       ├── tests/test_agent.py        # §16 AI-agent PAM (29 tests)
+│       ├── tests/test_cluster.py      # §18 HA/DC/DR probe/replication/failover (36 tests)
 │       ├── tests/test_openapi_contract.py # apis/openapi.yaml ↔ routes (5 tests)
 │       ├── Dockerfile + docker-compose.yml  # development/runtime testing only
 │       └── README.md                # full API reference
@@ -95,7 +98,7 @@ python -m pam_master.keygen                      # RSA + Ed25519 + registry PII 
 python -m pam_master                             # http://127.0.0.1:5400
 
 # Tests (shared core + shipped API contract + vendor tool)
-python -m pytest backend -q                      # 541 tests
+python -m pytest backend -q                      # 577 tests
 python -m pytest pam_master -q                   # 46 tests (vendor tool)
 ```
 
@@ -135,8 +138,8 @@ python -m pytest pam_master -q                   # 46 tests (vendor tool)
   backed by `GET/PUT /api/v1/settings` with an audit changelog, plus the §20
   Enterprise Integrations cards over `GET /api/v1/integrations/status`), the Command
   Center and Compliance screens (backed by `GET /api/v1/overview` and the
-  unified `GET /api/v1/events` feed — a fifteen-source trail filter that
-  includes the `integration`, `vendor`, `cloud`, `broker` and `agent` trails, plus a live SIEM-push chip — and the
+  unified `GET /api/v1/events` feed - a sixteen-source trail filter that
+  includes the `integration`, `vendor`, `cloud`, `broker`, `agent` and `cluster` trails, plus a live SIEM-push chip - and the
   Command Center's §10 PAM
   bypass detection section over `GET/POST /api/v1/bypass/*` — real auth-log
   ingest, correlation against managed targets and recorded sessions,

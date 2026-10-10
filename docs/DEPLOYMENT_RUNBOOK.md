@@ -1,6 +1,6 @@
 # VY-PAM — Deployment & Operations Runbook
 
-**Status:** as-built for Phase 5b
+**Status:** as-built for Phase 6a
 Docker exists **only** for development and runtime testing (vendor tool +
 license server). The shipped product
 installs directly on a machine — no VM, no container.
@@ -81,6 +81,9 @@ shipping instruction.
 | `LICENSE_DEFAULT_TRIAL_DAYS` | 30 | trial issuance default |
 | `VAULT_KEY_PATH` / `VAULT_AUTOGENERATE_KEY` | `vault.key` / off | **back this up — losing it loses the secrets** |
 | `ROTATION_SCHEDULER` / `ROTATION_SCHEDULER_INTERVAL_SECONDS` | off / 3600 | background rotation |
+| `PAM_NODE_NAME` / `PAM_SITE` | `pam-node-1` / `dc` | §18 self identity per node (`site` ∈ `dc`,`dr`) |
+| `CLUSTER_MONITOR` / `CLUSTER_MONITOR_INTERVAL_SECONDS` | off / 60 | opt-in auto-failover monitor thread |
+| `CLUSTER_BACKUP_DIR` | `backend/phase2_license_server/backups` | destination of verified `POST /cluster/backups` copies |
 
 `.env` next to `config.py` is loaded automatically and is git-ignored.
 
@@ -115,9 +118,80 @@ across the restored history).
 → start. Schema changes are additive and applied at boot by
 `ensure_schema()`; the one-time chain backfill and rule seeding never repeat.
 Run the boundary suites before exposing it: `python -m pytest backend -q`
-(expect **541**) and `python -m pytest pam_master -q` (**46**).
+(expect **577**) and `python -m pytest pam_master -q` (**46**).
 
-## 7. Monitoring
+## 7. HA / DC / DR runbooks (§18)
+
+Every node runs the same binary with its own identity: set
+`PAM_NODE_NAME` and `PAM_SITE` (`dc`|`dr`) per node. Decide the vault-key
+story deliberately — a **shared** `vault.key` is what lets the DR node
+actually open pulled ciphertext (`decryptable_here: true`); separate
+keys keep replicas sealed (`decryptable_here: false`), an equally valid
+posture. Add `-H "X-Admin-Token: <token>"` (or `Authorization: Bearer
+<token>`) to the calls below when `LICENSE_ADMIN_TOKEN` is set.
+
+**Register a peer** (once, on the node that should pull):
+
+```bash
+PAM=http://127.0.0.1:5000/api/v1
+curl -s -X POST $PAM/cluster/nodes \
+  -H "Content-Type: application/json" -H "X-Actor: runbook" \
+  -d '{"name":"pam-dr-2","site":"dr","role":"passive","base_url":"https://dr.example/pam"}'
+```
+
+Health starts `unknown` — registration probes nothing. This node's own
+row registers itself at boot from `PAM_NODE_NAME`; never add it here.
+
+**Verify topology:** `GET /api/v1/cluster` (registry, peers by health,
+replica totals, backup counts) or console → Platform Settings →
+*HA / DC / DR Cluster*. Measure and pull on demand:
+
+```bash
+curl -s -X POST $PAM/cluster/nodes/2/probe -H "X-Actor: runbook" \
+  -H "Content-Type: application/json" -d '{}'
+curl -s -X POST $PAM/cluster/nodes/2/sync -H "X-Actor: runbook" \
+  -H "Content-Type: application/json" \
+  -d '{"peer_token":"<the peer admin token, if it runs with one>"}'
+```
+
+- a dead peer answers verbatim (`"error": "connection failed: ..."`) and
+  turns `unreachable` — the trail records the state change, not each try
+- a tampered chain lands with `verified: false` + `first_break_seq`:
+  investigate the peer before trusting that DR node
+- a failed pull reports the transport error with whatever kinds already
+  applied kept (listed in the trail event, never rolled back silently)
+
+**Failover (manual — recommended):** on the passive node
+
+```bash
+curl -s -X POST $PAM/cluster/failover -H "X-Actor: runbook" \
+  -H "Content-Type: application/json" \
+  -d '{"action":"promote","reason":"dc-1 down"}'
+```
+
+`GET /health` then reports `role: passive` on the demoted node. While
+passive it refuses product writes with 409 (cluster + auth endpoints
+excepted), so failback is the same call in reverse
+(`{"action":"demote"}`) from whichever node should lead.
+
+**Failover (automatic — opt-in):** set `CLUSTER_MONITOR=1` on the
+passive node. Each tick (default 60 s) it probes every registered active
+peer and promotes itself only after **3** consecutive failures *and* all
+active peers failed. An active node never auto-demotes — failback is
+always an operator decision.
+
+**Scheduled backups** (per node): `POST /api/v1/cluster/backups` copies
+the live SQLite file into `CLUSTER_BACKUP_DIR` and re-walks the chain
+from the copy before answering (`verified: true`); copy the file
+off-host with your normal job. Restore is §6 (file put-back →
+`GET /health` + `GET /api/v1/audit/verify`).
+
+**DR drill:** on a spare node set `PAM_SITE=dr`, register the production
+peers, run `sync`, then confirm `GET /api/v1/audit/verify` is intact and
+`GET /api/v1/cluster/replicas` shows exactly what was pulled. Replicas
+are evidence, never merged — the spare still serves only its own ledger.
+
+## 8. Monitoring
 
 | Signal | Source | Healthy looks like |
 |---|---|---|
@@ -126,8 +200,9 @@ Run the boundary suites before exposing it: `python -m pytest backend -q`
 | Rotation | `/api/v1/vault/stats` | `last_rotated_at` advancing for due items |
 | Session/control load | `/api/v1/sessions/stats` | as capacity requires |
 | Failed admin auth | proxy/app logs | spikes ⇒ token probing |
+| Peer health | `GET /api/v1/cluster` | registered peers `healthy`, `consecutive_failures` 0 (§7) |
 
-## 8. Troubleshooting
+## 9. Troubleshooting
 
 | Symptom | Cause | Fix |
 |---|---|---|
@@ -136,26 +211,30 @@ Run the boundary suites before exposing it: `python -m pytest backend -q`
 | Boot fails: "Private key not found" / key load error | missing/corrupt PEM | restore from backup; or `LICENSE_AUTOGENERATE_KEYS=1` for a **fresh trust root** (invalidates previously issued licenses) |
 | Vault endpoint 503 | `vault.key` missing/unreadable | restore `vault.key`; never regenerate over an existing DB (old ciphertext undecryptable) |
 | `/audit/verify` reports first break | DB tampering/corruption | **do not repair silently** — export NDJSON evidence, restore from last good backup, investigate |
+| Writes answer 409 `role: passive` | this node was demoted (or is the DR standby) | intended §18 gate — promote it (`POST /api/v1/cluster/failover`) if it should lead |
+| Peer stuck `unreachable` | network/TLS/DNS to `base_url` | the row's `last_error` is verbatim — fix reachability, then re-probe (§7) |
+| `cluster/replicas` shows `unverified` | peer chain broke (tampering or version skew) | treat as evidence, not mirror: verify the peer before trusting it |
 | Scan 409 | a scan is already running | single-flight by design; wait or check `/discovery/scans` |
 | Console shows `—` everywhere | API unreachable or `file://` | correct: honest fallback; fix base URL / serve via HTTP |
 | Fonts/icons missing offline | CDN blocked | vendor Tailwind CDN + Google Fonts locally |
 
-## 9. Uninstall
+## 10. Uninstall
 
 Stop the process; delete the install directory **after** securely destroying
 `vault.key`, the PEMs, `licenses.db`, and `.env` (they contain secrets,
 credentials, and audit history).
 
-## 10. Target deployment (after planned work — see `IMPLEMENTATION_PLAN.md`)
+## 11. Target deployment (after planned work — see `IMPLEMENTATION_PLAN.md`)
 
-Not implemented today; recorded so operations planning isn't surprising:
+Status per item — recorded so operations planning isn't surprising:
 
-- **§18 HA/DC/DR (phase 6a):** load balancer → replicated PAM access nodes →
-  policy engine → vault cluster → audit/event store on immutable storage;
-  active-active or active-passive, automatic failover, health-checked
-  failover drills, vault/session/audit replication. The storage-engine
-  decision (today's single-file SQLite → replicated store) is the core
-  design item; backup steps in §6 extend to replication runbooks.
+- **§18 HA/DC/DR (phase 6a — shipped, single-binary scope):** node
+  registry, real `/health` probes, hash-verified pull replication
+  (audit/vault/sessions), the passive write gate, manual failover + opt-in
+  automatic promotion, and verified SQLite backups run today — runbooks in
+  §7. Still ahead of the full spec picture: external load-balancer
+  topology guidance and a replicated store replacing single-file SQLite
+  for multi-writer nodes.
 - **Phase 4i connectors:** SIEM outbound push and LDAP/SSO auth paths add
   egress/firewall expectations (outbound webhook + LDAP port) to this
   checklist when configured.
@@ -163,4 +242,4 @@ Not implemented today; recorded so operations planning isn't surprising:
   *shipped* product remains optional and off the default path — the
   install-directly guarantee stands for single-node editions.
 - Uninstall at scale: decommission order (drain nodes → final audit export →
-  destroy keys per §9 on every node).
+  destroy keys per §10 on every node).

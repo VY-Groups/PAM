@@ -1,6 +1,6 @@
 # VY-PAM — Security & Compliance Overview
 
-**Status:** as-built for Phase 5b
+**Status:** as-built for Phase 6a
 States what the platform **actually enforces today** — implemented controls
 are described with their evidence; gaps are named plainly.
 
@@ -70,7 +70,7 @@ token or explicit open dev mode), (c) runtime↔disk (encrypted secrets),
 
 ## 4. Authentication & accountability
 
-- **86 admin operations** carry security schemes in `openapi.yaml`
+- **101 admin operations** carry security schemes in `openapi.yaml`
   (contract-tested) — they require `Bearer`/`X-Admin-Token` whenever
   `LICENSE_ADMIN_TOKEN` is set.
 - **Open dev mode is loud, never silent:** responses carry
@@ -117,7 +117,7 @@ token or explicit open dev mode), (c) runtime↔disk (encrypted secrets),
 | Ordered | `seq` unique, ascending | `test_audit.py` chain walk |
 | Chained | `prev_hash` → `event_hash = sha256(canonical record)`, genesis `0`×64 | verify endpoint recompute |
 | Append-only | SQLite triggers abort `UPDATE`/`DELETE` with `'audit_events is append-only (architecture 19)'` | trigger tests |
-| Complete coverage | 15 sources (`license settings vault discovery jit session command risk bypass break-glass integration vendor cloud broker agent`); mapper-coverage test fails if any event model lacks a mapper | `MAPPERS` ⇄ models ⇄ `by_source` assertions |
+| Complete coverage | 16 sources (`license settings vault discovery jit session command risk bypass break-glass integration vendor cloud broker agent cluster`); mapper-coverage test fails if any event model lacks a mapper | `MAPPERS` ⇄ models ⇄ `by_source` assertions |
 | Detect, don't repair | tampering is **reported** (`first break` index), never silently fixed | forged-insert test |
 | Portable evidence | `/audit/verify`, `/audit/export` NDJSON in chain order | contract + audit tests |
 
@@ -151,7 +151,7 @@ with per-event `seq` and custody watermarks.
 | SSO / MFA / HSM integration | ⚠️ MFA enforced when enrolled | §20 RFC-6238 gate at session start + break-glass open (no factor → honest `not configured`, never simulated); SSO/HSM stay settings-store only — posture counts them honestly |
 | Geo-IP / UEBA behavioral analytics | ⚠️ UEBA built, no geo feed | §11 baselines from real history + named deviations (unusual time/device/IP/target/command/privilege) driving the block→rotate→incident chain; `location` stays `is_global` (no geo feed claimed) |
 | TLS in transit | ⛔ at app layer | terminate at reverse proxy (see runbook) |
-| HA / DR | ⛔ | single-node SQLite |
+| HA / DR | ✅ | multi-node registry + real `/health` probes, hash-verified pull replication (audit/vault/sessions), passive write gate, manual failover + opt-in auto-promote, verified SQLite backups — runbooks in the deployment runbook §7 |
 | Break-glass emergency workflow (§17) | ✅ | dual approval (requester excluded) → recorded session → forced rotation at close; ledger `break-glass` |
 | Third-party / vendor access (§13) | ✅ | per-vendor TOTP (sealed, shown once) + NDA + real ITSM ticket → strict approval gate → scope/window-checked JIT request with forced session recording + lazy expiry; refusals recorded; ledger `vendor` |
 | SIEM streaming | ⚠️ seam only | NDJSON export (pull), no live webhook (§20) |
@@ -166,9 +166,8 @@ reported as missing — never as partial-good.
 |---|---|---|
 | Single admin role (RBAC/ABAC claimed in matrix) | 6b | Roles + attribute bindings over all admin operations and vault/target scoping |
 | SSO/HSM schema-only | 6c | SAML/OIDC login enforced; HSM/KMS-backed keys where configured |
-| TLS not terminated by the app | runbook §5 (now) | Reverse-proxy TLS — documented and checklisted; app stays plain HTTP by design |
-| No HA/DR (§18) | 6a | Replicated multi-node deployment with failover drill + runbooks |
-| Geo-IP feed (`location` = `is_global`) | 4i | Device/IP context now sits in the trained §11 baselines; a real geo feed only if one is ever configured — otherwise the honest label stays |
+| TLS not terminated by the app | runbook §5 (now) | Reverse-proxy TLS - documented and checklisted; app stays plain HTTP by design |
+| Geo-IP feed (`location` = `is_global`) | 4i | Device/IP context now sits in the trained §11 baselines; a real geo feed only if one is ever configured - otherwise the honest label stays |
 
 **Target posture (after plan completion):** admin auth enforced (token/SSO),
 MFA on elevated paths, integrations verified or explicitly `not connected`,

@@ -1,6 +1,6 @@
 # VY-PAM — UI/UX Design Brief
 
-**Status:** as-built for Phase 5b
+**Status:** as-built for Phase 6a
 **Source design:** `stitch_pam_suite_dashboard_ui/` (frozen reference — never
 modified; screens live under `frontend/screens/<slug>/code.html`).
 This brief documents the design system as implemented, so new screens match
@@ -137,7 +137,7 @@ loaded from Google Fonts; Material Symbols Outlined for icons.
 
 | Screen / surface | Pending work | Phase |
 |---|---|---|
-| New nav entries | Agent surfaces (5d) still require sidebar growth — the 5a vendor case is **decided and shipped**: canonical nav extended to 11 items (`vendor-access-third-party-lifecycle`, `handshake`, inserted before Platform Settings), nav-consistency test + launcher followed; the 5d case decides at its own phase start | 5d |
+| New nav entries | **decided and shipped (5d)**: no sidebar growth - the agent surfaces live inside the JIT screen (below the broker section); canonical nav stays 11 items (`vendor-access-third-party-lifecycle`, `handshake`, inserted before Platform Settings), nav-consistency test + launcher followed. 6a's HA/DC/DR section likewise lives inside Platform Settings - no new entry | 5d |
 
 Constraints that carry into all pending UI: frozen-HTML rules (no new `id=`,
 `data-role` hooks only), reveal-on-click + 30 s re-mask, honest

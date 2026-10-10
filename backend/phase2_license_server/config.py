@@ -60,6 +60,14 @@ class Config:
     # Optional background scheduler for due rotations (off unless enabled).
     rotation_scheduler: bool = False
     rotation_scheduler_interval: int = 300
+    # HA / DC / DR (architecture section 18): this node's identity in the
+    # cluster registry, the opt-in automatic-failover monitor and where real
+    # SQLite backups are written.
+    node_name: str = "pam-node-1"
+    node_site: str = "dc"
+    cluster_monitor: bool = False
+    cluster_monitor_interval: int = 60
+    cluster_backup_dir: Path = SERVER_DIR / "backups"
 
     @classmethod
     def from_env(cls) -> "Config":
@@ -68,6 +76,11 @@ class Config:
             os.getenv("LICENSE_DATABASE_URI")
             or f"sqlite:///{default_db.as_posix()}"
         )
+        node_site = (os.getenv("PAM_SITE") or "dc").strip().lower()
+        if node_site not in ("dc", "dr"):
+            raise ValueError(
+                f"PAM_SITE must be 'dc' or 'dr' (got {node_site!r})"
+            )
 
         return cls(
             database_uri=database_uri,
@@ -100,5 +113,16 @@ class Config:
             rotation_scheduler=_env_bool("ROTATION_SCHEDULER", False),
             rotation_scheduler_interval=int(
                 os.getenv("ROTATION_SCHEDULER_INTERVAL_SECONDS", "300")
+            ),
+            node_name=(os.getenv("PAM_NODE_NAME") or "pam-node-1").strip()
+            or "pam-node-1",
+            node_site=node_site,
+            cluster_monitor=_env_bool("CLUSTER_MONITOR", False),
+            cluster_monitor_interval=max(
+                5, int(os.getenv("CLUSTER_MONITOR_INTERVAL_SECONDS", "60"))
+            ),
+            cluster_backup_dir=_resolve_path(
+                os.getenv("CLUSTER_BACKUP_DIR"),
+                SERVER_DIR / "backups",
             ),
         )

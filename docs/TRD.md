@@ -1,6 +1,6 @@
 # VY-PAM — Technical Requirements & Design Document (TRD)
 
-**Status:** as-built for Phase 5b
+**Status:** as-built for Phase 6a
 **Audience:** engineers extending or operating the system
 **Companion docs:** `PRD.md`, `PAM_FLOW.md`, `BACKEND_SCHEMA.md`, `API_REFERENCE.md`
 
@@ -51,7 +51,7 @@ repo.
 | Store | SQLite (`licenses.db`, git-ignored) | append-only enforced by triggers on `audit_events` |
 | Crypto | `cryptography` lib | RSA-PSS-SHA256 (default) / Ed25519 envelopes; AES-256-GCM secrets |
 | Frontend | Static HTML + Tailwind (CDN build) + vanilla JS | 11 sidebar screens, no bundler, works from `file://` |
-| Tests | pytest | 541 backend + 46 pam_master |
+| Tests | pytest | 577 backend + 46 pam_master |
 | UI verification | Node + `playwright-core` (`shots_tool/`) | viewport 1920×1600, never `fullPage` |
 | Vendor tool | Flask + raw `sqlite3` | `pam_master` package, `python -m pam_master` |
 
@@ -230,7 +230,7 @@ Rules enforced by tests/conventions:
 - `BreakGlassEvent` actions (`requested`, `approved`, `denied`, `opened`,
   `closed`) fan into the §19 chain as the **tenth** source `break-glass`
   (eleven with 4i's `integration`, twelve with 5a's `vendor`, thirteen with
-  5b's `cloud`, fourteen with 5c's `broker`, fifteen with 5d's `agent`);
+  5b's `cloud`, fourteen with 5c's `broker`, fifteen with 5d's `agent`, sixteen with 6a's `cluster`);
   `bg-` request refs, stats and the
   compliance feed stay generic. The emergency path runs the §20 MFA gate at
   open: a factor enrolled demands a `mfa_code` (401 `details.mfa`), no
@@ -468,12 +468,54 @@ Rules enforced by tests/conventions:
   stat tiles, `file://` falls back to dashes); Compliance gains the 16th
   chip (source `agent`) and its action labels.
 
+### 4.20 HA / DC / DR (§18) - Phase 6a
+
+- **Data**: `cluster_nodes` (registry: unique name, `dc`/`dr` site,
+  `active`/`passive` role, base URL, honest `health`
+  `unknown|healthy|degraded|unreachable`, last probe/error/failure count) +
+  `cluster_events` (topology trail → ledger source `cluster`) +
+  `cluster_audit_replicas` / `cluster_secret_replicas` /
+  `cluster_session_replicas` (pulled evidence keyed per peer - never
+  merged) + `cluster_backups` (verified copies). Tables **38→44**.
+- **Self identity**: `PAM_NODE_NAME` / `PAM_SITE` name this node; startup
+  registers the row once (no ledger event) and a restart never resets its
+  role. `/health` answers with `node`/`site`/`role` so peers can identify
+  each other.
+- **Probes**: `POST /cluster/nodes/{id}/probe` performs a real
+  `GET {base}/health` (5 s timeout): peer identity, latency, error
+  verbatim; the trail records health **state changes** only. Registration
+  implies nothing - health starts `unknown`.
+- **Replication (pull)**: `POST /cluster/nodes/{id}/sync` pulls the peer's
+  `/audit/export` NDJSON and re-hashes every record here (transitive trust
+  through this node's own verified chain; a break stores the rest as
+  `verified: false` and the response reports `first_break_seq`), its
+  sealed vault ciphertext (`plaintext_here` only after a successful
+  decrypt under this node's key), and session metadata. Replicas live
+  under `node_id` as DR evidence; a sync from yourself is 400 and a
+  transport failure is reported verbatim, keeping whatever kinds already
+  applied.
+- **Passive gate**: while `role=passive`, `_passive_node_gate` refuses
+  every POST/PUT/PATCH/DELETE outside `/api/v1/cluster/*` and
+  `/api/v1/auth/*` with 409 *before* auth runs (`details.promote` names
+  the way back) - reads and cluster operations stay available for failback.
+- **Failover**: `POST /cluster/failover {action: promote|demote}` flips
+  the role (already there → 409) with `from`/`to` on the trail. The
+  opt-in `CLUSTER_MONITOR` thread (and `POST /cluster/monitor/tick`)
+  probes every registered active peer while passive and promotes only
+  after **3** consecutive failures *and* all of them failed; an active
+  node never auto-demotes - failback is an operator decision.
+- **Backups**: `POST /cluster/backups` copies the live SQLite database
+  through the online backup API into `CLUSTER_BACKUP_DIR`
+  (`pam-backup-<ts>-seq<N>.db`), records sha256 + audit seq, then re-opens
+  the copy read-only and re-walks its chain before answering 201; a
+  non-SQLite engine answers 503 honestly.
+
 ## 5. API conventions
 
 | Concern | Rule |
 |---|---|
 | Versioning | Everything under `/api/v1` (health/meta unversioned) |
-| Auth | `LICENSE_ADMIN_TOKEN` set → `Authorization: Bearer …` or `X-Admin-Token: …` on the 86 admin operations; unset → explicit open dev mode (`X-Auth-Mode: open` response header); pipeline `/broker` operations require the broker API token and AI-agent `/agent-access` operations the agent API token — neither is ever waived |
+| Auth | `LICENSE_ADMIN_TOKEN` set → `Authorization: Bearer …` or `X-Admin-Token: …` on the 101 admin operations; unset → explicit open dev mode (`X-Auth-Mode: open` response header); pipeline `/broker` operations require the broker API token and AI-agent `/agent-access` operations the agent API token — neither is ever waived |
 | Actor | `X-Actor` header recorded on every audited write |
 | Errors | `{"error": {"code", "message", "details?"}}`; 400 validation, 401 auth, 403 policy refusal, 404, 409 conflict/state, 422 shape, 503 fail-closed dependency |
 | Pagination | `limit` (max 200) + `offset`, newest first |
@@ -495,6 +537,9 @@ Shipped server (`backend/phase2_license_server`, `.env` supported):
 | `VAULT_KEY_PATH` | `vault.key` | AES-256-GCM master key |
 | `VAULT_AUTOGENERATE_KEY` | off | create vault key once |
 | `ROTATION_SCHEDULER` / `ROTATION_SCHEDULER_INTERVAL_SECONDS` | off / 3600 | background rotation |
+| `PAM_NODE_NAME` / `PAM_SITE` | `pam-node-1` / `dc` | §18 self identity (`site` is `dc` or `dr`); the registry row is created at startup, its role never reset by a restart |
+| `CLUSTER_MONITOR` / `CLUSTER_MONITOR_INTERVAL_SECONDS` | off / 60 | opt-in auto-failover monitor thread (tick interval, minimum 5 s) |
+| `CLUSTER_BACKUP_DIR` | `backend/phase2_license_server/backups` | where `POST /api/v1/cluster/backups` writes its verified SQLite copies |
 | `LICENSE_SERVER_HOST` / `LICENSE_SERVER_PORT` / `LICENSE_SERVER_DEBUG` | `127.0.0.1` / `5000` / off | dev server |
 
 Vendor tool (`pam_master`): `MASTER_DATABASE_URI`, `MASTER_RSA_PRIVATE_KEY_PATH`,
@@ -530,9 +575,7 @@ its phase starts (plan > code > docs, in that order).
 
 | Phase / section | Data additions | API additions | Runtime behavior |
 |---|---|---|---|
-| 5d §16 AI-Agent | `agent_identities`, task scopes | agent request endpoints + task-scoped rule evaluation | identity → task → risk → JIT → restricted commands → expiry |
-| 6a §18 HA | replication/failover topology | health/failover endpoints | multi-node; storage engine decision = core design item |
-| 6b RBAC | `roles`, `role_bindings` | security schemes gain role requirements | attribute checks on the 86 admin ops + vault/target scoping |
+| 6b RBAC | `roles`, `role_bindings` | security schemes gain role requirements | attribute checks on the 101 admin ops + vault/target scoping |
 | 6c SSO/HSM | SSO/HSM config state | SAML/OIDC login path, PKCS#11/KMS key ops | settings schema becomes enforcement; posture counts flip honestly |
 
 Standing constraints that carry into all of these: ledger emission inside

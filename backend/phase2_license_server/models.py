@@ -2286,3 +2286,255 @@ class AgentEvent(db.Model):
             "detail": self.detail or {},
             "created_at": self.created_at.isoformat(),
         }
+
+
+# ---------------------------------------------------------------------------
+# HA / DC / DR (architecture section 18)
+#
+# The shipped server is a single node (SQLite, one process). Section 18's
+# enterprise topology - load balancer, access nodes, vault cluster, DR site
+# with encrypted replication - is delivered honestly as the two halves a
+# single binary can really do:
+#
+#   1. a *node registry* with real health probes (a live HTTP GET against a
+#      peer's /health; an unreachable peer is recorded as unreachable with
+#      the transport error, never as a fabricated healthy state), and
+#   2. *pull replication* - this node pulls a peer's immutable audit chain
+#      (hash-verified record by record), its sealed vault ciphertext and its
+#      session metadata into local replica tables. The replica tables are
+#      evidence: they never mix into the live tables, and they are never
+#      written by anything local.
+#      Failover is a real role flip (passive -> active) recorded on the
+#      cluster trail; while passive the node refuses every mutation with 409
+#      until promoted, so the role is enforced, not decorative. An opt-in
+#      monitor thread promotes a passive node automatically after the
+#      configured number of consecutive failed probes against the active
+#      peer - automatic failover driven by the same real probes.
+# ---------------------------------------------------------------------------
+class ClusterNode(db.Model):
+    """One registered PAM node (this one or a peer) in the section-18
+    topology: site (`dc`/`dr`), role (`active`/`passive`) and the honest
+    health state of the last real probe against it."""
+
+    __tablename__ = "cluster_nodes"
+
+    id = db.Column(db.Integer, primary_key=True)
+    name = db.Column(db.String(64), nullable=False, unique=True, index=True)
+    site = db.Column(db.String(8), nullable=False, default="dc")
+    role = db.Column(db.String(8), nullable=False, default="active")
+    base_url = db.Column(db.String(255), nullable=False, default="")
+    # `unknown` until the first real probe; then healthy / degraded /
+    # unreachable - each with the measured latency and the transport error
+    # (or none) exactly as the probe saw them.
+    health = db.Column(db.String(16), nullable=False, default="unknown")
+    last_probe_at = db.Column(db.DateTime, nullable=True)
+    last_latency_ms = db.Column(db.Integer, nullable=True)
+    last_error = db.Column(db.String(255), nullable=False, default="")
+    consecutive_failures = db.Column(db.Integer, nullable=False, default=0)
+    created_at = db.Column(
+        db.DateTime, nullable=False, default=datetime.now, index=True
+    )
+    created_by = db.Column(db.String(64), nullable=False, default="system")
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "id": self.id,
+            "name": self.name,
+            "site": self.site,
+            "role": self.role,
+            "base_url": self.base_url,
+            "health": self.health,
+            "last_probe_at": (
+                self.last_probe_at.isoformat() if self.last_probe_at else None
+            ),
+            "last_latency_ms": self.last_latency_ms,
+            "last_error": self.last_error,
+            "consecutive_failures": self.consecutive_failures,
+            "created_at": self.created_at.isoformat(),
+            "created_by": self.created_by,
+        }
+
+
+class ClusterEvent(db.Model):
+    """Module action log for section 18 - node registration, probes (state
+    changes only), syncs, role flips and backups - folded into the section-19
+    ledger as the sixteenth source (`cluster`)."""
+
+    __tablename__ = "cluster_events"
+
+    id = db.Column(db.Integer, primary_key=True)
+    node_id = db.Column(db.Integer, nullable=True, index=True)
+    action = db.Column(db.String(32), nullable=False)
+    actor = db.Column(db.String(64), nullable=False, default="system")
+    subject = db.Column(db.String(128), nullable=False, default="")
+    detail = db.Column(db.JSON, nullable=False, default=dict)
+    created_at = db.Column(
+        db.DateTime, nullable=False, default=datetime.now, index=True
+    )
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "id": self.id,
+            "node_id": self.node_id,
+            "action": self.action,
+            "actor": self.actor,
+            "subject": self.subject,
+            "detail": self.detail or {},
+            "created_at": self.created_at.isoformat(),
+        }
+
+
+class ClusterAuditReplica(db.Model):
+    """A peer's immutable audit chain, pulled and hash-verified here.
+
+    One row per replicated record, keyed by (node_id, seq). `verified` is
+    the local re-walk result: the sha256 recomputed from the pulled fields
+    plus the previous record's hash - so a tampered replica (or a peer whose
+    chain never verified) is visible as exactly that, not as a healthy
+    mirror. These rows are evidence; the live ledger never reads them."""
+
+    __tablename__ = "cluster_audit_replicas"
+
+    id = db.Column(db.Integer, primary_key=True)
+    node_id = db.Column(db.Integer, nullable=False, index=True)
+    seq = db.Column(db.Integer, nullable=False)
+    prev_hash = db.Column(db.String(64), nullable=False, default="")
+    event_hash = db.Column(db.String(64), nullable=False, default="")
+    source = db.Column(db.String(32), nullable=False, default="")
+    event_ref = db.Column(db.String(128), nullable=False, default="")
+    action = db.Column(db.String(64), nullable=False, default="")
+    actor = db.Column(db.String(64), nullable=False, default="")
+    subject = db.Column(db.String(255), nullable=False, default="")
+    detail = db.Column(db.JSON, nullable=False, default=dict)
+    created_at = db.Column(db.DateTime, nullable=False, default=datetime.now)
+    verified = db.Column(db.Boolean, nullable=False, default=False)
+    synced_at = db.Column(
+        db.DateTime, nullable=False, default=datetime.now, index=True
+    )
+
+    __table_args__ = (db.UniqueConstraint("node_id", "seq"),)
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "id": self.id,
+            "node_id": self.node_id,
+            "seq": self.seq,
+            "prev_hash": self.prev_hash,
+            "event_hash": self.event_hash,
+            "source": self.source,
+            "event_ref": self.event_ref,
+            "action": self.action,
+            "actor": self.actor,
+            "subject": self.subject,
+            "detail": self.detail or {},
+            "created_at": self.created_at.isoformat(),
+            "verified": self.verified,
+            "synced_at": self.synced_at.isoformat(),
+        }
+
+
+class ClusterSecretReplica(db.Model):
+    """A peer's sealed vault secret, replicated as ciphertext only.
+
+    The blob is the peer's own AES-256-GCM sealed payload - the replication
+    channel never carries a decrypted secret, and this node cannot decrypt a
+    blob sealed under a different vault key. `plaintext_here` stays false
+    unless this node proved otherwise by decrypting the blob with its own
+    key (only true when both nodes share the vault key, which the runbook
+    covers as an explicit provisioning step)."""
+
+    __tablename__ = "cluster_secret_replicas"
+
+    id = db.Column(db.Integer, primary_key=True)
+    node_id = db.Column(db.Integer, nullable=False, index=True)
+    item_id = db.Column(db.Integer, nullable=False)
+    name = db.Column(db.String(160), nullable=False, default="")
+    target = db.Column(db.String(255), nullable=False, default="")
+    secret_type = db.Column(db.String(64), nullable=False, default="")
+    version = db.Column(db.Integer, nullable=False, default=1)
+    sealed_blob = db.Column(db.Text, nullable=False)
+    plaintext_here = db.Column(db.Boolean, nullable=False, default=False)
+    synced_at = db.Column(
+        db.DateTime, nullable=False, default=datetime.now, index=True
+    )
+
+    __table_args__ = (db.UniqueConstraint("node_id", "item_id", "version"),)
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "id": self.id,
+            "node_id": self.node_id,
+            "item_id": self.item_id,
+            "name": self.name,
+            "target": self.target,
+            "secret_type": self.secret_type,
+            "version": self.version,
+            "sealed_blob": self.sealed_blob,
+            "plaintext_here": self.plaintext_here,
+            "synced_at": self.synced_at.isoformat(),
+        }
+
+
+class ClusterSessionReplica(db.Model):
+    """A peer's privileged-session metadata, replicated for DR visibility.
+
+    Session *events* stay with the peer's recording store; what replicates
+    is the session row itself - who had access to what, when, how it ended -
+    which is exactly the evidence a DR site needs to answer `who was in
+    what, and did it close cleanly`."""
+
+    __tablename__ = "cluster_session_replicas"
+
+    id = db.Column(db.Integer, primary_key=True)
+    node_id = db.Column(db.Integer, nullable=False, index=True)
+    session_id = db.Column(db.String(64), nullable=False, index=True)
+    payload = db.Column(db.JSON, nullable=False, default=dict)
+    synced_at = db.Column(
+        db.DateTime, nullable=False, default=datetime.now, index=True
+    )
+
+    __table_args__ = (db.UniqueConstraint("node_id", "session_id"),)
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "id": self.id,
+            "node_id": self.node_id,
+            "session_id": self.session_id,
+            "payload": self.payload or {},
+            "synced_at": self.synced_at.isoformat(),
+        }
+
+
+class ClusterBackup(db.Model):
+    """One real SQLite backup of this node's database (the section-18
+    `Backup` requirement): a byte-for-byte copy taken with sqlite3's own
+    backup API against the live file, its sha256 recorded here. `verified`
+    is set when the file was re-opened and its audit chain re-walked after
+    the copy - a backup that cannot be verified says so."""
+
+    __tablename__ = "cluster_backups"
+
+    id = db.Column(db.Integer, primary_key=True)
+    path = db.Column(db.String(255), nullable=False)
+    sha256 = db.Column(db.String(64), nullable=False, default="")
+    size_bytes = db.Column(db.Integer, nullable=False, default=0)
+    audit_seq = db.Column(db.Integer, nullable=False, default=0)
+    verified = db.Column(db.Boolean, nullable=False, default=False)
+    verify_detail = db.Column(db.String(255), nullable=False, default="")
+    created_at = db.Column(
+        db.DateTime, nullable=False, default=datetime.now, index=True
+    )
+    created_by = db.Column(db.String(64), nullable=False, default="system")
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "id": self.id,
+            "path": self.path,
+            "sha256": self.sha256,
+            "size_bytes": self.size_bytes,
+            "audit_seq": self.audit_seq,
+            "verified": self.verified,
+            "verify_detail": self.verify_detail,
+            "created_at": self.created_at.isoformat(),
+            "created_by": self.created_by,
+        }

@@ -1,7 +1,7 @@
 # VY-PAM — API Reference
 
-**Status:** as-built for Phase 5d
-**Contract:** `apis/openapi.yaml` (OpenAPI 3.1) - **120 paths / 144
+**Status:** as-built for Phase 6a
+**Contract:** `apis/openapi.yaml` (OpenAPI 3.1) - **131 paths / 159
 operations**, enforced in both directions by
 `backend/phase2_license_server/tests/test_openapi_contract.py`. If this page
 and the YAML ever disagree, the YAML wins.
@@ -15,13 +15,13 @@ and the YAML ever disagree, the YAML wins.
 | Base URL (dev) | `http://127.0.0.1:5000` (`LICENSE_SERVER_HOST`/`LICENSE_SERVER_PORT`) |
 | Version | `/api/v1/…` (`/health`, `/api/v1/meta` unversioned) |
 | Content type | `application/json` (license import also accepts multipart upload / raw body) |
-| Auth | When `LICENSE_ADMIN_TOKEN` is set: `Authorization: Bearer <token>` **or** `X-Admin-Token: <token>` on the **86 admin operations**. When unset: open dev mode - responses carry `X-Auth-Mode: open` (explicit, never silent). Pipeline `/broker` operations require the broker API token and AI-agent `/agent-access` operations require the agent API token — neither is ever waived, even in open dev mode. |
+| Auth | When `LICENSE_ADMIN_TOKEN` is set: `Authorization: Bearer <token>` **or** `X-Admin-Token: <token>` on the **101 admin operations**. When unset: open dev mode - responses carry `X-Auth-Mode: open` (explicit, never silent). Pipeline `/broker` operations require the broker API token and AI-agent `/agent-access` operations require the agent API token — neither is ever waived, even in open dev mode. |
 | Actor | `X-Actor: <name>` recorded verbatim in the audit ledger on every audited write |
 | Errors | `{"error": "<message>", "details"?: {…}}` — 400 validation · 401 auth · 403 policy refusal (risk gate) · 404 · 409 conflict/state · 422 unprocessable shape · 503 fail-closed dependency |
 | Pagination | `limit` (≤200) + `offset`, newest first |
 | Ordering | Ledger/session streams ascending `seq`; listings newest-first |
 
-## 2. Operations by tag (18 tags)
+## 2. Operations by tag (19 tags)
 
 ### `ops` — unversioned
 | Method | Path | Summary |
@@ -234,6 +234,31 @@ and the YAML ever disagree, the YAML wins.
 | POST | `/api/v1/agent-access/requests/{request_id}/close` | dual auth (own agent token or admin): ends the grant early — checkout released, credential rotated, any session riding it ends |
 | GET | `/api/v1/agent-access/stats` | aggregates: identities by state, declared tasks, requests by state, §16 trail size |
 
+### `cluster` — §18 HA / DC / DR (Phase 6a, 11 paths / 15 operations)
+
+| Method | Path | Summary |
+|---|---|---|
+| GET | `/api/v1/cluster` | aggregate: this node's identity (`name`/`site`/`role`), the registry with last-probe posture, peers by health, replica totals, backup counts, monitor config |
+| GET | `/api/v1/cluster/nodes` | list the registry (this node first) - health is what the last real probe measured, `unknown` until then |
+| POST | `/api/v1/cluster/nodes` | register a peer (201): unique name, `dc`/`dr` site, `active`/`passive` role, base URL `https` unless loopback; this node's own name → 409; registration implies no probe |
+| GET | `/api/v1/cluster/nodes/{node_id}` | one node's registry row (honest `null`s before the first probe) |
+| PATCH | `/api/v1/cluster/nodes/{node_id}` | edit name/site/role/base URL (duplicates and the self-name refused the same way as create) |
+| DELETE | `/api/v1/cluster/nodes/{node_id}` | deregister a peer (self → 409); replica rows stay as this node's DR evidence, `replicas_left` counts them |
+| POST | `/api/v1/cluster/nodes/{node_id}/probe` | real `GET {base}/health`: the peer's own identity (`node`/`site`/`role`), latency, error verbatim; the §19 trail records health **state changes** only |
+| POST | `/api/v1/cluster/nodes/{node_id}/sync` | pull replication: the peer's NDJSON chain re-hashed record by record (`verified`/`unverified`/`first_break_seq`), vault ciphertext stored sealed (`decryptable_here` only under this node's key), session metadata; body carries `kinds`, `peer_token` (outbound only), `timeout_seconds`; self → 400, transport failure verbatim - replicas are evidence, never merged |
+| GET | `/api/v1/cluster/replicas` | replica posture per peer: audit verified/unverified + head, vault openable-here counts, sessions, last sync (never lists this node) |
+| POST | `/api/v1/cluster/failover` | `{"action": "promote"\|"demote"}` flips this node's role for real (already there → 409), `from`/`to` recorded on the §19 trail |
+| POST | `/api/v1/cluster/monitor/tick` | one auto-failover decision: no-op while active; a passive node is promoted only after `CLUSTER_FAILOVER_FAILURES` (3) consecutive probe failures **and** every active peer failed |
+| GET | `/api/v1/cluster/backups` | backup ledger: path, size, sha256, audit seq, verification result |
+| POST | `/api/v1/cluster/backups` | SQLite online backup into `CLUSTER_BACKUP_DIR` (201): the copy is re-opened read-only and its chain re-walked before answering; non-SQLite engine → 503 |
+| GET | `/api/v1/cluster/export/vault` | replicated ciphertext + metadata only (never plaintext) - what a DR node without the key pulls |
+| GET | `/api/v1/cluster/export/sessions` | session metadata stream (ids, targets, times - no recording content) |
+
+While **passive**, this node refuses every `POST`/`PUT`/`PATCH`/`DELETE`
+outside `/api/v1/cluster/*` (and `/api/v1/auth/*`) with 409 *before* auth
+runs - `details.promote` names the way back. `/health` carries this node's
+`node`/`site`/`role` so peers can identify each other.
+
 ### Ledger (Compliance feeds)
 | Method | Path | Summary |
 |---|---|---|
@@ -290,11 +315,10 @@ keys only via `python -m pam_master.keygen`.
 
 ## 5. Planned endpoints (NOT in the contract — see `IMPLEMENTATION_PLAN.md`)
 
-These do **not** exist today; the contract's **120 paths / 144 operations**
+These do **not** exist today; the contract's **131 paths / 159 operations**
 are the complete current surface. Each lands in `openapi.yaml` + ADMIN
 security + tests in the same commit when its phase starts (counts `—`):
 
 | Phase | Planned additions |
 |---|---|
-| 5d §16 | agent identity CRUD + task-scoped request endpoints |
 | 6b | security schemes gain role requirements across existing admin ops |

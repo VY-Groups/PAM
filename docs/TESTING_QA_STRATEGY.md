@@ -1,6 +1,6 @@
 # VY-PAM — Testing & QA Strategy
 
-**Status:** as-built for Phase 5c
+**Status:** as-built for Phase 6a
 Every number below was collected from the real suite at this commit.
 
 ---
@@ -9,7 +9,7 @@ Every number below was collected from the real suite at this commit.
 
 | Suite | File | Tests |
 |---|---|---|
-| **Backend total** | `python -m pytest backend -q` | **541** |
+| **Backend total** | `python -m pytest backend -q` | **577** |
 | ├ licensing core | `backend/ipam_licensing/test_license_core.py` | 46 |
 | ├ licensing spec | `backend/ipam_licensing/test_license_spec.py` | 35 |
 | ├ licensing bridge | `backend/ipam_licensing/test_licensing.py` | 1 |
@@ -32,6 +32,7 @@ Every number below was collected from the real suite at this commit.
 | ├ cloud PAM (5b) | `…/tests/test_cloud.py` | 27 |
 | ├ broker (5c) | `…/tests/test_broker.py` | 24 |
 | ├ agent PAM (5d) | `…/tests/test_agent.py` | 29 |
+| ├ HA/DC/DR (6a) | `…/tests/test_cluster.py` | 36 |
 | └ OpenAPI contract | `…/tests/test_openapi_contract.py` | 5 |
 | **Vendor tool total** | `python -m pytest pam_master -q` | **46** |
 | ├ registry (encrypted PII) | `pam_master/tests/test_registry.py` | 15 |
@@ -40,9 +41,9 @@ Every number below was collected from the real suite at this commit.
 | └ vendor OpenAPI contract | `pam_master/tests/test_openapi_contract.py` | 6 |
 
 Contract test asserts (5): documented ⇄ implemented routes both directions,
-security schemes on **86** admin operations, enums ⇄ code constants,
-required `info`/tags (18), and live response shapes ⇄ schemas — currently
-**120 paths / 144 operations**.
+security schemes on **101** admin operations, enums ⇄ code constants,
+required `info`/tags (19), and live response shapes ⇄ schemas — currently
+**131 paths / 159 operations**.
 
 ## 2. Test design rules
 
@@ -92,7 +93,7 @@ required `info`/tags (18), and live response shapes ⇄ schemas — currently
 |---|---|
 | `__verify_live.mjs` | **9 live screens** render with real API data over HTTP **and** honest `file://` fallback; sweeps the DOM for FORBIDDEN fabricated strings (exact pairs like `'Showing 5 of 2,875'`; a bare `'Showing 5 of'` is *not* forbidden — live pagination may honestly show `Showing 5 of 5 items`) |
 | `__verify_discovery.mjs` | discovery screen flows (scan/adopt/filter against a throwaway server) |
-| `__verify_agent.mjs` | §16 AI-Agent Access section on the JIT screen: sits below the broker block with zero `id=` attributes, renders live `/agents*` + `/agent-access/*` data (honest zero-state `0 agents · 0 open grants · 0 agent events`, numeric tiles, identity/request rows), the one-time token reveal modal opens, `window.jitLive.agent` exports, and Compliance carries the 16th (`agent`) chip |
+| `__verify_agent.mjs` | **6a standing gate - 33 checks, ALL PASSED**: §16 AI-Agent Access section on the JIT screen (below the broker block, zero `id=`, live `/agents*` + `/agent-access/*`, honest zero-state `0 agents · 0 open grants · 0 agent events`, numeric tiles, one-time token reveal modal, `window.jitLive.agent`), the Compliance screen's 17 source chips (`cluster` appended last), and the §18 HA / DC / DR section on Platform Settings (summary shape, role badge vs the Promote/Demote label, numeric THIS NODE/PEERS/REPLICATION/BACKUPS tiles, node + replica + backup rows, zero `id=`, `window.settingsLive.cluster`) plus a live register → probe → sync → remove flow against an unreachable peer asserting the verbatim probe/sync errors and the registry returning to its baseline |
 | `__shots.mjs` / `__debug_screen.mjs` | pre-existing capture/debug helpers (kept) |
 
 Screenshots: **1920×1600 viewport, `fullPage: false` always**; tall pages use
@@ -102,7 +103,7 @@ a fullPage path.
 ## 4. Boundary regression (run before every commit)
 
 ```powershell
-python -X utf8 -m pytest backend -q          # 541
+python -X utf8 -m pytest backend -q          # 577
 python -X utf8 -m pytest pam_master -q       # 46
 python -X utf8 -m pytest backend\phase2_license_server\tests\test_openapi_contract.py -q   # 5
 # boundary smoke (Temp\opencode\smoke_restructure.py): 17/17
@@ -156,8 +157,8 @@ Each pending phase adds a test file and grows the contract — **counts are
 
 | Phase | New suite | Contract impact |
 |---|---|---|
-| 5a–5d | `test_vendor_pam.py`, `test_cloud.py`, `test_broker.py`, `test_agent.py` | per-phase path additions |
-| 6a §18 | replication/failover drill suite | health/failover paths |
+| 5a-5d | `test_vendor_pam.py`, `test_cloud.py`, `test_broker.py`, `test_agent.py` | per-phase path additions |
+| 6a §18 | `test_cluster.py` (36) | 15 cluster paths + the `Health` node-identity fields |
 | 6b | `test_rbac.py` | security schemes gain role requirements across admin ops |
 | 6c | `test_sso_hsm.py` | SSO/HSM endpoints + settings enforcement |
 

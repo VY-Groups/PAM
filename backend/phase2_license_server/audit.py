@@ -42,6 +42,7 @@ from models import (
     BrokerEvent,
     BypassEvent,
     CloudEvent,
+    ClusterEvent,
     CommandIncident,
     DiscoveryEvent,
     IntegrationEvent,
@@ -56,7 +57,7 @@ from models import (
     VendorEvent,
 )
 
-# the fifteen trails folded into the ledger (the unified feed reads these)
+# the sixteen trails folded into the ledger (the unified feed reads these)
 AUDIT_SOURCES = (
     "license",
     "settings",
@@ -73,6 +74,7 @@ AUDIT_SOURCES = (
     "cloud",
     "broker",
     "agent",
+    "cluster",
 )
 SOURCE_RANK = {name: index for index, name in enumerate(AUDIT_SOURCES)}
 
@@ -472,6 +474,23 @@ def _map_agent(event: AgentEvent, db_session) -> Dict[str, Any]:
     )
 
 
+def _map_cluster(event: ClusterEvent, db_session) -> Dict[str, Any]:
+    """HA/DC/DR node lifecycle under the sixteenth trail `cluster`
+    (architecture section 18): registrations, health-probe state changes,
+    replication syncs, role flips and backups - the auditable trail of the
+    cluster's own topology and trust, never a secret, never a sealed blob."""
+    return _entry(
+        source="cluster",
+        event_ref=f"cluster:{event.id}",
+        action=_value(event, "action"),
+        actor=_value(event, "actor"),
+        subject=_value(event, "subject"),
+        detail=_value(event, "detail") or {},
+        created_at=event.created_at,
+        sort_id=event.id,
+    )
+
+
 # every event model that must reach the ledger, in a stable backfill order
 LEDGER_MODELS = (
     LicenseEvent,
@@ -490,6 +509,7 @@ LEDGER_MODELS = (
     CloudEvent,
     BrokerEvent,
     AgentEvent,
+    ClusterEvent,
 )
 
 MAPPERS = {
@@ -509,6 +529,7 @@ MAPPERS = {
     CloudEvent: _map_cloud,
     BrokerEvent: _map_broker,
     AgentEvent: _map_agent,
+    ClusterEvent: _map_cluster,
 }
 
 

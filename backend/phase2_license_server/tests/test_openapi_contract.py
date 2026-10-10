@@ -112,6 +112,21 @@ ADMIN_OPERATIONS = [
     ("get", "/api/v1/agent-access/requests"),
     ("get", "/api/v1/agent-access/requests/{request_id}"),
     ("post", "/api/v1/agent-access/requests/{request_id}/close"),
+    ("get", "/api/v1/cluster"),
+    ("get", "/api/v1/cluster/nodes"),
+    ("post", "/api/v1/cluster/nodes"),
+    ("get", "/api/v1/cluster/nodes/{node_id}"),
+    ("patch", "/api/v1/cluster/nodes/{node_id}"),
+    ("delete", "/api/v1/cluster/nodes/{node_id}"),
+    ("post", "/api/v1/cluster/nodes/{node_id}/probe"),
+    ("post", "/api/v1/cluster/nodes/{node_id}/sync"),
+    ("get", "/api/v1/cluster/replicas"),
+    ("post", "/api/v1/cluster/failover"),
+    ("post", "/api/v1/cluster/monitor/tick"),
+    ("get", "/api/v1/cluster/backups"),
+    ("post", "/api/v1/cluster/backups"),
+    ("get", "/api/v1/cluster/export/vault"),
+    ("get", "/api/v1/cluster/export/sessions"),
 ]
 
 
