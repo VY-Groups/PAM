@@ -124,10 +124,10 @@ Policy screen §7 section → Evaluate (advisory)
 Compliance screen
   Ledger digest (real totals, chain intact/first-break)
   Verify walk (recompute all hashes) → first break index or OK
-  Per-source chips (13): license, settings, vault, discovery, jit,
-                        session, command, risk, bypass, break-glass,
-                        integration, vendor, cloud
-                        → filter trail
+  Per-source chips (16 incl. All): all, license, settings, vault,
+                        discovery, jit, session, command, risk, bypass,
+                        break-glass, integration, vendor, cloud, broker,
+                        agent → filter trail
   Export → NDJSON in chain order (SIEM seam)
   Record-inspect modal → one event's full payload
 ```
@@ -155,7 +155,7 @@ Command Center → bypass section → paste an auth-log bundle → Ingest
       failures recorded) · block source "not connected" (no connector yet)
   → analyst closes with a note (who + when)     GET /bypass/incidents…
   → every ingest/scan/detect/close fans into the ledger (source `bypass`)
-  → Compliance screen: `bypass` chip in the 13-source filter
+  → Compliance screen: `bypass` chip in the 15-source filter
 ```
 
 ### 2.9 Break-glass emergency (§17)
@@ -177,7 +177,7 @@ Break-Glass screen → Initiate emergency (target + reason + severity +
         trigger `break-glass`), cascade recorded on the request
   → every request/approve/deny/open/close fans into the ledger
       (source `break-glass`, ref `bg-…`)
-  → Compliance screen: `break-glass` chip in the 13-source filter
+  → Compliance screen: `break-glass` chip in the 15-source filter
 ```
 
 ### 2.10 Enterprise integrations (§20)
@@ -288,6 +288,43 @@ Admin registers a pipeline identity (jenkins/gitlab/github/azure_devops/
     Compliance gains the 15th chip
 ```
 
+### AI-agent access (§16 — built in 5d)
+
+```
+Admin registers an agent identity: API token `vypam-agt1.<id>.<secret>`
+  shown exactly once, stored as a sha256 hash — the agent itself holds
+  no standing credential
+  → Admin declares the task scopes the agent may perform: the exhaustive
+    allowed_commands allow-list (1–32 literal substrings matched
+    case-insensitively; default-deny), optional exact allowed_targets
+    (empty = any), max_minutes window cap
+  → Agent files an access request with its own token (X-Actor ignored —
+    the actor on the trail is the agent's own name): task + item +
+    reason + ITSM ticket + window ≤ min(task cap, identity cap)
+    (higher → 400 details.cap); an unknown task or a target outside
+    allowed_targets → 403 with the refusal recorded on the trail
+  → §7 risk scoring: low lands `approved` with the agent_binding
+    snapshot {agent_id, agent_name, task_id, task}; medium/high queue
+    for their band's sign-offs on the normal §6 approve/deny endpoints;
+    critical lands `blocked` + `access-refused`
+  → Open (agent token): the approved request is consumed — a real vault
+    checkout under the agent plus a forced recorded session; the raw
+    secret is never returned (the session IS the access); a §7 gate
+    refusal releases + rotates again and lands on the trail
+  → In session: every command is judged against the task's allow-list —
+    §9 blocks still veto, an allow-listed command supersedes §9 approval
+    holds (the declaration is the pre-authorization), anything outside
+    the list opens an incident `agent task scope: <task>`, terminates
+    the session and ends the grant (release + rotate)
+  → Close (the agent's own token or an admin) or real-clock expiry:
+    release + rotate like any JIT grant; revoke identity closes open
+    access first (active grants release and rotate), then the token
+    stops authenticating — 401 on the next use; a revoked identity's
+    settings and task scopes are frozen at 409
+  → every action folds into the ledger as source `agent` (15th source);
+    Compliance gains the 16th chip
+```
+
 ## 3. Cross-cutting interaction rules
 
 1. **Reveal-on-click only.** Secrets, audit payloads, and other sensitive
@@ -344,6 +381,12 @@ BrokerCredential.status:
                      approved → released | closed
                      released → closed | expired   (both release the
                        checkout and rotate the credential)
+
+AgentIdentity.status: active ⇄ disabled  (disable/enable reversible)
+                     active|disabled → revoked  (terminal: open access
+                       closes first — active grants release and rotate —
+                       then the token dies; settings and task scopes
+                       frozen at 409)
 ```
 
 ## 5. Roles & separation of duties
@@ -358,6 +401,9 @@ BrokerCredential.status:
 | Release a pipeline credential | the owning pipeline's broker API token only — the admin token never substitutes and open/dev mode never waives it |
 | Close a pipeline credential | the owning pipeline's token, or an admin (dual-auth route; another pipeline's row is a 404) |
 | Register / revoke a pipeline identity | authenticated admin; the API token is shown exactly once and is never recoverable |
+| File an agent access request / open the grant | the owning agent's API token only — the admin token never substitutes and open/dev mode never waives it; `X-Actor` ignored (the actor is the agent's name) |
+| Close an agent grant | the owning agent's token, or an admin (dual-auth route) |
+| Register / revoke an agent identity | authenticated admin; the API token is shown exactly once and is never recoverable |
 
 ## 6. Future flows (planned — see `IMPLEMENTATION_PLAN.md`)
 

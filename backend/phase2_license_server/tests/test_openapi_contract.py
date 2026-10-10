@@ -100,6 +100,18 @@ ADMIN_OPERATIONS = [
     ("post", "/api/v1/broker/credentials/{credential_id}/approve"),
     ("post", "/api/v1/broker/credentials/{credential_id}/deny"),
     ("post", "/api/v1/broker/credentials/{credential_id}/close"),
+    ("get", "/api/v1/agents"),
+    ("post", "/api/v1/agents"),
+    ("get", "/api/v1/agents/{agent_id}"),
+    ("patch", "/api/v1/agents/{agent_id}"),
+    ("delete", "/api/v1/agents/{agent_id}"),
+    ("get", "/api/v1/agents/{agent_id}/tasks"),
+    ("post", "/api/v1/agents/{agent_id}/tasks"),
+    ("patch", "/api/v1/agents/{agent_id}/tasks/{task_id}"),
+    ("delete", "/api/v1/agents/{agent_id}/tasks/{task_id}"),
+    ("get", "/api/v1/agent-access/requests"),
+    ("get", "/api/v1/agent-access/requests/{request_id}"),
+    ("post", "/api/v1/agent-access/requests/{request_id}/close"),
 ]
 
 

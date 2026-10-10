@@ -9,7 +9,7 @@ Every number below was collected from the real suite at this commit.
 
 | Suite | File | Tests |
 |---|---|---|
-| **Backend total** | `python -m pytest backend -q` | **512** |
+| **Backend total** | `python -m pytest backend -q` | **541** |
 | ├ licensing core | `backend/ipam_licensing/test_license_core.py` | 46 |
 | ├ licensing spec | `backend/ipam_licensing/test_license_spec.py` | 35 |
 | ├ licensing bridge | `backend/ipam_licensing/test_licensing.py` | 1 |
@@ -31,6 +31,7 @@ Every number below was collected from the real suite at this commit.
 | ├ vendor PAM (5a) | `…/tests/test_vendor_pam.py` | 21 |
 | ├ cloud PAM (5b) | `…/tests/test_cloud.py` | 27 |
 | ├ broker (5c) | `…/tests/test_broker.py` | 24 |
+| ├ agent PAM (5d) | `…/tests/test_agent.py` | 29 |
 | └ OpenAPI contract | `…/tests/test_openapi_contract.py` | 5 |
 | **Vendor tool total** | `python -m pytest pam_master -q` | **46** |
 | ├ registry (encrypted PII) | `pam_master/tests/test_registry.py` | 15 |
@@ -39,9 +40,9 @@ Every number below was collected from the real suite at this commit.
 | └ vendor OpenAPI contract | `pam_master/tests/test_openapi_contract.py` | 6 |
 
 Contract test asserts (5): documented ⇄ implemented routes both directions,
-security schemes on **74** admin operations, enums ⇄ code constants,
-required `info`/tags (17), and live response shapes ⇄ schemas — currently
-**111 paths / 129 operations**.
+security schemes on **86** admin operations, enums ⇄ code constants,
+required `info`/tags (18), and live response shapes ⇄ schemas — currently
+**120 paths / 144 operations**.
 
 ## 2. Test design rules
 
@@ -91,6 +92,7 @@ required `info`/tags (17), and live response shapes ⇄ schemas — currently
 |---|---|
 | `__verify_live.mjs` | **9 live screens** render with real API data over HTTP **and** honest `file://` fallback; sweeps the DOM for FORBIDDEN fabricated strings (exact pairs like `'Showing 5 of 2,875'`; a bare `'Showing 5 of'` is *not* forbidden — live pagination may honestly show `Showing 5 of 5 items`) |
 | `__verify_discovery.mjs` | discovery screen flows (scan/adopt/filter against a throwaway server) |
+| `__verify_agent.mjs` | §16 AI-Agent Access section on the JIT screen: sits below the broker block with zero `id=` attributes, renders live `/agents*` + `/agent-access/*` data (honest zero-state `0 agents · 0 open grants · 0 agent events`, numeric tiles, identity/request rows), the one-time token reveal modal opens, `window.jitLive.agent` exports, and Compliance carries the 16th (`agent`) chip |
 | `__shots.mjs` / `__debug_screen.mjs` | pre-existing capture/debug helpers (kept) |
 
 Screenshots: **1920×1600 viewport, `fullPage: false` always**; tall pages use
@@ -100,12 +102,13 @@ a fullPage path.
 ## 4. Boundary regression (run before every commit)
 
 ```powershell
-python -X utf8 -m pytest backend -q          # 512
+python -X utf8 -m pytest backend -q          # 541
 python -X utf8 -m pytest pam_master -q       # 46
 python -X utf8 -m pytest backend\phase2_license_server\tests\test_openapi_contract.py -q   # 5
 # boundary smoke (Temp\opencode\smoke_restructure.py): 17/17
 node shots_tool/__verify_live.mjs            # ALL CHECKS PASSED
 node shots_tool/__verify_discovery.mjs       # ALL CHECKS PASSED
+node shots_tool/__verify_agent.mjs           # ALL CHECKS PASSED
 ```
 
 Then, for the working tree:
@@ -114,8 +117,8 @@ Then, for the working tree:
    never stage `*.pem`, `*.key`, `*.db`, `.env` — git-ignored).
 2. **Root README counts** must match real collect output (per-file rows too).
 3. **Temp scripts deleted** — only `__verify_live.mjs`,
-   `__verify_discovery.mjs`, `__shots.mjs`, `__debug_screen.mjs` survive in
-   `shots_tool/`.
+   `__verify_discovery.mjs`, `__verify_agent.mjs`, `__shots.mjs`,
+   `__debug_screen.mjs` survive in `shots_tool/`.
 
 ## 5. The lockstep rule (contract-first)
 
@@ -153,7 +156,7 @@ Each pending phase adds a test file and grows the contract — **counts are
 
 | Phase | New suite | Contract impact |
 |---|---|---|
-| 5a–5d | `test_vendor_pam.py`, `test_cloud.py`, `test_broker.py`, `test_agents.py` | per-phase path additions |
+| 5a–5d | `test_vendor_pam.py`, `test_cloud.py`, `test_broker.py`, `test_agent.py` | per-phase path additions |
 | 6a §18 | replication/failover drill suite | health/failover paths |
 | 6b | `test_rbac.py` | security schemes gain role requirements across admin ops |
 | 6c | `test_sso_hsm.py` | SSO/HSM endpoints + settings enforcement |

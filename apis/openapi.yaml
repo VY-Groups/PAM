@@ -56,6 +56,8 @@ tags:
     description: Cloud PAM - AWS/Azure/GCP/Kubernetes connectors, real probes and inventory, K8s ephemeral RBAC grants through JIT (architecture 14)
   - name: broker
     description: CI/CD credential broker - pipeline API tokens, approval policies and time-boxed credentials for CI systems (architecture 15)
+  - name: agent
+    description: AI-Agent PAM - agent identities and API tokens, task-scoped allowed-command lists, risk-scored access requests and monitored sessions (architecture 16)
 paths:
   /health:
     get:
@@ -3505,6 +3507,448 @@ paths:
             application/json:
               schema: {$ref: "#/components/schemas/BrokerStats"}
 
+  /api/v1/agents:
+    get:
+      tags: [agent]
+      summary: AI-agent identities, newest first
+      description: The section-16 registry of agent identities; the API token is never returned here - only its hash prefix.
+      security:
+        - bearerAuth: []
+        - adminTokenHeader: []
+        - {}
+      parameters:
+        - name: status
+          in: query
+          schema: {type: string, enum: [active, disabled, revoked]}
+        - name: q
+          in: query
+          description: Substring match on name or contact.
+          schema: {type: string}
+        - {$ref: "#/components/parameters/Limit"}
+        - {$ref: "#/components/parameters/Offset"}
+      responses:
+        "200":
+          description: Paged agent identities
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/AgentIdentityList"}
+        "400": {$ref: "#/components/responses/BadRequest"}
+    post:
+      tags: [agent]
+      summary: Register an AI-agent identity (architecture 16)
+      description: |
+        One agent identity. The API token is generated here, returned
+        exactly once and stored only as a sha256 hash - the agent presents
+        it as `Authorization: Bearer vypam-agt1.<id>.<secret>` (or the
+        `X-Agent-Token` header). Nothing else authenticates as the agent:
+        the admin token never substitutes, and the token is never waived
+        in open/dev mode - the agent identity is the point.
+      security:
+        - bearerAuth: []
+        - adminTokenHeader: []
+        - {}
+      parameters:
+        - name: X-Actor
+          in: header
+          schema: {type: string, maxLength: 64}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: "#/components/schemas/AgentIdentityCreate"}
+      responses:
+        "201":
+          description: Registered - `token` is shown exactly once
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/AgentIdentityResponse"}
+        "400": {$ref: "#/components/responses/BadRequest"}
+        "401": {$ref: "#/components/responses/Unauthorized"}
+        "409": {$ref: "#/components/responses/Conflict"}
+
+  /api/v1/agents/{agent_id}:
+    get:
+      tags: [agent]
+      summary: Agent identity console payload (architecture 16)
+      description: The identity, its declared task scopes, its open access count and its latest `agent` trail entries.
+      security:
+        - bearerAuth: []
+        - adminTokenHeader: []
+        - {}
+      parameters:
+        - name: agent_id
+          in: path
+          required: true
+          schema: {type: integer, minimum: 1}
+      responses:
+        "200":
+          description: Agent identity detail
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/AgentIdentityDetailResponse"}
+        "404": {$ref: "#/components/responses/NotFound"}
+    patch:
+      tags: [agent]
+      summary: Edit the identity knobs
+      description: Description, contact, window cap or enable/disable - never the name and never the token. A revoked identity's settings are frozen (409).
+      security:
+        - bearerAuth: []
+        - adminTokenHeader: []
+        - {}
+      parameters:
+        - name: agent_id
+          in: path
+          required: true
+          schema: {type: integer, minimum: 1}
+        - name: X-Actor
+          in: header
+          schema: {type: string, maxLength: 64}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: "#/components/schemas/AgentIdentityUpdate"}
+      responses:
+        "200":
+          description: Updated
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/AgentIdentityMessageResponse"}
+        "400": {$ref: "#/components/responses/BadRequest"}
+        "401": {$ref: "#/components/responses/Unauthorized"}
+        "404": {$ref: "#/components/responses/NotFound"}
+        "409": {$ref: "#/components/responses/Conflict"}
+    delete:
+      tags: [agent]
+      summary: Revoke an agent identity (terminal)
+      description: |
+        Every access it still holds ends first - active grants release and
+        rotate the credential through the section-6 close path, queued or
+        approved requests close without a release - then the token stops
+        authenticating (401 on every use). A second revoke is 409. The
+        `agent` trail and the ledger keep the history.
+      security:
+        - bearerAuth: []
+        - adminTokenHeader: []
+        - {}
+      parameters:
+        - name: agent_id
+          in: path
+          required: true
+          schema: {type: integer, minimum: 1}
+        - name: X-Actor
+          in: header
+          schema: {type: string, maxLength: 64}
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema: {$ref: "#/components/schemas/AgentReasonRequest"}
+      responses:
+        "200":
+          description: Revoked
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/AgentIdentityRevokeResponse"}
+        "400": {$ref: "#/components/responses/BadRequest"}
+        "401": {$ref: "#/components/responses/Unauthorized"}
+        "404": {$ref: "#/components/responses/NotFound"}
+        "409": {$ref: "#/components/responses/Conflict"}
+
+  /api/v1/agents/{agent_id}/tasks:
+    get:
+      tags: [agent]
+      summary: The declared task scopes under one identity
+      security:
+        - bearerAuth: []
+        - adminTokenHeader: []
+        - {}
+      parameters:
+        - name: agent_id
+          in: path
+          required: true
+          schema: {type: integer, minimum: 1}
+      responses:
+        "200":
+          description: Task scopes
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/AgentTaskList"}
+        "404": {$ref: "#/components/responses/NotFound"}
+    post:
+      tags: [agent]
+      summary: Declare one task the agent may perform (architecture 16)
+      description: |
+        The exhaustive allowed-command list: literal substrings matched
+        case-insensitively (the same deterministic matching as the
+        section-9 engine). A command outside the list is blocked in the
+        agent's session - default-deny, never default-allow - while a
+        section-9 destructive rule still vetoes even a listed command. An
+        optional target scope pins the vault targets; `max_minutes` caps
+        this task's windows (5 by default).
+      security:
+        - bearerAuth: []
+        - adminTokenHeader: []
+        - {}
+      parameters:
+        - name: agent_id
+          in: path
+          required: true
+          schema: {type: integer, minimum: 1}
+        - name: X-Actor
+          in: header
+          schema: {type: string, maxLength: 64}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: "#/components/schemas/AgentTaskCreate"}
+      responses:
+        "201":
+          description: Declared
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/AgentTaskResponse"}
+        "400": {$ref: "#/components/responses/BadRequest"}
+        "401": {$ref: "#/components/responses/Unauthorized"}
+        "404": {$ref: "#/components/responses/NotFound"}
+        "409": {$ref: "#/components/responses/Conflict"}
+
+  /api/v1/agents/{agent_id}/tasks/{task_id}:
+    patch:
+      tags: [agent]
+      summary: Edit a declared task
+      description: The allow-list, allowed targets, window cap or description - never the name (access requests reference it by name) and never on a revoked identity (409).
+      security:
+        - bearerAuth: []
+        - adminTokenHeader: []
+        - {}
+      parameters:
+        - name: agent_id
+          in: path
+          required: true
+          schema: {type: integer, minimum: 1}
+        - name: task_id
+          in: path
+          required: true
+          schema: {type: integer, minimum: 1}
+        - name: X-Actor
+          in: header
+          schema: {type: string, maxLength: 64}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: "#/components/schemas/AgentTaskUpdate"}
+      responses:
+        "200":
+          description: Updated
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/AgentTaskResponse"}
+        "400": {$ref: "#/components/responses/BadRequest"}
+        "401": {$ref: "#/components/responses/Unauthorized"}
+        "404": {$ref: "#/components/responses/NotFound"}
+        "409": {$ref: "#/components/responses/Conflict"}
+    delete:
+      tags: [agent]
+      summary: Withdraw a declared task
+      description: Access riding the task ends first (active grants release and rotate, queued requests close without a release), then the scope goes. The trail keeps its snapshot.
+      security:
+        - bearerAuth: []
+        - adminTokenHeader: []
+        - {}
+      parameters:
+        - name: agent_id
+          in: path
+          required: true
+          schema: {type: integer, minimum: 1}
+        - name: task_id
+          in: path
+          required: true
+          schema: {type: integer, minimum: 1}
+        - name: X-Actor
+          in: header
+          schema: {type: string, maxLength: 64}
+      responses:
+        "200":
+          description: Removed
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/AgentTaskRemoveResponse"}
+        "401": {$ref: "#/components/responses/Unauthorized"}
+        "404": {$ref: "#/components/responses/NotFound"}
+        "409": {$ref: "#/components/responses/Conflict"}
+
+  /api/v1/agent-access/requests:
+    post:
+      tags: [agent]
+      summary: File a task-scoped access request (the agent calls this)
+      description: |
+        The agent authenticates with its agent API token - never the admin
+        token, never `X-Actor`. The chain is the architecture's section 16:
+        identity is verified by the token, then the declared task is
+        verified (an unknown task or a target outside the task's
+        `allowed_targets` is refused 403 with the refusal on the `agent`
+        trail, and `minutes` cannot exceed either the task's cap or the
+        identity's), then the request is scored by the section-7
+        evaluator - low risk lands `approved` by policy, medium/high wait
+        for the sign-offs their band requires, critical lands `blocked`
+        with an `access-refused` record. Approvals and denials ride the
+        normal section-6 endpoints (POST /api/v1/jit/requests/{request_id}/approve|deny).
+      security:
+        - agentToken: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: "#/components/schemas/AgentAccessCreateRequest"}
+      responses:
+        "201":
+          description: Filed - the state its risk band implies
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/AgentAccessCreateResponse"}
+        "400": {$ref: "#/components/responses/BadRequest"}
+        "401": {$ref: "#/components/responses/Unauthorized"}
+        "403": {$ref: "#/components/responses/Forbidden"}
+        "404": {$ref: "#/components/responses/NotFound"}
+    get:
+      tags: [agent]
+      summary: Every agent-raised access request, newest first
+      description: The agent queue - human JIT requests stay in their own queue. Expiry is evaluated on the way in; no secret is ever returned.
+      security:
+        - bearerAuth: []
+        - adminTokenHeader: []
+        - {}
+      parameters:
+        - name: status
+          in: query
+          schema: {type: string, enum: [pending, approved, active, closed, expired, denied, blocked]}
+        - name: agent_id
+          in: query
+          schema: {type: integer, minimum: 1}
+        - {$ref: "#/components/parameters/Limit"}
+        - {$ref: "#/components/parameters/Offset"}
+      responses:
+        "200":
+          description: Paged agent access requests
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/JitRequestList"}
+        "400": {$ref: "#/components/responses/BadRequest"}
+
+  /api/v1/agent-access/requests/{request_id}:
+    get:
+      tags: [agent]
+      summary: Agent access request console payload
+      description: The JIT row, the identity it rides and the `agent` trail recorded against it - never a secret, only the outcome.
+      security:
+        - bearerAuth: []
+        - adminTokenHeader: []
+        - {}
+      parameters:
+        - name: request_id
+          in: path
+          required: true
+          schema: {type: integer, minimum: 1}
+      responses:
+        "200":
+          description: Access request detail
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/AgentAccessDetailResponse"}
+        "404": {$ref: "#/components/responses/NotFound"}
+
+  /api/v1/agent-access/requests/{request_id}/open:
+    post:
+      tags: [agent]
+      summary: Open the approved grant - credential checkout + mandatory recorded session
+      description: |
+        The agent's JIT credential (architecture section 16): the approved
+        request is consumed - the vault credential is checked out under
+        the agent for the request's window - and a recorded session is
+        started against the grant, so every command the agent runs is
+        judged by its task's allow-list and the whole run is monitored.
+        The raw secret is never returned: the session *is* the access.
+        Recording is forced on. If the section-7 gate refuses the start,
+        the grant is released and rotated again and the refusal lands on
+        the `agent` trail. Expiry releases and rotates exactly like any
+        JIT grant.
+      security:
+        - agentToken: []
+      parameters:
+        - name: request_id
+          in: path
+          required: true
+          schema: {type: integer, minimum: 1}
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                protocol:
+                  type: string
+                  enum: [ssh, rdp, telnet, vnc, http, https, sql, oracle, postgresql, mssql, mysql, sap, kubernetes]
+                  default: ssh
+                target:
+                  type: string
+                  maxLength: 255
+                  description: Defaults to the vault item's own target.
+      responses:
+        "201":
+          description: Grant consumed, recorded session started
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/AgentAccessOpenResponse"}
+        "400": {$ref: "#/components/responses/BadRequest"}
+        "401": {$ref: "#/components/responses/Unauthorized"}
+        "403": {$ref: "#/components/responses/Forbidden"}
+        "404": {$ref: "#/components/responses/NotFound"}
+        "409": {$ref: "#/components/responses/Conflict"}
+
+  /api/v1/agent-access/requests/{request_id}/close:
+    post:
+      tags: [agent]
+      summary: End the active agent grant early (dual auth)
+      description: The checkout is released, the credential rotates and any session riding the grant ends with it. The agent closes its own access with its API token; an admin closes any.
+      security:
+        - bearerAuth: []
+        - adminTokenHeader: []
+        - {}
+        - agentToken: []
+      parameters:
+        - name: request_id
+          in: path
+          required: true
+          schema: {type: integer, minimum: 1}
+        - name: X-Actor
+          in: header
+          schema: {type: string, maxLength: 64}
+      responses:
+        "200":
+          description: Closed
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/JitRequestResponse"}
+        "400": {$ref: "#/components/responses/BadRequest"}
+        "401": {$ref: "#/components/responses/Unauthorized"}
+        "404": {$ref: "#/components/responses/NotFound"}
+
+  /api/v1/agent-access/stats:
+    get:
+      tags: [agent]
+      summary: Real agent aggregates
+      description: Identities by state, declared tasks, agent-raised requests by state with the open count, and the size of the `agent` trail. Nothing is precomputed.
+      responses:
+        "200":
+          description: Agent aggregates
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/AgentStats"}
+
 components:
   securitySchemes:
     bearerAuth:
@@ -3520,6 +3964,10 @@ components:
       type: http
       scheme: bearer
       description: "A pipeline's broker API token as `Authorization: Bearer vypam-ci1.<id>.<secret>` (or the `X-Broker-Token` header). Issued once per pipeline identity, stored hashed, and never waived in open/dev mode."
+    agentToken:
+      type: http
+      scheme: bearer
+      description: "An AI agent's API token as `Authorization: Bearer vypam-agt1.<id>.<secret>` (or the `X-Agent-Token` header). Issued once per agent identity, stored as a sha256 hash, and never waived in open/dev mode - the agent identity is the point, `X-Actor` is not consulted."
   parameters:
     LicenseKey:
       name: license_key
@@ -4477,6 +4925,18 @@ components:
         cloud_binding:
           type: [object, "null"]
           description: The RoleBinding snapshot applied at grant time (namespace, role, binding name, applied/removed timestamps).
+          additionalProperties: true
+        agent_id:
+          type: [integer, "null"]
+          description: Set when raised by an AI agent through its API token (architecture 16).
+        agent_binding:
+          type: [object, "null"]
+          description: The agent snapshot at request time (agent id and name, task id and name) - the command channel enforces against this, so expiry never has to re-resolve the identity or the task.
+          properties:
+            agent_id: {type: integer}
+            agent_name: {type: string}
+            task_id: {type: integer}
+            task: {type: string}
           additionalProperties: true
         created_at: {type: string}
 
@@ -6173,4 +6633,242 @@ components:
             total: {type: integer}
             by_status: {type: object, additionalProperties: {type: integer}}
             open: {type: integer, description: "pending + approved + released."}
+        events: {type: integer}
+
+    # --- AI-agent PAM (architecture section 16) ---------------------------
+    AgentIdentity:
+      type: object
+      required: [id, name, token_hash, status, max_ttl_minutes, use_count, created_at, created_by]
+      properties:
+        id: {type: integer}
+        name: {type: string, maxLength: 128, description: Unique across agent identities.}
+        description: {type: string, maxLength: 255}
+        contact: {type: string, maxLength: 160, description: The human owner behind the agent.}
+        token_hash: {type: string, description: "`sha256:<prefix>` - proves a token exists; the token itself is shown exactly once, at creation."}
+        status:
+          type: string
+          enum: [active, disabled, revoked]
+          description: "`disabled` refuses the token but is reversible; `revoked` is terminal, freezes the settings and closes open access."
+        max_ttl_minutes: {type: integer, minimum: 1, maximum: 480, description: "Identity-level window cap (default 15); each task may set a lower one - the effective cap is the minimum."}
+        last_used_at: {type: [string, "null"]}
+        use_count: {type: integer, description: Valid token presentations recorded.}
+        created_at: {type: string}
+        created_by: {type: string}
+
+    AgentTaskScope:
+      type: object
+      required: [id, agent_id, name, allowed_commands, allowed_targets, max_minutes, created_at]
+      properties:
+        id: {type: integer}
+        agent_id: {type: integer}
+        name: {type: string, maxLength: 128, description: Unique per agent; access requests reference the task by this name (never editable).}
+        description: {type: string, maxLength: 255}
+        allowed_commands:
+          type: array
+          minItems: 1
+          maxItems: 32
+          items: {type: string, maxLength: 255}
+          description: "The exhaustive allow-list - literal substrings matched case-insensitively (the same deterministic matching as the section-9 engine). A command matching none is blocked in the agent's session: default-deny, never default-allow."
+        allowed_targets:
+          type: array
+          items: {type: string, maxLength: 255}
+          description: Exact vault targets this task works against (empty = any). A miss is refused 403 and recorded on the `agent` trail.
+        max_minutes: {type: integer, minimum: 1, maximum: 480, default: 5, description: Window cap for requests under this task.}
+        created_at: {type: string}
+
+    AgentEvent:
+      type: object
+      required: [id, action, actor, subject, detail, created_at]
+      properties:
+        id: {type: integer}
+        agent_id: {type: [integer, "null"]}
+        task_id: {type: [integer, "null"]}
+        request_id: {type: [integer, "null"]}
+        action:
+          type: string
+          enum: [agent-created, agent-updated, agent-disabled, agent-enabled, agent-revoked, task-added, task-updated, task-removed, access-requested, access-refused, access-opened, access-ended, command-blocked]
+        actor: {type: string, description: The identity's own name on agent-initiated actions; the admin's on lifecycle changes.}
+        subject: {type: string}
+        detail: {type: object, additionalProperties: true, description: "The outcome - the API token never enters `detail`."}
+        created_at: {type: string}
+
+    AgentIdentityCreate:
+      type: object
+      required: [name]
+      properties:
+        name: {type: string, maxLength: 128}
+        description: {type: string, maxLength: 255}
+        contact: {type: string, maxLength: 160}
+        max_ttl_minutes: {type: integer, minimum: 1, maximum: 480, default: 15}
+
+    AgentIdentityUpdate:
+      type: object
+      minProperties: 1
+      properties:
+        description: {type: string, maxLength: 255}
+        contact: {type: string, maxLength: 160}
+        max_ttl_minutes: {type: integer, minimum: 1, maximum: 480}
+        status:
+          type: string
+          enum: [active, disabled]
+          description: "`revoked` is not settable here - revoke with DELETE."
+
+    AgentReasonRequest:
+      type: object
+      properties:
+        reason: {type: string, maxLength: 255}
+
+    AgentTaskCreate:
+      type: object
+      required: [name, allowed_commands]
+      properties:
+        name: {type: string, maxLength: 128}
+        description: {type: string, maxLength: 255}
+        allowed_commands:
+          type: array
+          minItems: 1
+          maxItems: 32
+          items: {type: string, maxLength: 255}
+        allowed_targets:
+          type: array
+          items: {type: string, maxLength: 255}
+        max_minutes: {type: integer, minimum: 1, maximum: 480, default: 5}
+
+    AgentTaskUpdate:
+      type: object
+      minProperties: 1
+      properties:
+        description: {type: string, maxLength: 255}
+        allowed_commands:
+          type: array
+          minItems: 1
+          maxItems: 32
+          items: {type: string, maxLength: 255}
+        allowed_targets:
+          type: array
+          items: {type: string, maxLength: 255}
+        max_minutes: {type: integer, minimum: 1, maximum: 480}
+
+    AgentIdentityList:
+      type: object
+      required: [agents, total, limit, offset]
+      properties:
+        agents: {type: array, items: {$ref: "#/components/schemas/AgentIdentity"}}
+        total: {type: integer}
+        limit: {type: integer}
+        offset: {type: integer}
+
+    AgentIdentityResponse:
+      type: object
+      required: [agent, token, message]
+      properties:
+        agent: {$ref: "#/components/schemas/AgentIdentity"}
+        token: {type: string, description: "`vypam-agt1.<id>.<secret>` - shown exactly once, at creation."}
+        message: {type: string}
+
+    AgentIdentityMessageResponse:
+      type: object
+      required: [agent, message]
+      properties:
+        agent: {$ref: "#/components/schemas/AgentIdentity"}
+        message: {type: string}
+
+    AgentIdentityDetailResponse:
+      type: object
+      required: [agent, tasks, open_grants, events]
+      properties:
+        agent: {$ref: "#/components/schemas/AgentIdentity"}
+        tasks: {type: array, items: {$ref: "#/components/schemas/AgentTaskScope"}}
+        open_grants: {type: integer, description: Agent requests still pending, approved or active.}
+        events:
+          type: array
+          maxItems: 20
+          items: {$ref: "#/components/schemas/AgentEvent"}
+
+    AgentIdentityRevokeResponse:
+      type: object
+      required: [agent, grants_closed, message]
+      properties:
+        agent: {$ref: "#/components/schemas/AgentIdentity"}
+        grants_closed: {type: integer, description: Open access that ended first (active grants released and rotated like a JIT expiry).}
+        message: {type: string}
+
+    AgentTaskList:
+      type: object
+      required: [tasks, total]
+      properties:
+        tasks: {type: array, items: {$ref: "#/components/schemas/AgentTaskScope"}}
+        total: {type: integer}
+
+    AgentTaskResponse:
+      type: object
+      required: [task, message]
+      properties:
+        task: {$ref: "#/components/schemas/AgentTaskScope"}
+        message: {type: string}
+
+    AgentTaskRemoveResponse:
+      type: object
+      required: [task, grants_closed, message]
+      properties:
+        task: {$ref: "#/components/schemas/AgentTaskScope"}
+        grants_closed: {type: integer, description: Access riding the task that ended before the scope went.}
+        message: {type: string}
+
+    AgentAccessCreateRequest:
+      type: object
+      required: [task, item_id, reason, ticket]
+      properties:
+        task: {type: string, maxLength: 128, description: One of this identity's declared task scopes by name - an unknown one is refused 403 with the refusal recorded.}
+        item_id: {type: integer, minimum: 1}
+        reason: {type: string, minLength: 8, maxLength: 255}
+        ticket: {type: string, maxLength: 64, description: "ITSM reference such as INC-23891."}
+        minutes: {type: integer, minimum: 1, maximum: 480, description: "Defaults to the task's cap; a value above min(task cap, identity cap) is refused 400."}
+
+    AgentAccessCreateResponse:
+      type: object
+      required: [request, message]
+      properties:
+        request: {$ref: "#/components/schemas/JitRequest"}
+        message: {type: string}
+
+    AgentAccessDetailResponse:
+      type: object
+      required: [request, agent, events]
+      properties:
+        request: {$ref: "#/components/schemas/JitRequest"}
+        agent:
+          oneOf:
+            - {$ref: "#/components/schemas/AgentIdentity"}
+            - {type: "null"}
+          description: The identity the request rides.
+        events: {type: array, items: {$ref: "#/components/schemas/AgentEvent"}}
+
+    AgentAccessOpenResponse:
+      type: object
+      required: [request, session, risk, message]
+      properties:
+        request: {$ref: "#/components/schemas/JitRequest"}
+        session: {$ref: "#/components/schemas/Session"}
+        risk: {$ref: "#/components/schemas/RiskEvaluation"}
+        message: {type: string}
+
+    AgentStats:
+      type: object
+      required: [identities, tasks, requests, events]
+      properties:
+        identities:
+          type: object
+          required: [total, by_status]
+          properties:
+            total: {type: integer}
+            by_status: {type: object, additionalProperties: {type: integer}}
+        tasks: {type: integer}
+        requests:
+          type: object
+          required: [total, by_status, open]
+          properties:
+            total: {type: integer}
+            by_status: {type: object, additionalProperties: {type: integer}}
+            open: {type: integer, description: "pending + approved + active."}
         events: {type: integer}

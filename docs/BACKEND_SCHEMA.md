@@ -11,7 +11,7 @@ external migration tool.
 
 ---
 
-## 1. Shipped runtime - 35 tables
+## 1. Shipped runtime - 38 tables
 
 ### ERD (logical)
 
@@ -22,7 +22,7 @@ vault_items ─1:n─ vault_events
 vault_items ─1:n─ vault_secret_versions
 discovered_assets ─1:n─ discovered_accounts
 discovery_scans ─1:n─ discovery_events        discovery_assets links via asset_id
-jit_requests ─1:n─ jit_events                (item_id → vault_items, vendor_account_id → vendor_accounts, cloud_connector_id → cloud_connectors)
+jit_requests ─1:n─ jit_events                (item_id → vault_items, vendor_account_id → vendor_accounts, cloud_connector_id → cloud_connectors, agent_id → agent_identities)
 privileged_sessions ─1:n─ session_events      (item_id → vault_items, jit_request_id → jit_requests)
 privileged_sessions ─1:n─ command_incidents   (event_seq → session_events.seq)
 command_rules                                  (referenced by rules/incidents, not FK)
@@ -38,6 +38,8 @@ vendor_accounts ─1:n─ vendor_events           (vendor_id → vendor_accounts
 cloud_connectors ─1:n─ cloud_events           (connector_id → cloud_connectors; §14 actions → ledger source `cloud`)
 broker_policies ─1:n─ broker_credentials      (policy_id → broker_policies; item_id → vault_items; §15 pipeline identities + time-boxed credentials)
 broker_events                                 (policy/credential actions → ledger source `broker`)
+agent_identities ─1:n─ agent_task_scopes      (agent_id → agent_identities; §16 declared tasks with their allowed_commands allow-list)
+agent_identities ─1:n─ agent_events           (agent/task/request ids captured at write time; agent actions → ledger source `agent`)
 audit_events                                    (hash chain over all of the above)
 ```
 
@@ -168,6 +170,8 @@ String(32) indexed default `other` · `source` default `manual` · `created_at`.
 | vendor_account_id | Integer | ✓ | indexed (§13 vendor link — set when the request was filed through a vendor account) |
 | cloud_connector_id | Integer | ✓ | indexed (§14 link — set when the request was filed through a cloud connector's RBAC path) |
 | cloud_binding | JSON | ✓ | `{namespace, role, binding}` at filing; the grant adds `applied_at`/`expires_at`/`http_status`, a successful removal adds `removed_at` — the real RoleBinding this grant applies/removes (§14) |
+| agent_id | Integer | ✓ | indexed (§16 link — set when the request was filed through an agent's API token) |
+| agent_binding | JSON | ✓ | `{agent_id, agent_name, task_id, task}` snapshot at filing (§16) — the command channel enforces against this, so expiry never re-resolves the identity or the task |
 | created_at | DateTime | ✗ | |
 
 ### 1.13 `jit_events`
@@ -340,8 +344,9 @@ DateTime indexed
   Preserved evidence, never rewritten. Folded into the §19 ledger by
   `_map_anomaly` under the existing `risk` source (`action:
   anomaly-incident`, ref `anom:<id>`), so the anomaly rows added no new
-  ledger source (11 sources at 4j; **13** today — the §13 `vendor` source
-  joined in 5a and the §14 `cloud` source in 5b).
+  ledger source (11 sources at 4j; **15** today — the §13 `vendor` source
+  joined in 5a, the §14 `cloud` source in 5b, the §15 `broker` source in
+  5c and the §16 `agent` source in 5d).
   The model class is named `AnomalyEvent` deliberately: the audit drift
   guard requires every `*Event` table to join the ledger.
 
@@ -460,6 +465,53 @@ name captured at the time — renames never rewrite history) · `detail` JSON.
   actions the actor is the policy name — the pipeline *is* its identity
   row. Folded into the §19 ledger by `_map_broker` (ref `broker:<id>`) as
   the **fourteenth** source.
+
+### 1.36 `agent_identities` — §16 AI-agent identity
+
+| Column | Type | Null | Default | Index/Notes |
+|---|---|---|---|---|
+| id | INTEGER PK | ✗ | | |
+| name | String(128) | ✗ | | unique, indexed |
+| description | String(255) | ✗ | `''` | |
+| contact | String(160) | ✗ | `''` | the human owner behind the agent |
+| token_hash | String(64) | ✗ | | sha256 of `vypam-agt1.<id>.<secret>`; the token itself is shown exactly once |
+| status | String(16) | ✗ | `active` | indexed · `active\|disabled\|revoked` |
+| max_ttl_minutes | Integer | ✗ | `15` | identity-level window cap (1–480); a task may set a lower one |
+| last_used_at | DateTime | ✓ | | stamped on every valid token presentation |
+| use_count | Integer | ✗ | `0` | valid presentations recorded |
+| created_at | DateTime | ✗ | now | indexed |
+| created_by | String(64) | ✗ | `system` | |
+- No standing expiry: the identity lives until revoked. `disabled` is
+  reversible; `revoked` is terminal and freezes settings/task scopes (409).
+  The API token never appears on this row — only its hash.
+
+### 1.37 `agent_task_scopes` — §16 declared task + allow-list
+
+| Column | Type | Null | Default | Index/Notes |
+|---|---|---|---|---|
+| id | INTEGER PK | ✗ | | |
+| agent_id | Integer | ✗ | | indexed → `agent_identities.id` |
+| name | String(128) | ✗ | | unique per agent; access requests reference the task by this name |
+| description | String(255) | ✗ | `''` | |
+| allowed_commands | JSON | ✗ | `[]` | exhaustive allow-list, 1–32 literal substrings (case-insensitive, the same matching as the §9 engine); default-deny |
+| allowed_targets | JSON | ✗ | `[]` | exact vault targets (empty = any); a miss is 403 + recorded |
+| max_minutes | Integer | ✗ | `5` | window cap for this task (the effective cap is min(task, identity)) |
+| created_at | DateTime | ✗ | now | indexed |
+- A §9 block rule still vetoes a listed command; the allow-list supersedes
+  §9 *approval* holds (the declaration is the pre-authorization).
+
+### 1.38 `agent_events` — §16 module action log (ledger source `agent`)
+`id` PK · `agent_id` Integer indexed nullable · `task_id` Integer indexed
+nullable · `request_id` Integer indexed nullable · `action` String(32) ·
+`actor` String(64) · `subject` String(128) · `detail` JSON · `created_at`
+DateTime indexed.
+- actions: `agent-created` · `agent-updated` · `agent-disabled` ·
+  `agent-enabled` · `agent-revoked` · `task-added` · `task-updated` ·
+  `task-removed` · `access-requested` · `access-refused` ·
+  `access-opened` · `access-ended` · `command-blocked`. The API token
+  never appears in `detail`; the outcome does. On agent-authenticated
+  actions the actor is the agent's own name. Folded into the §19 ledger
+  by `_map_agent` (ref `agent:<id>`) as the **fifteenth** source.
 
 ---
 

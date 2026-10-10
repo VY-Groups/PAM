@@ -38,6 +38,9 @@ from licensing_bridge import (
 from extensions import db
 from models import (
     ACCOUNT_KINDS,
+    AGENT_MAX_TASK_COMMANDS,
+    AGENT_STATUSES,
+    AGENT_TOKEN_PREFIX,
     ASSET_PAM_STATUSES,
     ASSET_RISKS,
     ASSET_SECRET_TYPES,
@@ -129,6 +132,9 @@ from models import (
     VaultSecretVersion,
     VendorAccount,
     VendorEvent,
+    AgentEvent,
+    AgentIdentity,
+    AgentTaskScope,
     AnomalyEvent,
     AuditEvent,
     BehaviorBaseline,
@@ -3385,9 +3391,21 @@ def post_session_event(
     decision = None
     rule_id = None
     verdict = None
+    agent_scope = None
     if event_type == "command":
         # command control (module 9): the policy decides before the row lands
         verdict = evaluate_command(content, session.target)
+        # architecture section 16: a session raised by an AI agent rides one
+        # declared task, and the task's allow-list is exhaustive - a command
+        # outside it is blocked (never defaulted to allow) even when the
+        # section-9 engine would have allowed it. A section-9 block still
+        # stands first (deny beats allow), while an allow-listed command is
+        # pre-authorized by the task declaration itself - the spec's
+        # `systemctl restart postgresql` -> ALLOW, even though section-9
+        # would hold a bare service restart for approval.
+        agent_scope = _agent_task_scope(session)
+        if agent_scope is not None:
+            verdict = _agent_task_scope_verdict(verdict, agent_scope, content)
         decision = verdict["decision"]
         rule_id = verdict["rule"]["id"] if verdict["rule"] else None
         if decision == "approval":
@@ -3415,6 +3433,32 @@ def post_session_event(
     if verdict is not None and verdict["terminate"]:
         escalation = _escalate_blocked_command(
             session, event, verdict, actor=actor
+        )
+    if (
+        agent_scope is not None
+        and verdict is not None
+        and verdict["decision"] == "block"
+        and verdict.get("agent") is not None
+    ):
+        # one line on the agent's own trail: the task it broke, the reason
+        # and the incident that preserved the evidence (the command itself
+        # stays on the session event, the incident keeps its snapshot).
+        incident = (escalation or {}).get("incident") or {}
+        scope_note = verdict["agent"]
+        _agent_event(
+            "command-blocked",
+            actor=actor,
+            agent_id=scope_note.get("agent_id"),
+            subject=scope_note.get("agent_name", ""),
+            task=agent_scope["task"],
+            request=agent_scope["request"],
+            detail={
+                "session_id": session.id,
+                "event_seq": event.seq,
+                "task": scope_note.get("task"),
+                "reason": scope_note.get("reason"),
+                "incident": incident.get("incident_ref"),
+            },
         )
     db.session.commit()
     return event, escalation
@@ -4172,7 +4216,7 @@ def _escalate_blocked_command(
 # ---------------------------------------------------------------------------
 # dashboard (Command Center + Compliance screens)
 # ---------------------------------------------------------------------------
-_AUDIT_SOURCES = audit.AUDIT_SOURCES  # the thirteen trails folded into section 19's ledger
+_AUDIT_SOURCES = audit.AUDIT_SOURCES  # every module trail folded into section 19's ledger
 
 
 def unified_events(
@@ -9789,4 +9833,932 @@ def broker_stats() -> Dict[str, Any]:
             "open": by_status["pending"] + by_status["approved"] + by_status["released"],
         },
         "events": BrokerEvent.query.count(),
+    }
+
+
+# ---------------------------------------------------------------------------
+# AI-agent PAM (architecture section 16): the agent is a first-class
+# principal on one chain - identity verification -> task verification ->
+# risk evaluation -> JIT credential -> task-scoped command restrictions ->
+# monitored session -> expiry.
+# ---------------------------------------------------------------------------
+_AGENT_OPEN_STATUSES = ("pending", "approved", "active")
+
+
+def _agent_token_hash(secret: str) -> str:
+    return hashlib.sha256(secret.encode("utf-8")).hexdigest()
+
+
+def _agent_event(
+    action: str,
+    *,
+    actor: str,
+    agent: Optional[AgentIdentity] = None,
+    agent_id: Optional[int] = None,
+    task: Optional[AgentTaskScope] = None,
+    request: Optional[JitRequest] = None,
+    subject: str = "",
+    detail: Optional[Dict[str, Any]] = None,
+) -> AgentEvent:
+    """Queue one section-16 action record; the flush listener folds it into
+    the audit ledger under the fifteenth source `agent` in the same commit.
+    The API token never enters `detail` - the outcome does."""
+    event = AgentEvent(
+        agent_id=agent.id if agent is not None else agent_id,
+        task_id=task.id if task is not None else None,
+        request_id=request.id if request is not None else None,
+        action=action,
+        actor=actor,
+        subject=subject or (agent.name if agent is not None else ""),
+        detail=detail or {},
+    )
+    db.session.add(event)
+    return event
+
+
+def verify_agent_token(token: Any) -> AgentIdentity:
+    """Authenticate an AI agent by its API token. The hash comparison is
+    constant time; `disabled` and `revoked` are real refusals, and a valid
+    call records the use on the identity row (last used + count)."""
+    if not isinstance(token, str) or not token.strip():
+        raise Unauthorized(
+            "Agent API token required "
+            "(Authorization: Bearer vypam-agt1.<id>.<secret>)"
+        )
+    parts = token.strip().split(".")
+    if len(parts) != 3 or parts[0] != AGENT_TOKEN_PREFIX:
+        raise Unauthorized(
+            "Not an agent API token (expected vypam-agt1.<id>.<secret>)"
+        )
+    raw_id, secret = parts[1], parts[2]
+    agent = (
+        AgentIdentity.query.filter_by(id=int(raw_id)).first()
+        if raw_id.isdigit()
+        else None
+    )
+    if agent is None:
+        raise Unauthorized("Unknown agent API token")
+    if agent.status == "revoked":
+        raise Unauthorized("Agent identity revoked")
+    if agent.status == "disabled":
+        raise Unauthorized("Agent identity disabled")
+    if not hmac.compare_digest(_agent_token_hash(secret), agent.token_hash or ""):
+        raise Unauthorized("Invalid agent API token")
+    agent.last_used_at = datetime.now()
+    agent.use_count = (agent.use_count or 0) + 1
+    db.session.commit()
+    return agent
+
+
+def create_agent_identity(payload: Any, *, actor: str) -> Tuple[AgentIdentity, str]:
+    """Register an AI-agent identity (architecture section 16): the API
+    token is generated here, hashed for storage and returned exactly once -
+    the agent keeps the token, PAM keeps every decision it makes."""
+    if not isinstance(payload, dict):
+        raise ValidationFailed("Request body must be a JSON object")
+    name = payload.get("name")
+    if not isinstance(name, str) or not name.strip():
+        raise ValidationFailed("'name' is required", {"field": "name"})
+    name = name.strip()[:128]
+    if AgentIdentity.query.filter_by(name=name).first() is not None:
+        raise Conflict(f"An agent identity named '{name}' already exists")
+    description = payload.get("description", "")
+    if description is None:
+        description = ""
+    if not isinstance(description, str):
+        raise ValidationFailed(
+            "'description' must be a string", {"field": "description"}
+        )
+    description = description.strip()[:255]
+    contact = payload.get("contact", "")
+    if contact is None:
+        contact = ""
+    if not isinstance(contact, str):
+        raise ValidationFailed("'contact' must be a string", {"field": "contact"})
+    contact = contact.strip()[:160]
+    max_ttl = _broker_ttl(
+        payload.get("max_ttl_minutes"), field="max_ttl_minutes", default=15
+    )
+    secret = secrets.token_urlsafe(32)
+    agent = AgentIdentity(
+        name=name,
+        description=description,
+        contact=contact,
+        token_hash=_agent_token_hash(secret),
+        max_ttl_minutes=max_ttl,
+        created_by=actor,
+    )
+    db.session.add(agent)
+    db.session.flush()
+    _agent_event(
+        "agent-created",
+        actor=actor,
+        agent=agent,
+        detail={"max_ttl_minutes": max_ttl},
+    )
+    db.session.commit()
+    return agent, f"{AGENT_TOKEN_PREFIX}.{agent.id}.{secret}"
+
+
+def list_agent_identities(
+    *,
+    status: Optional[str] = None,
+    q: Optional[str] = None,
+    limit: int = 50,
+    offset: int = 0,
+) -> Tuple[List[AgentIdentity], int]:
+    if status is not None and status not in AGENT_STATUSES:
+        raise ValidationFailed(
+            "Unknown agent status",
+            {"field": "status", "allowed": list(AGENT_STATUSES)},
+        )
+    query = AgentIdentity.query
+    if status:
+        query = query.filter(AgentIdentity.status == status)
+    if q:
+        query = query.filter(
+            db.or_(
+                AgentIdentity.name.ilike(f"%{q}%"),
+                AgentIdentity.contact.ilike(f"%{q}%"),
+            )
+        )
+    total = query.count()
+    rows = query.order_by(AgentIdentity.id.desc()).limit(limit).offset(offset).all()
+    return rows, total
+
+
+def get_agent_identity(agent_id: int) -> AgentIdentity:
+    agent = AgentIdentity.query.filter_by(id=agent_id).first()
+    if agent is None:
+        raise NotFound(f"No agent identity with id {agent_id}")
+    return agent
+
+
+def agent_identity_detail(agent_id: int) -> Dict[str, Any]:
+    """One identity with its task scopes, open access count and latest
+    section-16 trail entries."""
+    agent = get_agent_identity(agent_id)
+    open_grants = JitRequest.query.filter(
+        JitRequest.agent_id == agent.id,
+        JitRequest.status.in_(_AGENT_OPEN_STATUSES),
+    ).count()
+    events = (
+        AgentEvent.query.filter_by(agent_id=agent.id)
+        .order_by(AgentEvent.id.desc())
+        .limit(20)
+        .all()
+    )
+    return {
+        "agent": agent.to_dict(),
+        "tasks": [task.to_dict() for task in list_agent_tasks(agent.id)],
+        "open_grants": open_grants,
+        "events": [event.to_dict() for event in events],
+    }
+
+
+def update_agent_identity(
+    agent_id: int, payload: Any, *, actor: str
+) -> Dict[str, Any]:
+    """Edit the identity knobs (description, contact, window cap, enable /
+    disable) - never the name, never the token; a revoked identity's
+    settings are frozen."""
+    if not isinstance(payload, dict):
+        raise ValidationFailed("Request body must be a JSON object")
+    agent = get_agent_identity(agent_id)
+    if agent.status == "revoked":
+        raise Conflict("Agent identity is revoked; its settings are frozen")
+    changed: Dict[str, Any] = {}
+    if "description" in payload:
+        description = payload.get("description")
+        if description is None:
+            description = ""
+        if not isinstance(description, str):
+            raise ValidationFailed(
+                "'description' must be a string", {"field": "description"}
+            )
+        agent.description = description.strip()[:255]
+        changed["description"] = agent.description
+    if "contact" in payload:
+        contact = payload.get("contact")
+        if contact is None:
+            contact = ""
+        if not isinstance(contact, str):
+            raise ValidationFailed("'contact' must be a string", {"field": "contact"})
+        agent.contact = contact.strip()[:160]
+        changed["contact"] = agent.contact
+    if "max_ttl_minutes" in payload:
+        agent.max_ttl_minutes = _broker_ttl(
+            payload.get("max_ttl_minutes"), field="max_ttl_minutes"
+        )
+        changed["max_ttl_minutes"] = agent.max_ttl_minutes
+    if "status" in payload:
+        status = payload.get("status")
+        if status not in ("active", "disabled"):
+            raise ValidationFailed(
+                "'status' must be 'active' or 'disabled' (revoke with DELETE)",
+                {"field": "status", "allowed": ["active", "disabled"]},
+            )
+        if status != agent.status:
+            agent.status = status
+            changed["status"] = status
+    if not changed:
+        raise ValidationFailed(
+            "Request body must set at least one editable field",
+            {"field": "fields"},
+        )
+    action = "agent-updated"
+    if changed.get("status") == "active":
+        action = "agent-enabled"
+    elif changed.get("status") == "disabled":
+        action = "agent-disabled"
+    _agent_event(action, actor=actor, agent=agent, detail=changed)
+    db.session.commit()
+    return agent.to_dict()
+
+
+def _close_agent_access(agent: AgentIdentity, *, actor: str, reason: str) -> int:
+    """End every access the identity still holds: active grants go through
+    the real close path (checkout release + rotation), queued or approved
+    rows close without a release. Returns how many ended."""
+    open_requests = (
+        JitRequest.query.filter(
+            JitRequest.agent_id == agent.id,
+            JitRequest.status.in_(_AGENT_OPEN_STATUSES),
+        )
+        .order_by(JitRequest.id)
+        .all()
+    )
+    ended = 0
+    for request in open_requests:
+        if request.status == "active":
+            _end_jit_grant(request, actor=actor, action="closed")
+        else:
+            request.status = "closed"
+            request.closed_at = datetime.now()
+            _log_jit_event(request, "closed", actor, {"reason": reason})
+        ended += 1
+    return ended
+
+
+def revoke_agent_identity(
+    agent_id: int, *, actor: str, payload: Any = None
+) -> Tuple[AgentIdentity, int]:
+    """Withdraw the identity: every access it still holds ends first
+    (active grants release-and-rotate through the section-6 path, queued
+    requests close without a release), then the token stops authenticating."""
+    agent = get_agent_identity(agent_id)
+    if agent.status == "revoked":
+        raise Conflict("Agent identity is already revoked")
+    reason = None
+    if isinstance(payload, dict):
+        note = payload.get("reason")
+        if note is not None:
+            if not isinstance(note, str) or not note.strip():
+                raise ValidationFailed(
+                    "'reason' must be a non-empty string when present",
+                    {"field": "reason"},
+                )
+            reason = note.strip()[:255]
+    elif payload is not None:
+        raise ValidationFailed("Request body must be a JSON object")
+    ended = _close_agent_access(agent, actor=actor, reason="agent identity revoked")
+    agent.status = "revoked"
+    _agent_event(
+        "agent-revoked",
+        actor=actor,
+        agent=agent,
+        detail={"reason": reason, "grants_closed": ended},
+    )
+    db.session.commit()
+    return agent, ended
+
+
+def list_agent_tasks(agent_id: int) -> List[AgentTaskScope]:
+    return (
+        AgentTaskScope.query.filter_by(agent_id=agent_id)
+        .order_by(AgentTaskScope.id)
+        .all()
+    )
+
+
+def get_agent_task(agent_id: int, task_id: int) -> AgentTaskScope:
+    task = AgentTaskScope.query.filter_by(id=task_id, agent_id=agent_id).first()
+    if task is None:
+        raise NotFound(f"No task scope with id {task_id} for this agent")
+    return task
+
+
+def _agent_commands(value: Any) -> List[str]:
+    """The task's allow-list: literal command substrings, matched
+    case-insensitively exactly like the section-9 engine. Non-empty,
+    deduplicated, bounded - this list is the whole policy, so it is
+    validated hard."""
+    if not isinstance(value, list) or not value:
+        raise ValidationFailed(
+            "'allowed_commands' must be a non-empty list of command strings",
+            {"field": "allowed_commands"},
+        )
+    commands: List[str] = []
+    for entry in value:
+        if not isinstance(entry, str) or not entry.strip():
+            raise ValidationFailed(
+                "'allowed_commands' entries must be non-empty strings",
+                {"field": "allowed_commands"},
+            )
+        entry = entry.strip()[:255]
+        if entry not in commands:
+            commands.append(entry)
+    if len(commands) > AGENT_MAX_TASK_COMMANDS:
+        raise ValidationFailed(
+            f"'allowed_commands' accepts at most {AGENT_MAX_TASK_COMMANDS} entries",
+            {"field": "allowed_commands", "max": AGENT_MAX_TASK_COMMANDS},
+        )
+    return commands
+
+
+def create_agent_task(agent_id: int, payload: Any, *, actor: str) -> AgentTaskScope:
+    """Declare one task the agent may perform (architecture section 16):
+    the exhaustive allow-list that turns the spec's example into policy -
+    `systemctl restart postgresql` runs, `DROP DATABASE production` does
+    not, and the request still passes the section-7 risk evaluation."""
+    if not isinstance(payload, dict):
+        raise ValidationFailed("Request body must be a JSON object")
+    agent = get_agent_identity(agent_id)
+    if agent.status == "revoked":
+        raise Conflict("Agent identity is revoked; its task scopes are frozen")
+    name = payload.get("name")
+    if not isinstance(name, str) or not name.strip():
+        raise ValidationFailed("'name' is required", {"field": "name"})
+    name = name.strip()[:128]
+    if (
+        AgentTaskScope.query.filter_by(agent_id=agent.id, name=name).first()
+        is not None
+    ):
+        raise Conflict(f"Task '{name}' already exists for this agent")
+    description = payload.get("description", "")
+    if description is None:
+        description = ""
+    if not isinstance(description, str):
+        raise ValidationFailed(
+            "'description' must be a string", {"field": "description"}
+        )
+    description = description.strip()[:255]
+    commands = _agent_commands(payload.get("allowed_commands"))
+    targets = _broker_targets(payload.get("allowed_targets"))
+    max_minutes = _broker_ttl(
+        payload.get("max_minutes"), field="max_minutes", default=5
+    )
+    task = AgentTaskScope(
+        agent_id=agent.id,
+        name=name,
+        description=description,
+        allowed_commands=commands,
+        allowed_targets=targets,
+        max_minutes=max_minutes,
+    )
+    db.session.add(task)
+    db.session.flush()
+    _agent_event(
+        "task-added",
+        actor=actor,
+        agent=agent,
+        task=task,
+        detail={
+            "allowed_commands": commands,
+            "allowed_targets": targets,
+            "max_minutes": max_minutes,
+        },
+    )
+    db.session.commit()
+    return task
+
+
+def update_agent_task(
+    agent_id: int, task_id: int, payload: Any, *, actor: str
+) -> AgentTaskScope:
+    """Edit a declared task (allow-list, allowed targets, window cap,
+    description) - never its name (requests reference the task by name) and
+    never on a revoked identity."""
+    if not isinstance(payload, dict):
+        raise ValidationFailed("Request body must be a JSON object")
+    agent = get_agent_identity(agent_id)
+    if agent.status == "revoked":
+        raise Conflict("Agent identity is revoked; its task scopes are frozen")
+    task = get_agent_task(agent_id, task_id)
+    changed: Dict[str, Any] = {}
+    if "description" in payload:
+        description = payload.get("description")
+        if description is None:
+            description = ""
+        if not isinstance(description, str):
+            raise ValidationFailed(
+                "'description' must be a string", {"field": "description"}
+            )
+        task.description = description.strip()[:255]
+        changed["description"] = task.description
+    if "allowed_commands" in payload:
+        task.allowed_commands = _agent_commands(payload.get("allowed_commands"))
+        changed["allowed_commands"] = list(task.allowed_commands)
+    if "allowed_targets" in payload:
+        task.allowed_targets = _broker_targets(payload.get("allowed_targets"))
+        changed["allowed_targets"] = list(task.allowed_targets)
+    if "max_minutes" in payload:
+        task.max_minutes = _broker_ttl(
+            payload.get("max_minutes"), field="max_minutes"
+        )
+        changed["max_minutes"] = task.max_minutes
+    if not changed:
+        raise ValidationFailed(
+            "Request body must set at least one editable field "
+            "(the task name is not editable)",
+            {"field": "fields"},
+        )
+    _agent_event(
+        "task-updated", actor=actor, agent=agent, task=task, detail=changed
+    )
+    db.session.commit()
+    return task
+
+
+def delete_agent_task(
+    agent_id: int, task_id: int, *, actor: str
+) -> Tuple[Dict[str, Any], int]:
+    """Withdraw the task: access riding it ends first (active grants
+    release-and-rotate, queued requests close without a release), then the
+    scope goes. The trail keeps the snapshot it recorded."""
+    agent = get_agent_identity(agent_id)
+    if agent.status == "revoked":
+        raise Conflict("Agent identity is revoked; its task scopes are frozen")
+    task = get_agent_task(agent_id, task_id)
+    ended = 0
+    for request in (
+        JitRequest.query.filter(
+            JitRequest.agent_id == agent.id,
+            JitRequest.status.in_(_AGENT_OPEN_STATUSES),
+        )
+        .order_by(JitRequest.id)
+        .all()
+    ):
+        if (request.agent_binding or {}).get("task_id") != task.id:
+            continue
+        if request.status == "active":
+            _end_jit_grant(request, actor=actor, action="closed")
+        else:
+            request.status = "closed"
+            request.closed_at = datetime.now()
+            _log_jit_event(request, "closed", actor, {"reason": "task scope removed"})
+        ended += 1
+    view = task.to_dict()
+    _agent_event(
+        "task-removed",
+        actor=actor,
+        agent=agent,
+        task=task,
+        detail={"task": task.name, "grants_closed": ended},
+    )
+    db.session.delete(task)
+    db.session.commit()
+    return view, ended
+
+
+def request_agent_access(payload: Any, *, agent: AgentIdentity) -> JitRequest:
+    """One task-scoped access request (architecture section 16): identity
+    is already verified by the token, then the declared task is verified
+    (unknown task / out-of-scope target / window above the task cap are
+    refused with the refusal on the agent's own trail) and the request is
+    scored by the section-7 evaluator - landing in the state its risk band
+    implies: low auto-approved by policy, medium/high queued for sign-off,
+    critical blocked outright."""
+    if not isinstance(payload, dict):
+        raise ValidationFailed("Request body must be a JSON object")
+    task_name = payload.get("task")
+    if not isinstance(task_name, str) or not task_name.strip():
+        raise ValidationFailed("'task' is required", {"field": "task"})
+    task_name = task_name.strip()[:128]
+    task = AgentTaskScope.query.filter_by(agent_id=agent.id, name=task_name).first()
+    if task is None:
+        # not one of this identity's declared tasks: refuse with evidence
+        _agent_event(
+            "access-refused",
+            actor=agent.name,
+            agent=agent,
+            detail={"task": task_name, "reason": "unknown task for this identity"},
+        )
+        db.session.commit()
+        raise APIError(
+            403,
+            "Task is not declared for this agent identity",
+            {"field": "task", "task": task_name},
+        )
+    item_id = payload.get("item_id")
+    if isinstance(item_id, bool) or not isinstance(item_id, int):
+        raise ValidationFailed("'item_id' is required", {"field": "item_id"})
+    item = get_vault_item(item_id)
+    allowed_targets = list(task.allowed_targets or [])
+    if allowed_targets and item.target not in allowed_targets:
+        _agent_event(
+            "access-refused",
+            actor=agent.name,
+            agent=agent,
+            task=task,
+            detail={
+                "task": task.name,
+                "item_id": item.id,
+                "target": item.target,
+                "reason": "target outside the task's allowed targets",
+            },
+        )
+        db.session.commit()
+        raise APIError(
+            403,
+            "Target is outside this task's allowed scope",
+            {"field": "target", "allowed": allowed_targets},
+        )
+    reason = payload.get("reason")
+    if not isinstance(reason, str) or not reason.strip():
+        raise ValidationFailed("'reason' is required", {"field": "reason"})
+    reason = reason.strip()[:255]
+    if len(reason) < 8:
+        raise ValidationFailed(
+            "'reason' must be at least 8 characters", {"field": "reason"}
+        )
+    ticket = payload.get("ticket")
+    if not isinstance(ticket, str) or not ticket.strip():
+        raise ValidationFailed(
+            "'ticket' is required (an ITSM reference such as INC-23891)",
+            {"field": "ticket"},
+        )
+    ticket = ticket.strip()[:64]
+    # the window cannot exceed either cap: the task's own and the identity's
+    cap = min(task.max_minutes, agent.max_ttl_minutes)
+    minutes = _broker_ttl(payload.get("minutes"), field="minutes", default=cap)
+    if minutes > cap:
+        raise ValidationFailed(
+            f"'minutes' exceeds this task's cap of {cap}",
+            {"field": "minutes", "cap": cap},
+        )
+    score, level, factors = _jit_risk(item, agent.name, minutes, ticket, datetime.now())
+    required = _JIT_REQUIRED_APPROVALS[level]
+    if level == "critical":
+        status = "blocked"
+    elif not required:
+        status = "approved"  # low risk: policy grants without sign-off
+    else:
+        status = "pending"
+    request = JitRequest(
+        item_id=item.id,
+        requester=agent.name,
+        reason=reason,
+        ticket=ticket,
+        minutes=minutes,
+        risk_score=score,
+        risk_level=level,
+        risk_factors=factors,
+        status=status,
+        agent_id=agent.id,
+        # snapshot at request time: the command channel enforces against
+        # this, expiry never has to re-resolve the identity or the task.
+        agent_binding={
+            "agent_id": agent.id,
+            "agent_name": agent.name,
+            "task_id": task.id,
+            "task": task.name,
+        },
+    )
+    db.session.add(request)
+    db.session.flush()
+    _log_jit_event(
+        request,
+        "requested",
+        agent.name,
+        {
+            "risk_score": score,
+            "risk_level": level,
+            "required_approvals": list(required),
+            "minutes": minutes,
+        },
+    )
+    if status == "approved":
+        _log_jit_event(
+            request,
+            "approved",
+            "risk-policy",
+            {"auto": True, "reason": f"low risk (score {score}) - no sign-off required"},
+        )
+    elif status == "blocked":
+        _log_jit_event(
+            request,
+            "blocked",
+            "risk-policy",
+            {"risk_score": score, "reason": "critical risk - policy blocks this request"},
+        )
+    _agent_event(
+        "access-requested",
+        actor=agent.name,
+        agent=agent,
+        task=task,
+        request=request,
+        detail={
+            "task": task.name,
+            "item_id": item.id,
+            "target": item.target,
+            "minutes": minutes,
+            "risk_score": score,
+            "risk_level": level,
+            "status": status,
+        },
+    )
+    if status == "blocked":
+        _agent_event(
+            "access-refused",
+            actor=agent.name,
+            agent=agent,
+            task=task,
+            request=request,
+            detail={
+                "task": task.name,
+                "reason": "critical risk - policy blocks this request",
+                "risk_score": score,
+            },
+        )
+    db.session.commit()
+    return request
+
+
+def list_agent_access(
+    *,
+    status: Optional[str] = None,
+    agent_id: Optional[int] = None,
+    limit: int = 50,
+    offset: int = 0,
+) -> Tuple[List[JitRequest], int]:
+    """Every agent-raised access request (the human JIT queue is separate),
+    newest first - expiry is evaluated on the way in."""
+    if status is not None and status not in JIT_STATUSES:
+        raise ValidationFailed(
+            f"Unknown status '{status}'",
+            {"field": "status", "allowed": list(JIT_STATUSES)},
+        )
+    refresh_jit_requests()
+    query = JitRequest.query.filter(JitRequest.agent_id.isnot(None))
+    if status:
+        query = query.filter(JitRequest.status == status)
+    if agent_id is not None:
+        query = query.filter(JitRequest.agent_id == agent_id)
+    total = query.count()
+    items = (
+        query.order_by(JitRequest.id.desc()).limit(limit).offset(offset).all()
+    )
+    return items, total
+
+
+def agent_access_detail(request_id: int) -> Dict[str, Any]:
+    """One agent access request: the JIT row, the identity it rides and the
+    section-16 trail recorded against it (never a secret - the outcome)."""
+    refresh_jit_requests()
+    request = get_jit_request(request_id)
+    if request.agent_id is None:
+        raise NotFound(f"No agent access request with id {request_id}")
+    agent = AgentIdentity.query.filter_by(id=request.agent_id).first()
+    events = (
+        AgentEvent.query.filter_by(request_id=request.id)
+        .order_by(AgentEvent.id.desc())
+        .all()
+    )
+    return {
+        "request": request.to_dict(),
+        "agent": agent.to_dict() if agent is not None else None,
+        "events": [event.to_dict() for event in events],
+    }
+
+
+def _agent_task_scope(
+    session: PrivilegedSession,
+) -> Optional[Dict[str, Any]]:
+    """Resolve the section-16 task binding a session rides, per command:
+    through the grant's `agent_binding` snapshot, so enforcement never
+    depends on the rows still being editable. A deleted task comes back as
+    `task=None` - a withdrawn scope allows nothing."""
+    if session.jit_request_id is None:
+        return None
+    request = JitRequest.query.filter_by(id=session.jit_request_id).first()
+    if request is None or not request.agent_binding:
+        return None
+    binding = dict(request.agent_binding)
+    return {
+        "binding": binding,
+        "task": AgentTaskScope.query.filter_by(id=binding.get("task_id")).first(),
+        "request": request,
+    }
+
+
+def _agent_task_scope_verdict(
+    verdict: Dict[str, Any], scope: Dict[str, Any], command: str
+) -> Dict[str, Any]:
+    """Apply the task's exhaustive allow-list to one command decision.
+
+    A section-9 *block* is left untouched: deny beats allow, so a declared
+    task can never authorize a destructive command. Inside the allow-list
+    the task declaration is the pre-authorization - the architecture's
+    section-16 example runs `systemctl restart postgresql` ALLOW even
+    though section-9 holds a bare service restart for approval, because
+    the task was verified when the scope was declared - and the decision
+    is attributed to the task scope, not to a rule. Outside the allow-list
+    the command is blocked and the session terminates with its evidence
+    preserved as an incident: default-deny, never default-allow."""
+    if verdict["decision"] == "block":
+        return verdict
+    binding = scope["binding"]
+    task = scope["task"]
+    needle = (command or "").strip().lower()
+    if task is not None:
+        for pattern in task.allowed_commands or []:
+            if pattern and pattern.lower() in needle:
+                return {
+                    "decision": "allow",
+                    "matched": False,
+                    "terminate": False,
+                    "rule": None,
+                    "default": False,
+                }
+    name = task.name if task is not None else "withdrawn"
+    return {
+        "decision": "block",
+        "matched": True,
+        "terminate": True,
+        # synthetic rule so the incident keeps its snapshot: rule_name
+        # carries the task, the pattern column stays empty (the allow-list
+        # is many patterns, not one).
+        "rule": {"id": None, "name": f"agent task scope: {name}"[:120], "pattern": ""},
+        "default": False,
+        "agent": {
+            "agent_id": binding.get("agent_id"),
+            "agent_name": binding.get("agent_name", ""),
+            "task": binding.get("task", name),
+            "reason": (
+                "command is not in the task's allowed list"
+                if task is not None
+                else "the task scope was withdrawn"
+            ),
+        },
+    }
+
+
+def open_agent_access(
+    request_id: int, *, agent: AgentIdentity, payload: Any = None
+) -> Dict[str, Any]:
+    """The agent's JIT credential (architecture section 16): an approved
+    request is consumed - the vault credential is checked out under the
+    agent for the request's window - and a mandatory recorded session is
+    started against the grant, so every command the agent runs is judged by
+    its task's allow-list and the whole run is monitored. The raw secret is
+    never handed to the agent: the session *is* the access, and expiry
+    releases and rotates the credential exactly like any JIT grant."""
+    if payload is None:
+        payload = {}
+    if not isinstance(payload, dict):
+        raise ValidationFailed("Request body must be a JSON object")
+    request = get_jit_request(request_id)
+    if request.agent_id != agent.id:
+        # another identity's request is simply not visible to this token
+        raise NotFound(f"No agent access request with id {request_id}")
+    if request.status != "approved":
+        raise Conflict(
+            f"Request is {request.status}; only an approved request can be opened",
+            {"field": "status", "status": request.status},
+        )
+    protocol = payload.get("protocol") or "ssh"
+    if not isinstance(protocol, str) or protocol.strip().lower() not in SESSION_PROTOCOLS:
+        raise ValidationFailed(
+            "Unknown protocol",
+            {"field": "protocol", "allowed": list(SESSION_PROTOCOLS)},
+        )
+    protocol = protocol.strip().lower()
+    target = payload.get("target")
+    if target is None:
+        target = get_vault_item(request.item_id).target
+    if not isinstance(target, str) or not target.strip():
+        raise ValidationFailed("'target' must be a non-empty string", {"field": "target"})
+    target = target.strip()
+    if len(target) > 255:
+        raise ValidationFailed(
+            "'target' must be at most 255 characters", {"field": "target"}
+        )
+    # section 6: check the credential out under the agent for the window
+    consume_jit_request(request.id, actor=agent.name)
+    try:
+        session, risk = create_session(
+            {
+                "protocol": protocol,
+                "target": target,
+                "jit_request_id": request.id,
+                "record": True,  # recording is the contract here, not a preference
+            },
+            actor=agent.name,
+        )
+    except APIError:
+        # the section-7 gate refused the start: nothing may stay checked
+        # out on this agent's behalf - release it and record the refusal.
+        _end_jit_grant(request, actor=agent.name, action="closed")
+        _agent_event(
+            "access-refused",
+            actor=agent.name,
+            agent=agent,
+            request=request,
+            detail={
+                "task": (request.agent_binding or {}).get("task"),
+                "reason": "risk policy refused the session start",
+            },
+        )
+        db.session.commit()
+        raise
+    _agent_event(
+        "access-opened",
+        actor=agent.name,
+        agent=agent,
+        request=request,
+        detail={
+            "task": (request.agent_binding or {}).get("task"),
+            "session_id": session.id,
+            "session_ref": session.session_ref,
+            "protocol": protocol,
+            "target": target,
+            "minutes": request.minutes,
+            "expires_at": (
+                request.expires_at.isoformat() if request.expires_at else None
+            ),
+        },
+    )
+    db.session.commit()
+    return {
+        "request": request.to_dict(),
+        "session": session.to_dict(),
+        "risk": risk.to_dict(),
+        "message": (
+            f"Session {session.session_ref} started against grant "
+            f"#{request.id} - recorded, command-restricted to the task, "
+            "expiring with the grant"
+        ),
+    }
+
+
+def close_agent_access(
+    request_id: int, *, actor: str, agent: Optional[AgentIdentity] = None
+) -> JitRequest:
+    """End an active agent grant early: the checkout is released, the
+    credential rotates and any session riding the grant ends with it. The
+    agent closes its own access with its token; an admin closes any."""
+    request = get_jit_request(request_id)
+    if request.agent_id is None:
+        raise NotFound(f"No agent access request with id {request_id}")
+    if agent is not None and request.agent_id != agent.id:
+        raise NotFound(f"No agent access request with id {request_id}")
+    closed = close_jit_request(request_id, actor=actor)
+    _agent_event(
+        "access-ended",
+        actor=actor,
+        agent_id=request.agent_id,
+        subject=(request.agent_binding or {}).get("agent_name", ""),
+        request=request,
+        detail={
+            "task": (request.agent_binding or {}).get("task"),
+            "session_ref": closed.session_ref,
+            "status": closed.status,
+        },
+    )
+    db.session.commit()
+    return closed
+
+
+def agent_stats() -> Dict[str, Any]:
+    """Real aggregates: identities by state, declared tasks, agent-raised
+    requests by state with the open count, the section-16 trail's size.
+    Nothing is precomputed."""
+    refresh_jit_requests()
+    by_status = {
+        status: AgentIdentity.query.filter_by(status=status).count()
+        for status in AGENT_STATUSES
+    }
+    by_request_status = {
+        status: JitRequest.query.filter(
+            JitRequest.agent_id.isnot(None), JitRequest.status == status
+        ).count()
+        for status in JIT_STATUSES
+    }
+    return {
+        "identities": {
+            "total": sum(by_status.values()),
+            "by_status": by_status,
+        },
+        "tasks": AgentTaskScope.query.count(),
+        "requests": {
+            "total": sum(by_request_status.values()),
+            "by_status": by_request_status,
+            "open": (
+                by_request_status["pending"]
+                + by_request_status["approved"]
+                + by_request_status["active"]
+            ),
+        },
+        "events": AgentEvent.query.count(),
     }

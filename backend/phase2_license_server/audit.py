@@ -35,6 +35,7 @@ from sqlalchemy.orm import Session, sessionmaker
 from extensions import db
 from models import (
     AUDIT_GENESIS_HASH,
+    AgentEvent,
     AnomalyEvent,
     AuditEvent,
     BreakGlassEvent,
@@ -55,7 +56,7 @@ from models import (
     VendorEvent,
 )
 
-# the fourteen trails folded into the ledger (the unified feed reads these)
+# the fifteen trails folded into the ledger (the unified feed reads these)
 AUDIT_SOURCES = (
     "license",
     "settings",
@@ -71,6 +72,7 @@ AUDIT_SOURCES = (
     "vendor",
     "cloud",
     "broker",
+    "agent",
 )
 SOURCE_RANK = {name: index for index, name in enumerate(AUDIT_SOURCES)}
 
@@ -453,6 +455,23 @@ def _map_broker(event: BrokerEvent, db_session) -> Dict[str, Any]:
     )
 
 
+def _map_agent(event: AgentEvent, db_session) -> Dict[str, Any]:
+    """AI-agent identity lifecycle, task-scope changes, access requests and
+    their refusals, opens and closes under the fifteenth trail `agent`
+    (architecture section 16) - the auditable trail of agent privilege
+    itself, never the API token, only the outcome."""
+    return _entry(
+        source="agent",
+        event_ref=f"agent:{event.id}",
+        action=_value(event, "action"),
+        actor=_value(event, "actor"),
+        subject=_value(event, "subject"),
+        detail=_value(event, "detail") or {},
+        created_at=event.created_at,
+        sort_id=event.id,
+    )
+
+
 # every event model that must reach the ledger, in a stable backfill order
 LEDGER_MODELS = (
     LicenseEvent,
@@ -470,6 +489,7 @@ LEDGER_MODELS = (
     VendorEvent,
     CloudEvent,
     BrokerEvent,
+    AgentEvent,
 )
 
 MAPPERS = {
@@ -488,6 +508,7 @@ MAPPERS = {
     VendorEvent: _map_vendor,
     CloudEvent: _map_cloud,
     BrokerEvent: _map_broker,
+    AgentEvent: _map_agent,
 }
 
 

@@ -70,7 +70,7 @@ token or explicit open dev mode), (c) runtime↔disk (encrypted secrets),
 
 ## 4. Authentication & accountability
 
-- **74 admin operations** carry security schemes in `openapi.yaml`
+- **86 admin operations** carry security schemes in `openapi.yaml`
   (contract-tested) — they require `Bearer`/`X-Admin-Token` whenever
   `LICENSE_ADMIN_TOKEN` is set.
 - **Open dev mode is loud, never silent:** responses carry
@@ -97,6 +97,18 @@ token or explicit open dev mode), (c) runtime↔disk (encrypted secrets),
   sha256 hash (constant-time compare); revoked/expired identities are
   honest 401s, scope misses are 403 with a `refused` event, and the
   released secret exists only in the single release response.
+- **AI-agent identity cannot be short-cut (§16):** the agent API token is
+  the only credential on agent request/open/close routes — the admin token
+  never substitutes, open dev mode never waives it, and `X-Actor` is
+  ignored (the actor is the agent's own name). The token is shown once and
+  stored as a sha256 hash (constant-time compare); disabled/revoked
+  identities are honest 401s, unknown tasks and target-scope misses are
+  403 with an `access-refused` event on the `agent` trail, a window above
+  the task's cap is 400 `details.cap`, and the decrypted secret is never
+  returned — access is a forced recorded session whose every command is
+  judged against the declared allow-list (blocks still veto; an
+  out-of-scope command opens an incident, terminates the session and ends
+  the grant).
 
 ## 5. Tamper evidence (architecture §19)
 
@@ -105,7 +117,7 @@ token or explicit open dev mode), (c) runtime↔disk (encrypted secrets),
 | Ordered | `seq` unique, ascending | `test_audit.py` chain walk |
 | Chained | `prev_hash` → `event_hash = sha256(canonical record)`, genesis `0`×64 | verify endpoint recompute |
 | Append-only | SQLite triggers abort `UPDATE`/`DELETE` with `'audit_events is append-only (architecture 19)'` | trigger tests |
-| Complete coverage | 14 sources (`license settings vault discovery jit session command risk bypass break-glass integration vendor cloud broker`); mapper-coverage test fails if any event model lacks a mapper | `MAPPERS` ⇄ models ⇄ `by_source` assertions |
+| Complete coverage | 15 sources (`license settings vault discovery jit session command risk bypass break-glass integration vendor cloud broker agent`); mapper-coverage test fails if any event model lacks a mapper | `MAPPERS` ⇄ models ⇄ `by_source` assertions |
 | Detect, don't repair | tampering is **reported** (`first break` index), never silently fixed | forged-insert test |
 | Portable evidence | `/audit/verify`, `/audit/export` NDJSON in chain order | contract + audit tests |
 
@@ -127,7 +139,7 @@ with per-event `seq` and custody watermarks.
 
 | Control theme | Status | Where |
 |---|---|---|
-| Logical access — least privilege on admin APIs | ✅ (token mode) | 58 secured operations, contract-tested |
+| Logical access — least privilege on admin APIs | ✅ (token mode) | 86 secured operations, contract-tested |
 | Logical access — dev-mode transparency | ✅ explicit | `X-Auth-Mode: open`, posture violation logged |
 | Encryption of secrets at rest | ✅ | AES-256-GCM vault versions |
 | Change management — config change log | ✅ | `settings_events` per-field diffs |

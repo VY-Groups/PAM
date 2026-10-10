@@ -113,6 +113,36 @@ def require_pipeline(view):
     return wrapped
 
 
+def _agent_token() -> str:
+    """An AI agent's API token: the X-Agent-Token header, or a
+    `vypam-agt1.` bearer value in Authorization - a plain bearer token
+    stays the admin credential, so the two are never confused on dual-auth
+    routes."""
+    token = (request.headers.get("X-Agent-Token") or "").strip()
+    if token:
+        return token
+    auth_header = request.headers.get("Authorization", "")
+    if auth_header.lower().startswith("bearer "):
+        bearer = auth_header[7:].strip()
+        if bearer.startswith(service.AGENT_TOKEN_PREFIX + "."):
+            return bearer
+    return ""
+
+
+def require_agent(view):
+    """Reject the request unless a valid agent API token authenticates the
+    agent (architecture section 16). Like the pipeline token this is never
+    waived in open/dev mode: the agent identity is the point, X-Actor is
+    not consulted, and the actor on every record is the identity's name."""
+
+    @wraps(view)
+    def wrapped(*args, **kwargs):
+        g.agent_identity = service.verify_agent_token(_agent_token())
+        return view(*args, **kwargs)
+
+    return wrapped
+
+
 # ---------------------------------------------------------------------------
 # installing vendor-signed licenses
 # ---------------------------------------------------------------------------
@@ -1923,3 +1953,245 @@ def broker_stats():
     """Real aggregates: policies by state and CI system, credentials by
     state, the section-15 trail's size."""
     return jsonify(service.broker_stats())
+
+
+# ---------------------------------------------------------------------------
+# AI-agent PAM (architecture section 16: the agent is a first-class
+# principal - identity -> task -> risk -> JIT credential -> task-scoped
+# command restrictions -> monitored session -> expiry)
+# ---------------------------------------------------------------------------
+@api.post("/agents")
+@require_admin
+def create_agent_identity():
+    """Register an AI-agent identity (201). The API token is returned
+    exactly once - it is stored as a sha256 hash and cannot be recovered."""
+    agent, token = service.create_agent_identity(_json_body(), actor=_actor())
+    return (
+        jsonify(
+            {
+                "agent": agent.to_dict(),
+                "token": token,
+                "message": (
+                    f"Agent identity {agent.name} registered "
+                    f"({agent.max_ttl_minutes} min cap) - "
+                    "the API token is shown once"
+                ),
+            }
+        ),
+        201,
+    )
+
+
+@api.get("/agents")
+@require_admin
+def list_agent_identities():
+    """AI-agent identities, newest first."""
+    limit = min(_int_param("limit", 50), MAX_PAGE_SIZE)
+    offset = _int_param("offset", 0)
+    rows, total = service.list_agent_identities(
+        status=request.args.get("status"),
+        q=request.args.get("q"),
+        limit=limit,
+        offset=offset,
+    )
+    return jsonify(
+        {
+            "agents": [row.to_dict() for row in rows],
+            "total": total,
+            "limit": limit,
+            "offset": offset,
+        }
+    )
+
+
+@api.get("/agents/<int:agent_id>")
+@require_admin
+def agent_identity_detail(agent_id: int):
+    """One identity with its task scopes, open access and latest trail."""
+    return jsonify(service.agent_identity_detail(agent_id))
+
+
+@api.patch("/agents/<int:agent_id>")
+@require_admin
+def update_agent_identity(agent_id: int):
+    """Edit the identity knobs (description, contact, window cap,
+    enable/disable); the name and token are never editable and a revoked
+    identity's settings are frozen."""
+    view = service.update_agent_identity(agent_id, _json_body(), actor=_actor())
+    return jsonify(
+        {"agent": view, "message": f"Agent identity {view['name']} updated"}
+    )
+
+
+@api.delete("/agents/<int:agent_id>")
+@require_admin
+def revoke_agent_identity(agent_id: int):
+    """Withdraw the identity: open access is closed first (active grants
+    release and rotate like a JIT expiry), then the token stops
+    authenticating."""
+    agent, closed = service.revoke_agent_identity(
+        agent_id, actor=_actor(), payload=_json_body(required=False)
+    )
+    return jsonify(
+        {
+            "agent": agent.to_dict(),
+            "grants_closed": closed,
+            "message": (
+                f"Agent identity {agent.name} revoked "
+                f"({closed} access request(s) closed)"
+            ),
+        }
+    )
+
+
+@api.get("/agents/<int:agent_id>/tasks")
+@require_admin
+def list_agent_tasks(agent_id: int):
+    """The declared task scopes under one identity."""
+    rows = service.list_agent_tasks(agent_id)
+    return jsonify({"tasks": [row.to_dict() for row in rows], "total": len(rows)})
+
+
+@api.post("/agents/<int:agent_id>/tasks")
+@require_admin
+def create_agent_task(agent_id: int):
+    """Declare one task the agent may perform (201): the exhaustive
+    allowed-command list, an optional target scope and the window cap."""
+    task = service.create_agent_task(agent_id, _json_body(), actor=_actor())
+    return (
+        jsonify(
+            {
+                "task": task.to_dict(),
+                "message": (
+                    f"Task {task.name} declared with "
+                    f"{len(task.allowed_commands)} allowed command(s), "
+                    f"{task.max_minutes} min cap"
+                ),
+            }
+        ),
+        201,
+    )
+
+
+@api.patch("/agents/<int:agent_id>/tasks/<int:task_id>")
+@require_admin
+def update_agent_task(agent_id: int, task_id: int):
+    """Edit a declared task (allow-list, targets, cap, description); the
+    name stays put because access requests reference it."""
+    task = service.update_agent_task(agent_id, task_id, _json_body(), actor=_actor())
+    return jsonify({"task": task.to_dict(), "message": f"Task {task.name} updated"})
+
+
+@api.delete("/agents/<int:agent_id>/tasks/<int:task_id>")
+@require_admin
+def delete_agent_task(agent_id: int, task_id: int):
+    """Withdraw the task: access riding it ends first, then the scope goes."""
+    view, closed = service.delete_agent_task(agent_id, task_id, actor=_actor())
+    return jsonify(
+        {
+            "task": view,
+            "grants_closed": closed,
+            "message": (
+                f"Task {view['name']} removed "
+                f"({closed} access request(s) closed)"
+            ),
+        }
+    )
+
+
+@api.post("/agent-access/requests")
+@require_agent
+def request_agent_access():
+    """The agent files a task-scoped access request (201): the declared
+    task is verified first, then the section-7 risk evaluation decides the
+    state it lands in (low auto-approved, medium/high queued for sign-off,
+    critical blocked)."""
+    item = service.request_agent_access(_json_body(), agent=g.agent_identity)
+    binding = item.agent_binding or {}
+    return (
+        jsonify(
+            {
+                "request": item.to_dict(),
+                "message": (
+                    f"Request #{item.id} filed for task '{binding.get('task')}' "
+                    f"- risk {item.risk_level} (score {item.risk_score}), "
+                    f"status {item.status}"
+                ),
+            }
+        ),
+        201,
+    )
+
+
+@api.get("/agent-access/requests")
+@require_admin
+def list_agent_access():
+    """Every agent-raised access request, newest first (never a secret)."""
+    limit = min(_int_param("limit", 50), MAX_PAGE_SIZE)
+    offset = _int_param("offset", 0)
+    agent_id = None
+    if request.args.get("agent_id") is not None:
+        agent_id = _int_param("agent_id", 0)
+    rows, total = service.list_agent_access(
+        status=request.args.get("status"),
+        agent_id=agent_id,
+        limit=limit,
+        offset=offset,
+    )
+    return jsonify(
+        {
+            "items": [row.to_dict() for row in rows],
+            "total": total,
+            "limit": limit,
+            "offset": offset,
+        }
+    )
+
+
+@api.get("/agent-access/requests/<int:request_id>")
+@require_admin
+def agent_access_detail(request_id: int):
+    """One agent access request with the identity it rides and its
+    section-16 trail."""
+    return jsonify(service.agent_access_detail(request_id))
+
+
+@api.post("/agent-access/requests/<int:request_id>/open")
+@require_agent
+def open_agent_access(request_id: int):
+    """The agent's JIT credential: the approved request is consumed (real
+    vault checkout under the identity) and a mandatory recorded session is
+    started against the grant - task-restricted, monitored, expiring with
+    the grant. The raw secret is never returned."""
+    opened = service.open_agent_access(
+        request_id, agent=g.agent_identity, payload=_json_body(required=False)
+    )
+    return jsonify(opened), 201
+
+
+@api.post("/agent-access/requests/<int:request_id>/close")
+def close_agent_access(request_id: int):
+    """End an active agent grant early. The agent closes its own access
+    with its API token; an admin closes any."""
+    token = _agent_token()
+    if token:
+        agent = service.verify_agent_token(token)
+        view = service.close_agent_access(
+            request_id, actor=agent.name, agent=agent
+        )
+    else:
+        _require_admin_credential()
+        view = service.close_agent_access(request_id, actor=_actor())
+    return jsonify(
+        {
+            "request": view.to_dict(),
+            "message": "Access closed and credential rotated",
+        }
+    )
+
+
+@api.get("/agent-access/stats")
+def agent_stats():
+    """Real aggregates: identities by state, declared tasks, agent access
+    requests by state with the open count, the section-16 trail's size."""
+    return jsonify(service.agent_stats())

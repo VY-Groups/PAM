@@ -71,7 +71,7 @@ never drift apart.
 | 9 | §9 Command Control | Default-allow engine, shipped §9 rules (15, seeded once), block → approval → allow, dry-run, approval queue, incidents with preserved evidence | Built | 8 command-control paths, `test_command_control.py` (18) |
 | 10 | §10 PAM Bypass Detection | Real auth-log/JSON ingest → verbatim observations, correlation against managed inventory + recorded sessions, incidents with alert + forced rotation (real §5 pipeline) + honest `block_source` | Built | 7 bypass paths, `test_bypass.py` (19) |
 | 11 | §17 Break Glass | Emergency request → dual approval (two distinct approvers, requester excluded) → recorded session releasing a real vault credential → forced rotation + required review at close, itself on the ledger | Built | 7 break-glass paths / 8 ops, `test_break_glass.py` (22) |
-| 12 | §19 Immutable Audit Architecture | Hash-chained append-only ledger over 12 module trails, SQLite triggers, boot backfill, verify walk, NDJSON export | Built | 3 audit paths, `test_audit.py` (19) |
+| 12 | §19 Immutable Audit Architecture | Hash-chained append-only ledger over 15 module trails, SQLite triggers, boot backfill, verify walk, NDJSON export | Built | 3 audit paths, `test_audit.py` (19) |
 | 13 | §21 Admin Dashboard | Command Center overview (health, posture, counters, recent activity) + Compliance center (digest, verify, per-trail filter, export) | Built | `GET /overview`, `GET /events` |
 | 14 | Product delivery | Console: 11-item sidebar, launcher, 11 screens live against real APIs, honest `file://` fallback | Built | `frontend/`, verifiers in `shots_tool/` |
 | 15 | Vendor side | VY-PAM MASTER: encrypted customer registry, signed issuance/renewal, delivery bundles, own audit + own OpenAPI contract | Built | `pam_master/` (46 tests) |
@@ -81,6 +81,7 @@ never drift apart.
 | 19 | §13 Third-Party / Vendor PAM | Per-vendor TOTP (sealed at rest, shown once at invite), NDA, real ITSM ticket check, strict approval gate (refused 409 naming the missing steps), vendor-scoped JIT requests (scope + window checked pre-creation, deny beats allow), forced session recording, lazy account expiry, deny/revoke with the grant close cascade, re-invite on the same row; the vendor dashboard (access/denied lists, valid window, recording) renders the account's own row | Built | 9 vendor paths / 11 ops, `test_vendor_pam.py` (21) |
 | 20 | §14 Cloud PAM | AWS/Azure/GCP/Kubernetes connectors with honest states (`not connected`/`configured`/`connected`/`error`, only a real probe moves them), credential federated into the vault (revealed per call, audited, never returned), real inventory from the cloud's own API under `source=cloud` (failed/unanswered runs record the honest reason and invent nothing), K8s *RBAC → JIT → ephemeral privilege → audit* (the grant applies a real RoleBinding, close/expiry removes it, deletion refused while grants are open) | Built | 6 cloud paths / 9 ops, `test_cloud.py` (27) |
 | 21 | §15 DevSecOps PAM | CI/CD credential broker: pipeline identities (Jenkins/GitLab/GitHub/Azure DevOps/Terraform/Ansible/ArgoCD/Docker) authenticate with an API token shown once and stored as a sha256 hash — **no static secrets in pipelines**; `auto` policies release a time-boxed vault credential in one call, `manual` ones queue for admin approval; the grant is checked out under the pipeline, expires on the real clock and rotates through the §5 pipeline exactly like a JIT grant; scope (`allowed_targets`), TTL cap and revoke-close-cascade are enforced with evidence on the `broker` trail | Built | 9 broker paths / 13 ops, `test_broker.py` (24) |
+| 22 | §16 AI-Agent PAM | Agent identities (API token `vypam-agt1.<id>.<secret>` shown once, sha256 at rest, constant-time verify, admin token never substitutes) declare **task scopes** — an exhaustive `allowed_commands` allow-list (1–32 literal substrings, default-deny), exact targets, a window cap; requests run identity → task → §7 risk (low auto-approves with the `agent_binding` snapshot, critical blocks), the grant is consumed as a **forced recorded session** whose every command is judged against the allow-list (§9 blocks still veto; out-of-scope → incident + session terminated + release/rotate), revoke closes open access before the token dies, evidence lands on the `agent` trail | Built | 9 agent paths / 15 ops, `test_agent.py` (29) |
 
 ## 5. Scope — explicitly NOT built yet (pending requirements)
 
@@ -90,7 +91,6 @@ from the architecture doc, phase assigned in `IMPLEMENTATION_PLAN.md`:
 
 | Arch. section | Pending requirement (target behavior) | Current state | Phase |
 |---|---|---|---|
-| §16 AI-Agent PAM | Agent identity → task verification → risk → JIT credential → task-scoped command restrictions → monitoring → expiry | Not started | 5d |
 | §18 HA / DC / DR | Active-active/passive, load balancer, vault/audit/session replication, failover, health checks | Not started (SQLite single-node today) | 6a |
 | §20 Enterprise Integrations | IAM/MFA/ITSM/SIEM/SOAR/EDR connectors — real verification/push when configured, `not connected` otherwise | Not started (NDJSON export is the only seam) | 4i |
 | RBAC / ABAC | Multi-role model over the admin operations (single admin token today) | Not started | 6b |
@@ -170,15 +170,15 @@ from the architecture doc, phase assigned in `IMPLEMENTATION_PLAN.md`:
 | Data honesty | No fabricated values anywhere in the product | Live-data wiring + FORBIDDEN-string sweep (`shots_tool/__verify_live.mjs`, 9 screens × HTTP/file) |
 | Portability | Installs directly on a machine | Pure Python deps; SQLite files; Docker only under `pam_master/` and `backend/phase2_license_server/` for development |
 | Tamper evidence | Audit trail provable | sha256 chain + append-only triggers + `/audit/verify` |
-| Least privilege | Admin actions authenticated | 74 admin operations require `Bearer`/`X-Admin-Token` when `LICENSE_ADMIN_TOKEN` is set; open dev mode is explicit (`X-Auth-Mode: open`); pipeline `/broker` operations require the broker API token and are never waived |
+| Least privilege | Admin actions authenticated | 86 admin operations require `Bearer`/`X-Admin-Token` when `LICENSE_ADMIN_TOKEN` is set; open dev mode is explicit (`X-Auth-Mode: open`); pipeline `/broker` operations require the broker API token and AI-agent `/agent-access` operations the agent API token — neither is ever waived |
 | Bounded resource use | Scans and lists bounded | Scan ≤256 hosts × ≤24 ports, single-flight; pagination `limit` max 200 |
 | Contract stability | API evolution controlled | OpenAPI 3.1, both-direction contract test, `/api/v1` version segment |
-| Testability | Every phase ships tests | 512 backend + 46 vendor-tool tests; UI verifiers; 17-step smoke |
+| Testability | Every phase ships tests | 541 backend + 46 vendor-tool tests; UI verifiers; 17-step smoke |
 | Offline crypto | Verification without network | Phase 1 validator verifies envelope/JWS offline (signature → structure → expiry) |
 
 ## 8. Success criteria (per release)
 
-1. `python -m pytest backend -q` green (currently **512**) and
+1. `python -m pytest backend -q` green (currently **541**) and
    `python -m pytest pam_master -q` green (**46**).
 2. Contract test green: **102** documented paths both directions, **64**
    admin operations carrying security schemes.
@@ -214,6 +214,6 @@ DevOps and AI environments"*):
 | **Threat response** | Bypass detection, UEBA anomalies, and risk banding all drive the *real* response machinery — session cascade, forced rotation, incidents with preserved evidence |
 | **Integrations** | IAM, MFA, ITSM, SIEM, SOAR, EDR, cloud and DevSecOps connectors — each either verified working against a real endpoint or explicitly `not connected` |
 | **Scale** | §18 replicated deployment (load balancer, vault/audit replication, failover) with runbooks; single-node install remains Docker-free |
-| **Contracts** | `apis/openapi.yaml` (111 paths today, `—` at completion) enforced both-ways; vendor tool contract likewise; zero dark endpoints |
-| **Quality** | Backend suite (512 today) grows per phase with real counts recorded in READMEs; pam_master 46 stays green; smoke + both UI verifiers green at every boundary |
+| **Contracts** | `apis/openapi.yaml` (120 paths today, `—` at completion) enforced both-ways; vendor tool contract likewise; zero dark endpoints |
+| **Quality** | Backend suite (541 today) grows per phase with real counts recorded in READMEs; pam_master 46 stays green; smoke + both UI verifiers green at every boundary |
 | **Honesty invariant** | Unchanged and non-negotiable: every displayed number comes from an API at render time — the product never fabricates, complete or not |

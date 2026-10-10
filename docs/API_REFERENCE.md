@@ -1,7 +1,7 @@
 # VY-PAM — API Reference
 
-**Status:** as-built for Phase 5c
-**Contract:** `apis/openapi.yaml` (OpenAPI 3.1) - **111 paths / 129
+**Status:** as-built for Phase 5d
+**Contract:** `apis/openapi.yaml` (OpenAPI 3.1) - **120 paths / 144
 operations**, enforced in both directions by
 `backend/phase2_license_server/tests/test_openapi_contract.py`. If this page
 and the YAML ever disagree, the YAML wins.
@@ -15,13 +15,13 @@ and the YAML ever disagree, the YAML wins.
 | Base URL (dev) | `http://127.0.0.1:5000` (`LICENSE_SERVER_HOST`/`LICENSE_SERVER_PORT`) |
 | Version | `/api/v1/…` (`/health`, `/api/v1/meta` unversioned) |
 | Content type | `application/json` (license import also accepts multipart upload / raw body) |
-| Auth | When `LICENSE_ADMIN_TOKEN` is set: `Authorization: Bearer <token>` **or** `X-Admin-Token: <token>` on the **74 admin operations**. When unset: open dev mode - responses carry `X-Auth-Mode: open` (explicit, never silent). Pipeline `/broker` operations are the exception: they require the broker API token and are never waived. |
+| Auth | When `LICENSE_ADMIN_TOKEN` is set: `Authorization: Bearer <token>` **or** `X-Admin-Token: <token>` on the **86 admin operations**. When unset: open dev mode - responses carry `X-Auth-Mode: open` (explicit, never silent). Pipeline `/broker` operations require the broker API token and AI-agent `/agent-access` operations require the agent API token — neither is ever waived, even in open dev mode. |
 | Actor | `X-Actor: <name>` recorded verbatim in the audit ledger on every audited write |
 | Errors | `{"error": "<message>", "details"?: {…}}` — 400 validation · 401 auth · 403 policy refusal (risk gate) · 404 · 409 conflict/state · 422 unprocessable shape · 503 fail-closed dependency |
 | Pagination | `limit` (≤200) + `offset`, newest first |
 | Ordering | Ledger/session streams ascending `seq`; listings newest-first |
 
-## 2. Operations by tag (17 tags)
+## 2. Operations by tag (18 tags)
 
 ### `ops` — unversioned
 | Method | Path | Summary |
@@ -214,6 +214,26 @@ and the YAML ever disagree, the YAML wins.
 | POST | `/api/v1/broker/credentials/{credential_id}/close` | dual auth (own pipeline token or admin): ends the grant early; a released credential releases its checkout and rotates |
 | GET | `/api/v1/broker/stats` | aggregates: policies by state/CI system, credentials by state, §15 trail size |
 
+### `agent` — §16 AI-agent PAM (Phase 5d, 9 paths / 15 operations)
+
+| Method | Path | Summary |
+|---|---|---|
+| POST | `/api/v1/agents` | register an agent identity (201): the API token `vypam-agt1.<id>.<secret>` is shown exactly once and stored as a sha256 hash |
+| GET | `/api/v1/agents` | list identities (`status`/`q` filters, paging) |
+| GET | `/api/v1/agents/{agent_id}` | console payload: identity, declared task scopes, open-grant count, latest §16 trail |
+| PATCH | `/api/v1/agents/{agent_id}` | edit description / contact / window cap / active-disabled (never the name or token; revoked → 409 frozen) |
+| DELETE | `/api/v1/agents/{agent_id}` | revoke: open access ends first (active grants release and rotate), then the token stops authenticating |
+| GET | `/api/v1/agents/{agent_id}/tasks` | list the identity's declared task scopes |
+| POST | `/api/v1/agents/{agent_id}/tasks` | declare one task: the exhaustive `allowed_commands` allow-list (1–32 literal substrings, case-insensitive), optional exact `allowed_targets`, `max_minutes` cap |
+| PATCH | `/api/v1/agents/{agent_id}/tasks/{task_id}` | edit the allow-list / targets / window cap / description (never the name; revoked identity → 409) |
+| DELETE | `/api/v1/agents/{agent_id}/tasks/{task_id}` | withdraw a task: access riding it ends first (release + rotate), then the scope goes |
+| POST | `/api/v1/agent-access/requests` | **agent token** (201): identity verified → task verified (unknown task or target outside `allowed_targets` → 403 with the refusal recorded; window above min(task, identity) cap → 400) → §7 risk scoring (low auto-approves with the binding snapshot, medium/high queue for their band's sign-offs, critical → `blocked` + `access-refused`) |
+| GET | `/api/v1/agent-access/requests` | list agent-raised requests (`status`/`agent_id` filters, paging; human JIT requests stay in their own queue) |
+| GET | `/api/v1/agent-access/requests/{request_id}` | console payload: request, its identity, §16 trail (never a secret — only the outcome) |
+| POST | `/api/v1/agent-access/requests/{request_id}/open` | **agent token** (201): consume the grant — real vault checkout under the agent + forced recorded session; a §7 gate refusal releases + rotates again and lands on the trail |
+| POST | `/api/v1/agent-access/requests/{request_id}/close` | dual auth (own agent token or admin): ends the grant early — checkout released, credential rotated, any session riding it ends |
+| GET | `/api/v1/agent-access/stats` | aggregates: identities by state, declared tasks, requests by state, §16 trail size |
+
 ### Ledger (Compliance feeds)
 | Method | Path | Summary |
 |---|---|---|
@@ -245,6 +265,11 @@ and the YAML ever disagree, the YAML wins.
   credential — the admin token never substitutes for it and open dev mode
   does not waive it; `X-Actor` is ignored and the actor on the trail is
   the policy name.
+- **Agent auth** (`POST /agent-access/requests`, `…/{id}/open` and the
+  agent side of `…/{id}/close`): the agent API token (`X-Agent-Token` or
+  Bearer) is the only credential — the admin token never substitutes and
+  open dev mode does not waive it; `X-Actor` is ignored and the actor on
+  the trail is the agent's own name.
 
 ## 4. Vendor tool API (separate contract, `pam_master`, port 5400)
 
@@ -265,7 +290,7 @@ keys only via `python -m pam_master.keygen`.
 
 ## 5. Planned endpoints (NOT in the contract — see `IMPLEMENTATION_PLAN.md`)
 
-These do **not** exist today; the contract's **111 paths / 129 operations**
+These do **not** exist today; the contract's **120 paths / 144 operations**
 are the complete current surface. Each lands in `openapi.yaml` + ADMIN
 security + tests in the same commit when its phase starts (counts `—`):
 

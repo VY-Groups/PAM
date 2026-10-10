@@ -60,6 +60,8 @@ SCHEMA_COLUMNS: Dict[str, Dict[str, str]] = {
         "vendor_account_id": "INTEGER",
         "cloud_connector_id": "INTEGER",
         "cloud_binding": "JSON",
+        "agent_id": "INTEGER",
+        "agent_binding": "JSON",
     },
 }
 
@@ -936,6 +938,13 @@ class JitRequest(db.Model):
     # what was created.
     cloud_connector_id = db.Column(db.Integer, nullable=True, index=True)
     cloud_binding = db.Column(db.JSON, nullable=True)
+    # section 16: set when this request was raised by an AI agent under one
+    # of its task scopes (nullable - human requests carry none).
+    # `agent_binding` snapshots the identity and task at request time
+    # ({agent_id, agent_name, task_id, task}) so the command channel can
+    # enforce the task's allow-list and expiry never has to re-resolve it.
+    agent_id = db.Column(db.Integer, nullable=True, index=True)
+    agent_binding = db.Column(db.JSON, nullable=True)
     created_at = db.Column(db.DateTime, nullable=False, default=datetime.now)
 
     def to_dict(self) -> Dict[str, Any]:
@@ -968,6 +977,8 @@ class JitRequest(db.Model):
             "vendor_account_id": self.vendor_account_id,
             "cloud_connector_id": self.cloud_connector_id,
             "cloud_binding": self.cloud_binding,
+            "agent_id": self.agent_id,
+            "agent_binding": self.agent_binding,
             "created_at": self.created_at.isoformat(),
         }
 
@@ -2144,6 +2155,131 @@ class BrokerEvent(db.Model):
             "id": self.id,
             "policy_id": self.policy_id,
             "credential_id": self.credential_id,
+            "action": self.action,
+            "actor": self.actor,
+            "subject": self.subject,
+            "detail": self.detail or {},
+            "created_at": self.created_at.isoformat(),
+        }
+
+
+# ---------------------------------------------------------------------------
+# AI-agent PAM (architecture section 16)
+# ---------------------------------------------------------------------------
+AGENT_TOKEN_PREFIX = "vypam-agt1"
+AGENT_STATUSES = ("active", "disabled", "revoked")
+AGENT_MAX_TASK_COMMANDS = 32
+
+
+class AgentIdentity(db.Model):
+    """One AI-agent identity (architecture section 16): the agent is a
+    first-class principal - it authenticates with an API token shown
+    exactly once and stored as a sha256 hash, and everything it does rides
+    its own name through the risk engine, the JIT machinery and the audit
+    ledger. An agent never holds a standing credential of its own: access
+    is per-task, time-boxed, command-restricted and recorded."""
+
+    __tablename__ = "agent_identities"
+
+    id = db.Column(db.Integer, primary_key=True)
+    name = db.Column(db.String(128), nullable=False, unique=True, index=True)
+    description = db.Column(db.String(255), nullable=False, default="")
+    contact = db.Column(db.String(160), nullable=False, default="")
+    token_hash = db.Column(db.String(64), nullable=False)
+    status = db.Column(db.String(16), nullable=False, default="active", index=True)
+    # identity-level window cap; each task scope may set a lower one
+    max_ttl_minutes = db.Column(db.Integer, nullable=False, default=15)
+    last_used_at = db.Column(db.DateTime, nullable=True)
+    use_count = db.Column(db.Integer, nullable=False, default=0)
+    created_at = db.Column(
+        db.DateTime, nullable=False, default=datetime.now, index=True
+    )
+    created_by = db.Column(db.String(64), nullable=False, default="system")
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "id": self.id,
+            "name": self.name,
+            "description": self.description,
+            "contact": self.contact,
+            # a hash prefix proves a token exists; the token itself is
+            # shown exactly once, at creation.
+            "token_hash": f"sha256:{self.token_hash[:12]}",
+            "status": self.status,
+            "max_ttl_minutes": self.max_ttl_minutes,
+            "last_used_at": (
+                self.last_used_at.isoformat() if self.last_used_at else None
+            ),
+            "use_count": self.use_count,
+            "created_at": self.created_at.isoformat(),
+            "created_by": self.created_by,
+        }
+
+
+class AgentTaskScope(db.Model):
+    """One declared task an agent may perform (architecture section 16):
+    the allow-list that turns the spec's example into policy - within the
+    task only the declared commands run, everything else is blocked. A task
+    may pin the vault targets it works against and how long a grant may
+    last; the request still passes the section-7 risk evaluation."""
+
+    __tablename__ = "agent_task_scopes"
+
+    id = db.Column(db.Integer, primary_key=True)
+    agent_id = db.Column(db.Integer, nullable=False, index=True)
+    name = db.Column(db.String(128), nullable=False)
+    description = db.Column(db.String(255), nullable=False, default="")
+    # Literal command substrings (case-insensitive, same deterministic
+    # matching as the section-9 engine); the list is exhaustive - a command
+    # that matches none of them is blocked, never defaulted to allow.
+    allowed_commands = db.Column(db.JSON, nullable=False, default=list)
+    # Exact vault targets this task works against (empty = any); a miss is
+    # refused with evidence, never allowed silently.
+    allowed_targets = db.Column(db.JSON, nullable=False, default=list)
+    max_minutes = db.Column(db.Integer, nullable=False, default=5)
+    created_at = db.Column(
+        db.DateTime, nullable=False, default=datetime.now, index=True
+    )
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "id": self.id,
+            "agent_id": self.agent_id,
+            "name": self.name,
+            "description": self.description,
+            "allowed_commands": list(self.allowed_commands or []),
+            "allowed_targets": list(self.allowed_targets or []),
+            "max_minutes": self.max_minutes,
+            "created_at": self.created_at.isoformat(),
+        }
+
+
+class AgentEvent(db.Model):
+    """Module action log for section 16: identity lifecycle, task-scope
+    changes, access requests and their refusals, opens and closes - folded
+    into the section-19 ledger as the fifteenth source (`agent`). The API
+    token never appears in `detail`; the outcome does."""
+
+    __tablename__ = "agent_events"
+
+    id = db.Column(db.Integer, primary_key=True)
+    agent_id = db.Column(db.Integer, nullable=True, index=True)
+    task_id = db.Column(db.Integer, nullable=True, index=True)
+    request_id = db.Column(db.Integer, nullable=True, index=True)
+    action = db.Column(db.String(32), nullable=False)
+    actor = db.Column(db.String(64), nullable=False, default="system")
+    subject = db.Column(db.String(128), nullable=False, default="")
+    detail = db.Column(db.JSON, nullable=False, default=dict)
+    created_at = db.Column(
+        db.DateTime, nullable=False, default=datetime.now, index=True
+    )
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "id": self.id,
+            "agent_id": self.agent_id,
+            "task_id": self.task_id,
+            "request_id": self.request_id,
             "action": self.action,
             "actor": self.actor,
             "subject": self.subject,

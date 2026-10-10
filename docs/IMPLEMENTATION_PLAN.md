@@ -1,6 +1,6 @@
 # VY-PAM — Implementation Plan (remaining architecture coverage)
 
-**Status:** maintained through Phase 5c — remaining backlog starts at 5d
+**Status:** maintained through Phase 5d — remaining backlog starts at 6a
 **Authoritative spec:** `VY-PAM_Enterprise_PAM_Architecture.md`
 **Execution log:** `VY-PAM_MASTER_and_PAM_Workflow.md` (checkpoint rows — the
 resumable source of truth while working)
@@ -26,7 +26,7 @@ resumable source of truth while working)
 | §7 Risk-Based Access | 8-component engine + session gate | ✅ built | 4f |
 | §8 Privileged Sessions | recording, controls, cascade | ✅ built | 4c |
 | §9 Command Control | default-allow rules, holds, incidents | ✅ built | 4d |
-| §19 Immutable Audit | hash chain, 14 sources, verify/export | ✅ built | 4e |
+| §19 Immutable Audit | hash chain, 15 sources, verify/export | ✅ built | 4e |
 | §10 PAM Bypass Detection | direct-access detection | ✅ built | **4g** |
 | §17 Break Glass | emergency protocol (dual approval → recorded session → rotation) | ✅ built | **4h** |
 | §20 Enterprise Integrations | TOTP MFA gate, ITSM verify, SIEM push, LDAP bind | ✅ built | **4i** |
@@ -35,7 +35,7 @@ resumable source of truth while working)
 | §13 Third-Party / Vendor PAM | vendor invite → JIT flow, §13 dashboard | ✅ built | **5a** |
 | §14 Cloud PAM | AWS/Azure/GCP/K8s connectors, K8s RBAC → JIT grants | ✅ built | **5b** |
 | §15 DevSecOps PAM | CI/CD JIT credential broker | ✅ built | **5c** |
-| §16 AI-Agent PAM | agent identity + task-scoped access | ⛔ pending | **5d** |
+| §16 AI-Agent PAM | agent identity + task-scoped access | ✅ built | **5d** |
 | §18 HA / DC / DR | multi-node, replication, failover | ⛔ pending | **6a** |
 | RBAC / ABAC | multi-role model (single admin today) | ⛔ pending | **6b** |
 | SSO / HSM enforcement | settings schema → real enforcement | ⛔ pending (schema only) | **6c** |
@@ -385,13 +385,42 @@ approve/deny/close, real stat tiles). Contract
 **111 paths / 129 ops / 17 tags / 74 admin / 197 schemas**;
 `test_broker.py` **24** + full backend **512** (in-container **430**).
 
-### 5d — AI-Agent PAM (§16)
-Agent identities (`agent_identities`), task-scoped requests:
-*agent identity verification → task verification → risk evaluation → JIT
-credential → command restrictions → monitoring → expiry.* Command-control
-gains task scope (allowed command list per agent task), producing exactly the
-spec's example (`systemctl restart postgresql` ALLOW / `DROP DATABASE`
-BLOCK).
+### 5d — AI-Agent PAM (§16) — ✅ shipped
+Agent identities: the agent is a first-class principal — API token
+`vypam-agt1.<id>.<secret>` shown once and stored as a sha256 hash,
+constant-time verify; the admin token never substitutes and open dev
+mode never waives it (`X-Actor` ignored, the actor on the trail is the
+agent's own name). Admins declare **task scopes**: the exhaustive
+`allowed_commands` allow-list (1–32 literal substrings, case-insensitive,
+default-deny), optional exact `allowed_targets`, `max_minutes` cap. The
+chain runs the spec's sequence — identity verification → task
+verification (unknown task or target outside `allowed_targets` → 403
+with the refusal recorded; window above min(task, identity) cap → 400
+`details.cap`) → §7 risk evaluation (low lands `approved` with the
+`agent_binding` snapshot, medium/high queue for their band's sign-offs
+on the normal §6 endpoints, critical lands `blocked` with
+`access-refused`) → consume = real vault checkout under the agent +
+**forced recorded session** (no secret ever returned — the session *is*
+the access) → the command channel enforces the task allow-list (§9
+blocks still veto; an allow-listed command supersedes §9 approval holds
+— the declaration is the pre-authorization, so `systemctl restart
+postgresql` runs per the spec example; anything out-of-scope → incident
+`agent task scope: <task>` + session terminated + `command-blocked` on
+the agent trail + release and rotate) → real-clock expiry like any JIT
+grant. Revoke closes open access first (active grants release and
+rotate), then the token stops authenticating (401); a revoked identity's
+settings and task scopes are frozen (409); deleting a task first ends
+the access riding it. `jit_requests` gains `agent_id` + `agent_binding`
+JSON snapshot; tables **35→38** (`agent_identities`, `agent_task_scopes`,
+`agent_events`). 15 operations / 9 path keys + openapi (**120 paths /
+144 ops / 18 tags / 86 admin / 218 schemas** — `agentToken` security
+scheme, ADMIN_OPERATIONS 74→86) lockstep. Ledger source `agent`
+(**14→15**, 15th mapper `_map_agent`), Compliance chips **15→16**, JIT
+Access screen gains the AI-Agent Access section (identity table with
+one-time token reveal at registration, task declaration modal, access
+queue wired to approve/deny/close, real stat tiles, `file://` falls back
+to dashes). `test_agent.py` **29** + full backend **541** (in-container
+**459**).
 
 ---
 
@@ -407,7 +436,7 @@ procedures in `docs/DEPLOYMENT_RUNBOOK.md` extend to replication runbooks.
 ### 6b — RBAC / ABAC
 Multi-role model (today: single admin token + open dev mode): roles
 (admin / approver / operator / auditor / auditor-read-only), policy bindings
-on the 74 admin operations, attribute rules on vault items and targets.
+on the 86 admin operations, attribute rules on vault items and targets.
 Contract lockstep: security schemes gain role requirements.
 
 ### 6c — SSO + HSM enforcement
@@ -421,7 +450,7 @@ keys where configured. Posture widget then counts them honestly as active.
 
 ```
 4k §12 ✓ (Phase 4 complete)
-        → 5a §13 ✓ → 5b §14 ✓ → 5c §15 ✓ → 5d §16     (expansion)
+        → 5a §13 ✓ → 5b §14 ✓ → 5c §15 ✓ → 5d §16 ✓   (expansion)
         → 6a §18 → 6b RBAC → 6c SSO/HSM          (scale)
 ```
 
@@ -446,7 +475,7 @@ real numbers collected at that time, `—` until then**:
    SIEM when configured.
 4. **Contracts:** `apis/openapi.yaml` (path count `—`, today 96) and the
    vendor tool contract both enforced both-ways; zero dark endpoints.
-5. **Quality gates:** backend suite (today **512**) grows per phase with real
+5. **Quality gates:** backend suite (today **541**) grows per phase with real
    counts recorded in the READMEs; pam_master stays green (**46**); smoke,
    both UI verifiers, leak check all green at every boundary.
 6. **Operations:** single-node install stays Docker-free; §18 adds replicated

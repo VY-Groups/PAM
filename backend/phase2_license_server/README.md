@@ -25,8 +25,8 @@ Supported wire formats and algorithms:
 | `app.py` | Flask app factory, error handlers, `/health`, screen routes, `python app.py` entrypoint |
 | `config.py` | Environment-driven configuration (`.env` supported) |
 | `routes.py` | HTTP layer: parsing, auth, status codes |
-| `service.py` | Business logic: import, list, revoke, restore, validate, usage, checks, `meta`, platform settings, credential vault, dashboard overview + unified events, infrastructure discovery, JIT access grants, privileged sessions, zero-trust command-control policy engine, risk-based access engine (§7), PAM bypass detection (§10), break-glass emergency path (§17), immutable §19 audit ledger, §20 integrations (MFA gate, ITSM verify, SIEM status, LDAP login) |
-| `models.py` | `LicenseRecord` (signed license + spec fields), `LicenseEvent`, `SettingGroup` + `SettingsEvent` (config changelog), `VaultItem` + `VaultEvent` + `VaultSecretVersion` (vault inventory + audit + immutable versions), `DiscoveredAsset`/`DiscoveredAccount`/`DiscoveryScan`/`DiscoveryEvent`, `JitRequest` + `JitEvent` (grants + trail), `PrivilegedSession` + `SessionEvent` (session recording, append-only), `CommandRule` + `CommandIncident` (zero-trust policy + escalations, append-only), `RiskEvent` (§7 scored access evaluations), `BypassSignal` + `BypassIncident` + `BypassEvent` (§10 direct-access evidence, incidents, action log), `BreakGlassRequest` + `BreakGlassApproval` + `BreakGlassEvent` (§17 emergencies, dual-approval snapshots, action log), `AuditEvent` (immutable §19 hash chain), `IntegrationEvent` (§20 integration trail, fan-in 11) |
+| `service.py` | Business logic: import, list, revoke, restore, validate, usage, checks, `meta`, platform settings, credential vault, dashboard overview + unified events, infrastructure discovery, JIT access grants, privileged sessions, zero-trust command-control policy engine, risk-based access engine (§7), PAM bypass detection (§10), break-glass emergency path (§17), immutable §19 audit ledger, §20 integrations (MFA gate, ITSM verify, SIEM status, LDAP login), §13 third-party vendor PAM, §14 cloud PAM, §15 CI/CD credential broker, §16 AI-agent PAM |
+| `models.py` | `LicenseRecord` (signed license + spec fields), `LicenseEvent`, `SettingGroup` + `SettingsEvent` (config changelog), `VaultItem` + `VaultEvent` + `VaultSecretVersion` (vault inventory + audit + immutable versions), `DiscoveredAsset`/`DiscoveredAccount`/`DiscoveryScan`/`DiscoveryEvent`, `JitRequest` + `JitEvent` (grants + trail), `PrivilegedSession` + `SessionEvent` (session recording, append-only), `CommandRule` + `CommandIncident` (zero-trust policy + escalations, append-only), `RiskEvent` (§7 scored access evaluations), `BypassSignal` + `BypassIncident` + `BypassEvent` (§10 direct-access evidence, incidents, action log), `BreakGlassRequest` + `BreakGlassApproval` + `BreakGlassEvent` (§17 emergencies, dual-approval snapshots, action log), `AuditEvent` (immutable §19 hash chain), `IntegrationEvent` (§20 integration trail, fan-in 11), `VendorAccount` + `VendorEvent` (§13), `CloudConnector` + `CloudEvent` (§14), `BrokerPolicy` + `BrokerCredential` + `BrokerEvent` (§15), `AgentIdentity` + `AgentTaskScope` + `AgentEvent` (§16 agent identities, task allow-lists, action log — ledger fan-in 15) |
 | `audit.py` | The §19 ledger: flush listener fans every module trail into `audit_events`, sha256 chain (`prev_hash`/`event_hash`), boot backfill, append-only triggers, verify/stats/export, plus the §20 SIEM drain — committed batches pushed outbound as signed NDJSON after commit |
 | `integrations.py` | §20 stdlib connectors: RFC-6238 TOTP (HMAC-SHA1/256/512, ±1 window), ITSM ticket verification (ServiceNow/Jira REST), SIEM push signing (`sha256=` HMAC, NDJSON), RFC-4515 LDAP filter escape + BER bind probe, LDAP login tickets |
 | `keys.py` | Startup key checks (fail fast, public/private must match, both algorithms) |
@@ -39,7 +39,7 @@ Supported wire formats and algorithms:
 | `tests/test_jit.py` | JIT access: deterministic risk bands, approvals, time-boxed grants, expiry rotation |
 | `tests/test_sessions.py` | Privileged sessions: start/attach, channel events, control gating, lifecycle + cascades |
 | `tests/test_command_control.py` | Zero-trust command policy: rule CRUD, dry-run decisions, approval queue, incident escalation |
-| `tests/test_audit.py` | Immutable §19 ledger: fourteen-source fan-in, hash chain, append-only triggers, backfill, verify/export, drift guard |
+| `tests/test_audit.py` | Immutable §19 ledger: fifteen-source fan-in, hash chain, append-only triggers, backfill, verify/export, drift guard |
 | `tests/test_risk.py` | §7 risk-based access engine: the eight scored components, bands/decisions, the session-start gate, ledger fan-in |
 | `tests/test_bypass.py` | §10 PAM bypass detection: log/JSON ingest, dedupe, correlation (candidate/covered/out_of_scope), incidents with forced rotation + honest `not_connected`, closure, stats, ledger fan-in |
 | `tests/test_break_glass.py` | §17 break-glass: request lifecycle, dual approval (self/second-signature rules), risk-gated open → recorded session → close with forced rotation + review, stats, ledger fan-in |
@@ -49,6 +49,7 @@ Supported wire formats and algorithms:
 | `tests/test_vendor_pam.py` | §13 third-party PAM: invite → one-time seed → MFA → NDA → real ITSM ticket → approval gate → scoped JIT; refusals + §13 dashboard |
 | `tests/test_cloud.py` | §14 cloud PAM: connector lifecycle + honest states, endpoint rules, real probes, inventory upsert/refusals, K8s RBAC → JIT → real RoleBinding apply/remove, delete guard, stats, ledger fan-in |
 | `tests/test_broker.py` | §15 CI/CD credential broker: pipeline token auth (shown once, sha256, never waived), auto/manual policies, TTL cap + target scope refusals, approval queue, release (secret once) → close/expiry rotation, revoke cascade, stats, ledger fan-in |
+| `tests/test_agent.py` | §16 AI-agent PAM: identity lifecycle + agent token auth (shown once, sha256, never waived), task allow-list CRUD + refusals (unknown task/out-of-target/cap), risk landings (low auto-approve with binding snapshot, medium sign-off, critical block), open/close with forced recording, revoke + task-delete cascades, expiry, stats, ledger fan-in |
 | `tests/test_openapi_contract.py` | `apis/openapi.yaml` ↔ live route map (both directions) |
 
 ## Quick start
@@ -113,9 +114,9 @@ bundle, run the correlation scan, review/close incidents; the Compliance
 screen also reads
 `GET /api/v1/audit/stats` for the immutable digest, runs `GET /api/v1/audit/verify`
 on its **Verify Hash Chain** button, exports `GET /api/v1/audit/export`, and its
-per-trail filter fetches one of the fourteen sources — license, settings, vault,
+per-trail filter fetches one of the fifteen sources — license, settings, vault,
 discovery, jit, session, command, risk, bypass, break-glass, integration,
-vendor, cloud, broker — on
+vendor, cloud, broker, agent — on
 click, and its header chip reads the §20 SIEM push state), the **Credential Vault**
 (`GET/POST /api/v1/vault/*` — onboarding via **Onboard New Credential**, rotation
 SLA, type/status filters, JIT checkouts and an audit trail), the
@@ -127,7 +128,10 @@ RBAC → JIT grants that apply and remove a real RoleBinding), the **JIT access*
 requests, risk, approvals, time-boxed grants — plus the §15 Pipeline
 Credential Broker over `GET/POST /api/v1/broker/*`: pipeline identities
 with a one-time API token, the auto/manual credential queue, and the
-release → close/rotate cascade), the **live session hub**
+release → close/rotate cascade — plus the §16 AI-Agent Access section over
+`GET/POST /api/v1/agents*` and `/api/v1/agent-access/*`: agent identities
+with a one-time API token, declared task allow-lists, the risk-scored
+request queue, and the open → recorded session → close/rotate cascade), the **live session hub**
 (`GET/POST /api/v1/sessions/*` — start a session against a vault credential or
 an active grant, replay its append-only recording, gate controls, and end it
 through the release-and-rotate cascade) and the **zero-trust policy console**
@@ -160,8 +164,8 @@ is no seed inventory: every credential enters through **Onboard New Credential**
 "not connected" states instead of sample rows.
 
 ```bash
-python -m pytest tests -q     # 430 tests (from backend/phase2_license_server)
-python -m pytest backend -q   # 512 tests from the repo root (+ shared crypto core)
+python -m pytest tests -q     # 459 tests (from backend/phase2_license_server)
+python -m pytest backend -q   # 541 tests from the repo root (+ shared crypto core)
 ```
 
 **Docker (development/runtime testing only — never a shipping instruction):**
@@ -227,7 +231,7 @@ cross-checked against these routes by `tests/test_openapi_contract.py`.
 | GET | `/settings/audit?limit=` | – | Configuration changelog, newest first |
 | PUT | `/settings/<group>` | admin | Merge-update one group, returns the per-field change diff (secrets seal AES-256-GCM → changelog `<set>`/`<cleared>`; readonly `mfa.*` factor fields → 400 with `details.fields` + the `POST /mfa/enroll` hint; URL fields must be `https` unless flagged `allow_http` — `itsm.base_url`/`siem.webhook_url` accept plain http for internal instances — bad shape → 400 with `details.field`/`details.scheme`) |
 | GET | `/overview` | – | Dashboard aggregate: health, license posture, vault stats, settings, counters, computed control posture, recent activity |
-| GET | `/events?limit=&source=` | - | Unified audit feed across all fourteen trails (license, settings, vault, discovery, jit, session, command, risk, bypass, break-glass, integration, vendor, cloud, broker), newest first |
+| GET | `/events?limit=&source=` | - | Unified audit feed across all fifteen trails (license, settings, vault, discovery, jit, session, command, risk, bypass, break-glass, integration, vendor, cloud, broker, agent), newest first |
 | GET | `/vault/stats` | – | Inventory aggregates: totals by type/status, rotation compliance, `secrets` coverage (`managed`/`unmanaged`/`versions`), checkouts, today's events |
 | GET | `/vault/items?…` | – | List inventory (`q`, `type`, `status`, `limit`, `offset`) |
 | POST | `/vault/items` | admin | Onboard a credential (201, strictly validated; optional `secret`, else a real type-appropriate value is generated — sealed with AES-256-GCM either way) |
@@ -333,7 +337,22 @@ cross-checked against these routes by `tests/test_openapi_contract.py`.
 | POST | `/broker/credentials/<id>/release` | pipeline | Real vault checkout under the pipeline's name; the secret appears in this response exactly once |
 | POST | `/broker/credentials/<id>/close` | pipeline or admin | End the grant early: checkout released and the credential rotated (`session_ref broker-<id>`) |
 | GET | `/broker/stats` | admin | §15 aggregates: policies by state/CI system, credentials by state, trail size |
-| GET | `/audit/stats` | - | Immutable ledger aggregates (§19): `total`, per-source counts for all fourteen trails, `last_seq`, `head_hash`, oldest/newest, `trigger_protection` |
+| POST | `/agents` | admin | Register an agent identity (201; `vypam-agt1.<id>.<secret>` returned exactly once, stored as a sha256 hash) |
+| GET | `/agents?status=&q=&limit=&offset=` | admin | Agent identities, newest first (§16; never the token — `token_hash` prefix only) |
+| GET | `/agents/<id>` | admin | One identity with its declared task scopes, open-grant count and latest trail |
+| PATCH | `/agents/<id>` | admin | Edit description / contact / window cap / enable-disable (never name or token; revoked → 409 frozen) |
+| DELETE | `/agents/<id>` | admin | Revoke: open access closed first (active grants release and rotate), then the token stops authenticating |
+| GET | `/agents/<id>/tasks` | admin | The identity's declared task scopes (§16) |
+| POST | `/agents/<id>/tasks` | admin | Declare one task: the exhaustive `allowed_commands` allow-list (1–32 literal substrings), optional exact `allowed_targets`, `max_minutes` cap |
+| PATCH | `/agents/<id>/tasks/<task_id>` | admin | Edit the allow-list / targets / window cap / description (never the name; revoked identity → 409) |
+| DELETE | `/agents/<id>/tasks/<task_id>` | admin | Withdraw a task: access riding it ends first, then the scope goes |
+| POST | `/agent-access/requests` | agent | File a task-scoped access request with the API token (201; identity → task → §7 risk: low auto-approves, medium/high queue, critical `blocked` + `access-refused`) |
+| GET | `/agent-access/requests?status=&agent_id=&limit=&offset=` | admin | Agent-raised access requests, newest first (§16) |
+| GET | `/agent-access/requests/<id>` | admin | One request with its identity and full §16 trail (never a secret) |
+| POST | `/agent-access/requests/<id>/open` | agent | Consume the approved grant: vault checkout under the agent + forced recorded session (201; a §7 gate refusal releases + rotates again) |
+| POST | `/agent-access/requests/<id>/close` | agent or admin | End the grant early: checkout released, credential rotated, session ends |
+| GET | `/agent-access/stats` | - | §16 aggregates: identities by state, tasks, requests by state, trail size |
+| GET | `/audit/stats` | - | Immutable ledger aggregates (§19): `total`, per-source counts for all fifteen trails, `last_seq`, `head_hash`, oldest/newest, `trigger_protection` |
 | GET | `/audit/verify` | – | Walk the whole chain: recomputes every record's hash and reports `intact`, `checked`, `head_hash` plus the first `broken_at`/`reason` (sequence gap, content change, re-link) |
 | GET | `/audit/export` | – | The full ledger in chain order as NDJSON (`application/x-ndjson`, `vy-pam-audit.ndjson`) — one record per line for SIEM ingest |
 
@@ -471,9 +490,9 @@ curl -s "http://127.0.0.1:5000/api/v1/settings/audit?limit=20"
 # dashboard aggregate powering the Command Center / Compliance screens
 curl -s http://127.0.0.1:5000/api/v1/overview
 
-# unified audit feed (all fourteen trails: license, settings, vault, discovery,
+# unified audit feed (all fifteen trails: license, settings, vault, discovery,
 # jit, session, command, risk, bypass, break-glass, integration, vendor, cloud,
-# broker - newest first, each row chain-linked with seq + hash)
+# broker, agent - newest first, each row chain-linked with seq + hash)
 curl -s "http://127.0.0.1:5000/api/v1/events?limit=10"
 
 # inventory aggregates: rotation compliance, checkouts, attention list

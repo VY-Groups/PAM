@@ -565,6 +565,82 @@
 </table>
 </div>
 </div>
+<!-- AI-Agent Access (architecture section 16) -->
+<div class="bg-surface-container-lowest p-space-lg rounded-xl shadow-sm flex flex-col gap-space-md mt-space-lg" data-role="agent-section">
+<div class="flex items-start justify-between gap-space-sm flex-wrap">
+<div class="flex items-center gap-space-xs">
+<span class="material-symbols-outlined text-primary text-[20px]">smart_toy</span>
+<h2 class="font-headline-sm text-headline-sm text-on-surface">AI-Agent Access</h2>
+<span class="font-label-badge text-label-badge text-on-surface-variant bg-surface-container px-2 py-0.5 rounded font-semibold">IDENTITY → TASK → RISK → JIT → COMMANDS → SESSION → EXPIRY</span>
+</div>
+<div class="flex items-center gap-space-sm flex-wrap">
+<span class="font-code-sm text-code-sm text-on-surface-variant" data-role="agent-summary">— agents · — open grants · — agent events</span>
+<button class="flex items-center gap-1.5 px-space-md py-2 rounded-lg bg-primary-container text-on-primary font-label-md text-label-md font-semibold hover:bg-primary transition-all shadow-sm" data-role="btn-agent-add">
+<span class="material-symbols-outlined text-[18px]">add_circle</span>
+<span>Register Agent</span>
+</button>
+</div>
+</div>
+<div class="flex items-start gap-space-sm p-space-sm rounded-lg bg-surface-container-low/60">
+<span class="material-symbols-outlined text-outline text-[16px]">spell_check</span>
+<span class="font-code-sm text-code-sm text-on-surface-variant">An agent never holds a standing credential: its API token (shown once, stored as a sha256 hash) files per-task requests through the same risk engine, opens a recorded session whose commands are restricted to the task's exhaustive allow-list, and the grant expires and rotates like any JIT access.</span>
+</div>
+<div class="grid grid-cols-2 xl:grid-cols-4 gap-space-sm" data-role="agent-tiles">
+<div class="p-space-sm rounded-lg bg-surface-container-low flex flex-col gap-1">
+<span class="font-code-sm text-code-sm text-outline">AGENTS</span>
+<span class="font-headline-sm text-headline-sm text-on-surface font-bold" data-role="agent-tile-agents">—</span>
+<span class="font-code-sm text-code-sm text-on-surface-variant" data-role="agent-tile-agents-sub">— active</span>
+</div>
+<div class="p-space-sm rounded-lg bg-surface-container-low flex flex-col gap-1">
+<span class="font-code-sm text-code-sm text-outline">AWAITING SIGN-OFF</span>
+<span class="font-headline-sm text-headline-sm text-on-surface font-bold" data-role="agent-tile-pending">—</span>
+<span class="font-code-sm text-code-sm text-on-surface-variant">manager / security by band</span>
+</div>
+<div class="p-space-sm rounded-lg bg-surface-container-low flex flex-col gap-1">
+<span class="font-code-sm text-code-sm text-outline">OPEN NOW</span>
+<span class="font-headline-sm text-headline-sm text-on-surface font-bold" data-role="agent-tile-open">—</span>
+<span class="font-code-sm text-code-sm text-on-surface-variant" data-role="agent-tile-open-sub">— task scopes</span>
+</div>
+<div class="p-space-sm rounded-lg bg-surface-container-low flex flex-col gap-1">
+<span class="font-code-sm text-code-sm text-outline">AGENT TRAIL</span>
+<span class="font-headline-sm text-headline-sm text-on-surface font-bold" data-role="agent-tile-events">—</span>
+<span class="font-code-sm text-code-sm text-on-surface-variant">ledger source: agent</span>
+</div>
+</div>
+<div class="overflow-x-auto rounded-lg border border-outline-variant/40">
+<table class="w-full text-left">
+<thead>
+<tr class="bg-surface-container-low text-on-surface-variant font-code-sm text-code-sm uppercase tracking-wider">
+<th class="py-2.5 px-4">Agent Identity</th>
+<th class="py-2.5 px-4">Task Scopes / Commands</th>
+<th class="py-2.5 px-4">Window Cap</th>
+<th class="py-2.5 px-4">Last Used</th>
+<th class="py-2.5 px-4">State</th>
+<th class="py-2.5 px-4 text-right">Actions</th>
+</tr>
+</thead>
+<tbody data-role="agent-rows" class="divide-y divide-outline-variant/30 text-body-sm font-body-sm text-on-surface">
+<tr><td class="py-5 px-4 text-center text-on-surface-variant font-body-sm" colspan="6">No agent identities registered — register one, hand it the API token once, and every request it files rides its name through the risk engine.</td></tr>
+</tbody>
+</table>
+</div>
+<div class="overflow-x-auto rounded-lg border border-outline-variant/40">
+<table class="w-full text-left">
+<thead>
+<tr class="bg-surface-container-low text-on-surface-variant font-code-sm text-code-sm uppercase tracking-wider">
+<th class="py-2.5 px-4">Access Request</th>
+<th class="py-2.5 px-4">Agent / Task</th>
+<th class="py-2.5 px-4">Risk</th>
+<th class="py-2.5 px-4">State</th>
+<th class="py-2.5 px-4 text-right">Actions</th>
+</tr>
+</thead>
+<tbody data-role="agent-req-rows" class="divide-y divide-outline-variant/30 text-body-sm font-body-sm text-on-surface">
+<tr><td class="py-5 px-4 text-center text-on-surface-variant font-body-sm" colspan="5">No agent access requests yet — an agent posts one with its API token after its task is verified; low risk auto-approves, higher bands wait here for sign-off.</td></tr>
+</tbody>
+</table>
+</div>
+</div>
 <!-- Inline Script for Card Interaction and Dynamic Feedback -->
 <script>
     // -------------------------------------------------------------------------
@@ -1812,19 +1888,403 @@
       const brokerAddBtn = document.querySelector('[data-role="btn-broker-add"]');
       if (brokerAddBtn) brokerAddBtn.addEventListener('click', openBrokerModal);
 
+      // ---------------------------------------------------- agent (16) --
+      // AI-agent PAM: identities with an API token shown once, declared
+      // task scopes (the exhaustive allowed-command list), the access
+      // queue wired to the real approve/deny/close endpoints, and honest
+      // empty states when the license server is not reachable.
+      const agentState = { agents: [], requests: [], stats: null, tasks: {}, connected: false };
+
+      function renderAgents() {
+        const tbody = document.querySelector('[data-role="agent-rows"]');
+        if (!tbody) return;
+        if (!agentState.agents.length) {
+          tbody.innerHTML = '<tr><td class="py-5 px-4 text-center text-on-surface-variant font-body-sm" colspan="6">No agent identities registered \u2014 register one, hand it the API token once, and every request it files rides its name through the risk engine.</td></tr>';
+          return;
+        }
+        tbody.innerHTML = agentState.agents.map((a) => {
+          const tasks = agentState.tasks[a.id] || [];
+          const taskCell = tasks.length
+            ? esc(tasks.map((t) => t.name).join(', '))
+              + '<div class="font-code-sm text-code-sm text-outline">' + tasks.length + ' scope(s) \u00b7 '
+              + tasks.reduce((n, t) => n + (t.allowed_commands || []).length, 0) + ' command(s)</div>'
+            : '<span class="text-outline">' + DASH + '</span>';
+          let actions = '';
+          if (a.status !== 'revoked') {
+            actions = '<button class="' + IDLE_BTN + '" data-act="task">Add Task</button> '
+              + '<button class="' + IDLE_BTN + '" data-act="toggle">'
+              + (a.status === 'active' ? 'Disable' : 'Enable') + '</button> '
+              + '<button class="px-2 py-1 rounded bg-error-container/50 text-error hover:bg-error hover:text-on-error font-label-md text-label-md" data-act="revoke">Revoke</button>';
+          }
+          return '<tr data-agent-row="' + a.id + '" class="hover:bg-surface-container-low/40">'
+            + '<td class="py-2.5 px-4"><div class="flex flex-col">'
+            + '<span class="font-semibold">' + esc(a.name) + '</span>'
+            + '<span class="font-code-sm text-code-sm text-outline">' + esc(a.token_hash)
+            + ' \u00b7 used ' + a.use_count + '\u00d7</span></div></td>'
+            + '<td class="py-2.5 px-4">' + taskCell + '</td>'
+            + '<td class="py-2.5 px-4 font-code-sm text-code-sm">cap ' + a.max_ttl_minutes + ' min</td>'
+            + '<td class="py-2.5 px-4 font-code-sm text-code-sm">'
+            + (a.last_used_at ? esc(ago(a.last_used_at)) : DASH) + '</td>'
+            + '<td class="py-2.5 px-4">' + brokerPill(a.status) + '</td>'
+            + '<td class="py-2.5 px-4 text-right whitespace-nowrap">' + actions + '</td></tr>';
+        }).join('');
+      }
+
+      function renderAgentRequests() {
+        const tbody = document.querySelector('[data-role="agent-req-rows"]');
+        if (!tbody) return;
+        if (!agentState.requests.length) {
+          tbody.innerHTML = '<tr><td class="py-5 px-4 text-center text-on-surface-variant font-body-sm" colspan="5">No agent access requests yet \u2014 an agent posts one with its API token after its task is verified; low risk auto-approves, higher bands wait here for sign-off.</td></tr>';
+          return;
+        }
+        tbody.innerHTML = agentState.requests.map((r) => {
+          const binding = r.agent_binding || {};
+          let actions = '';
+          if (r.status === 'pending') {
+            actions = '<button class="' + IDLE_BTN + '" data-act="approve">Approve</button> '
+              + '<button class="px-2 py-1 rounded bg-error-container/50 text-error hover:bg-error hover:text-on-error font-label-md text-label-md" data-act="deny">Deny</button>';
+          } else if (r.status === 'blocked') {
+            actions = '<button class="px-2 py-1 rounded bg-error-container/50 text-error hover:bg-error hover:text-on-error font-label-md text-label-md" data-act="deny">Deny</button>';
+          } else if (r.status === 'active') {
+            actions = '<button class="' + IDLE_BTN + '" data-act="close">Close now</button>';
+          }
+          const risk = r.risk ? (r.risk.level + ' (' + r.risk.score + ')') : DASH;
+          return '<tr data-agent-req="' + r.id + '" class="hover:bg-surface-container-low/40">'
+            + '<td class="py-2.5 px-4"><span class="font-semibold">#' + r.id + '</span> '
+            + '<span class="font-code-sm text-code-sm text-outline">' + esc(r.ticket || DASH) + '</span></td>'
+            + '<td class="py-2.5 px-4">' + esc(binding.agent_name || r.requester)
+            + '<div class="font-code-sm text-code-sm text-outline">task: ' + esc(binding.task || DASH)
+            + ' \u00b7 item #' + r.item_id + '</div></td>'
+            + '<td class="py-2.5 px-4 font-code-sm text-code-sm">' + esc(risk)
+            + (r.status === 'active' && r.minutes_left != null
+              ? '<div class="font-code-sm text-code-sm text-tertiary">' + r.minutes_left + ' min left</div>'
+              : '')
+            + '</td>'
+            + '<td class="py-2.5 px-4">' + brokerPill(r.status) + '</td>'
+            + '<td class="py-2.5 px-4 text-right whitespace-nowrap">' + actions + '</td></tr>';
+        }).join('');
+      }
+
+      function renderAgent() {
+        const put = (sel, text) => {
+          const el = document.querySelector(sel);
+          if (el) el.textContent = text;
+        };
+        const summary = document.querySelector('[data-role="agent-summary"]');
+        if (!agentState.connected) {
+          put('[data-role="agent-tile-agents"]', DASH);
+          put('[data-role="agent-tile-agents-sub"]', DASH + ' active');
+          put('[data-role="agent-tile-pending"]', DASH);
+          put('[data-role="agent-tile-open"]', DASH);
+          put('[data-role="agent-tile-open-sub"]', DASH + ' task scopes');
+          put('[data-role="agent-tile-events"]', DASH);
+          if (summary) summary.textContent = DASH + ' agents \u00b7 ' + DASH + ' open grants \u00b7 ' + DASH + ' agent events';
+        } else {
+          const stats = agentState.stats || {};
+          const ids = stats.identities || {};
+          const reqs = stats.requests || {};
+          put('[data-role="agent-tile-agents"]', String(ids.total != null ? ids.total : agentState.agents.length));
+          put('[data-role="agent-tile-agents-sub"]',
+            ((ids.by_status && ids.by_status.active) || 0) + ' active');
+          put('[data-role="agent-tile-pending"]',
+            String((reqs.by_status && reqs.by_status.pending) || 0));
+          put('[data-role="agent-tile-open"]', String(reqs.open || 0));
+          put('[data-role="agent-tile-open-sub"]',
+            (stats.tasks || 0) + ' task scopes');
+          put('[data-role="agent-tile-events"]', String(stats.events || 0));
+          if (summary) {
+            summary.textContent = (ids.total || 0) + ' agents \u00b7 '
+              + (reqs.open || 0) + ' open grants \u00b7 ' + (stats.events || 0) + ' agent events';
+          }
+        }
+        renderAgents();
+        renderAgentRequests();
+      }
+
+      async function loadAgent() {
+        if (ROOT === '') { agentState.connected = false; renderAgent(); return; }
+        const j = async (path) => {
+          const res = await fetch(API + path, { headers: headers() });
+          if (!res.ok) throw new Error(path + ' -> ' + res.status);
+          return res.json();
+        };
+        try {
+          const [agents, requests, stats] = await Promise.all([
+            j('/agents?limit=100'),
+            j('/agent-access/requests?limit=100'),
+            j('/agent-access/stats'),
+          ]);
+          agentState.agents = agents.agents || [];
+          agentState.requests = requests.items || [];
+          agentState.stats = stats;
+          // the task column needs each identity's declared scopes
+          const details = await Promise.all(
+            agentState.agents.slice(0, 20).map((a) => j('/agents/' + a.id).catch(() => null)),
+          );
+          agentState.tasks = {};
+          details.forEach((d, i) => {
+            if (d && agentState.agents[i]) {
+              agentState.tasks[agentState.agents[i].id] = d.tasks || [];
+            }
+          });
+          agentState.connected = true;
+        } catch (err) {
+          agentState.connected = false;
+          agentState.agents = [];
+          agentState.requests = [];
+          agentState.tasks = {};
+          agentState.stats = null;
+        }
+        renderAgent();
+      }
+
+      // ---- register agent modal (the API token is shown exactly once) ----
+      function openAgentModal() {
+        if (document.querySelector('[data-agent-modal]')) return;
+        const overlay = document.createElement('div');
+        overlay.setAttribute('data-agent-modal', '');
+        overlay.className = 'fixed inset-0 z-50 flex items-center justify-center bg-black/40';
+        overlay.innerHTML = '<div class="bg-surface-container-lowest rounded-xl p-space-xl w-[440px] shadow-xl flex flex-col gap-space-md">'
+          + '<span class="font-headline-sm text-headline-sm text-on-surface font-semibold">Register AI Agent</span>'
+          + '<label class="font-label-md text-label-md text-on-surface-variant">Name'
+          + '<input data-f="name" class="mt-1 w-full px-space-sm py-2 rounded-lg border border-outline-variant/50 bg-surface font-body-sm" placeholder="ops-bot"></label>'
+          + '<label class="font-label-md text-label-md text-on-surface-variant">Owner (human)'
+          + '<input data-f="contact" class="mt-1 w-full px-space-sm py-2 rounded-lg border border-outline-variant/50 bg-surface font-body-sm" placeholder="platform-ops@company.com"></label>'
+          + '<label class="font-label-md text-label-md text-on-surface-variant">Identity window cap (minutes)'
+          + '<input data-f="max_ttl_minutes" type="number" min="1" max="480" value="15" class="mt-1 w-full px-space-sm py-2 rounded-lg border border-outline-variant/50 bg-surface font-body-sm"></label>'
+          + '<div class="flex justify-end gap-space-sm mt-space-xs">'
+          + '<button data-x="cancel" class="px-space-md py-2 rounded-lg bg-surface-container text-on-surface-variant font-label-md">Cancel</button>'
+          + '<button data-x="save" class="px-space-md py-2 rounded-lg bg-primary text-on-primary font-label-md font-semibold">Register</button>'
+          + '</div><div data-f="msg" class="font-code-sm text-code-sm text-error min-h-4"></div></div>';
+        document.body.appendChild(overlay);
+        overlay.addEventListener('click', (e) => { if (e.target === overlay) overlay.remove(); });
+        overlay.querySelector('[data-x="cancel"]').addEventListener('click', () => overlay.remove());
+        overlay.querySelector('[data-x="save"]').addEventListener('click', async () => {
+          const msg = overlay.querySelector('[data-f="msg"]');
+          const body = {
+            name: overlay.querySelector('[data-f="name"]').value.trim(),
+            contact: overlay.querySelector('[data-f="contact"]').value.trim(),
+            max_ttl_minutes: Number(overlay.querySelector('[data-f="max_ttl_minutes"]').value) || 15,
+          };
+          if (!body.name) { msg.textContent = 'Name is required.'; return; }
+          const btn = overlay.querySelector('[data-x="save"]');
+          btn.disabled = true;
+          try {
+            const res = await fetch(API + '/agents', {
+              method: 'POST', headers: headers(), body: JSON.stringify(body),
+            });
+            const out = await res.json().catch(() => ({}));
+            if (!res.ok) { msg.textContent = out.error || ('HTTP ' + res.status); btn.disabled = false; return; }
+            overlay.innerHTML = '<div class="bg-surface-container-lowest rounded-xl p-space-xl w-[440px] shadow-xl flex flex-col gap-space-md">'
+              + '<span class="font-headline-sm text-headline-sm text-on-surface font-semibold">Agent registered \u2014 token shown once</span>'
+              + '<span class="font-body-sm text-body-sm text-on-surface-variant">This is the only time the token is shown. It is stored as a sha256 hash; the agent presents it as '
+              + '<code class="font-code-sm">X-Agent-Token</code> or a Bearer header.</span>'
+              + '<code data-f="token" class="font-code-sm text-code-sm bg-surface-container p-space-sm rounded break-all">' + esc(out.token || '') + '</code>'
+              + '<div class="flex justify-end gap-space-sm">'
+              + '<button data-x="copy" class="px-space-md py-2 rounded-lg bg-surface-container text-on-surface font-label-md">Copy</button>'
+              + '<button data-x="done" class="px-space-md py-2 rounded-lg bg-primary text-on-primary font-label-md font-semibold">Done</button>'
+              + '</div></div>';
+            overlay.querySelector('[data-x="copy"]').addEventListener('click', () => {
+              navigator.clipboard && navigator.clipboard.writeText(out.token || '');
+              toast('Token copied.');
+            });
+            overlay.querySelector('[data-x="done"]').addEventListener('click', () => overlay.remove());
+            toast(out.message || 'Agent identity registered.');
+            loadAgent();
+          } catch (err) {
+            msg.textContent = 'License server unreachable.';
+            btn.disabled = false;
+          }
+        });
+      }
+
+      // ---- add task scope modal (the exhaustive allowed-command list) ----
+      function openTaskModal(agentId, agentName) {
+        if (document.querySelector('[data-agent-modal]')) return;
+        const overlay = document.createElement('div');
+        overlay.setAttribute('data-agent-modal', '');
+        overlay.className = 'fixed inset-0 z-50 flex items-center justify-center bg-black/40';
+        overlay.innerHTML = '<div class="bg-surface-container-lowest rounded-xl p-space-xl w-[520px] shadow-xl flex flex-col gap-space-md">'
+          + '<span class="font-headline-sm text-headline-sm text-on-surface font-semibold">Declare Task \u2014 ' + esc(agentName) + '</span>'
+          + '<label class="font-label-md text-label-md text-on-surface-variant">Task name'
+          + '<input data-f="name" class="mt-1 w-full px-space-sm py-2 rounded-lg border border-outline-variant/50 bg-surface font-body-sm" placeholder="restart-postgres"></label>'
+          + '<label class="font-label-md text-label-md text-on-surface-variant">Allowed commands (one literal substring per line \u2014 case-insensitive match, default-deny)'
+          + '<textarea data-f="commands" rows="4" class="mt-1 w-full px-space-sm py-2 rounded-lg border border-outline-variant/50 bg-surface font-body-sm font-code-sm" placeholder="systemctl restart&#10;systemctl status&#10;psql"></textarea></label>'
+          + '<label class="font-label-md text-label-md text-on-surface-variant">Allowed targets (comma-separated exact vault targets, empty = any)'
+          + '<input data-f="targets" class="mt-1 w-full px-space-sm py-2 rounded-lg border border-outline-variant/50 bg-surface font-body-sm" placeholder="db-prod-01, db-prod-02"></label>'
+          + '<label class="font-label-md text-label-md text-on-surface-variant">Window cap (minutes)'
+          + '<input data-f="max_minutes" type="number" min="1" max="480" value="5" class="mt-1 w-full px-space-sm py-2 rounded-lg border border-outline-variant/50 bg-surface font-body-sm"></label>'
+          + '<div class="flex justify-end gap-space-sm mt-space-xs">'
+          + '<button data-x="cancel" class="px-space-md py-2 rounded-lg bg-surface-container text-on-surface-variant font-label-md">Cancel</button>'
+          + '<button data-x="save" class="px-space-md py-2 rounded-lg bg-primary text-on-primary font-label-md font-semibold">Declare</button>'
+          + '</div><div data-f="msg" class="font-code-sm text-code-sm text-error min-h-4"></div></div>';
+        document.body.appendChild(overlay);
+        overlay.addEventListener('click', (e) => { if (e.target === overlay) overlay.remove(); });
+        overlay.querySelector('[data-x="cancel"]').addEventListener('click', () => overlay.remove());
+        overlay.querySelector('[data-x="save"]').addEventListener('click', async () => {
+          const msg = overlay.querySelector('[data-f="msg"]');
+          const commands = overlay.querySelector('[data-f="commands"]').value
+            .split('\n').map((s) => s.trim()).filter(Boolean);
+          const targets = overlay.querySelector('[data-f="targets"]').value
+            .split(',').map((s) => s.trim()).filter(Boolean);
+          const body = {
+            name: overlay.querySelector('[data-f="name"]').value.trim(),
+            allowed_commands: commands,
+            allowed_targets: targets,
+            max_minutes: Number(overlay.querySelector('[data-f="max_minutes"]').value) || 5,
+          };
+          if (!body.name) { msg.textContent = 'Task name is required.'; return; }
+          if (!commands.length) { msg.textContent = 'Declare at least one allowed command.'; return; }
+          const btn = overlay.querySelector('[data-x="save"]');
+          btn.disabled = true;
+          try {
+            const res = await fetch(API + '/agents/' + agentId + '/tasks', {
+              method: 'POST', headers: headers(), body: JSON.stringify(body),
+            });
+            const out = await res.json().catch(() => ({}));
+            if (!res.ok) { msg.textContent = out.error || ('HTTP ' + res.status); btn.disabled = false; return; }
+            toast(out.message || 'Task scope declared.');
+            overlay.remove();
+            loadAgent();
+          } catch (err) {
+            msg.textContent = 'License server unreachable.';
+            btn.disabled = false;
+          }
+        });
+      }
+
+      // identity row actions: Add Task / Disable-Enable / Revoke
+      (function wireAgentRows() {
+        const tbody = document.querySelector('[data-role="agent-rows"]');
+        if (!tbody) return;
+        tbody.addEventListener('click', (e) => {
+          const btn = e.target.closest('button[data-act]');
+          const tr = e.target.closest('tr[data-agent-row]');
+          if (!btn || !tr) return;
+          const id = Number(tr.getAttribute('data-agent-row'));
+          const agent = agentState.agents.find((a) => a.id === id);
+          if (!agent) return;
+          const act = btn.getAttribute('data-act');
+          if (act === 'task') { openTaskModal(id, agent.name); return; }
+          if (act === 'toggle') {
+            const next = agent.status === 'active' ? 'disabled' : 'active';
+            btn.disabled = true;
+            fetch(API + '/agents/' + id, {
+              method: 'PATCH', headers: headers(),
+              body: JSON.stringify({ status: next }),
+            }).then(async (res) => {
+              const out = await res.json().catch(() => ({}));
+              if (!res.ok) { toast(out.error || ('HTTP ' + res.status)); btn.disabled = false; return; }
+              toast(out.message || ('Agent ' + next + ' \u2014 recorded.'));
+              loadAgent();
+            }).catch(() => { toast('License server unreachable.'); btn.disabled = false; });
+            return;
+          }
+          if (act === 'revoke') {
+            const reason = window.prompt(
+              'Revoke agent "' + agent.name + '"? Every open access request ends '
+              + '(active grants release and rotate), then the token stops '
+              + 'authenticating \u2014 permanent. Reason (recorded):',
+              'agent decommissioned');
+            if (reason === null) return;
+            btn.disabled = true;
+            fetch(API + '/agents/' + id, {
+              method: 'DELETE', headers: headers(),
+              body: JSON.stringify({ reason: reason }),
+            }).then(async (res) => {
+              const out = await res.json().catch(() => ({}));
+              if (!res.ok) { toast(out.error || ('HTTP ' + res.status)); btn.disabled = false; return; }
+              toast(out.message || 'Agent revoked.');
+              loadAgent();
+            }).catch(() => { toast('License server unreachable.'); btn.disabled = false; });
+          }
+        });
+      })();
+
+      // access request row actions: Approve (chain) / Deny / Close now
+      (function wireAgentReqs() {
+        const tbody = document.querySelector('[data-role="agent-req-rows"]');
+        if (!tbody) return;
+        tbody.addEventListener('click', (e) => {
+          const btn = e.target.closest('button[data-act]');
+          const tr = e.target.closest('tr[data-agent-req]');
+          if (!btn || !tr) return;
+          const id = Number(tr.getAttribute('data-agent-req'));
+          const req = agentState.requests.find((r) => r.id === id);
+          if (!req) return;
+          const act = btn.getAttribute('data-act');
+          if (act === 'approve') {
+            // medium needs manager, high needs manager + security: run the chain
+            btn.disabled = true;
+            const approve = (role) => fetch(API + '/jit/requests/' + id + '/approve', {
+              method: 'POST', headers: headers(), body: JSON.stringify({ role: role }),
+            }).then(async (res) => ({ res: res, body: await res.json().catch(() => ({})) }));
+            approve('manager').then((first) => {
+              if (first.res.ok && first.body.request
+                && first.body.request.status === 'pending') {
+                return approve('security');
+              }
+              return first;
+            }).then(({ res, body }) => {
+              if (!res.ok) { toast(body.error || ('HTTP ' + res.status)); btn.disabled = false; return; }
+              toast(body.message || ('Request #' + id + ' approved \u2014 recorded.'));
+              loadAgent();
+            }).catch(() => { toast('License server unreachable.'); btn.disabled = false; });
+            return;
+          }
+          if (act === 'deny') {
+            const reason = window.prompt(
+              'Deny agent access request #' + id + ' (recorded in the audit trail):',
+              'outside the change window');
+            if (reason === null) return;
+            btn.disabled = true;
+            fetch(API + '/jit/requests/' + id + '/deny', {
+              method: 'POST', headers: headers(), body: JSON.stringify({ reason: reason }),
+            }).then(async (res) => {
+              const out = await res.json().catch(() => ({}));
+              if (!res.ok) { toast(out.error || ('HTTP ' + res.status)); btn.disabled = false; return; }
+              toast(out.message || ('Request #' + id + ' denied \u2014 recorded.'));
+              loadAgent();
+            }).catch(() => { toast('License server unreachable.'); btn.disabled = false; });
+            return;
+          }
+          if (act === 'close') {
+            if (!window.confirm(
+              'End agent access request #' + id + ' now? The checkout is '
+              + 'released, the credential rotates and any session riding it ends.')) return;
+            btn.disabled = true;
+            fetch(API + '/agent-access/requests/' + id + '/close', {
+              method: 'POST', headers: headers(),
+            }).then(async (res) => {
+              const out = await res.json().catch(() => ({}));
+              if (!res.ok) { toast(out.error || ('HTTP ' + res.status)); btn.disabled = false; return; }
+              toast(out.message || ('Request #' + id + ' closed \u2014 rotated.'));
+              loadAgent();
+            }).catch(() => { toast('License server unreachable.'); btn.disabled = false; });
+          }
+        });
+      })();
+
+      const agentAddBtn = document.querySelector('[data-role="btn-agent-add"]');
+      if (agentAddBtn) agentAddBtn.addEventListener('click', openAgentModal);
+
       // initial honest paint (wipes the design's fake content in both modes)
       renderAll();
       load();
       renderBroker();
       loadBroker();
+      renderAgent();
+      loadAgent();
       setInterval(() => {
         if (state.connected) load();
         if (brokerState.connected) loadBroker();
+        if (agentState.connected) loadAgent();
       }, 60000);
 
       window.jitLive = {
         load: load, select: select, openRequestModal: openRequestModal,
         state: state, broker: { load: loadBroker, state: brokerState },
+        agent: { load: loadAgent, state: agentState },
       };
     })();
 

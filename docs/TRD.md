@@ -51,7 +51,7 @@ repo.
 | Store | SQLite (`licenses.db`, git-ignored) | append-only enforced by triggers on `audit_events` |
 | Crypto | `cryptography` lib | RSA-PSS-SHA256 (default) / Ed25519 envelopes; AES-256-GCM secrets |
 | Frontend | Static HTML + Tailwind (CDN build) + vanilla JS | 11 sidebar screens, no bundler, works from `file://` |
-| Tests | pytest | 512 backend + 46 pam_master |
+| Tests | pytest | 541 backend + 46 pam_master |
 | UI verification | Node + `playwright-core` (`shots_tool/`) | viewport 1920×1600, never `fullPage` |
 | Vendor tool | Flask + raw `sqlite3` | `pam_master` package, `python -m pam_master` |
 
@@ -230,7 +230,8 @@ Rules enforced by tests/conventions:
 - `BreakGlassEvent` actions (`requested`, `approved`, `denied`, `opened`,
   `closed`) fan into the §19 chain as the **tenth** source `break-glass`
   (eleven with 4i's `integration`, twelve with 5a's `vendor`, thirteen with
-  5b's `cloud`, fourteen with 5c's `broker`); `bg-` request refs, stats and the
+  5b's `cloud`, fourteen with 5c's `broker`, fifteen with 5d's `agent`);
+  `bg-` request refs, stats and the
   compliance feed stay generic. The emergency path runs the §20 MFA gate at
   open: a factor enrolled demands a `mfa_code` (401 `details.mfa`), no
   factor says so honestly.
@@ -426,12 +427,53 @@ Rules enforced by tests/conventions:
   tiles, `file://` falls back to dashes); Compliance gains the 15th chip
   (source `broker`).
 
+### 4.19 AI-agent PAM (§16) — Phase 5d
+- **Data**: `agent_identities` (unique `name`, `token_hash` sha256, honest
+  `status active|disabled|revoked`, `max_ttl_minutes` 1–480 identity cap
+  default 15, `last_used_at`/`use_count` — no standing expiry) +
+  `agent_task_scopes` (per-agent unique `name`, `allowed_commands` JSON
+  exhaustive allow-list of 1–32 literal substrings, `allowed_targets` exact
+  scope with empty = any, `max_minutes` window cap default 5) +
+  `agent_events` folded into the ledger as source `agent`, the
+  **fifteenth**.
+- **Identity**: the agent's API token is `vypam-agt1.<id>.<secret>`, shown
+  exactly once at creation and stored only as its sha256 hash;
+  `verify_agent_token` compares in constant time and refuses
+  disabled/revoked identities honestly, recording the use on the identity.
+  Agent routes (`POST /agent-access/requests`, `…/{id}/open`, the agent
+  side of `…/{id}/close`) authenticate with this token alone
+  (`X-Agent-Token` or Bearer) — the admin token never substitutes, open
+  dev mode never waives it, and `X-Actor` is ignored (the actor on the
+  trail is the agent's own name). `close` is dual-auth: the agent's own
+  token or the admin check.
+- **Chain**: request → identity verified → task verified (unknown task or
+  target outside `allowed_targets` → 403 with the refusal on the trail;
+  window above min(task, identity) cap → 400 `details.cap`) → §7 risk
+  scoring (low lands `approved` with the `agent_binding`
+  `{agent_id, agent_name, task_id, task}` snapshot, medium/high queue for
+  their band's sign-offs on the normal §6 endpoints, critical lands
+  `blocked` with `access-refused`) → `open` consumes the grant: a real
+  vault checkout under the agent plus a **forced recorded session**, so
+  every command is judged by the task's allow-list — §9 blocks still veto,
+  an allow-listed command supersedes §9 approval holds (the declaration is
+  the pre-authorization), anything outside the list → incident
+  `agent task scope: <task>` + session terminated + `command-blocked`
+  event + release and rotate. The window expires on the real clock like
+  any JIT grant. Revoking an identity closes its open access first (active
+  grants release and rotate), then the token stops authenticating (401); a
+  revoked identity's settings and task scopes are frozen (409).
+- **Console**: the JIT Access screen gains the full-width AI-Agent Access
+  section (identity table with one-time token reveal at registration, task
+  declaration modal, access queue wired to approve / deny / close, real
+  stat tiles, `file://` falls back to dashes); Compliance gains the 16th
+  chip (source `agent`) and its action labels.
+
 ## 5. API conventions
 
 | Concern | Rule |
 |---|---|
 | Versioning | Everything under `/api/v1` (health/meta unversioned) |
-| Auth | `LICENSE_ADMIN_TOKEN` set → `Authorization: Bearer …` or `X-Admin-Token: …` on the 74 admin operations; unset → explicit open dev mode (`X-Auth-Mode: open` response header); pipeline `/broker` operations require the broker API token and are never waived |
+| Auth | `LICENSE_ADMIN_TOKEN` set → `Authorization: Bearer …` or `X-Admin-Token: …` on the 86 admin operations; unset → explicit open dev mode (`X-Auth-Mode: open` response header); pipeline `/broker` operations require the broker API token and AI-agent `/agent-access` operations the agent API token — neither is ever waived |
 | Actor | `X-Actor` header recorded on every audited write |
 | Errors | `{"error": {"code", "message", "details?"}}`; 400 validation, 401 auth, 403 policy refusal, 404, 409 conflict/state, 422 shape, 503 fail-closed dependency |
 | Pagination | `limit` (max 200) + `offset`, newest first |
@@ -490,7 +532,7 @@ its phase starts (plan > code > docs, in that order).
 |---|---|---|---|
 | 5d §16 AI-Agent | `agent_identities`, task scopes | agent request endpoints + task-scoped rule evaluation | identity → task → risk → JIT → restricted commands → expiry |
 | 6a §18 HA | replication/failover topology | health/failover endpoints | multi-node; storage engine decision = core design item |
-| 6b RBAC | `roles`, `role_bindings` | security schemes gain role requirements | attribute checks on the 74 admin ops + vault/target scoping |
+| 6b RBAC | `roles`, `role_bindings` | security schemes gain role requirements | attribute checks on the 86 admin ops + vault/target scoping |
 | 6c SSO/HSM | SSO/HSM config state | SAML/OIDC login path, PKCS#11/KMS key ops | settings schema becomes enforcement; posture counts flip honestly |
 
 Standing constraints that carry into all of these: ledger emission inside

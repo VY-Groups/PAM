@@ -767,8 +767,9 @@ def test_broker_trail_reaches_the_ledger_as_the_fourteenth_source(client):
     _, token = add_policy(client, "jenkins-ledger", approval_mode="auto")
     ask(client, token, item["id"])
 
-    assert len(audit_module.AUDIT_SOURCES) == 14
-    assert audit_module.AUDIT_SOURCES[-1] == "broker"
+    assert len(audit_module.AUDIT_SOURCES) == 15
+    assert audit_module.AUDIT_SOURCES[13] == "broker"
+    assert audit_module.AUDIT_SOURCES[14] == "agent"
     events = client.get("/api/v1/events?source=broker&limit=50").get_json()["events"]
     assert events and all(e["source"] == "broker" for e in events)
     assert all(e["id"].startswith("broker:") for e in events)

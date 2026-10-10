@@ -24,7 +24,7 @@ PAM/
 │   ├── screens/<name>/          #   one folder per screen: code.html + screen.png
 │   └── README.md                #   layout + how to add a screen (the contract)
 ├── apis/                            # HTTP contract for every backend service
-│   ├── openapi.yaml             #   OpenAPI 3.1: all 111 paths (synced by a test)
+│   ├── openapi.yaml             #   OpenAPI 3.1: all 120 paths (synced by a test)
 │   └── README.md                #   conventions + how to view
 ├── backend/
 │   ├── ipam_licensing/              # Phase 1: library + CLIs
@@ -95,7 +95,7 @@ python -m pam_master.keygen                      # RSA + Ed25519 + registry PII 
 python -m pam_master                             # http://127.0.0.1:5400
 
 # Tests (shared core + shipped API contract + vendor tool)
-python -m pytest backend -q                      # 512 tests
+python -m pytest backend -q                      # 541 tests
 python -m pytest pam_master -q                   # 46 tests (vendor tool)
 ```
 
@@ -135,8 +135,8 @@ python -m pytest pam_master -q                   # 46 tests (vendor tool)
   backed by `GET/PUT /api/v1/settings` with an audit changelog, plus the §20
   Enterprise Integrations cards over `GET /api/v1/integrations/status`), the Command
   Center and Compliance screens (backed by `GET /api/v1/overview` and the
-  unified `GET /api/v1/events` feed — a fourteen-source trail filter that
-  includes the `integration`, `vendor`, `cloud` and `broker` trails, plus a live SIEM-push chip — and the
+  unified `GET /api/v1/events` feed — a fifteen-source trail filter that
+  includes the `integration`, `vendor`, `cloud`, `broker` and `agent` trails, plus a live SIEM-push chip — and the
   Command Center's §10 PAM
   bypass detection section over `GET/POST /api/v1/bypass/*` — real auth-log
   ingest, correlation against managed targets and recorded sessions,
@@ -148,7 +148,13 @@ python -m pytest pam_master -q                   # 46 tests (vendor tool)
   `cloud` trail, and the Kubernetes RBAC → JIT grant path that applies and
   removes a real RoleBinding), the JIT
   access console (`GET/POST /api/v1/jit/*` — requests, risk evaluation,
-  approvals, time-boxed grants that rotate their credential on expiry), the
+  approvals, time-boxed grants that rotate their credential on expiry, plus
+  the §15 Pipeline Credential Broker over `/api/v1/broker/*` — pipeline
+  identities with a one-time API token and the auto/manual credential
+  queue — and the §16 AI-Agent Access section over `/api/v1/agents*` +
+  `/api/v1/agent-access/*` — agent identities with a one-time API token,
+  declared task allow-lists, and risk-scored, recorded, command-restricted
+  grants), the
   live session hub (`GET/POST /api/v1/sessions/*` — start privileged
   sessions against a vault credential or an active grant, append-only
   channel events with custody watermarks, real pause/lock/terminate that

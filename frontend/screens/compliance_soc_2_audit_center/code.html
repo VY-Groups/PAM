@@ -794,6 +794,19 @@
         'broker:released': 'Pipeline credential released (once)',
         'broker:closed': 'Pipeline credential closed (rotated)',
         'broker:expired': 'Pipeline credential expired (rotated)',
+        'agent:agent-created': 'Agent identity registered',
+        'agent:agent-updated': 'Agent identity updated',
+        'agent:agent-disabled': 'Agent identity disabled',
+        'agent:agent-enabled': 'Agent identity enabled',
+        'agent:agent-revoked': 'Agent identity revoked (access closed)',
+        'agent:task-added': 'Agent task scope declared',
+        'agent:task-updated': 'Agent task scope updated',
+        'agent:task-removed': 'Agent task scope removed (access closed)',
+        'agent:access-requested': 'Agent access requested',
+        'agent:access-refused': 'Agent access refused',
+        'agent:access-opened': 'Agent access opened (recorded)',
+        'agent:access-ended': 'Agent access ended (rotated)',
+        'agent:command-blocked': 'Agent command blocked (out of scope)',
       };
       const SOURCE_ICONS = {
         license: 'workspace_premium', settings: 'tune', vault: 'key',
@@ -910,10 +923,10 @@
         }
       }
 
-      // ---- 14-source filter: click-to-fetch per trail (reveal on click) ---
+      // ---- per-source filter: click-to-fetch per trail (reveal on click) ---
       const SOURCES = ['all', 'license', 'settings', 'vault', 'discovery',
         'jit', 'session', 'command', 'risk', 'bypass', 'break-glass',
-        'integration', 'vendor', 'cloud', 'broker'];
+        'integration', 'vendor', 'cloud', 'broker', 'agent'];
       let activeSource = 'all';
       const filterWrap = document.createElement('div');
       filterWrap.className = 'flex flex-wrap gap-1.5 pb-1';

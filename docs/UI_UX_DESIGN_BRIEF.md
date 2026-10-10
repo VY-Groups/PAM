@@ -104,11 +104,11 @@ loaded from Google Fonts; Material Symbols Outlined for icons.
 |---|---|---|
 | Command Center | posture KPIs, health strip, recent activity feed, **§10 bypass detection section** (ingest → scan → incidents) | 2a/4g |
 | Credential Vault | inventory grid, checkout/reveal/rotate, version history | 4a |
-| JIT Access | request list, score breakdown, approvals, grants, **§15 Pipeline Credential Broker section** (policy table with one-time token reveal at registration, credential queue with approve/deny/close, real stat tiles) | 4b/5c |
+| JIT Access | request list, score breakdown, approvals, grants, **§15 Pipeline Credential Broker section** (policy table with one-time token reveal at registration, credential queue with approve/deny/close, real stat tiles) + **§16 AI-Agent Access section** (identity table with one-time token reveal, task declaration modal, access queue with approve/deny/close, real stat tiles) | 4b/5c/5d |
 | Live Session Hub | active sessions, controls, event stream, terminate cascade, **§12 dynamic watermark overlay** (six fields from the session's own row, reacts to pause/resume/terminate, protocol overlays `not connected`) | 4c + 4k |
 | Target Infrastructure | scans, discovered assets/accounts, register/ignore, **§14 Cloud PAM Connectors section** (provider cards AWS/Azure/GCP/Kubernetes with honest states, connector table with probe/inventory/RBAC/add actions) | 2d/3c/5b |
 | Policy & Zero Trust | command rules table, evaluate, approval queue, incidents, **§7 risk section** + **§11 Anomalies** (trained baselines, per-reason deviation chips, incident chain) | 4d/4f/4j |
-| Compliance & SOC2 | ledger digest, verify walk, 14-source chips, export, record modal, SIEM header chip | 4e/4f/4g/4h/4i/5a/5b/5c |
+| Compliance & SOC2 | ledger digest, verify walk, 16-source chips, export, record modal, SIEM header chip | 4e/4f/4g/4h/4i/5a/5b/5c/5d |
 | Licensing | entitlements, quota usage, import/validate/revoke | 3a |
 | Break-Glass | request filing, dual-approval signatures, recorded emergency session, close + review — **§17 live** | 4h |
 | Vendor Access | vendor list (M N T A chain dots), **§13 dashboard** (access/denied lists, valid window, recording), 8-step chain with actions, invite modal + one-time MFA seed reveal, scoped JIT requests + lifecycle trail | 5a |
