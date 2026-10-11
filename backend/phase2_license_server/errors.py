@@ -21,8 +21,8 @@ class APIError(Exception):
 
 
 class NotFound(APIError):
-    def __init__(self, message: str):
-        super().__init__(404, message)
+    def __init__(self, message: str, details: Optional[Dict[str, Any]] = None):
+        super().__init__(404, message, details)
 
 
 class ValidationFailed(APIError):

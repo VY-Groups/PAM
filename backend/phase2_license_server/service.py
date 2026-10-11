@@ -117,6 +117,12 @@ from models import (
     SESSION_PROTOCOLS,
     SESSION_STATUSES,
     SESSION_TERMINAL_STATUSES,
+    SSO_CLOCK_SKEW_SECONDS,
+    SSO_MFA_AMR,
+    SSO_MFA_AUTHN_CONTEXTS,
+    SSO_PROTOCOLS,
+    SSO_SLOTS,
+    SSO_TOKEN_PREFIX,
     SETTINGS_ACTION_UPDATED,
     STATUS_ACTIVE,
     STATUS_REVOKED,
@@ -146,6 +152,7 @@ from models import (
     PrivilegedSession,
     RbacEvent,
     RiskEvent,
+    SsoSession,
     Role,
     RoleBinding,
     SessionEvent,
@@ -932,6 +939,7 @@ _BUCKET_RE = re.compile(r"^[a-z0-9][a-z0-9.\-]{1,61}[a-z0-9]$")
 
 SETTINGS_SCHEMA: Dict[str, Dict[str, Dict[str, Any]]] = {
     "sso": {
+        "protocol": {"type": "enum", "choices": SSO_PROTOCOLS, "default": "saml2"},
         "primary_provider": {"type": "enum", "choices": _IDP_PROVIDERS, "default": "okta"},
         "primary_metadata_url": {
             "type": "url",
@@ -959,6 +967,7 @@ SETTINGS_SCHEMA: Dict[str, Dict[str, Dict[str, Any]]] = {
         "session_ttl_minutes": {"type": "int", "min": 5, "max": 1440, "default": 480},
     },
     "hsm": {
+        "enforcement": {"type": "enum", "choices": ("advisory", "enforced"), "default": "advisory"},
         "provider": {"type": "enum", "choices": _HSM_PROVIDERS, "default": "aws-cloudhsm"},
         "cluster_id": {"type": "str", "max_length": 64, "default": "hsm-cluster-k10-east"},
         "region": {"type": "str", "max_length": 32, "default": "us-east-1"},
@@ -1151,8 +1160,16 @@ def _validate_setting(group: str, field: str, spec: Dict[str, Any], value: Any) 
             if spec.get("allow_empty"):
                 return ""
             raise ValidationFailed(f"'{where}' is required", {"field": where})
-        allowed = ("https://", "http://") if spec.get("allow_http") else ("https://",)
-        host = value.split("://", 1)[1] if "://" in value else ""
+        host = (
+            value.split("://", 1)[1].split("/", 1)[0].split(":", 1)[0]
+            if "://" in value
+            else ""
+        )
+        # loopback may be plain http (test IdPs / local stubs) - the 6a
+        # peer-registry precedent: https is required unless the target is
+        # this machine
+        loopback = host in ("127.0.0.1", "localhost", "::1")
+        allowed = ("https://", "http://") if (spec.get("allow_http") or loopback) else ("https://",)
         if not value.startswith(allowed) or not host:
             message = (
                 f"'{where}' must be an http(s) URL"
@@ -4350,6 +4367,23 @@ def overview() -> Dict[str, Any]:
     vault = vault_stats()
     sso = _settings_row("sso")["values"]
     hsm = _settings_row("hsm")["values"]
+    # 6c: these two controls count what really happened (a session minted
+    # through a real IdP login with MFA asserted; a provider-held key that
+    # the server actually unwraps), not the configured intent
+    import hsm as hsm_module
+    import sso as sso_module
+
+    sso_runtime = sso_module.status()
+    hsm_runtime = hsm_module.status(config=_vault_config())
+    day_ago = now - timedelta(hours=24)
+    recent_sso_logins = [
+        session for session in SsoSession.query.all() if session.created_at >= day_ago
+    ]
+    last_recent_login = (
+        max(recent_sso_logins, key=lambda session: session.created_at)
+        if recent_sso_logins
+        else None
+    )
     zsp = _settings_row("zsp")["values"]
     worm = _settings_row("worm")["values"]
     groups_stored = SettingGroup.query.count()
@@ -4397,8 +4431,23 @@ def overview() -> Dict[str, Any]:
         {
             "id": "sso_mfa",
             "label": "SSO + MFA enforced",
-            "passed": bool(sso.get("enforce_sso")) and bool(sso.get("require_mfa")),
-            "evidence": str(sso.get("primary_provider")),
+            "passed": bool(
+                sso_runtime["enforce_sso"]
+                and sso_runtime["require_mfa"]
+                and last_recent_login is not None
+                and last_recent_login.mfa
+            ),
+            "evidence": (
+                f"{sso_runtime['slots']['primary']['provider']} \u2022 "
+                f"{len(recent_sso_logins)} logins/24h \u2022 mfa asserted on last"
+                if last_recent_login is not None and last_recent_login.mfa
+                else (
+                    f"{sso_runtime['slots']['primary']['provider']} \u2022 "
+                    f"{len(recent_sso_logins)} logins/24h \u2022 last login without mfa"
+                    if last_recent_login is not None
+                    else "configured \u2022 no logins in the last 24h"
+                )
+            ),
         },
         {
             "id": "tier0_quorum",
@@ -4417,8 +4466,31 @@ def overview() -> Dict[str, Any]:
         {
             "id": "hsm_backed",
             "label": "HSM-backed master key",
-            "passed": bool(hsm.get("cluster_id")) and bool(hsm.get("kms_endpoint")),
-            "evidence": f"{hsm.get('provider')} \u2022 {hsm.get('cluster_id')}",
+            "passed": bool(
+                hsm_runtime["mode"] == "enforced"
+                and not hsm_runtime["sealed"]
+                and (hsm_runtime.get("last_health") or {}).get("reachable")
+            ),
+            "evidence": (
+                f"{hsm_runtime['provider']} \u2022 enforced \u2022 reachable"
+                if hsm_runtime["mode"] == "enforced"
+                and not hsm_runtime["sealed"]
+                and (hsm_runtime.get("last_health") or {}).get("reachable")
+                else (
+                    f"{hsm_runtime['provider']} \u2022 sealed"
+                    if hsm_runtime["sealed"]
+                    else (
+                        f"{hsm_runtime['provider']} \u2022 enforced \u2022 provider unreachable"
+                        if hsm_runtime["mode"] == "enforced"
+                        and hsm_runtime.get("last_health")
+                        else (
+                            f"{hsm_runtime['provider']} \u2022 enforced \u2022 not probed yet"
+                            if hsm_runtime["mode"] == "enforced"
+                            else f"{hsm_runtime['provider']} \u2022 advisory - file key in use"
+                        )
+                    )
+                )
+            ),
         },
     ]
     passed_controls = sum(1 for control in controls if control["passed"])
@@ -10952,6 +11024,13 @@ ADMIN_OPERATIONS = [
     ("get", "/api/v1/role-bindings"),
     ("post", "/api/v1/role-bindings"),
     ("delete", "/api/v1/role-bindings/{binding_id}"),
+    # 6c - SSO session administration + HSM/KMS key custody
+    ("get", "/api/v1/auth/sso/sessions"),
+    ("post", "/api/v1/auth/sso/sessions/{session_id}/revoke"),
+    ("get", "/api/v1/hsm/status"),
+    ("post", "/api/v1/hsm/seal"),
+    ("post", "/api/v1/hsm/unseal"),
+    ("post", "/api/v1/hsm/keys/rotate"),
 ]
 
 # The approver: decision operations only - approve, deny and close across
@@ -11335,22 +11414,27 @@ def resolve_principal(token: Any, *, config: Config) -> Optional[Dict[str, Any]]
             "scope": binding.scope or {},
         }
     identity = verify_ldap_ticket(token, config=config)
-    if identity is None:
-        return None
-    username = str(identity.get("username") or "")
-    binding = RoleBinding.query.filter(
-        RoleBinding.principal == username,
-        RoleBinding.kind == "ldap",
-        RoleBinding.revoked_at.is_(None),
-    ).first()
-    if binding is None:
-        return {"principal": username, "unbound": True}
-    return {
-        "principal": binding.principal,
-        "role": binding.role,
-        "kind": binding.kind,
-        "scope": binding.scope or {},
-    }
+    if identity is not None:
+        username = str(identity.get("username") or "")
+        binding = RoleBinding.query.filter(
+            RoleBinding.principal == username,
+            RoleBinding.kind == "ldap",
+            RoleBinding.revoked_at.is_(None),
+        ).first()
+        if binding is None:
+            return {"principal": username, "unbound": True, "kind": "ldap"}
+        return {
+            "principal": binding.principal,
+            "role": binding.role,
+            "kind": binding.kind,
+            "scope": binding.scope or {},
+        }
+    # 6c: a live SSO session bearer authenticates like the others; the
+    # binding (kind `sso`, principal = subject) decides the role - no
+    # binding, no admin access (the same rule LDAP follows)
+    import sso as sso_module
+
+    return sso_module.sso_principal(token)
 
 
 def _cluster_event(
@@ -12133,7 +12217,21 @@ def run_cluster_monitor(*, actor: str = "cluster-monitor") -> Dict[str, Any]:
     passive, probe every registered active peer; when ALL of them have
     failed CLUSTER_FAILOVER_FAILURES consecutive real probes, promote this
     node with those failures as the reason. An active node never
-    auto-demotes - failback is an operator decision."""
+    auto-demotes - failback is an operator decision.
+
+    6c: the HSM health watchdog rides every tick too - while enforcement is
+    on, a provider that stays unreachable for `seal_delay_seconds` seals the
+    vault, and that outcome is reported under the `hsm` key."""
+    import hsm as hsm_module
+
+    result = _run_cluster_monitor_tick(actor=actor)
+    watchdog = hsm_module.watchdog_tick(actor="hsm-watchdog")
+    if watchdog is not None:
+        result["hsm"] = watchdog
+    return result
+
+
+def _run_cluster_monitor_tick(*, actor: str = "cluster-monitor") -> Dict[str, Any]:
     node = cluster_self()
     if node is None:
         return {"role": "unknown", "probed": [], "promoted": False}

@@ -2590,7 +2590,7 @@ RBAC_SEED_ROLES = (
     (RBAC_ROLE_AUDITOR, "Every read-only admin operation including the evidence exports (license files, vault and session chain exports) - no writes."),
     (RBAC_ROLE_AUDITOR_READ_ONLY, "Every read-only admin operation except the evidence exports and secret reveals - metadata only."),
 )
-RBAC_KINDS = ("local", "ldap")
+RBAC_KINDS = ("local", "ldap", "sso")
 RBAC_SCOPE_MAX_TARGETS = 20
 RBAC_SCOPE_MAX_ITEMS = 100
 
@@ -2661,4 +2661,181 @@ class RoleBinding(db.Model):
             "revoked_at": self.revoked_at.isoformat() if self.revoked_at else None,
             "created_at": self.created_at.isoformat(),
             "created_by": self.created_by,
+        }
+
+
+# ---------------------------------------------------------------------------
+# SSO + HSM enforcement (architecture Identity OIDC/SAML + section 20
+# HSM/KMS - the phase-6c settings groups become real enforcement)
+# ---------------------------------------------------------------------------
+SSO_TOKEN_PREFIX = "vypam-sso1"
+SSO_PROTOCOLS = ("saml2", "oidc")
+SSO_SLOTS = ("primary", "secondary")
+# a started login flow is single-use and short-lived
+SSO_FLOW_TTL_SECONDS = 600
+# accepted clock skew when checking NotBefore / NotOnOrAfter / exp
+SSO_CLOCK_SKEW_SECONDS = 120
+# what counts as a completed multi-factor step at the IdP; the check is
+# fail-closed when sso.require_mfa is on (never a silent pass)
+SSO_MFA_AUTHN_CONTEXTS = (
+    "urn:oasis:names:tc:SAML:2.0:ac:classes:Muthn",
+    "urn:oasis:names:tc:SAML:2.0:ac:classes:X509",
+    "urn:oasis:names:tc:SAML:2.0:ac:classes:TimesyncToken",
+    "urn:okta:loa:2",
+)
+SSO_MFA_AMR = ("mfa", "otp", "hwk", "mca")
+
+
+class SsoFlow(db.Model):
+    """One outstanding login flow: the SAML AuthnRequest id or the OIDC
+    `state` (single-use, TTL-bound). The OIDC nonce and PKCE verifier ride
+    the row; `result` records how the flow ended so failures are evidence,
+    not silence. Folded into the ledger under source `sso`."""
+
+    __tablename__ = "sso_flows"
+
+    id = db.Column(db.String(64), primary_key=True)
+    slot = db.Column(db.String(16), nullable=False)
+    protocol = db.Column(db.String(16), nullable=False)
+    nonce = db.Column(db.String(128), nullable=True)
+    verifier = db.Column(db.String(128), nullable=True)
+    result = db.Column(db.String(32), nullable=False, default="pending")
+    detail = db.Column(db.String(255), nullable=False, default="")
+    expires_at = db.Column(db.DateTime, nullable=False)
+    consumed_at = db.Column(db.DateTime, nullable=True)
+    created_at = db.Column(
+        db.DateTime, nullable=False, default=datetime.now, index=True
+    )
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "id": self.id,
+            "slot": self.slot,
+            "protocol": self.protocol,
+            "result": self.result,
+            "detail": self.detail,
+            "expires_at": self.expires_at.isoformat(),
+            "consumed_at": self.consumed_at.isoformat() if self.consumed_at else None,
+            "created_at": self.created_at.isoformat(),
+        }
+
+
+class SsoSubject(db.Model):
+    """JIT-provisioned identity: one row per IdP subject that completed a
+    real login (sso.jit_provisioning). Existence only - privilege always
+    comes from a role binding (kind `sso`), never from the login."""
+
+    __tablename__ = "sso_subjects"
+    __table_args__ = (
+        db.UniqueConstraint("slot", "subject", name="uq_sso_subject_slot_subject"),
+    )
+
+    id = db.Column(db.Integer, primary_key=True)
+    slot = db.Column(db.String(16), nullable=False)
+    protocol = db.Column(db.String(16), nullable=False)
+    subject = db.Column(db.String(255), nullable=False, index=True)
+    email = db.Column(db.String(255), nullable=False, default="")
+    name = db.Column(db.String(255), nullable=False, default="")
+    attributes = db.Column(db.JSON, nullable=False, default=dict)
+    first_login_at = db.Column(db.DateTime, nullable=True)
+    last_login_at = db.Column(db.DateTime, nullable=True)
+    logins = db.Column(db.Integer, nullable=False, default=0)
+    created_at = db.Column(db.DateTime, nullable=False, default=datetime.now)
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "id": self.id,
+            "slot": self.slot,
+            "protocol": self.protocol,
+            "subject": self.subject,
+            "email": self.email,
+            "name": self.name,
+            "attributes": self.attributes or {},
+            "first_login_at": (
+                self.first_login_at.isoformat() if self.first_login_at else None
+            ),
+            "last_login_at": (
+                self.last_login_at.isoformat() if self.last_login_at else None
+            ),
+            "logins": self.logins,
+            "created_at": self.created_at.isoformat(),
+        }
+
+
+class SsoSession(db.Model):
+    """A server-side session minted at a successful SSO login. The bearer
+    token `vypam-sso1.<id>.<secret>` is accepted beside the admin token and
+    the 6b rbac token (sha256 at rest, shown once, `last_used_at` on use);
+    a role binding (kind `sso`, principal = subject) decides what the
+    session may do - no binding, no admin access (the 6b rule)."""
+
+    __tablename__ = "sso_sessions"
+
+    id = db.Column(db.Integer, primary_key=True)
+    subject_id = db.Column(db.Integer, db.ForeignKey("sso_subjects.id"), nullable=True)
+    subject = db.Column(db.String(255), nullable=False, index=True)
+    email = db.Column(db.String(255), nullable=False, default="")
+    slot = db.Column(db.String(16), nullable=False)
+    protocol = db.Column(db.String(16), nullable=False)
+    mfa = db.Column(db.Boolean, nullable=False, default=False)
+    amr = db.Column(db.JSON, nullable=False, default=list)
+    token_sha256 = db.Column(db.String(64), nullable=False)
+    token_prefix = db.Column(db.String(40), nullable=False, default="")
+    last_used_at = db.Column(db.DateTime, nullable=True)
+    expires_at = db.Column(db.DateTime, nullable=False)
+    revoked_at = db.Column(db.DateTime, nullable=True)
+    created_at = db.Column(
+        db.DateTime, nullable=False, default=datetime.now, index=True
+    )
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "id": self.id,
+            "subject": self.subject,
+            "email": self.email,
+            "slot": self.slot,
+            "protocol": self.protocol,
+            "mfa": self.mfa,
+            "amr": self.amr or [],
+            "token_prefix": self.token_prefix,
+            "last_used_at": (
+                self.last_used_at.isoformat() if self.last_used_at else None
+            ),
+            "expires_at": self.expires_at.isoformat(),
+            "revoked_at": self.revoked_at.isoformat() if self.revoked_at else None,
+            "created_at": self.created_at.isoformat(),
+        }
+
+
+class HsmKeyEvent(db.Model):
+    """Custody trail for the HSM/KMS-backed master key (architecture
+    section 20): wrap, unwrap, health, seal, unseal, rotate - with the
+    outcome. Folded into the ledger under source `hsm`. Key material never
+    enters `detail`."""
+
+    __tablename__ = "hsm_key_events"
+
+    id = db.Column(db.Integer, primary_key=True)
+    action = db.Column(db.String(64), nullable=False)
+    provider = db.Column(db.String(32), nullable=False, default="")
+    mode = db.Column(db.String(16), nullable=False, default="")
+    key_label = db.Column(db.String(64), nullable=False, default="")
+    status = db.Column(db.String(16), nullable=False, default="ok")
+    actor = db.Column(db.String(64), nullable=False, default="system")
+    detail = db.Column(db.JSON, nullable=False, default=dict)
+    created_at = db.Column(
+        db.DateTime, nullable=False, default=datetime.now, index=True
+    )
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "id": self.id,
+            "action": self.action,
+            "provider": self.provider,
+            "mode": self.mode,
+            "key_label": self.key_label,
+            "status": self.status,
+            "actor": self.actor,
+            "detail": self.detail or {},
+            "created_at": self.created_at.isoformat(),
         }

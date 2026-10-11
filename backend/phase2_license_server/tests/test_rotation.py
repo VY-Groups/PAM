@@ -223,19 +223,24 @@ def test_tampered_ciphertext_fails_its_integrity_check(app, client):
 
 
 def test_secret_store_roundtrip_and_format_checks(config):
-    blob = seal("plain-value", 7, config)
-    assert blob["v"] == 1
-    assert blob["alg"] == "AES-256-GCM"
-    assert unseal(blob, 7, config) == "plain-value"
-    with pytest.raises(APIError):
-        unseal(blob, 8, config)  # AAD belongs to item 7, not 8
+    # 6c: load_key consults the hsm enforcement setting (a DB read) before
+    # choosing the file key, so the custody roundtrip runs the way every
+    # production caller does - inside an application context.
+    application = create_app(config)
+    with application.app_context():
+        blob = seal("plain-value", 7, config)
+        assert blob["v"] == 1
+        assert blob["alg"] == "AES-256-GCM"
+        assert unseal(blob, 7, config) == "plain-value"
+        with pytest.raises(APIError):
+            unseal(blob, 8, config)  # AAD belongs to item 7, not 8
 
-    for kind in ("database", "domain_password", "service_account",
-                 "api_token", "cloud_iam", "ssh_key"):
-        value = generate_secret(kind)
-        assert generated_secret_is_valid(kind, value), kind
-    with pytest.raises(ValidationFailed):
-        generate_secret("not-a-vault-type")
+        for kind in ("database", "domain_password", "service_account",
+                     "api_token", "cloud_iam", "ssh_key"):
+            value = generate_secret(kind)
+            assert generated_secret_is_valid(kind, value), kind
+        with pytest.raises(ValidationFailed):
+            generate_secret("not-a-vault-type")
 
 
 # ---------------------------------------------------------------------------

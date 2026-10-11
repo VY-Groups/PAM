@@ -1258,9 +1258,11 @@ def test_health_advertises_this_nodes_identity(client):
 
 
 def test_cluster_is_the_sixteenth_ledger_source(client):
-    assert len(audit_module.AUDIT_SOURCES) == 17
-    assert audit_module.AUDIT_SOURCES[-2] == "cluster"
-    assert audit_module.AUDIT_SOURCES[-1] == "rbac"
+    assert len(audit_module.AUDIT_SOURCES) == 19
+    assert audit_module.AUDIT_SOURCES[-4] == "cluster"
+    assert audit_module.AUDIT_SOURCES[-3] == "rbac"
+    assert audit_module.AUDIT_SOURCES[-2] == "sso"
+    assert audit_module.AUDIT_SOURCES[-1] == "hsm"
 
     stats = client.get("/api/v1/audit/stats").get_json()
     assert set(stats["by_source"]) == set(audit_module.AUDIT_SOURCES)

@@ -1,6 +1,6 @@
 # VY-PAM — Technical Requirements & Design Document (TRD)
 
-**Status:** as-built for Phase 6a
+**Status:** as-built for Phase 6c
 **Audience:** engineers extending or operating the system
 **Companion docs:** `PRD.md`, `PAM_FLOW.md`, `BACKEND_SCHEMA.md`, `API_REFERENCE.md`
 
@@ -51,7 +51,7 @@ repo.
 | Store | SQLite (`licenses.db`, git-ignored) | append-only enforced by triggers on `audit_events` |
 | Crypto | `cryptography` lib | RSA-PSS-SHA256 (default) / Ed25519 envelopes; AES-256-GCM secrets |
 | Frontend | Static HTML + Tailwind (CDN build) + vanilla JS | 11 sidebar screens, no bundler, works from `file://` |
-| Tests | pytest | 613 backend + 46 pam_master |
+| Tests | pytest | 664 backend + 46 pam_master |
 | UI verification | Node + `playwright-core` (`shots_tool/`) | viewport 1920×1600, never `fullPage` |
 | Vendor tool | Flask + raw `sqlite3` | `pam_master` package, `python -m pam_master` |
 
@@ -94,8 +94,10 @@ Rules enforced by tests/conventions:
   `quotas`, `modules` JSON); the entitlement screen renders it directly.
 
 ### 4.2 Settings (§2)
-- Eight groups: `sso`, `hsm`, `zsp`, `worm` — **schema only**, no enforcement
-  claimed (dashboard posture counts them honestly) — plus the §20 connector
+- Eight groups: `sso`, `hsm`, `zsp`, `worm` — `sso`/`hsm` are **enforced
+  since 6c** (the SAML/OIDC login path and the HSM/KMS key custody,
+  §4.22); `zsp`/`worm` remain schema-only (dashboard posture counts
+  them honestly) — plus the §20 connector
   groups `mfa`, `itsm`, `siem`, `ldap` whose secrets seal AES-256-GCM
   (never echoed, `<set>`/`<cleared>` in the changelog) and whose
   `mfa.factor_*` rows are readonly (minted via `POST /mfa/enroll`).
@@ -230,7 +232,7 @@ Rules enforced by tests/conventions:
 - `BreakGlassEvent` actions (`requested`, `approved`, `denied`, `opened`,
   `closed`) fan into the §19 chain as the **tenth** source `break-glass`
   (eleven with 4i's `integration`, twelve with 5a's `vendor`, thirteen with
-  5b's `cloud`, fourteen with 5c's `broker`, fifteen with 5d's `agent`, sixteen with 6a's `cluster`);
+  5b's `cloud`, fourteen with 5c's `broker`, fifteen with 5d's `agent`, sixteen with 6a's `cluster`, seventeen with 6b's `rbac`, eighteen with 6c's `sso`, nineteen with 6c's `hsm`);
   `bg-` request refs, stats and the
   compliance feed stay generic. The emergency path runs the §20 MFA gate at
   open: a factor enrolled demands a `mfa_code` (401 `details.mfa`), no
@@ -551,12 +553,66 @@ Rules enforced by tests/conventions:
   runs the live grant → 403 → allowed op → scope 403 → revoke → 401
   flow only under `GATE_ADMIN_TOKEN`, and says so when it skips.
 
+### 4.22 SSO + HSM enforcement - Phase 6c
+
+- **Data**: `sso_flows` (the outstanding login flow — SAML
+  AuthnRequest id / OIDC `state`; single-use, TTL-bound, the nonce +
+  PKCE verifier ride the row, `result` records failures as evidence) +
+  `sso_subjects` (JIT directory — existence only, unique
+  (slot, subject)) + `sso_sessions` (minted at login: `vypam-sso1.`
+  bearer sha256 at rest + `token_prefix`, `mfa`/`amr` from the
+  assertion, TTL from `sso.session_ttl_minutes`, revoke is a
+  timestamp) + `hsm_key_events` (wrap/unwrap/health/seal/unseal/rotate
+  custody trail; key material never enters `detail`). Tables **47→51**.
+- **SAML**: the SP redirects to the IdP with an AuthnRequest after
+  fetching — and **signature-verifying** — the IdP metadata from the
+  stored URL (cached 3600 s); the ACS verifies the assertion's
+  XML-DSig RSA-SHA256 over exclusive c14n with anti-XSW element checks
+  and a 120 s clock skew, enforces `InResponseTo` against the
+  single-use flow, and re-verifies the signature over the exact
+  received bytes. **OIDC**: discovery + PKCE state/verifier; the
+  `id_token` is RS256-verified against the IdP JWKS (issuer, audience,
+  expiry, nonce). Both run on the existing `cryptography` dependency —
+  no new package.
+- **MFA fail-closed**: SAML needs an MFA authn context
+  (`SSO_MFA_AUTHN_CONTEXTS`) or an `amr` entry (`SSO_MFA_AMR`); OIDC
+  needs `amr`/`acr` evidence. `sso.require_mfa` on and no assertion →
+  403, the flow is recorded `sso.login.mfa_failed`, nothing is minted.
+- **Finish**: JIT upserts the subject (`jit_provisioning` records
+  existence only), the session is minted and the login lands on the
+  `sso` ledger (`sso.login.started`/`succeeded`/`mfa_failed`). A
+  `kind=sso` binding (principal = subject) is the only way the session
+  reaches admin ops — 6b's verbatim denial applies unchanged.
+- **HSM custody**: providers `hashicorp-vault` (transit REST),
+  `aws-kms` (SigV4 REST), `azure-keyvault` (OAuth REST), `pkcs11`
+  (optional import; absent binding → honest `not configured`).
+  `wrap_current_key` envelope-wraps the **same** master key (existing
+  ciphertexts stay valid) into `<vault_key>.wrap` — JSON `{v, provider,
+  key_label, wrapped_at, blob}` where `blob` is base64 ciphertext,
+  never key material. `hsm.enforcement: advisory` keeps the file key;
+  `enforced` unwraps through the provider and **never** falls back —
+  unreachable provider → seal (the monitor tick honors
+  `seal_delay_seconds`), `POST /hsm/seal`/`/hsm/unseal` are the manual
+  path, and unseal in enforced without wrap/token stays sealed (honest
+  503).
+- **Posture**: `sso_mfa` counts real logins + MFA asserted in the
+  window; `hsm_backed` passes only on enforced + a reachable provider
+  (real health probe) — settings booleans no longer count.
+- **Contract**: `sso` + `hsm` tags, 14 paths (10 sso + 4 hsm), 6 admin
+  operations (SSO session list/revoke; HSM status/seal/unseal/rotate —
+  the login/ACS/callback paths are open by design: the IdP is the
+  credential) → **149 paths / 178 ops / 22 tags / 111 admin / 253
+  schemas**. Suites: `test_sso.py` **37**, `test_hsm.py` **14**; the
+  both-rig E2E (89 checks) drives a real temp IdP + Vault-transit stub,
+  and the standing gate walks the live login handshake when
+  `GATE_SSO_IDP` names a running IdP.
+
 ## 5. API conventions
 
 | Concern | Rule |
 |---|---|
 | Versioning | Everything under `/api/v1` (health/meta unversioned) |
-| Auth | `LICENSE_ADMIN_TOKEN` set → `Authorization: Bearer …` or `X-Admin-Token: …` on the 105 admin operations; unset → explicit open dev mode (`X-Auth-Mode: open` response header); pipeline `/broker` operations require the broker API token and AI-agent `/agent-access` operations the agent API token — neither is ever waived. In token mode a bound principal (RBAC API token or LDAP ticket) may call only its role's operations and only its ABAC scope (§4.21). |
+| Auth | `LICENSE_ADMIN_TOKEN` set → `Authorization: Bearer …` or `X-Admin-Token: …` on the 111 admin operations; unset → explicit open dev mode (`X-Auth-Mode: open` response header); pipeline `/broker` operations require the broker API token and AI-agent `/agent-access` operations the agent API token — neither is ever waived. In token mode a bound principal (RBAC API token or LDAP ticket) may call only its role's operations and only its ABAC scope (§4.21). |
 | Actor | `X-Actor` header recorded on every audited write |
 | Errors | `{"error": {"code", "message", "details?"}}`; 400 validation, 401 auth, 403 policy refusal, 404, 409 conflict/state, 422 shape, 503 fail-closed dependency |
 | Pagination | `limit` (max 200) + `offset`, newest first |
@@ -616,7 +672,7 @@ its phase starts (plan > code > docs, in that order).
 
 | Phase / section | Data additions | API additions | Runtime behavior |
 |---|---|---|---|
-| 6c SSO/HSM | SSO/HSM config state | SAML/OIDC login path, PKCS#11/KMS key ops | settings schema becomes enforcement; posture counts flip honestly |
+| — | none pending | — | 6c SSO/HSM landed (§4.22); the next phase's design is recorded here when it starts |
 
 Standing constraints that carry into all of these: ledger emission inside
 the same transaction, contract lockstep in one commit, additive-only schema,

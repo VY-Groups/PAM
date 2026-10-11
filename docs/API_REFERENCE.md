@@ -1,7 +1,7 @@
 # VY-PAM — API Reference
 
-**Status:** as-built for Phase 6b
-**Contract:** `apis/openapi.yaml` (OpenAPI 3.1) - **135 paths / 164
+**Status:** as-built for Phase 6c
+**Contract:** `apis/openapi.yaml` (OpenAPI 3.1) - **149 paths / 178
 operations**, enforced in both directions by
 `backend/phase2_license_server/tests/test_openapi_contract.py`. If this page
 and the YAML ever disagree, the YAML wins.
@@ -15,13 +15,13 @@ and the YAML ever disagree, the YAML wins.
 | Base URL (dev) | `http://127.0.0.1:5000` (`LICENSE_SERVER_HOST`/`LICENSE_SERVER_PORT`) |
 | Version | `/api/v1/…` (`/health`, `/api/v1/meta` unversioned) |
 | Content type | `application/json` (license import also accepts multipart upload / raw body) |
-| Auth | When `LICENSE_ADMIN_TOKEN` is set: `Authorization: Bearer <token>` **or** `X-Admin-Token: <token>` on the **105 admin operations**. When unset: open dev mode - responses carry `X-Auth-Mode: open` (explicit, never silent). Pipeline `/broker` operations require the broker API token and AI-agent `/agent-access` operations require the agent API token — neither is ever waived, even in open dev mode. In token mode, `admin-token` (kind admin) may call everything; a bound principal (API token or LDAP ticket) may call only its role's operations and only its ABAC scope - see §2 `rbac`. |
+| Auth | When `LICENSE_ADMIN_TOKEN` is set: `Authorization: Bearer <token>` **or** `X-Admin-Token: <token>` on the **111 admin operations**. When unset: open dev mode - responses carry `X-Auth-Mode: open` (explicit, never silent). Pipeline `/broker` operations require the broker API token and AI-agent `/agent-access` operations require the agent API token — neither is ever waived, even in open dev mode. In token mode, `admin-token` (kind admin) may call everything; a bound principal (API token or LDAP ticket) may call only its role's operations and only its ABAC scope - see §2 `rbac`. |
 | Actor | `X-Actor: <name>` recorded verbatim in the audit ledger on every audited write |
 | Errors | `{"error": "<message>", "details"?: {…}}` — 400 validation · 401 auth · 403 policy refusal (risk gate) · 404 · 409 conflict/state · 422 unprocessable shape · 503 fail-closed dependency |
 | Pagination | `limit` (≤200) + `offset`, newest first |
 | Ordering | Ledger/session streams ascending `seq`; listings newest-first |
 
-## 2. Operations by tag (20 tags)
+## 2. Operations by tag (22 tags)
 
 ### `ops` — unversioned
 | Method | Path | Summary |
@@ -263,7 +263,7 @@ runs - `details.promote` names the way back. `/health` carries this node's
 
 | Method | Path | Summary |
 |---|---|---|
-| GET | `/api/v1/roles` | the five built-in roles with their computed operation counts (admin 105 / operator 45 / auditor 19 / auditor-read-only 16 / approver 10) |
+| GET | `/api/v1/roles` | the five built-in roles with their computed operation counts (admin 111 / operator 45 / auditor 21 / auditor-read-only 18 / approver 10) |
 | GET | `/api/v1/role-bindings` | who holds a role (active bindings; revoked ones are ledger evidence, not rows) |
 | POST | `/api/v1/role-bindings` | create a binding (201): `principal` + `role` (+ `kind` `api`\|`ldap`, optional ABAC `scope`); an API token binding returns its `token` **once** - sha256 at rest, never retrievable again |
 | DELETE | `/api/v1/role-bindings/{binding_id}` | revoke a binding; its tokens stop working immediately (401) and `rbac` ledger evidence stays |
@@ -276,6 +276,44 @@ the targets / vault items its `scope` covers (403 with
 `details.target`). An LDAP ticket with no binding is refused the same
 way - the directory authenticates, the binding decides. Open dev mode
 waives all of it and says so (`mode: open`).
+
+### `sso` — SAML 2.0 / OIDC login (Phase 6c, 10 paths / 10 operations)
+
+| Method | Path | Summary |
+|---|---|---|
+| GET | `/api/v1/auth/sso/status` | runtime truth: `protocol`, slots live, `enforce_sso`, `require_mfa`, sessions active + subjects |
+| GET | `/api/v1/auth/sso/metadata` | our SP configuration as JSON (ACS URL, entity id, binding) |
+| GET | `/api/v1/auth/sso/saml/{slot}/metadata` | our SP SAML metadata XML (`application/saml-metadata+xml`) |
+| GET | `/api/v1/auth/sso/saml/{slot}/login` | redirect to the IdP (AuthnRequest; the SP fetches the IdP metadata from the stored URL, signature-verified, cached 3600 s) |
+| POST | `/api/v1/auth/sso/saml/{slot}/acs` | consume the assertion: XML-DSig RSA-SHA256 over exclusive c14n (anti-XSW, 120 s clock skew), `InResponseTo` bound to the single-use flow, MFA asserted fail-closed → session minted (`vypam-sso1.…` shown once), JIT subject upserted |
+| GET | `/api/v1/auth/sso/oidc/{slot}/login` | redirect to the IdP (discovery document + PKCE state/verifier) |
+| GET | `/api/v1/auth/sso/oidc/{slot}/callback` | code exchange; the `id_token` is RS256-verified against the IdP JWKS (issuer, audience, expiry, nonce) → same fail-closed finish |
+| POST | `/api/v1/auth/sso/logout` | end your own SSO session |
+| GET | `/api/v1/auth/sso/sessions` | SSO sessions (prefix, subject, mfa, expires, revoked) |
+| POST | `/api/v1/auth/sso/sessions/{session_id}/revoke` | revoke one session - its bearer 401s immediately |
+
+The IdP authenticates; the binding decides: a session whose subject holds
+no `kind=sso` role binding reaches no admin route (403 verbatim, the 6b
+rule). `jit_provisioning` records existence only (`sso_subjects`) - a
+login never grants privilege. The handshake paths are open by design
+(the IdP is the credential); the session list/revoke are admin.
+
+### `hsm` — HSM/KMS key custody (Phase 6c, 4 paths / 4 operations)
+
+| Method | Path | Summary |
+|---|---|---|
+| GET | `/api/v1/hsm/status` | custody state: `mode` (`advisory`/`enforced`), provider, `key_in_use` (`file`/`provider`), `sealed`, the wrap record, last health probe |
+| POST | `/api/v1/hsm/seal` | seal: stop using the master key until unsealed (reason recorded) |
+| POST | `/api/v1/hsm/unseal` | unseal: reload the key - the file key in advisory, a provider unwrap in enforced (no token → stays sealed, honest 503) |
+| POST | `/api/v1/hsm/keys/rotate` | re-wrap the master key under the configured provider (envelope: same key, existing ciphertexts stay valid); the wrap file holds ciphertext only, never key material |
+
+Providers (`hsm.provider`): `hashicorp-vault` (transit REST), `aws-kms`
+(SigV4 REST), `azure-keyvault` (OAuth REST), `pkcs11` (optional import;
+absent binding → `not configured`). `enforcement=enforced` never falls
+back to the file key - an unreachable provider seals (the monitor tick
+honors `hsm.seal_delay_seconds`); `advisory` keeps the file key and says
+so. The `hsm_backed` posture control passes only on enforced + a
+reachable provider (real health probe), never on settings booleans.
 
 ### Ledger (Compliance feeds)
 | Method | Path | Summary |
@@ -333,10 +371,10 @@ keys only via `python -m pam_master.keygen`.
 
 ## 5. Planned endpoints (NOT in the contract — see `IMPLEMENTATION_PLAN.md`)
 
-These do **not** exist today; the contract's **135 paths / 164 operations**
+These do **not** exist today; the contract's **149 paths / 178 operations**
 are the complete current surface. Each lands in `openapi.yaml` + ADMIN
 security + tests in the same commit when its phase starts (counts `—`):
 
 | Phase | Planned additions |
 |---|---|
-| 6c | SAML/OIDC login path + HSM/KMS-backed key operations (PKCS#11 or cloud KMS) |
+| — | none pending: every phase through 6c has landed (the `sso` + `hsm` rows joined §2 in 6c); the next phase's additions are recorded here when it starts |

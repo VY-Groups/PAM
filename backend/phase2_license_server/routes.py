@@ -8,9 +8,11 @@ import re
 from functools import wraps
 from typing import Any, Dict, Optional
 
-from flask import Blueprint, Response, current_app, g, jsonify, request
+from flask import Blueprint, Response, current_app, g, jsonify, redirect, request
 
+import hsm
 import service
+import sso
 from config import Config
 from errors import Conflict, Forbidden, Unauthorized, ValidationFailed
 from licensing_bridge import sig
@@ -127,7 +129,14 @@ def _presented_credential() -> str:
 
 
 def _unbound_principal_error(principal: Dict[str, Any]) -> Forbidden:
-    """The honest refusal for a directory identity with no role binding."""
+    """The honest refusal for an authenticated identity with no role
+    binding - the directory rule, now shared with SSO subjects."""
+    if principal.get("kind") == "sso":
+        return Forbidden(
+            f"SSO identity '{principal['principal']}' has no role binding - "
+            "an admin must grant one (POST /api/v1/role-bindings, kind `sso`)",
+            {"principal": principal["principal"], "role_required": True},
+        )
     return Forbidden(
         f"Directory identity '{principal['principal']}' has no role "
         "binding - an admin must grant one (POST /api/v1/role-bindings)",
@@ -598,6 +607,163 @@ def whoami():
             "operations_count": len(operations),
         }
     )
+
+
+# ---------------------------------------------------------------------------
+# SSO (architecture Identity: SAML 2.0 + OIDC) - the settings group as a
+# real login path. The login/callback/metadata routes are public by design
+# (they are the IdP handshake); the session an SSO login mints carries the
+# caller's role through a binding (kind `sso`) exactly like the 6b rules.
+# ---------------------------------------------------------------------------
+def _external_base() -> str:
+    return request.host_url.rstrip("/")
+
+
+@api.get("/auth/sso/status")
+def sso_status():
+    """Runtime truth for the settings screen: what is configured AND what
+    has actually happened (subjects, active sessions, last login)."""
+    return jsonify(sso.status(external_base=_external_base()))
+
+
+@api.get("/auth/sso/metadata")
+def sso_sp_metadata():
+    """Our SP configuration as JSON (entity id, ACS URL, protocols) - what
+    an IdP admin needs to register this SP, with no secrets on it."""
+    base = _external_base()
+    return jsonify(
+        {
+            "primary_entity_id": sso._slot_values("primary")["entity_id"],
+            "acs_url": f"{base}/api/v1/auth/sso/saml/primary/acs",
+            "login_urls": {
+                slot: f"{base}/api/v1/auth/sso/saml/{slot}/login" for slot in sso.SSO_SLOTS
+            },
+            "oidc_redirect_uris": {
+                slot: f"{base}/api/v1/auth/sso/oidc/{slot}/callback" for slot in sso.SSO_SLOTS
+            },
+            "saml_metadata_urls": {
+                slot: f"{base}/api/v1/auth/sso/saml/{slot}/metadata" for slot in sso.SSO_SLOTS
+            },
+            "protocol": sso._settings().get("protocol", "saml2"),
+            "name_id_format": "urn:oasis:names:tc:SAML:1.1:nameid-format:emailAddress",
+        }
+    )
+
+
+@api.get("/auth/sso/saml/<slot>/metadata")
+def sso_saml_metadata(slot):
+    """Our SP metadata as SAML XML - paste straight into the IdP."""
+    xml, entity_id = sso.saml_metadata(external_base=_external_base(), slot=slot)
+    return Response(
+        xml,
+        mimetype="application/saml-metadata+xml",
+        headers={"X-SP-Entity-ID": entity_id},
+    )
+
+
+@api.get("/auth/sso/saml/<slot>/login")
+def sso_saml_login(slot):
+    """Start a SAML login: a real AuthnRequest (single-use flow row) and a
+    302 to the IdP's HTTP-POST SingleSignOnService."""
+    url, flow_id = sso.saml_login_redirect(external_base=_external_base(), slot=slot)
+    response = redirect(url)
+    response.headers["X-SSO-Flow"] = flow_id
+    return response
+
+
+@api.post("/auth/sso/saml/<slot>/acs")
+def sso_saml_acs(slot):
+    """The IdP's ACS POST: verify the signature chain end to end, then mint
+    the session. Refusals are recorded on the `sso` ledger trail."""
+    result = sso.saml_acs(
+        slot, request.form.get("SAMLResponse") or "", external_base=_external_base()
+    )
+    return jsonify(result)
+
+
+@api.get("/auth/sso/oidc/<slot>/login")
+def sso_oidc_login(slot):
+    """Start an OIDC login: authorization-code + PKCE (S256) + nonce, 302
+    to the provider's authorization endpoint."""
+    url, flow_id = sso.oidc_login_redirect(external_base=_external_base(), slot=slot)
+    response = redirect(url)
+    response.headers["X-SSO-Flow"] = flow_id
+    return response
+
+
+@api.get("/auth/sso/oidc/<slot>/callback")
+def sso_oidc_callback(slot):
+    """The OIDC callback: exchange the code, verify the id_token against the
+    provider JWKS (RS256 only), mint the session."""
+    result = sso.oidc_callback(
+        slot,
+        request.args.get("code") or "",
+        request.args.get("state") or "",
+        external_base=_external_base(),
+    )
+    return jsonify(result)
+
+
+@api.post("/auth/sso/logout")
+def sso_logout():
+    """End the caller's own SSO session - the bearer token is the
+    authorization, no admin role required (self-service)."""
+    return jsonify(sso.logout(_presented_credential()))
+
+
+@api.get("/auth/sso/sessions")
+@require_admin
+def sso_sessions_list():
+    """Every SSO session (active by default; ?active=all includes expired
+    and revoked ones as evidence)."""
+    return jsonify(sso.list_sessions(active_only=request.args.get("active") != "all"))
+
+
+@api.post("/auth/sso/sessions/<int:session_id>/revoke")
+@require_admin
+def sso_sessions_revoke(session_id):
+    """Revoke one SSO session: the bearer stops authenticating immediately."""
+    return jsonify(sso.revoke_session(session_id, actor=_actor(default="admin")))
+
+
+# ---------------------------------------------------------------------------
+# HSM / KMS master-key custody (architecture section 20)
+# ---------------------------------------------------------------------------
+@api.get("/hsm/status")
+@require_admin
+def hsm_status():
+    """Custody state: provider, advisory/enforced mode, seal, wrap file,
+    rotation due, last health probe."""
+    return jsonify(hsm.status(config=_config()))
+
+
+@api.post("/hsm/seal")
+@require_admin
+def hsm_seal():
+    """Seal the vault: drop every trace of key material from this process;
+    vault operations now fail with 503 until an explicit unseal."""
+    payload = _json_body() or {}
+    reason = str(payload.get("reason") or "operator seal")
+    if len(reason) > 200:
+        raise ValidationFailed("reason must be at most 200 characters", {"field": "reason"})
+    return jsonify(hsm.seal_vault(actor=_actor(default="admin"), reason=reason))
+
+
+@api.post("/hsm/unseal")
+@require_admin
+def hsm_unseal():
+    """Unseal: advisory mode reloads the file key; enforced mode must unwrap
+    through the provider (a dead provider keeps the vault sealed, said so)."""
+    return jsonify(hsm.unseal_vault(actor=_actor(default="admin"), config=_config()))
+
+
+@api.post("/hsm/keys/rotate")
+@require_admin
+def hsm_keys_rotate():
+    """Re-wrap (or first-wrap) the same master key under the configured
+    provider - custody moves, key material never changes, every existing
+    ciphertext stays valid."""
+    return jsonify(hsm.wrap_current_key(_config(), actor=_actor(default="admin")))
 
 
 # ---------------------------------------------------------------------------

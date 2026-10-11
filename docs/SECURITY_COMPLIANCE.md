@@ -1,6 +1,6 @@
 # VY-PAM — Security & Compliance Overview
 
-**Status:** as-built for Phase 6a
+**Status:** as-built for Phase 6c
 States what the platform **actually enforces today** — implemented controls
 are described with their evidence; gaps are named plainly.
 
@@ -32,6 +32,7 @@ token or explicit open dev mode), (c) runtime↔disk (encrypted secrets),
 | License RSA private (`license_private_key.pem`) | repo root, **git-ignored** | `pam_master` only; refusals are fail-closed |
 | License Ed25519 private (`license_ed25519_private.pem`) | repo root, **git-ignored** | same |
 | Vault AES key (`*.key`) | server directory, **git-ignored** (`*.key`) | `VAULT_KEY_PATH`; auto-gen only if `VAULT_AUTOGENERATE_KEY` |
+| Master-key wrap (`<vault_key>.wrap`) | next to `VAULT_KEY_PATH`, mode 0600 | base64 provider ciphertext only (an envelope over the same master key) — key material never on disk; `hsm.enforcement=enforced` refuses the file key entirely |
 | Customer registry key (`customer_registry.key` / `MASTER_CUSTOMER_KEY_B64`) | pam_master dir / env secret | encrypts PII blobs at rest |
 | Admin token (`LICENSE_ADMIN_TOKEN`) | env / `.env` (git-ignored) | dev default = unset → open mode, made explicit via `X-Auth-Mode: open` |
 
@@ -48,6 +49,14 @@ token or explicit open dev mode), (c) runtime↔disk (encrypted secrets),
   into the repo.
 - Shipped routes never call the generator — issuing is PAM-MASTER's job
   (Phase 3a rule, encoded in `test_api.py` docstrings and usage).
+- **HSM/KMS custody (6c):** with `hsm.enforcement=enforced` the master
+  key is unwrapped only through the configured provider (Vault transit,
+  AWS KMS, Azure Key Vault, optional PKCS#11) and there is **no** file
+  fallback — an unreachable provider seals the vault (the monitor tick
+  honors `seal_delay_seconds`), and unseal without the provider token
+  stays sealed (honest 503). `test_hsm.py` plus the both-rig E2E prove
+  the whole cycle against a real HTTP transit stub; rotation is an
+  envelope re-wrap, so every existing ciphertext stays valid.
 
 ## 3. Secrets at rest & in use
 
@@ -70,7 +79,7 @@ token or explicit open dev mode), (c) runtime↔disk (encrypted secrets),
 
 ## 4. Authentication & accountability
 
-- **105 admin operations** carry security schemes in `openapi.yaml`
+- **111 admin operations** carry security schemes in `openapi.yaml`
   (contract-tested) — they require `Bearer`/`X-Admin-Token` whenever
   `LICENSE_ADMIN_TOKEN` is set.
 - **Least-privilege roles (6b):** in token mode the `admin-token` may call
@@ -82,6 +91,15 @@ token or explicit open dev mode), (c) runtime↔disk (encrypted secrets),
   LDAP directory authenticates but never authorizes: a valid ticket with
   no binding reaches no admin route (403 verbatim). A denial records
   `rbac` ledger evidence; revocation stops tokens immediately (401).
+- **SSO login (6c):** SAML 2.0 / OIDC logins verify the IdP's signature
+  (the metadata document itself, then the assertion / `id_token` RS256
+  via JWKS), bind each flow single-use (`InResponseTo` / `state` + nonce
+  + PKCE, 120 s clock skew, replay refused), and require the MFA
+  assertion fail-closed (`require_mfa` → 403 + `sso.login.mfa_failed`,
+  nothing minted). Sessions are server-side (`vypam-sso1.…`, sha256 at
+  rest, TTL, revoke 401s immediately); a login grants **existence only**
+  — admin access still needs a `kind=sso` binding, so privilege never
+  rides the assertion.
 - **Open dev mode is loud, never silent:** responses carry
   `X-Auth-Mode: open`, the console profile shows `no user session` /
   `auth: -`, and the security posture checklist records it as the single
@@ -173,8 +191,8 @@ reported as missing — never as partial-good.
 
 | Gap today | Closes in | Target state |
 |---|---|---|
-| ~~Single admin role~~ — **✅ closed in 6b** | 6b | Five seeded roles over all 105 admin operations, sha256-at-rest tokens shown once, LDAP binding-required (the directory authenticates, the binding decides), ABAC target / vault-item scoping; `admin-token` stays the bootstrap superuser and open dev mode remains an explicit, posture-recorded violation |
-| SSO/HSM schema-only | 6c | SAML/OIDC login enforced; HSM/KMS-backed keys where configured |
+| ~~Single admin role~~ — **✅ closed in 6b** | 6b | Five seeded roles over all 111 admin operations, sha256-at-rest tokens shown once, LDAP binding-required (the directory authenticates, the binding decides), ABAC target / vault-item scoping; `admin-token` stays the bootstrap superuser and open dev mode remains an explicit, posture-recorded violation |
+| ~~SSO/HSM schema-only~~ — **✅ closed in 6c** | 6c | SAML 2.0 + OIDC login with verified signatures, single-use flows and fail-closed MFA; JIT subjects + server-side sessions; `kind=sso` bindings on the 6b model (the IdP authenticates, the binding decides). HSM/KMS providers wrap the master key (envelope — same key, ciphertexts stay valid); `enforcement=enforced` refuses any file fallback and seals on provider failure — `sso_mfa`/`hsm_backed` posture now count real evidence, never settings booleans |
 | TLS not terminated by the app | runbook §5 (now) | Reverse-proxy TLS - documented and checklisted; app stays plain HTTP by design |
 | Geo-IP feed (`location` = `is_global`) | 4i | Device/IP context now sits in the trained §11 baselines; a real geo feed only if one is ever configured - otherwise the honest label stays |
 

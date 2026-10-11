@@ -1,9 +1,10 @@
-// 6a+6b gate: HA/DC/DR and RBAC/ABAC sections on Platform Settings +
-// cluster source chip. Keeps every 5d check (JIT agent section), the 6a
-// UI assertions, and adds the 6b RBAC checks plus a grant -> enforce ->
-// revoke live flow (token mode; honestly skipped with a note in open
-// dev mode, where roles are waived). Set GATE_ADMIN_TOKEN to run the
-// flow against a token-mode rig. Exit code 1 on any failed assertion.
+// 6a+6b+6c gate: HA/DC/DR and RBAC/ABAC sections on Platform Settings,
+// cluster source chip, and the 6c SSO/HSM enforcement lines (live chips,
+// stored groups, SSO/HSM API truth, an advisory-rig seal/unseal cycle, and
+// - when GATE_SSO_IDP names a running SAML test IdP - the full login
+// handshake, honestly skipped with a note otherwise). Keeps every 5d check
+// (JIT agent section) and the 6a UI assertions. Set GATE_ADMIN_TOKEN to run
+// the flows against a token-mode rig. Exit code 1 on any failed assertion.
 // Viewport 1920x1600, headless.
 import { chromium } from 'playwright-core';
 
@@ -79,7 +80,7 @@ const staticBefore = await jit.evaluate(() => {
 check(staticBefore, 'JIT screen: Register Agent button opens the modal');
 await jit.close();
 
-// ---- Compliance screen: 18 chips + rbac labels -----------------------
+// ---- Compliance screen: 20 chips + rbac labels -----------------------
 const comp = await browser.newPage({ viewport: { width: 1920, height: 1600 } });
 if (ADMIN_TOKEN) await comp.addInitScript((t) => sessionStorage.setItem('aegispam_admin_token', t), ADMIN_TOKEN);
 const compErrors = [];
@@ -96,10 +97,10 @@ const compBits = await comp.evaluate(() => {
 });
 check(compErrors.length === 0, 'Compliance screen: no page/console errors '
   + JSON.stringify(compErrors.slice(0, 3)));
-check(compBits.chips.length === 18,
-  'Compliance screen: 18 source chips (got ' + compBits.chips.length + ')');
-check(compBits.chips[compBits.chips.length - 1] === 'rbac',
-  'Compliance screen: rbac chip appended last -> ' + JSON.stringify(compBits.chips.slice(-3)));
+check(compBits.chips.length === 20,
+  'Compliance screen: 20 source chips (got ' + compBits.chips.length + ')');
+check(compBits.chips.slice(-3).join(',') === 'rbac,sso,hsm',
+  'Compliance screen: sso + hsm chips appended after rbac -> ' + JSON.stringify(compBits.chips.slice(-3)));
 await comp.close();
 
 // ---- Platform settings: HA / DC / DR section ----------------------------
@@ -205,6 +206,156 @@ check(rbac.tokenBoxHidden,
 check(rbac.noIdsOutsideTokenBox,
   'Settings screen: no id= under the RBAC section except the one-time token box');
 check(rbac.exported, 'Settings screen: settingsLive.rbac exported');
+
+// ---- 6c: SSO + HSM live lines on the same settings screen --------------
+const ssoHsm = await ps.evaluate(() => {
+  const q = (s) => document.querySelector(s);
+  const t = (s) => (q(s) || {}).textContent || '';
+  const ssoGroup = q('[data-settings-group="sso"]');
+  const hsmGroup = q('[data-settings-group="hsm"]');
+  const kindSelect = q('[data-role="rbac-input-kind"]');
+  return {
+    ssoLine: t('#ssoLiveLine').trim(),
+    hsmLine: t('#hsmLiveLine').trim(),
+    ssoEnforce: t('#chip-sso-enforce').trim(),
+    ssoMfa: t('#chip-sso-mfa').trim(),
+    ssoSessions: t('#chip-sso-sessions').trim(),
+    hsmMode: t('#chip-hsm-mode').trim(),
+    hsmSeal: t('#chip-hsm-seal').trim(),
+    hsmKey: t('#chip-hsm-key').trim(),
+    ssoGroupRendered: !!ssoGroup && ssoGroup.children.length > 0,
+    hsmGroupRendered: !!hsmGroup && hsmGroup.children.length > 0,
+    ssoGroupFields: ssoGroup ? ssoGroup.querySelectorAll('input,select').length : 0,
+    hsmGroupFields: hsmGroup ? hsmGroup.querySelectorAll('input,select').length : 0,
+    kindOptions: kindSelect ? Array.from(kindSelect.options).map(function (o) { return o.value; }) : [],
+  };
+});
+check(ssoHsm.ssoLine !== '' && ssoHsm.ssoLine !== 'loading...',
+  'Settings screen: SSO live line is real data -> "' + ssoHsm.ssoLine + '"');
+check(/^enforce sso: (on|off)$/.test(ssoHsm.ssoEnforce),
+  'Settings screen: SSO enforce chip honest -> "' + ssoHsm.ssoEnforce + '"');
+check(/^mfa at login: (required|optional)$/.test(ssoHsm.ssoMfa),
+  'Settings screen: SSO MFA chip honest -> "' + ssoHsm.ssoMfa + '"');
+check(/^(\d+\/\d+ sessions \u2022 \d+ subjects|no idp configured)$/.test(ssoHsm.ssoSessions),
+  'Settings screen: SSO sessions chip honest -> "' + ssoHsm.ssoSessions + '"');
+check(ssoHsm.ssoGroupRendered && ssoHsm.ssoGroupFields >= 6,
+  'Settings screen: sso settings group renders its fields -> ' + ssoHsm.ssoGroupFields);
+check(ssoHsm.hsmLine !== '' && ssoHsm.hsmLine !== 'loading...',
+  'Settings screen: HSM live line is real data -> "' + ssoHsm.hsmLine + '"');
+check(/^mode: (advisory|enforced)$/.test(ssoHsm.hsmMode),
+  'Settings screen: HSM mode chip honest -> "' + ssoHsm.hsmMode + '"');
+check(/^(sealed|unsealed)/.test(ssoHsm.hsmSeal),
+  'Settings screen: HSM seal chip honest -> "' + ssoHsm.hsmSeal + '"');
+check(/^key in use: (provider|file)$/.test(ssoHsm.hsmKey),
+  'Settings screen: HSM key-in-use chip honest -> "' + ssoHsm.hsmKey + '"');
+check(ssoHsm.hsmGroupRendered && ssoHsm.hsmGroupFields >= 6,
+  'Settings screen: hsm settings group renders its fields -> ' + ssoHsm.hsmGroupFields);
+check(ssoHsm.kindOptions.indexOf('sso') >= 0,
+  'Settings screen: binding kind select offers the sso kind -> ' + JSON.stringify(ssoHsm.kindOptions));
+
+// ---- 6c: SSO + HSM API truth (metadata, status, honest refusals) --------
+const ssoHsmApi = await ps.evaluate(async (adminToken) => {
+  const api = '/api/v1/';
+  const inline = adminToken ? { 'X-Admin-Token': adminToken } : {};
+  const get = async (path) => {
+    var res = await fetch(api + path, { headers: inline });
+    return { status: res.status, body: await res.json().catch(function () { return {}; }) };
+  };
+  var status = await get('auth/sso/status');
+  var meta = await get('auth/sso/metadata');
+  var hsmStatus = await get('hsm/status');
+  var logoutNoToken = await fetch(api + 'auth/sso/logout', { method: 'POST' });
+  var xmlRes = await fetch(api + 'auth/sso/saml/primary/metadata');
+  var xmlText = await xmlRes.text();
+  return {
+    status: status.status,
+    statusBody: status.body,
+    metaStatus: meta.status,
+    metaBody: meta.body,
+    hsmStatus: hsmStatus.status,
+    hsmBody: hsmStatus.body,
+    logoutStatus: logoutNoToken.status,
+    xmlStatus: xmlRes.status,
+    xmlType: xmlRes.headers.get('content-type') || '',
+    xmlHasEntity: /EntityDescriptor/.test(xmlText) && /AssertionConsumerService/.test(xmlText),
+  };
+}, ADMIN_TOKEN);
+check(ssoHsmApi.status === 200
+  && typeof ssoHsmApi.statusBody.enforce_sso === 'boolean'
+  && typeof ssoHsmApi.statusBody.require_mfa === 'boolean'
+  && /^(\d+)$/.test(String(ssoHsmApi.statusBody.sessions_active)),
+  'SSO API: /auth/sso/status honest (enforce_sso, require_mfa, sessions_active) -> '
+  + JSON.stringify({ enforce_sso: ssoHsmApi.statusBody.enforce_sso,
+    require_mfa: ssoHsmApi.statusBody.require_mfa,
+    sessions_active: ssoHsmApi.statusBody.sessions_active }));
+check(ssoHsmApi.metaStatus === 200 && typeof ssoHsmApi.metaBody.acs_url === 'string'
+  && /\/api\/v1\/auth\/sso\/saml\/primary\/acs$/.test(ssoHsmApi.metaBody.acs_url),
+  'SSO API: /auth/sso/metadata names the real ACS URL -> ' + ssoHsmApi.metaBody.acs_url);
+check(ssoHsmApi.xmlStatus === 200 && /saml-metadata/.test(ssoHsmApi.xmlType) && ssoHsmApi.xmlHasEntity,
+  'SSO API: SAML SP metadata XML served with the right content type + real elements -> '
+  + ssoHsmApi.xmlStatus + ' ' + ssoHsmApi.xmlType);
+check(ssoHsmApi.logoutStatus === 403,
+  'SSO API: POST /auth/sso/logout without a session bearer is refused honestly (403) -> '
+  + ssoHsmApi.logoutStatus);
+check(ssoHsmApi.hsmStatus === 200 && /^(advisory|enforced)$/.test(ssoHsmApi.hsmBody.mode)
+  && /^(provider|file)$/.test(ssoHsmApi.hsmBody.key_in_use)
+  && typeof ssoHsmApi.hsmBody.sealed === 'boolean',
+  'HSM API: /hsm/status honest (mode, key_in_use, sealed) -> '
+  + JSON.stringify({ mode: ssoHsmApi.hsmBody.mode, key_in_use: ssoHsmApi.hsmBody.key_in_use,
+    sealed: ssoHsmApi.hsmBody.sealed }));
+
+// ---- 6c: HSM seal -> unseal live cycle (advisory rigs only) -------------
+// An enforced rig needs a live provider to unseal, and a pre-sealed vault
+// is left exactly as found - the cycle never risks bricking the rig, and
+// the skip is honestly noted, never silently passed.
+const hsmCycle = await ps.evaluate(async (adminToken) => {
+  const api = '/api/v1/';
+  const h = adminToken
+    ? { 'Content-Type': 'application/json', 'X-Actor': 'gate', 'X-Admin-Token': adminToken }
+    : { 'Content-Type': 'application/json', 'X-Actor': 'gate' };
+  const inline = adminToken ? { 'X-Admin-Token': adminToken } : {};
+  const status = async () =>
+    (await (await fetch(api + 'hsm/status', { headers: inline })).json());
+  const before = await status();
+  if (before.mode === 'enforced' || before.sealed === true) {
+    return { skipped: true, mode: before.mode, wasSealed: before.sealed };
+  }
+  var seal = await fetch(api + 'hsm/seal', { method: 'POST', headers: h,
+    body: JSON.stringify({ reason: 'gate 6c cycle' }) });
+  var sealBody = await seal.json().catch(function () { return {}; });
+  var sealedNow = await status();
+  var rotateWhileSealed = await fetch(api + 'hsm/keys/rotate', { method: 'POST', headers: h });
+  var unseal = await fetch(api + 'hsm/unseal', { method: 'POST', headers: h });
+  var unsealBody = await unseal.json().catch(function () { return {}; });
+  var after = await status();
+  return {
+    skipped: false,
+    sealStatus: seal.status,
+    sealBody: sealBody,
+    sealedFlag: sealedNow.sealed,
+    sealReason: sealedNow.seal_reason,
+    rotateWhileSealedStatus: rotateWhileSealed.status,
+    unsealStatus: unseal.status,
+    unsealBody: unsealBody,
+    afterSealed: after.sealed,
+    afterMode: after.mode,
+  };
+}, ADMIN_TOKEN);
+if (hsmCycle.skipped) {
+  console.log('NOTE 6c HSM seal/unseal cycle skipped: this rig runs ' + hsmCycle.mode
+    + ' custody (sealed=' + hsmCycle.wasSealed + ') - unsealing needs a live provider.');
+} else {
+  check(hsmCycle.sealStatus === 200 && hsmCycle.sealBody.sealed === true
+    && hsmCycle.sealBody.reason === 'gate 6c cycle',
+    'HSM cycle: seal reports the real state -> ' + JSON.stringify(hsmCycle.sealBody));
+  check(hsmCycle.sealedFlag === true && /gate 6c cycle/.test(hsmCycle.sealReason || ''),
+    'HSM cycle: status while sealed says sealed + the reason -> "' + hsmCycle.sealReason + '"');
+  check(hsmCycle.rotateWhileSealedStatus === 503,
+    'HSM cycle: keys/rotate is honestly refused while sealed (503) -> ' + hsmCycle.rotateWhileSealedStatus);
+  check(hsmCycle.unsealStatus === 200 && hsmCycle.unsealBody.sealed === false
+    && hsmCycle.afterSealed === false,
+    'HSM cycle: unseal restores the baseline -> ' + JSON.stringify(hsmCycle.unsealBody));
+}
 
 // real register -> probe -> sync (honest failure) -> remove flow against the
 // live server; the registry must come back to its baseline afterwards
@@ -343,6 +494,67 @@ if (rbacFlow.step === 'open') {
     'RBAC flow: the revoked token stops working immediately -> ' + rbacFlow.revokedStatus);
   check(rbacFlow.leftOver === 0,
     'RBAC flow: binding removed, table back to baseline -> leftover=' + rbacFlow.leftOver);
+}
+
+// ---- 6c live flow: SAML login handshake (self-skips without an IdP) ----
+// GATE_SSO_IDP must name the metadata URL of a running SAML test IdP this
+// rig can reach (the E2E rig-A temp IdP, for example). The flow points the
+// primary slot at it, walks login -> 302 -> IdP -> auto-POST -> our ACS ->
+// minted session, and puts the stored metadata URL back afterwards.
+// Without the variable the handshake is honestly skipped with a note -
+// never silently passed.
+if (!process.env.GATE_SSO_IDP) {
+  console.log('NOTE 6c SSO live flow skipped - set GATE_SSO_IDP to the metadata URL '
+    + 'of a running SAML test IdP to exercise the full handshake.');
+} else {
+  const ssoSetup = await ps.evaluate(async (ctx) => {
+    const api = '/api/v1/';
+    const h = ctx.adminToken
+      ? { 'Content-Type': 'application/json', 'X-Actor': 'gate', 'X-Admin-Token': ctx.adminToken }
+      : { 'Content-Type': 'application/json', 'X-Actor': 'gate' };
+    const all = await (await fetch(api + 'settings', { headers: h })).json();
+    const ssoGroup = ((all.settings || {}).sso || {});
+    const oldUrl = (ssoGroup.values || {}).primary_metadata_url || '';
+    const put = await fetch(api + 'settings/sso', {
+      method: 'PUT', headers: h,
+      body: JSON.stringify({ primary_metadata_url: ctx.idp }),
+    });
+    return { putStatus: put.status, oldUrl: oldUrl };
+  }, { adminToken: ADMIN_TOKEN, idp: process.env.GATE_SSO_IDP });
+  check(ssoSetup.putStatus === 200,
+    'SSO flow: primary slot accepts the test IdP metadata URL (http loopback allowed) -> '
+    + ssoSetup.putStatus);
+  if (ssoSetup.putStatus === 200) {
+    const acsWait = ps.waitForResponse(
+      (r) => /\/api\/v1\/auth\/sso\/saml\/primary\/acs$/.test(r.url()),
+      { timeout: 30000 }).catch(() => null);
+    let gotoNote = '';
+    try {
+      await ps.goto(BASE + '/api/v1/auth/sso/saml/primary/login',
+        { waitUntil: 'networkidle', timeout: 45000 });
+    } catch (e) { gotoNote = String(e.message).split('\n')[0]; }
+    const acs = await acsWait;
+    const acsStatus = acs ? acs.status() : 0;
+    const acsBody = acs ? await acs.json().catch(() => ({})) : {};
+    const restore = await ps.evaluate(async (ctx) => {
+      const api = '/api/v1/';
+      const h = ctx.adminToken
+        ? { 'Content-Type': 'application/json', 'X-Actor': 'gate', 'X-Admin-Token': ctx.adminToken }
+        : { 'Content-Type': 'application/json', 'X-Actor': 'gate' };
+      const put = await fetch(api + 'settings/sso', {
+        method: 'PUT', headers: h,
+        body: JSON.stringify({ primary_metadata_url: ctx.oldUrl }),
+      });
+      return { putStatus: put.status };
+    }, { adminToken: ADMIN_TOKEN, oldUrl: ssoSetup.oldUrl });
+    check(acsStatus === 200 && /^vypam-sso1\./.test(acsBody.token_prefix || '')
+      && !!acsBody.subject && typeof acsBody.mfa === 'boolean',
+      'SSO flow: login -> IdP -> ACS mints a real session -> ' + JSON.stringify({
+        acsStatus: acsStatus, subject: acsBody.subject, prefix: acsBody.token_prefix,
+        mfa: acsBody.mfa, bound: acsBody.bound, gotoNote: gotoNote }));
+    check(restore.putStatus === 200,
+      'SSO flow: stored metadata URL restored after the handshake -> ' + restore.putStatus);
+  }
 }
 await ps.close();
 

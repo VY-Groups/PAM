@@ -62,6 +62,13 @@ _KEY_CACHE: Dict[str, Tuple[float, int, bytes]] = {}
 _KEY_LOCK = threading.Lock()
 
 
+def drop_key_cache() -> None:
+    """Forget every cached key material (called when the vault seals, so a
+    sealed process holds no usable key in memory)."""
+    with _KEY_LOCK:
+        _KEY_CACHE.clear()
+
+
 def _parse_key(raw: bytes, path: Path) -> bytes:
     """Accept a 64-hex-char file or a base64-encoded 32-byte file."""
     text = raw.decode("ascii", errors="strict").strip()
@@ -77,7 +84,25 @@ def _parse_key(raw: bytes, path: Path) -> bytes:
 
 
 def load_key(config: Config) -> bytes:
-    """Load the vault master key, generating it once when allowed."""
+    """Load the vault master key, generating it once when allowed.
+
+    6c custody rules, checked before anything else: a sealed vault has no
+    key material at all (honest 503), and in `enforced` mode the key is
+    unwrapped through the configured HSM/KMS provider - the file on disk
+    is never consulted and there is no silent fallback."""
+    import hsm
+
+    if hsm.is_sealed():
+        raise ServiceUnavailable(
+            "Vault is sealed",
+            {
+                "sealed": True,
+                "reason": hsm.seal_reason(),
+                "hint": "POST /api/v1/hsm/unseal",
+            },
+        )
+    if hsm.mode() == "enforced":
+        return hsm.master_key(config)
     path = Path(config.vault_key_path)
     with _KEY_LOCK:
         if path.is_file():

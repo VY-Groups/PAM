@@ -1,6 +1,6 @@
 # VY-PAM — UI/UX Design Brief
 
-**Status:** as-built for Phase 6b
+**Status:** as-built for Phase 6c
 **Source design:** `stitch_pam_suite_dashboard_ui/` (frozen reference — never
 modified; screens live under `frontend/screens/<slug>/code.html`).
 This brief documents the design system as implemented, so new screens match
@@ -108,11 +108,11 @@ loaded from Google Fonts; Material Symbols Outlined for icons.
 | Live Session Hub | active sessions, controls, event stream, terminate cascade, **§12 dynamic watermark overlay** (six fields from the session's own row, reacts to pause/resume/terminate, protocol overlays `not connected`) | 4c + 4k |
 | Target Infrastructure | scans, discovered assets/accounts, register/ignore, **§14 Cloud PAM Connectors section** (provider cards AWS/Azure/GCP/Kubernetes with honest states, connector table with probe/inventory/RBAC/add actions) | 2d/3c/5b |
 | Policy & Zero Trust | command rules table, evaluate, approval queue, incidents, **§7 risk section** + **§11 Anomalies** (trained baselines, per-reason deviation chips, incident chain) | 4d/4f/4j |
-| Compliance & SOC2 | ledger digest, verify walk, 16-source chips, export, record modal, SIEM header chip | 4e/4f/4g/4h/4i/5a/5b/5c/5d |
+| Compliance & SOC2 | ledger digest, verify walk, 19-source chips (+ All = 20), export, record modal, SIEM header chip | 4e/4f/4g/4h/4i/5a/5b/5c/5d/6a/6b/6c |
 | Licensing | entitlements, quota usage, import/validate/revoke | 3a |
 | Break-Glass | request filing, dual-approval signatures, recorded emergency session, close + review — **§17 live** | 4h |
 | Vendor Access | vendor list (M N T A chain dots), **§13 dashboard** (access/denied lists, valid window, recording), 8-step chain with actions, invite modal + one-time MFA seed reveal, scoped JIT requests + lifecycle trail | 5a |
-| Settings | group forms + per-field changelog | 2b |
+| Settings | group forms + per-field changelog, §18 HA/DC/DR section, §10 RBAC/ABAC section, 6c SSO + HSM enforcement lines (live SSO status/MFA/sessions chips, custody state + seal/unseal actions) | 2b/6a/6b/6c |
 
 ## 5. Responsive & accessibility
 
@@ -137,7 +137,7 @@ loaded from Google Fonts; Material Symbols Outlined for icons.
 
 | Screen / surface | Pending work | Phase |
 |---|---|---|
-| New nav entries | **decided and shipped (5d)**: no sidebar growth - the agent surfaces live inside the JIT screen (below the broker section); canonical nav stays 11 items (`vendor-access-third-party-lifecycle`, `handshake`, inserted before Platform Settings), nav-consistency test + launcher followed. 6a's HA/DC/DR and 6b's RBAC/ABAC sections likewise live inside Platform Settings - no new entry | 5d |
+| New nav entries | **decided and shipped (5d)**: no sidebar growth - the agent surfaces live inside the JIT screen (below the broker section); canonical nav stays 11 items (`vendor-access-third-party-lifecycle`, `handshake`, inserted before Platform Settings), nav-consistency test + launcher followed. 6a's HA/DC/DR, 6b's RBAC/ABAC and 6c's SSO/HSM enforcement sections likewise live inside Platform Settings - no new entry | 5d |
 
 Constraints that carry into all pending UI: frozen-HTML rules (no new `id=`,
 `data-role` hooks only), reveal-on-click + 30 s re-mask, honest

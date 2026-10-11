@@ -1,6 +1,6 @@
 # VY-PAM — Implementation Plan (remaining architecture coverage)
 
-**Status:** maintained through Phase 6b — remaining backlog starts at 6c
+**Status:** maintained through Phase 6c — remaining backlog starts at 7
 **Authoritative spec:** `VY-PAM_Enterprise_PAM_Architecture.md`
 **Execution log:** `VY-PAM_MASTER_and_PAM_Workflow.md` (checkpoint rows — the
 resumable source of truth while working)
@@ -26,7 +26,7 @@ resumable source of truth while working)
 | §7 Risk-Based Access | 8-component engine + session gate | ✅ built | 4f |
 | §8 Privileged Sessions | recording, controls, cascade | ✅ built | 4c |
 | §9 Command Control | default-allow rules, holds, incidents | ✅ built | 4d |
-| §19 Immutable Audit | hash chain, 17 sources, verify/export | ✅ built | 4e |
+| §19 Immutable Audit | hash chain, 19 sources, verify/export | ✅ built | 4e |
 | §10 PAM Bypass Detection | direct-access detection | ✅ built | **4g** |
 | §17 Break Glass | emergency protocol (dual approval → recorded session → rotation) | ✅ built | **4h** |
 | §20 Enterprise Integrations | TOTP MFA gate, ITSM verify, SIEM push, LDAP bind | ✅ built | **4i** |
@@ -38,7 +38,7 @@ resumable source of truth while working)
 | §16 AI-Agent PAM | agent identity + task-scoped access | ✅ built | **5d** |
 | §18 HA / DC / DR | multi-node, replication, failover | ✅ built | **6a** |
 | RBAC / ABAC | multi-role model (single admin today) | ✅ built | 6b |
-| SSO / HSM enforcement | settings schema → real enforcement | ⛔ pending (schema only) | **6c** |
+| SSO / HSM enforcement | settings schema → real enforcement | ✅ built | **6c** |
 | Real identity & login security | users, server-side sessions, MFA at login, actor bound to the authenticated user | ⛔ pending | **7** |
 | §27 Session Gateway | the data plane: protocol proxy, credential injection, recording | ⛔ pending | **8** |
 | §5 target-side rotation | push the rotated secret to the target (connector framework) | ⛔ pending | **9** |
@@ -503,10 +503,57 @@ proven green on rig A (open) and container rig B (token) alike.
 `test_rbac.py` **31**, contract tests **9**; full backend **613**
 (531 phase2 + 82 licensing; in-container **531**).
 
-### 6c — SSO + HSM enforcement
-Settings schema (`sso`, `hsm`) becomes enforcement: SAML/OIDC login path and
-HSM/KMS-backed key operations (PKCS#11 or cloud KMS), replacing file-based
-keys where configured. Posture widget then counts them honestly as active.
+### 6c — SSO + HSM enforcement ✅ (closed 2026-10-11)
+The `sso`/`hsm` settings groups became real enforcement. SSO: full SAML
+2.0 + OIDC login path — AuthnRequest/ACS with XML-DSig RSA-SHA256 over
+exclusive c14n (anti-XSW element checks, 120 s clock skew, the IdP
+metadata itself signature-verified from the stored URL and cached
+3600 s) and OIDC discovery/JWKS with RS256 `id_token` verification
+(issuer, audience, expiry, nonce, PKCE) — both on the existing
+`cryptography` dependency, no new package; fail-closed MFA assertion
+check (`SSO_MFA_AUTHN_CONTEXTS`/`SSO_MFA_AMR`); JIT subject directory +
+server-side sessions (`vypam-sso1.<id>.<secret>` bearer sha256-at-rest,
+shown once, TTL from `sso.session_ttl_minutes`, revoke); SSO principals
+join the 6b RBAC model as binding kind `sso` (the IdP authenticates,
+the binding decides — unbound → 403 verbatim). HSM/KMS key custody:
+provider abstraction (hashicorp-vault transit REST, AWS KMS REST via
+SigV4, Azure Key Vault REST + OAuth, local PKCS#11 optional-import)
+wrapping the vault master key (envelope — same master key, existing
+ciphertexts stay valid; `<vault_key>.wrap` JSON holds base64 provider
+ciphertext only, never key material); additive
+`hsm.enforcement: advisory|enforced` field — enforced never falls back
+to the file key and seals on provider failure (`POST /hsm/seal`/
+`/hsm/unseal`, watchdog in the monitor tick honoring
+`seal_delay_seconds`), advisory keeps the file key and says so. The
+posture widget counts real evidence (SSO logins + MFA asserted in the
+window; enforced + provider reachable via a real health probe) instead
+of settings booleans; `sso_flows`/`sso_subjects`/`sso_sessions`/
+`hsm_key_events` — **47→51** tables; ledger **17th/19th** sources
+(`sso`, `hsm`); `ADMIN_OPERATIONS` **105→111** (6 admin — SSO session
+list/revoke + HSM status/seal/unseal/rotate; the login/ACS/callback
+paths stay open by design — the IdP is the credential); 14 endpoints
+(10 sso + 4 hsm) + openapi (**149 paths / 178 ops / 22 tags / 111 admin
+/ 253 schemas**, `sso`+`hsm` tags) lockstep + `test_sso.py` **37** +
+`test_hsm.py` **14** + contract **9**; full backend **664** (582
+phase2 + 82 licensing; in-container phase2 **582**); both-rig E2E **89
+checks, 0 failed** — real HTTP against a temp SAML IdP (persisted key +
+metadata, standalone exclusive-c14n with self-check vectors) and a
+Vault-transit stub: rig A walks the SAML + OIDC happy paths, the
+signature/tamper/unsolicited/expired/replay/no-MFA refusals, the `sso`
+binding lifecycle through the 6b rules, the advisory→enforced wrap /
+rotate / seal / unseal cycle, the SIEM drain under provider custody and
+both ledger sources; rig B (token mode, container) walks the minted
+session → allowed admin op → revoked-401 chain plus the honest no-token
+refusals (a container-side metadata server serves the static IdP
+document on the container's own loopback — the settings validator
+allows plain http only for this-machine targets); standing gate **66**
+checks in open mode / **70** under `GATE_ADMIN_TOKEN`, its SSO flow
+walking the live login handshake (login → temp IdP → ACS → minted
+session, stored metadata URL restored after) when `GATE_SSO_IDP` names a
+running IdP and honestly skipping with a note otherwise. Platform
+Settings gains the SSO + HSM enforcement lines (live slots, MFA,
+sessions/subjects, custody, seal/unseal) and Compliance the 19th/20th
+chips; both screens recaptured at 1920×1600.
 
 ### Program beyond the architecture baseline (added at the 6b boundary)
 
@@ -763,7 +810,7 @@ lost?".
 ```
 4k §12 ✓ (Phase 4 complete)
         → 5a §13 ✓ → 5b §14 ✓ → 5c §15 ✓ → 5d §16 ✓   (expansion)
-        → 6a §18 ✓ → 6b RBAC ✓ → 6c SSO/HSM            (scale)
+        → 6a §18 ✓ → 6b RBAC ✓ → 6c SSO/HSM ✓          (scale)
         → 7 identity → 8 gateway → 9 rotation connectors
         → 10 data/HA → 11 secure-by-default → 12 change control
         → 13 validation & scale → 14 parity             (PoC-ready program)
@@ -798,7 +845,7 @@ real numbers collected at that time, `—` until then**:
    SIEM when configured.
 4. **Contracts:** `apis/openapi.yaml` (path count `-`, today 135) and the
    vendor tool contract both enforced both-ways; zero dark endpoints.
-5. **Quality gates:** backend suite (today **613**) grows per phase with real
+5. **Quality gates:** backend suite (today **664**) grows per phase with real
    counts recorded in the READMEs; pam_master stays green (**46**); smoke,
    both UI verifiers, leak check all green at every boundary.
 6. **Operations:** single-node install stays Docker-free; §18 adds replicated

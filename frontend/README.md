@@ -27,10 +27,10 @@ frontend/
 | --- | --- |
 | `GET /index.html` | launcher |
 | `GET /` · `GET /license` | **live** Licensing screen (talks to `/api/v1/licenses*`) |
-| `GET /settings` | **live** Platform Settings screen (talks to `/api/v1/settings*`, plus the §18 HA/DC/DR section over `/api/v1/cluster*` — registry, probe/sync, promote/demote, backups, and the §10 RBAC/ABAC section over `/api/v1/roles`, `/api/v1/role-bindings*`, `/api/v1/auth/whoami` — role directory, bindings, grant form, one-time token) |
+| `GET /settings` | **live** Platform Settings screen (talks to `/api/v1/settings*`, plus the §18 HA/DC/DR section over `/api/v1/cluster*` — registry, probe/sync, promote/demote, backups, the §10 RBAC/ABAC section over `/api/v1/roles`, `/api/v1/role-bindings*`, `/api/v1/auth/whoami` — role directory, bindings, grant form, one-time token — and the 6c SSO + HSM enforcement lines over `/api/v1/auth/sso/status` + `/api/v1/hsm/status`) |
 | `GET /screens/pam_command_center_threat_dashboard/code.html` | **live** Command Center (talks to `/api/v1/overview` + `/api/v1/events`, plus the §10 bypass section over `/api/v1/bypass/*` — ingest/scan/incidents posted on click only) |
 | `GET /screens/credential_vault_secrets_inventory/code.html` | **live** Credential Vault (talks to `/api/v1/vault/*`) |
-| `GET /screens/compliance_soc_2_audit_center/code.html` | **live** Compliance (talks to `/api/v1/overview`, `/api/v1/events` - a 16-source trail filter, one fetch per source on click - and the immutable `/api/v1/audit/*` ledger, plus the §20 SIEM push chip over `/api/v1/integrations/status`) |
+| `GET /screens/compliance_soc_2_audit_center/code.html` | **live** Compliance (talks to `/api/v1/overview`, `/api/v1/events` - a 19-source trail filter, one fetch per source on click - and the immutable `/api/v1/audit/*` ledger, plus the §20 SIEM push chip over `/api/v1/integrations/status`) |
 | `GET /screens/target_infrastructure_connectors/code.html` | **live** Target Infrastructure (talks to `/api/v1/discovery/*` + the §14 cloud connectors over `/api/v1/cloud/*` — honest connector states, probe/inventory/RBAC actions posted on click only, `file://` fallback shows dashes) |
 | `GET /screens/jit_access_ephemeral_approvals/code.html` | **live** JIT access (talks to `/api/v1/jit/*`, plus the §15 Pipeline Credential Broker over `/api/v1/broker/*` and the §16 AI-Agent Access section over `/api/v1/agents*` + `/api/v1/agent-access/*`) |
 | `GET /screens/live_session_recording_inspection_hub/code.html` | **live** Live Session hub (talks to `/api/v1/sessions/*`) |

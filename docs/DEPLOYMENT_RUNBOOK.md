@@ -1,6 +1,6 @@
 # VY-PAM — Deployment & Operations Runbook
 
-**Status:** as-built for Phase 6b
+**Status:** as-built for Phase 6c
 Docker exists **only** for development and runtime testing (vendor tool +
 license server). The shipped product
 installs directly on a machine — no VM, no container.
@@ -118,7 +118,7 @@ across the restored history).
 → start. Schema changes are additive and applied at boot by
 `ensure_schema()`; the one-time chain backfill and rule seeding never repeat.
 Run the boundary suites before exposing it: `python -m pytest backend -q`
-(expect **613**) and `python -m pytest pam_master -q` (**46**).
+(expect **664**) and `python -m pytest pam_master -q` (**46**).
 
 ## 7. HA / DC / DR runbooks (§18)
 
@@ -268,9 +268,9 @@ curl -s -X POST $PAM/role-bindings \
 # -> {"id":1,"token":"vypam-rbac1.<id>.<secret>", ...}
 ```
 
-- `admin` 105 ops · `operator` 45 (day-2 work, never approvals) ·
-  `auditor` 19 (reads incl. evidence exports) · `auditor-read-only` 16
-  · `approver` 10 (decisions only) — approver ∩ operator = ∅ by design.
+- `admin` 111 ops · `operator` 45 (day-2 work, never approvals) ·
+  `auditor` 21 (reads incl. evidence exports) · `auditor-read-only` 18
+  · `approver` 10 (decisions only) - approver ∩ operator = ∅ by design.
 - optional ABAC `scope`: `{"targets":["db-prod-*"],
   "vault_items":[3,7]}` — fnmatch on session targets, explicit vault
   item ids; empty scope = the role governs everywhere. Out-of-scope →
@@ -297,3 +297,74 @@ curl -s -X POST $PAM/role-bindings \
 tokens 401 immediately; the row stays as evidence. Grants, revocations
 and refusals land on the §19 ledger under source `rbac`; open dev mode
 (no admin token set) waives all of it and says so (`mode: open`).
+
+## 13. SSO + HSM operations (phase 6c)
+
+**Point the SP at your IdP** (Platform Settings → `sso`, or the API):
+
+```bash
+PAM=http://127.0.0.1:5000/api/v1
+# SAML: the IdP metadata URL (https unless loopback) + our entity id
+curl -s -X PUT $PAM/settings/sso \
+  -H "Content-Type: application/json" -H "X-Actor: runbook" \
+  -H "X-Admin-Token: <admin token>" \
+  -d '{"protocol":"saml2","primary_metadata_url":"https://idp.example.com/metadata",
+       "primary_entity_id":"urn:aegispam.internal:sp:primary","require_mfa":true}'
+```
+
+- The SP downloads and **signature-verifies** the IdP metadata (cached
+  3600 s); a later login re-fetches on signature failure, so IdP
+  certificate rotation heals itself on the next login.
+- `require_mfa` is fail-closed: an assertion without an MFA authn
+  context / `amr` entry is refused 403 and recorded
+  `sso.login.mfa_failed` — nothing is minted.
+- OIDC: `"protocol":"oidc"` + the discovery URL in
+  `secondary_metadata_url`/`primary_metadata_url`; PKCE and nonce are
+  enforced and `id_token`s are RS256-verified against the JWKS.
+- **Provisioning stays two-step**: a successful login creates the
+  *subject* only (`jit_provisioning`); admin access needs a role
+  binding of kind `sso` (principal = the subject) — the IdP
+  authenticates, the binding decides (§12's rule, unchanged):
+
+```bash
+curl -s -X POST $PAM/role-bindings \
+  -H "Content-Type: application/json" -H "X-Actor: runbook" \
+  -H "X-Admin-Token: <admin token>" \
+  -d '{"principal":"alice@example.com","role":"operator","kind":"sso"}'
+```
+
+- Sessions: `GET /api/v1/auth/sso/sessions`; revoke with
+  `POST /api/v1/auth/sso/sessions/<id>/revoke` (the bearer 401s
+  immediately); TTL is `sso.session_ttl_minutes`.
+
+**HSM/KMS custody** (Platform Settings → `hsm`):
+
+```bash
+# move the master key under provider custody (advisory keeps the file key)
+curl -s -X PUT $PAM/settings/hsm \
+  -H "Content-Type: application/json" -H "X-Actor: runbook" \
+  -H "X-Admin-Token: <admin token>" \
+  -d '{"provider":"hashicorp-vault","kms_endpoint":"https://vault.example.com:8200",
+       "master_key_label":"pam-root","enforcement":"enforced"}'
+curl -s -X POST $PAM/hsm/keys/rotate -H "X-Admin-Token: <admin token>"
+curl -s -X POST $PAM/hsm/seal      -H "X-Admin-Token: <admin token>"   # manual seal
+curl -s -X POST $PAM/hsm/unseal    -H "X-Admin-Token: <admin token>"   # reload the key
+```
+
+- Providers: `hashicorp-vault` (transit; `PAM_HSM_VAULT_TOKEN`),
+  `aws-kms` (region + SigV4 credentials), `azure-keyvault` (OAuth),
+  `pkcs11` (optional binding). `GET /api/v1/hsm/status` shows mode,
+  provider, `key_in_use` (`file`/`provider`), sealed state and the wrap
+  record; an unconfigured provider is reported honestly, never
+  simulated.
+- Rotation is an **envelope re-wrap** — the same master key, so every
+  existing ciphertext stays valid. `<vault_key>.wrap` holds base64
+  provider ciphertext only; deleting it while `enforcement=enforced` is
+  set leaves the vault sealed until the provider can unwrap again
+  (honest 503, never a file fallback).
+- `enforcement=enforced` + an unreachable provider seals the vault (the
+  monitor tick honors `hsm.seal_delay_seconds`); unseal then needs the
+  provider. `advisory` keeps the file key and says so.
+- The custody trail lands on the §19 ledger under source `hsm`;
+  posture `hsm_backed` passes only on enforced + a reachable provider
+  (real health probe).

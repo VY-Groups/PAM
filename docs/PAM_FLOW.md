@@ -1,6 +1,6 @@
 # VY-PAM — PAM Flow (Application Flow)
 
-**Status:** as-built for Phase 6b
+**Status:** as-built for Phase 6c
 Maps navigation, user journeys, and state machines across the console.
 Screen files live in `frontend/screens/<slug>/code.html`; the canonical
 navigation is the 11-item sidebar rendered on every screen.
@@ -155,7 +155,7 @@ Command Center → bypass section → paste an auth-log bundle → Ingest
       failures recorded) · block source "not connected" (no connector yet)
   → analyst closes with a note (who + when)     GET /bypass/incidents…
   → every ingest/scan/detect/close fans into the ledger (source `bypass`)
-  → Compliance screen: `bypass` chip in the 16-source filter
+  → Compliance screen: `bypass` chip in the 19-source filter
 ```
 
 ### 2.9 Break-glass emergency (§17)
@@ -177,7 +177,7 @@ Break-Glass screen → Initiate emergency (target + reason + severity +
         trigger `break-glass`), cascade recorded on the request
   → every request/approve/deny/open/close fans into the ledger
       (source `break-glass`, ref `bg-…`)
-  → Compliance screen: `break-glass` chip in the 16-source filter
+  → Compliance screen: `break-glass` chip in the 19-source filter
 ```
 
 ### 2.10 Enterprise integrations (§20)
@@ -356,6 +356,38 @@ Admin registers the DR peer (name / site / role / base URL - https unless
     Compliance gains the 17th chip
 ```
 
+### SSO login + HSM key custody (phase 6c)
+
+```
+SSO login (Platform Settings → sso group: protocol, primary/secondary slot):
+  browser → GET /api/v1/auth/sso/saml/<slot>/login
+    → SP fetches the IdP metadata from the stored URL (its signature
+      verified, cached 3600s) → 302 to the IdP with the AuthnRequest
+  IdP authenticates the user (+ MFA) → POST /auth/sso/saml/<slot>/acs
+    → assertion XML-DSig RSA-SHA256 over exclusive c14n verified
+      (anti-XSW, 120s clock skew), InResponseTo bound to the
+      single-use flow (replay/tamper/expired → 4xx, flow recorded)
+    → MFA assertion required (sso.require_mfa) - missing → 403,
+      flow recorded sso.login.mfa_failed, nothing minted
+    → JIT subject upserted (existence only) + session minted
+      (vypam-sso1.<id>.<secret> shown once; sha256 at rest; TTL)
+  OIDC mirrors it: discovery + PKCE state, id_token RS256 via JWKS
+  the session reaches admin ops ONLY through a kind=sso role binding
+    (the IdP authenticates, the binding decides; unbound → 403 verbatim)
+  logout / revoke: POST /auth/sso/logout or /auth/sso/sessions/<id>/revoke
+
+HSM custody (Platform Settings → hsm group: provider, endpoint, enforcement):
+  advisory: the master key stays on the file; wrap/rotate still go
+    through the provider when configured - unreachable → honest 503,
+    posture hsm_backed fails
+  enforced: key material comes only from the provider (wrap file =
+    base64 ciphertext, never key material); provider unreachable →
+    seal (watchdog honors seal_delay_seconds); unseal without the
+    provider token stays sealed - no file fallback, ever
+  every wrap/health/seal/unseal/rotate lands on the ledger as `hsm`
+  Compliance gains the sso + hsm chips (19 sources + All = 20)
+```
+
 ## 3. Cross-cutting interaction rules
 
 1. **Reveal-on-click only.** Secrets, audit payloads, and other sensitive
@@ -426,6 +458,8 @@ AgentIdentity.status: active ⇄ disabled  (disable/enable reversible)
 |---|---|
 | Call an admin operation (token mode) | the `admin-token` (kind admin), or a bound principal whose role includes the operation — a denial is 403 verbatim (`Role 'x' may not call …`) and the binding's ABAC scope may narrow it further (targets / vault items) |
 | Hold a role | an admin via `POST /api/v1/role-bindings` (the API token is shown once, sha256 at rest); directory users need a `kind=ldap` binding — the directory authenticates, the binding decides (no binding → 403) |
+| Sign in with SSO | the IdP over SAML 2.0 / OIDC (signature-verified, MFA asserted fail-closed); the login creates the subject + session only — admin access still needs a `kind=sso` binding (unbound → 403 verbatim) |
+| Seal / unseal the master key | an admin; in `enforced` mode the key only ever comes from the HSM/KMS provider — no file fallback, an unreachable provider seals |
 | Approve JIT | anyone but the requester; security role additionally required on `high` |
 | Approve/deny held command | another actor resolves the append-only approval row |
 | Reveal secret | authenticated admin, or a bound operator (in token mode reveal is operator-only); actor recorded; plaintext never logged |

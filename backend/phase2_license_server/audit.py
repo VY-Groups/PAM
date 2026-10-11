@@ -46,6 +46,7 @@ from models import (
     ClusterEvent,
     CommandIncident,
     DiscoveryEvent,
+    HsmKeyEvent,
     IntegrationEvent,
     JitEvent,
     LicenseEvent,
@@ -54,11 +55,13 @@ from models import (
     SessionEvent,
     SettingGroup,
     SettingsEvent,
+    SsoFlow,
+    SsoSession,
     VaultEvent,
     VendorEvent,
 )
 
-# the seventeen trails folded into the ledger (the unified feed reads these)
+# the nineteen trails folded into the ledger (the unified feed reads these)
 AUDIT_SOURCES = (
     "license",
     "settings",
@@ -77,6 +80,8 @@ AUDIT_SOURCES = (
     "agent",
     "cluster",
     "rbac",
+    "sso",
+    "hsm",
 )
 SOURCE_RANK = {name: index for index, name in enumerate(AUDIT_SOURCES)}
 
@@ -509,6 +514,58 @@ def _map_rbac(event: RbacEvent, db_session) -> Dict[str, Any]:
     )
 
 
+def _map_sso_flow(flow: SsoFlow, db_session) -> Dict[str, Any]:
+    """A started SSO login flow under the eighteenth trail `sso`: which slot
+    and protocol the IdP hop began with. Its outcome (succeeded, failed,
+    mfa_failed) is appended explicitly when the flow is consumed."""
+    return _entry(
+        source="sso",
+        event_ref=f"sso:flow:{flow.id}",
+        action="sso.login.started",
+        actor=f"idp:{flow.slot}",
+        subject="",
+        detail={"slot": flow.slot, "protocol": flow.protocol},
+        created_at=flow.created_at,
+        sort_id=flow.id if isinstance(flow.id, int) else 0,
+    )
+
+
+def _map_sso_session(session: SsoSession, db_session) -> Dict[str, Any]:
+    """A successful SSO login: the session was minted for a real subject.
+    The token itself never enters `detail`."""
+    return _entry(
+        source="sso",
+        event_ref=f"sso:session:{session.id}",
+        action="sso.login.succeeded",
+        actor=session.subject,
+        subject=session.subject,
+        detail={
+            "slot": session.slot,
+            "protocol": session.protocol,
+            "mfa": bool(session.mfa),
+            "session_id": session.id,
+        },
+        created_at=session.created_at,
+        sort_id=session.id,
+    )
+
+
+def _map_hsm(event: HsmKeyEvent, db_session) -> Dict[str, Any]:
+    """Master-key custody under the nineteenth trail `hsm` (architecture
+    section 20): wrap, unwrap, health, seal, unseal, rotate - with outcome.
+    Key material never enters `detail`."""
+    return _entry(
+        source="hsm",
+        event_ref=f"hsm:{event.id}",
+        action=_value(event, "action"),
+        actor=_value(event, "actor"),
+        subject=_value(event, "key_label"),
+        detail=_value(event, "detail") or {},
+        created_at=event.created_at,
+        sort_id=event.id,
+    )
+
+
 # every event model that must reach the ledger, in a stable backfill order
 LEDGER_MODELS = (
     LicenseEvent,
@@ -529,6 +586,10 @@ LEDGER_MODELS = (
     AgentEvent,
     ClusterEvent,
     RbacEvent,
+    # 6c appends: existing databases replay in this stable order
+    SsoFlow,
+    SsoSession,
+    HsmKeyEvent,
 )
 
 MAPPERS = {
@@ -550,6 +611,9 @@ MAPPERS = {
     AgentEvent: _map_agent,
     ClusterEvent: _map_cluster,
     RbacEvent: _map_rbac,
+    SsoFlow: _map_sso_flow,
+    SsoSession: _map_sso_session,
+    HsmKeyEvent: _map_hsm,
 }
 
 

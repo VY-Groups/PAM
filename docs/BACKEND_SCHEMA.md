@@ -1,6 +1,6 @@
 # VY-PAM — Backend Schema
 
-**Status:** as-built for Phase 6b
+**Status:** as-built for Phase 6c
 Two databases: the **shipped runtime DB** (`backend/phase2_license_server/
 licenses.db`, SQLAlchemy/Flask-SQLAlchemy) and the **vendor-tool DB**
 (`pam_master/master.db`, raw `sqlite3`). Both are SQLite, both git-ignored.
@@ -11,7 +11,7 @@ external migration tool.
 
 ---
 
-## 1. Shipped runtime - 47 tables
+## 1. Shipped runtime - 51 tables
 
 ### ERD (logical)
 
@@ -48,6 +48,10 @@ cluster_backups                              (verified SQLite copies: path + sha
 roles                                     (the five built-in roles, seeded once at startup; per-operation policy in code)
 role_bindings                             (who holds which role + ABAC scope; local tokens sha256 at rest, revocation is a timestamp - row kept as evidence)
 rbac_events                               (grant/revoke actions → ledger source `rbac`; the minted token never enters `detail`)
+sso_flows                                 (one outstanding SAML AuthnRequest id / OIDC state; single-use, TTL-bound → ledger source `sso`)
+sso_subjects ─1:n─ sso_sessions           (JIT subject directory (slot, subject unique) ← subject_id; existence only - privilege comes from a role binding)
+sso_sessions                              (server-side sessions minted at login; `vypam-sso1.` bearer sha256 at rest → ledger source `sso`)
+hsm_key_events                            (wrap/unwrap/health/seal/unseal/rotate custody trail → ledger source `hsm`)
 audit_events                                    (hash chain over all of the above)
 ```
 
@@ -622,7 +626,7 @@ DateTime indexed.
 | description | String(255) | ✗ | `''` | what the role may call, in plain words |
 | created_at | DateTime | ✗ | now | |
 
-The per-operation policy - which of the 105 admin operations each role
+The per-operation policy - which of the 111 admin operations each role
 may call - is code, not data: `service.ROLE_OPERATIONS` derives it from
 `service.ADMIN_OPERATIONS` (the single source the contract test pins).
 
@@ -656,6 +660,79 @@ may call - is code, not data: `service.ROLE_OPERATIONS` derives it from
 Folded into the §19 ledger by `_map_rbac` under the seventeenth source
 `rbac`. The audit drift guard keeps it honest: the model is an `*Event`
 table, so it must join the chain.
+
+### 1.48 `sso_flows` — one outstanding SSO login flow (ledger source `sso`)
+
+| Column | Type | Null | Default | Index/Notes |
+|---|---|---|---|---|
+| id | String(64) PK | ✗ | | the SAML AuthnRequest id or the OIDC `state` (single-use) |
+| slot | String(16) | ✗ | | which configured slot ran the flow |
+| protocol | String(16) | ✗ | | `saml2` / `oidc` |
+| nonce | String(128) | ✓ | NULL | the OIDC nonce |
+| verifier | String(128) | ✓ | NULL | the OIDC PKCE `code_verifier` |
+| result | String(32) | ✗ | `pending` | how the flow ended - failures are evidence, not silence |
+| detail | String(255) | ✗ | `''` | honest refusal reason (`mfa_failed`, `bad_signature`, …) |
+| expires_at | DateTime | ✗ | | TTL-bound |
+| consumed_at | DateTime | ✓ | NULL | set once the flow is used (`InResponseTo` / `state` match) |
+| created_at | DateTime | ✗ | now | indexed |
+
+### 1.49 `sso_subjects` — JIT-provisioned IdP subjects (existence only)
+
+| Column | Type | Null | Default | Index/Notes |
+|---|---|---|---|---|
+| id | INTEGER PK | ✗ | | |
+| slot | String(16) | ✗ | | unique together with `subject` (`uq_sso_subject_slot_subject`) |
+| protocol | String(16) | ✗ | | `saml2` / `oidc` |
+| subject | String(255) | ✗ | | indexed (SAML NameID / OIDC `sub`) |
+| email | String(255) | ✗ | `''` | |
+| name | String(255) | ✗ | `''` | |
+| attributes | JSON | ✗ | `{}` | assertion attributes as received |
+| first_login_at | DateTime | ✓ | NULL | |
+| last_login_at | DateTime | ✓ | NULL | |
+| logins | Integer | ✗ | 0 | |
+| created_at | DateTime | ✗ | now | |
+
+Existence only — privilege always comes from a role binding (kind
+`sso`, principal = subject); a login never grants one. No ledger rows of
+its own.
+
+### 1.50 `sso_sessions` — server-side sessions minted at login (ledger source `sso`)
+
+| Column | Type | Null | Default | Index/Notes |
+|---|---|---|---|---|
+| id | INTEGER PK | ✗ | | |
+| subject_id | INTEGER FK | ✓ | NULL | → `sso_subjects.id` |
+| subject | String(255) | ✗ | | indexed |
+| email | String(255) | ✗ | `''` | |
+| slot | String(16) | ✗ | | |
+| protocol | String(16) | ✗ | | |
+| mfa | Boolean | ✗ | false | the IdP's MFA assertion (fail-closed at login) |
+| amr | JSON | ✗ | `[]` | the authentication methods as asserted |
+| token_sha256 | String(64) | ✗ | | bearer `vypam-sso1.<id>.<secret>` - secret sha256 at rest, shown once |
+| token_prefix | String(40) | ✗ | `''` | display prefix only |
+| last_used_at | DateTime | ✓ | NULL | |
+| expires_at | DateTime | ✗ | | TTL from `sso.session_ttl_minutes` |
+| revoked_at | DateTime | ✓ | NULL | revocation is a timestamp; the row stays as evidence |
+| created_at | DateTime | ✗ | now | indexed |
+
+### 1.51 `hsm_key_events` — HSM/KMS custody trail (ledger source `hsm`)
+
+| Column | Type | Null | Default | Index/Notes |
+|---|---|---|---|---|
+| id | INTEGER PK | ✗ | | |
+| action | String(64) | ✗ | | `wrap` / `unwrap` / `health` / `seal` / `unseal` / `rotate` |
+| provider | String(32) | ✗ | `''` | `hashicorp-vault` / `aws-kms` / `azure-keyvault` / `pkcs11` |
+| mode | String(16) | ✗ | `''` | `advisory` / `enforced` at write time |
+| key_label | String(64) | ✗ | `''` | |
+| status | String(16) | ✗ | `ok` | honest outcome |
+| actor | String(64) | ✗ | `system` | |
+| detail | JSON | ✗ | `{}` | **never key material** |
+| created_at | DateTime | ✗ | now | indexed |
+
+Folded into the §19 ledger by `_map_hsm` under the nineteenth source
+`hsm` (the flows/sessions fold under `sso` via `_map_sso_flow` /
+`_map_sso_session`). The audit drift guard keeps it honest: the model is
+an `*Event` table, so it must join the chain.
 
 ## 2. Vendor tool - `pam_master/master.db` (4 tables)
 
@@ -728,7 +805,7 @@ column sets land with the code + contract commit; counts are `—` until then.
 
 | Phase | Tables | Notes |
 |---|---|---|
-| 6c | SSO/HSM state columns in existing settings groups | |
+| — | none pending | 6c landed (`sso_flows` / `sso_subjects` / `sso_sessions` / `hsm_key_events`, §1.48–1.51); the next phase's tables are recorded here when it starts |
 
 All planned tables follow the standing rules: additive `ensure_schema()`,
 ledger emission in the same transaction, application-enforced references

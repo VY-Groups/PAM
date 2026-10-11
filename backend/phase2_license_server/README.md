@@ -26,9 +26,11 @@ Supported wire formats and algorithms:
 | `config.py` | Environment-driven configuration (`.env` supported) |
 | `routes.py` | HTTP layer: parsing, auth, status codes |
 | `service.py` | Business logic: import, list, revoke, restore, validate, usage, checks, `meta`, platform settings, credential vault, dashboard overview + unified events, infrastructure discovery, JIT access grants, privileged sessions, zero-trust command-control policy engine, risk-based access engine (§7), PAM bypass detection (§10), break-glass emergency path (§17), immutable §19 audit ledger, §20 integrations (MFA gate, ITSM verify, SIEM status, LDAP login), §13 third-party vendor PAM, §14 cloud PAM, §15 CI/CD credential broker, §16 AI-agent PAM |
-| `models.py` | `LicenseRecord` (signed license + spec fields), `LicenseEvent`, `SettingGroup` + `SettingsEvent` (config changelog), `VaultItem` + `VaultEvent` + `VaultSecretVersion` (vault inventory + audit + immutable versions), `DiscoveredAsset`/`DiscoveredAccount`/`DiscoveryScan`/`DiscoveryEvent`, `JitRequest` + `JitEvent` (grants + trail), `PrivilegedSession` + `SessionEvent` (session recording, append-only), `CommandRule` + `CommandIncident` (zero-trust policy + escalations, append-only), `RiskEvent` (§7 scored access evaluations), `BypassSignal` + `BypassIncident` + `BypassEvent` (§10 direct-access evidence, incidents, action log), `BreakGlassRequest` + `BreakGlassApproval` + `BreakGlassEvent` (§17 emergencies, dual-approval snapshots, action log), `AuditEvent` (immutable §19 hash chain), `IntegrationEvent` (§20 integration trail, fan-in 11), `VendorAccount` + `VendorEvent` (§13), `CloudConnector` + `CloudEvent` (§14), `BrokerPolicy` + `BrokerCredential` + `BrokerEvent` (§15), `AgentIdentity` + `AgentTaskScope` + `AgentEvent` (§16 agent identities, task allow-lists, action log — ledger fan-in 15) |
+| `models.py` | `LicenseRecord` (signed license + spec fields), `LicenseEvent`, `SettingGroup` + `SettingsEvent` (config changelog), `VaultItem` + `VaultEvent` + `VaultSecretVersion` (vault inventory + audit + immutable versions), `DiscoveredAsset`/`DiscoveredAccount`/`DiscoveryScan`/`DiscoveryEvent`, `JitRequest` + `JitEvent` (grants + trail), `PrivilegedSession` + `SessionEvent` (session recording, append-only), `CommandRule` + `CommandIncident` (zero-trust policy + escalations, append-only), `RiskEvent` (§7 scored access evaluations), `BypassSignal` + `BypassIncident` + `BypassEvent` (§10 direct-access evidence, incidents, action log), `BreakGlassRequest` + `BreakGlassApproval` + `BreakGlassEvent` (§17 emergencies, dual-approval snapshots, action log), `AuditEvent` (immutable §19 hash chain), `IntegrationEvent` (§20 integration trail, fan-in 11), `VendorAccount` + `VendorEvent` (§13), `CloudConnector` + `CloudEvent` (§14), `BrokerPolicy` + `BrokerCredential` + `BrokerEvent` (§15), `AgentIdentity` + `AgentTaskScope` + `AgentEvent` (§16 agent identities, task allow-lists, action log), `SsoFlow` + `SsoSubject` + `SsoSession` (6c login flows, JIT subject directory, server-side sessions), `HsmKeyEvent` (6c custody trail — ledger fan-in 19) |
 | `audit.py` | The §19 ledger: flush listener fans every module trail into `audit_events`, sha256 chain (`prev_hash`/`event_hash`), boot backfill, append-only triggers, verify/stats/export, plus the §20 SIEM drain — committed batches pushed outbound as signed NDJSON after commit |
 | `integrations.py` | §20 stdlib connectors: RFC-6238 TOTP (HMAC-SHA1/256/512, ±1 window), ITSM ticket verification (ServiceNow/Jira REST), SIEM push signing (`sha256=` HMAC, NDJSON), RFC-4515 LDAP filter escape + BER bind probe, LDAP login tickets |
+| `sso.py` | 6c SAML 2.0 + OIDC login: AuthnRequest/ACS with XML-DSig RSA-SHA256 (exclusive c14n + anti-XSW), OIDC discovery/JWKS RS256 verification, fail-closed MFA assertion, JIT subjects, server-side sessions |
+| `hsm.py` | 6c HSM/KMS custody: provider abstraction (Vault transit / AWS KMS / Azure Key Vault / optional PKCS#11), master-key envelope wrap, seal/unseal, advisory/enforced with no file-key fallback |
 | `keys.py` | Startup key checks (fail fast, public/private must match, both algorithms) |
 | `licensing_bridge.py` | Path bootstrap + cached Phase 1 `LicenseGenerator`/`LicenseValidator` |
 | `tests/test_api.py` | End-to-end license API tests |
@@ -39,7 +41,7 @@ Supported wire formats and algorithms:
 | `tests/test_jit.py` | JIT access: deterministic risk bands, approvals, time-boxed grants, expiry rotation |
 | `tests/test_sessions.py` | Privileged sessions: start/attach, channel events, control gating, lifecycle + cascades |
 | `tests/test_command_control.py` | Zero-trust command policy: rule CRUD, dry-run decisions, approval queue, incident escalation |
-| `tests/test_audit.py` | Immutable §19 ledger: sixteen-source fan-in, hash chain, append-only triggers, backfill, verify/export, drift guard |
+| `tests/test_audit.py` | Immutable §19 ledger: nineteen-source fan-in, hash chain, append-only triggers, backfill, verify/export, drift guard |
 | `tests/test_risk.py` | §7 risk-based access engine: the eight scored components, bands/decisions, the session-start gate, ledger fan-in |
 | `tests/test_bypass.py` | §10 PAM bypass detection: log/JSON ingest, dedupe, correlation (candidate/covered/out_of_scope), incidents with forced rotation + honest `not_connected`, closure, stats, ledger fan-in |
 | `tests/test_break_glass.py` | §17 break-glass: request lifecycle, dual approval (self/second-signature rules), risk-gated open → recorded session → close with forced rotation + review, stats, ledger fan-in |
@@ -51,6 +53,8 @@ Supported wire formats and algorithms:
 | `tests/test_broker.py` | §15 CI/CD credential broker: pipeline token auth (shown once, sha256, never waived), auto/manual policies, TTL cap + target scope refusals, approval queue, release (secret once) → close/expiry rotation, revoke cascade, stats, ledger fan-in |
 | `tests/test_agent.py` | §16 AI-agent PAM: identity lifecycle + agent token auth (shown once, sha256, never waived), task allow-list CRUD + refusals (unknown task/out-of-target/cap), risk landings (low auto-approve with binding snapshot, medium sign-off, critical block), open/close with forced recording, revoke + task-delete cascades, expiry, stats, ledger fan-in |
 | `tests/test_cluster.py` | §18 HA/DC/DR: node registry + real probes, hash-verified pull replication (audit/vault/sessions), passive write gate (409 before auth), role failover + opt-in monitor, verified SQLite backups, admin-401 |
+| `tests/test_sso.py` | 6c SSO: SAML + OIDC happy paths, signature/tamper/replay/expiry refusals, MFA fail-closed, sessions + revoke, binding-kind gating, ledger fan-in |
+| `tests/test_hsm.py` | 6c HSM custody: providers, envelope wrap/rotate, advisory/enforced, seal/unseal, honest refusals, ledger fan-in |
 | `tests/test_openapi_contract.py` | `apis/openapi.yaml` ↔ live route map (both directions) |
 
 ## Quick start
@@ -108,7 +112,9 @@ cards with live chips over `GET /api/v1/integrations/status` (including
 DR Cluster** section over `GET /api/v1/cluster` (this node's identity and
 role, the registry with real probe results, replica posture, the backup
 ledger, register / probe / sync / remove, promote / demote, take a
-backup).
+backup) plus the 6c **SSO + HSM enforcement** lines (live SSO status,
+MFA requirement, sessions/subjects chips over `GET /api/v1/auth/sso/status`;
+custody state, mode and the seal/unseal actions over `GET /api/v1/hsm/status`).
 
 More screens render from their own APIs: the **Command Center** and
 **Compliance** screens (`GET /api/v1/overview` + the unified
@@ -170,7 +176,7 @@ is no seed inventory: every credential enters through **Onboard New Credential**
 
 ```bash
 python -m pytest tests -q     # 459 tests (from backend/phase2_license_server)
-python -m pytest backend -q   # 613 tests from the repo root (+ shared crypto core)
+python -m pytest backend -q   # 664 tests from the repo root (+ shared crypto core)
 ```
 
 **Docker (development/runtime testing only — never a shipping instruction):**
@@ -234,9 +240,9 @@ cross-checked against these routes by `tests/test_openapi_contract.py`.
 | POST | `/auth/ldap` | – | LDAP bind login: token mode issues `vypam-ldap1.<b64url>.<hmac>`; open mode honest (`verified: true`, `note` "open dev mode") |
 | GET | `/integrations/status` | – | §20 connector aggregate: MFA factor + gate line, ITSM, SIEM state + last push result, LDAP, `event_count` |
 | GET | `/settings/audit?limit=` | – | Configuration changelog, newest first |
-| PUT | `/settings/<group>` | admin | Merge-update one group, returns the per-field change diff (secrets seal AES-256-GCM → changelog `<set>`/`<cleared>`; readonly `mfa.*` factor fields → 400 with `details.fields` + the `POST /mfa/enroll` hint; URL fields must be `https` unless flagged `allow_http` — `itsm.base_url`/`siem.webhook_url` accept plain http for internal instances — bad shape → 400 with `details.field`/`details.scheme`) |
+| PUT | `/settings/<group>` | admin | Merge-update one group, returns the per-field change diff (secrets seal AES-256-GCM → changelog `<set>`/`<cleared>`; readonly `mfa.*` factor fields → 400 with `details.fields` + the `POST /mfa/enroll` hint; URL fields must be `https` unless the target is this machine (loopback) or the field is flagged `allow_http` — `itsm.base_url`/`siem.webhook_url` accept plain http for internal instances — bad shape → 400 with `details.field`/`details.scheme`) |
 | GET | `/overview` | – | Dashboard aggregate: health, license posture, vault stats, settings, counters, computed control posture, recent activity |
-| GET | `/events?limit=&source=` | - | Unified audit feed across all sixteen trails (license, settings, vault, discovery, jit, session, command, risk, bypass, break-glass, integration, vendor, cloud, broker, agent, cluster), newest first |
+| GET | `/events?limit=&source=` | - | Unified audit feed across all nineteen trails (license, settings, vault, discovery, jit, session, command, risk, bypass, break-glass, integration, vendor, cloud, broker, agent, cluster, rbac, sso, hsm), newest first |
 | GET | `/vault/stats` | – | Inventory aggregates: totals by type/status, rotation compliance, `secrets` coverage (`managed`/`unmanaged`/`versions`), checkouts, today's events |
 | GET | `/vault/items?…` | – | List inventory (`q`, `type`, `status`, `limit`, `offset`) |
 | POST | `/vault/items` | admin | Onboard a credential (201, strictly validated; optional `secret`, else a real type-appropriate value is generated — sealed with AES-256-GCM either way) |
@@ -372,7 +378,21 @@ cross-checked against these routes by `tests/test_openapi_contract.py`.
 | POST | `/cluster/backups` | admin | SQLite online backup into `CLUSTER_BACKUP_DIR` (201): copy re-opened read-only + chain re-walked; non-SQLite engine → 503 |
 | GET | `/cluster/export/vault` | admin | Replicated ciphertext + metadata only (never plaintext) |
 | GET | `/cluster/export/sessions` | admin | Session metadata stream (ids, targets, times - no recording content) |
-| GET | `/audit/stats` | - | Immutable ledger aggregates (§19): `total`, per-source counts for all sixteen trails, `last_seq`, `head_hash`, oldest/newest, `trigger_protection` |
+| GET | `/auth/sso/status` | – | 6c SSO runtime truth: protocol, slots live, `enforce_sso`, `require_mfa`, sessions active + subjects |
+| GET | `/auth/sso/metadata` | – | Our SP configuration as JSON (ACS URL, entity id, binding) |
+| GET | `/auth/sso/saml/<slot>/metadata` | – | Our SP SAML metadata XML (`application/saml-metadata+xml`) |
+| GET | `/auth/sso/saml/<slot>/login` | – | Redirect to the IdP (AuthnRequest; the SP fetches + signature-verifies the IdP metadata from the stored URL, cached 3600 s) |
+| POST | `/auth/sso/saml/<slot>/acs` | – | Consume the assertion: XML-DSig RSA-SHA256 over exclusive c14n (anti-XSW, 120 s skew), `InResponseTo` bound, MFA fail-closed → session minted, JIT subject upserted |
+| GET | `/auth/sso/oidc/<slot>/login` | – | Redirect to the IdP (discovery + PKCE state/verifier) |
+| GET | `/auth/sso/oidc/<slot>/callback` | – | Code exchange; `id_token` RS256-verified against the JWKS (issuer, audience, expiry, nonce) |
+| POST | `/auth/sso/logout` | – | End your own SSO session |
+| GET | `/auth/sso/sessions` | admin | SSO sessions (prefix, subject, mfa, expires, revoked) |
+| POST | `/auth/sso/sessions/<id>/revoke` | admin | Revoke one session (its bearer 401s immediately) |
+| GET | `/hsm/status` | admin | 6c custody state: mode (advisory/enforced), provider, `key_in_use` (file/provider), sealed, wrap record, last health |
+| POST | `/hsm/seal` | admin | Seal: stop using the master key until unsealed (reason recorded) |
+| POST | `/hsm/unseal` | admin | Unseal: file key in advisory; provider unwrap in enforced (no token → stays sealed, honest 503) |
+| POST | `/hsm/keys/rotate` | admin | Re-wrap the master key under the provider (envelope: same key, ciphertexts stay valid; wrap file = ciphertext only) |
+| GET | `/audit/stats` | - | Immutable ledger aggregates (§19): `total`, per-source counts for all nineteen trails, `last_seq`, `head_hash`, oldest/newest, `trigger_protection` |
 | GET | `/audit/verify` | – | Walk the whole chain: recomputes every record's hash and reports `intact`, `checked`, `head_hash` plus the first `broken_at`/`reason` (sequence gap, content change, re-link) |
 | GET | `/audit/export` | – | The full ledger in chain order as NDJSON (`application/x-ndjson`, `vy-pam-audit.ndjson`) — one record per line for SIEM ingest |
 
@@ -479,7 +499,7 @@ curl -s -X PUT http://127.0.0.1:5000/api/v1/settings/zsp \
 curl -s "http://127.0.0.1:5000/api/v1/settings/audit?limit=20"
 ```
 
-- Eight groups: `sso` (9 fields), `hsm` (9), `zsp` (4), `worm` (6), plus the
+- Eight groups: `sso` (10 fields), `hsm` (10), `zsp` (4), `worm` (6), plus the
   §20 connector groups `mfa` (4), `itsm` (6), `siem` (4), `ldap` (6). The schema
   lives in `service.py` (`SETTINGS_SCHEMA`); defaults mirror the values the
   spec screen displays (2-of-3 quorum, 120-minute TTL extension, 2,555-day
@@ -510,9 +530,10 @@ curl -s "http://127.0.0.1:5000/api/v1/settings/audit?limit=20"
 # dashboard aggregate powering the Command Center / Compliance screens
 curl -s http://127.0.0.1:5000/api/v1/overview
 
-# unified audit feed (all sixteen trails: license, settings, vault, discovery,
+# unified audit feed (all nineteen trails: license, settings, vault, discovery,
 # jit, session, command, risk, bypass, break-glass, integration, vendor, cloud,
-# broker, agent, cluster - newest first, each row chain-linked with seq + hash)
+# broker, agent, cluster, rbac, sso, hsm - newest first, each row chain-linked
+# with seq + hash)
 curl -s "http://127.0.0.1:5000/api/v1/events?limit=10"
 
 # inventory aggregates: rotation compliance, checkouts, attention list
@@ -632,7 +653,10 @@ curl -s -X POST http://127.0.0.1:5000/api/v1/sessions/1/terminate \
   rotation-due and failed items. The dashboard posture score computes from
   eight real controls (`worm_retention`, `audit_evidence`, `quantum_safe`,
   `rotation_sla`, `sso_mfa`, `tier0_quorum`, `admin_auth`, `hsm_backed`) —
-  `audit_evidence` only passes once the audit trail has entries, so a fresh
+  `audit_evidence` only passes once the audit trail has entries, and since
+  6c `sso_mfa` (SSO logins + MFA asserted in the window) and `hsm_backed`
+  (enforced + provider reachable via a real health probe) count real
+  evidence, never settings booleans — so a fresh
   database honestly reports a lower score.
 - **JIT access** (module 6) runs request → risk → approvals → time-boxed
   grant → expiry → rotation. The risk score is deterministic and built only

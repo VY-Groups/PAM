@@ -214,6 +214,20 @@
 </label>
 </div>
 </div>
+<!-- Live: SSO runtime truth from GET /api/v1/auth/sso/status -->
+<div class="p-space-md rounded-lg bg-surface-container-low mb-space-md">
+<div class="flex flex-col md:flex-row md:items-center justify-between gap-space-sm">
+<div>
+<span class="font-code-sm text-code-sm text-outline uppercase tracking-wider">Enforcement Runtime</span>
+<p class="font-code-sm text-code-sm text-primary" id="ssoLiveLine">loading...</p>
+</div>
+<div class="flex items-center gap-4">
+<span class="inline-flex items-center gap-1.5 font-code-sm text-code-sm text-on-surface-variant" id="chip-sso-enforce"><span class="w-1.5 h-1.5 rounded-full bg-outline"></span>&mdash;</span>
+<span class="inline-flex items-center gap-1.5 font-code-sm text-code-sm text-on-surface-variant" id="chip-sso-mfa"><span class="w-1.5 h-1.5 rounded-full bg-outline"></span>&mdash;</span>
+<span class="inline-flex items-center gap-1.5 font-code-sm text-code-sm text-on-surface-variant" id="chip-sso-sessions"><span class="w-1.5 h-1.5 rounded-full bg-outline"></span>&mdash;</span>
+</div>
+</div>
+</div>
 <!-- Live: stored configuration, rendered from GET /api/v1/settings -->
 <div class="mt-space-md pt-space-md border-t border-surface-container">
 <div class="flex items-center justify-between mb-space-sm">
@@ -273,6 +287,20 @@
 <div>
 <span class="font-body-sm text-body-sm text-on-surface-variant">Cryptographic Faults:</span>
 <p class="font-code-sm text-code-sm text-on-surface font-semibold mt-0.5">0 Total Recorded</p>
+</div>
+</div>
+</div>
+<!-- Live: custody runtime from GET /api/v1/hsm/status (6c) -->
+<div class="p-space-md rounded-lg bg-surface-container-low mb-space-md">
+<div class="flex flex-col md:flex-row md:items-center justify-between gap-space-sm">
+<div>
+<span class="font-code-sm text-code-sm text-outline uppercase tracking-wider">Custody Runtime</span>
+<p class="font-code-sm text-code-sm text-primary" id="hsmLiveLine">loading...</p>
+</div>
+<div class="flex items-center gap-4">
+<span class="inline-flex items-center gap-1.5 font-code-sm text-code-sm text-on-surface-variant" id="chip-hsm-mode"><span class="w-1.5 h-1.5 rounded-full bg-outline"></span>&mdash;</span>
+<span class="inline-flex items-center gap-1.5 font-code-sm text-code-sm text-on-surface-variant" id="chip-hsm-seal"><span class="w-1.5 h-1.5 rounded-full bg-outline"></span>&mdash;</span>
+<span class="inline-flex items-center gap-1.5 font-code-sm text-code-sm text-on-surface-variant" id="chip-hsm-key"><span class="w-1.5 h-1.5 rounded-full bg-outline"></span>&mdash;</span>
 </div>
 </div>
 </div>
@@ -657,7 +685,7 @@
 <span class="material-symbols-outlined text-primary text-[20px]">shield_lock</span>
 <h2 class="font-headline-sm text-headline-sm text-on-surface">Role-Based Access (RBAC / ABAC)</h2>
 </div>
-<p class="font-body-sm text-body-sm text-on-surface-variant mt-1">Five built-in roles over every admin operation: the admin token stays <span class="font-code-sm text-code-sm">admin</span> (everything), and a bound principal reaches exactly its role's operations. A <span class="font-code-sm text-code-sm">local</span> principal gets an API token once (<span class="font-code-sm text-code-sm">vypam-rbac1.&lt;id&gt;.&lt;secret&gt;</span>, sha256 at rest); an <span class="font-code-sm text-code-sm">ldap</span> principal is a directory username a login ticket carries - the directory authenticates, the binding decides (no binding, no access). Binding scope gates vault items and session targets. <span class="font-code-sm text-code-sm">GET /api/v1/auth/whoami</span> reports the acting principal.</p>
+<p class="font-body-sm text-body-sm text-on-surface-variant mt-1">Five built-in roles over every admin operation: the admin token stays <span class="font-code-sm text-code-sm">admin</span> (everything), and a bound principal reaches exactly its role's operations. A <span class="font-code-sm text-code-sm">local</span> principal gets an API token once (<span class="font-code-sm text-code-sm">vypam-rbac1.&lt;id&gt;.&lt;secret&gt;</span>, sha256 at rest); an <span class="font-code-sm text-code-sm">ldap</span> principal is a directory username a login ticket carries; an <span class="font-code-sm text-code-sm">sso</span> principal is an SSO subject whose session bearer (<span class="font-code-sm text-code-sm">vypam-sso1.&lt;id&gt;.&lt;secret&gt;</span>) a SAML/OIDC login mints - in every case the directory or IdP authenticates, the binding decides (no binding, no access). Binding scope gates vault items and session targets. <span class="font-code-sm text-code-sm">GET /api/v1/auth/whoami</span> reports the acting principal.</p>
 </div>
 </div>
 <p class="font-code-sm text-code-sm text-on-surface-variant mb-space-md" data-role="rbac-summary">loading roles and bindings...</p>
@@ -696,7 +724,7 @@
 <select class="px-3 py-2 rounded bg-surface-container-lowest text-on-surface font-body-sm text-body-sm focus:outline-none focus:ring-1 focus:ring-primary-container" data-role="rbac-input-role"><option value="operator">operator</option><option value="approver">approver</option><option value="auditor">auditor</option><option value="auditor-read-only">auditor-read-only</option><option value="admin">admin</option></select>
 </label>
 <label class="flex flex-col gap-1 font-headline-sm text-[13px] text-on-surface font-medium">Kind
-<select class="px-3 py-2 rounded bg-surface-container-lowest text-on-surface font-body-sm text-body-sm focus:outline-none focus:ring-1 focus:ring-primary-container" data-role="rbac-input-kind"><option value="local">local (mint a token)</option><option value="ldap">ldap (directory username)</option></select>
+<select class="px-3 py-2 rounded bg-surface-container-lowest text-on-surface font-body-sm text-body-sm focus:outline-none focus:ring-1 focus:ring-primary-container" data-role="rbac-input-kind"><option value="local">local (mint a token)</option><option value="ldap">ldap (directory username)</option><option value="sso">sso (SSO subject)</option></select>
 </label>
 <label class="flex flex-col grow min-w-[180px] gap-1 font-headline-sm text-[13px] text-on-surface font-medium">Scope: targets (optional)
 <input class="px-3 py-2 rounded bg-surface-container-lowest text-on-surface font-body-sm text-body-sm focus:outline-none focus:ring-1 focus:ring-primary-container" data-role="rbac-input-targets" placeholder="web-*, bastion-1" type="text"/>
@@ -1176,6 +1204,54 @@
     }
   }
 
+  /* --------------------------------------------- sso + hsm runtime (6c) */
+  async function loadSsoHsm() {
+    try {
+      var res = await fetch(API + 'auth/sso/status', { headers: headers(false) });
+      if (!res.ok) throw new Error('HTTP ' + res.status);
+      var data = await res.json();
+      setChip('chip-sso-enforce', data.enforce_sso ? 'enforce sso: on' : 'enforce sso: off',
+        data.enforce_sso ? 'ok' : 'warn');
+      setChip('chip-sso-mfa', data.require_mfa ? 'mfa at login: required' : 'mfa at login: optional',
+        data.require_mfa ? 'ok' : 'warn');
+      setChip('chip-sso-sessions', data.configured
+        ? data.sessions_active + '/' + data.sessions_total + ' sessions \u2022 ' +
+          data.subjects + ' subjects'
+        : 'no idp configured',
+        data.configured ? (data.sessions_active ? 'ok' : 'off') : 'off');
+      note('ssoLiveLine', data.configured
+        ? 'slots live \u2022 last login ' + (data.last_login_at || 'never') +
+          ' \u2022 session ttl ' + data.session_ttl_minutes + 'm \u2022 jit ' +
+          (data.jit_provisioning ? 'on' : 'off')
+        : 'no IdP configured \u2014 set a slot provider to enable SAML/OIDC logins');
+    } catch (error) {
+      setChip('chip-sso-enforce', '\u2014', 'off');
+      setChip('chip-sso-mfa', '\u2014', 'off');
+      setChip('chip-sso-sessions', '\u2014', 'off');
+      note('ssoLiveLine', 'SSO status unavailable (license server not reachable)');
+    }
+    try {
+      var hres = await fetch(API + 'hsm/status', { headers: headers(false) });
+      if (!hres.ok) throw new Error('HTTP ' + hres.status);
+      var h = await hres.json();
+      setChip('chip-hsm-mode', 'mode: ' + h.mode, h.mode === 'enforced' ? 'ok' : 'warn');
+      setChip('chip-hsm-seal', h.sealed ? 'sealed' : 'unsealed', h.sealed ? 'err' : 'ok');
+      setChip('chip-hsm-key', 'key in use: ' + h.key_in_use,
+        h.key_in_use === 'provider' ? 'ok' : 'warn');
+      note('hsmLiveLine', h.provider
+        ? h.provider + (h.sealed ? ' \u2014 sealed: ' + h.seal_reason : '') +
+          ' \u2022 rotation ' + (h.rotation_due ? 'DUE' : 'ok') +
+          ' \u2022 last probe ' +
+          ((h.last_health && h.last_health.reachable) ? 'reachable' : 'never')
+        : 'no provider configured \u2014 advisory file custody');
+    } catch (error) {
+      setChip('chip-hsm-mode', '\u2014', 'off');
+      setChip('chip-hsm-seal', '\u2014', 'off');
+      setChip('chip-hsm-key', '\u2014', 'off');
+      note('hsmLiveLine', 'HSM status unavailable (license server not reachable)');
+    }
+  }
+
   /* ------------------------------------------------- cluster (HA / DC / DR) */
   var clusterLive = {
     reachable: false, role: 'unknown', self: null, nodes: [],
@@ -1519,6 +1595,7 @@
     await health();
     await loadAudit();
     await loadIntegrations();
+    await loadSsoHsm();
     await loadCluster();
     await loadRbac();
   }
@@ -1787,13 +1864,16 @@
     rbacLive.bindings = bindings;
 
     var local = bindings.filter(function (row) { return row.kind === 'local'; }).length;
-    var ldap = bindings.length - local;
-    rbacText('rbac-summary', roles.length + ' roles · ' + bindings.length +
+    var sso = bindings.filter(function (row) { return row.kind === 'sso'; }).length;
+    var ldap = bindings.length - local - sso;
+    var kindLine = local + ' local \u00b7 ' + ldap + ' directory' +
+      (sso ? ' \u00b7 ' + sso + ' sso' : '');
+    rbacText('rbac-summary', roles.length + ' roles \u00b7 ' + bindings.length +
       ' active binding' + (bindings.length === 1 ? '' : 's') +
-      ' (' + local + ' local · ' + ldap + ' directory)');
+      ' (' + kindLine + ')');
     rbacText('rbac-tile-roles', String(roles.length));
     rbacText('rbac-tile-bindings', String(bindings.length));
-    rbacText('rbac-tile-bindings-sub', local + ' local · ' + ldap + ' directory');
+    rbacText('rbac-tile-bindings-sub', kindLine);
 
     var roleRows = document.querySelector('[data-role="rbac-role-rows"]');
     if (roleRows) {

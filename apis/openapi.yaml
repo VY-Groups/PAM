@@ -62,6 +62,10 @@ tags:
     description: HA / DC / DR - node registry with real health probes, pull replication (hash-verified audit chain, sealed vault ciphertext, session metadata), role-enforced failover, automatic-failover monitor and real backups (architecture 18)
   - name: rbac
     description: Roles, role bindings and the acting principal - the multi-role model over the admin operations with ABAC attribute rules on vault items and targets (architecture 10)
+  - name: sso
+    description: SSO enforcement - SAML 2.0 and OIDC login handshake, SP metadata, single-use flows, MFA fail-closed session minting and session administration (architecture 9, phase 6c)
+  - name: hsm
+    description: HSM/KMS master-key custody - advisory/enforced provider wrap, seal/unseal, health watchdog, key rotation (architecture 20, phase 6c)
 paths:
   /health:
     get:
@@ -4610,6 +4614,7 @@ paths:
         - adminTokenHeader: []
         - rbacToken: []
         - ldapTicket: []
+        - ssoSession: []
         - {}
       responses:
         "200":
@@ -4619,6 +4624,357 @@ paths:
               schema: {$ref: "#/components/schemas/WhoAmI"}
         "401": {$ref: "#/components/responses/Unauthorized"}
         "403": {$ref: "#/components/responses/Forbidden"}
+
+  /api/v1/auth/sso/status:
+    get:
+      tags: [sso]
+      summary: SSO runtime status
+      description: |
+        What is configured AND what has actually happened: per-slot provider
+        and metadata URL, enforce_sso / require_mfa / jit_provisioning,
+        subject and session counts, and the last active login - the honest
+        state behind the settings screen and the posture widget.
+      responses:
+        "200":
+          description: SSO runtime state
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/SsoStatus"}
+
+  /api/v1/auth/sso/metadata:
+    get:
+      tags: [sso]
+      summary: Our SP configuration as JSON
+      description: >
+        Entity id, ACS URL, per-slot login and OIDC redirect URLs, SAML
+        metadata URLs and the name-id format an IdP admin needs to register
+        this SP - no secrets on it.
+      responses:
+        "200":
+          description: SP registration document
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/SsoSpMetadata"}
+
+  /api/v1/auth/sso/saml/{slot}/metadata:
+    get:
+      tags: [sso]
+      summary: Our SP metadata as SAML XML
+      description: >
+        The same registration document as standards-shaped SAML metadata
+        (`application/saml-metadata+xml`) - paste straight into the IdP.
+        The slot must be configured (404 otherwise, honestly).
+      parameters:
+        - $ref: "#/components/parameters/SsoSlot"
+      responses:
+        "200":
+          description: SP metadata XML
+          content:
+            application/saml-metadata+xml:
+              schema: {type: string}
+        "404": {$ref: "#/components/responses/NotFound"}
+
+  /api/v1/auth/sso/saml/{slot}/login:
+    get:
+      tags: [sso]
+      summary: Start a SAML login
+      description: >
+        Fetches the IdP metadata (cached one hour, DTDs refused), builds a
+        real AuthnRequest with a single-use flow row (5-minute TTL) and
+        302s to the IdP's HTTP-POST SingleSignOnService. The flow id comes
+        back in the `X-SSO-Flow` header; an unconsumed flow is refused
+        later at the ACS.
+      parameters:
+        - $ref: "#/components/parameters/SsoSlot"
+      responses:
+        "302":
+          description: Redirect to the IdP (Location carries the SAMLRequest)
+        "503":
+          description: IdP metadata unreachable or incomplete (named honestly)
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/Error"}
+
+  /api/v1/auth/sso/saml/{slot}/acs:
+    post:
+      tags: [sso]
+      summary: Consume the IdP's assertion (ACS)
+      description: |
+        The IdP POSTs `SAMLResponse` here. Everything runs for real: base64
+        and DTD refusal, a single unique-id document, pinned metadata
+        certificate, exclusive-c14n digest and RSA/ECDSA-SHA2 signature
+        verification, strict Conditions / Audience / InResponseTo /
+        Destination, MFA fail-closed (an AuthnContext that does not assert
+        multi-factor is a 403 and lands on the ledger as
+        `sso.login.mfa_failed`), then the session is minted - JIT-provisioned
+        subject, `kind sso` binding decides the role. Refusals are recorded
+        on the `sso` ledger trail.
+      parameters:
+        - $ref: "#/components/parameters/SsoSlot"
+      requestBody:
+        required: true
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              type: object
+              required: [SAMLResponse]
+              properties:
+                SAMLResponse: {type: string, description: Base64 SAML Response}
+      responses:
+        "200":
+          description: Session minted
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/SsoLogin"}
+        "400":
+          description: Signature, digest, replay, audience, destination or expiry refusal (recorded)
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/Error"}
+        "403":
+          description: MFA not asserted while sso.require_mfa, or subject not provisioned with JIT off (recorded)
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/Error"}
+
+  /api/v1/auth/sso/oidc/{slot}/login:
+    get:
+      tags: [sso]
+      summary: Start an OIDC login
+      description: >
+        Discovery document and JWKS cached one hour, then a 302 to the
+        provider's authorization endpoint with authorization-code + PKCE
+        (S256) + nonce - the single-use flow row holds both.
+      parameters:
+        - $ref: "#/components/parameters/SsoSlot"
+      responses:
+        "302":
+          description: Redirect to the provider (Location carries code_challenge and state)
+        "503":
+          description: Discovery document unreachable or incomplete (named honestly)
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/Error"}
+
+  /api/v1/auth/sso/oidc/{slot}/callback:
+    get:
+      tags: [sso]
+      summary: OIDC callback
+      description: >
+        Exchanges the code (PKCE verifier), verifies the id_token against
+        the provider JWKS (RS256 family only), checks nonce, expiry and
+        `amr` for MFA fail-closed, then mints the session exactly like the
+        SAML ACS. Replayed state or a single-factor `amr` under
+        sso.require_mfa is refused and recorded.
+      parameters:
+        - $ref: "#/components/parameters/SsoSlot"
+        - name: code
+          in: query
+          schema: {type: string}
+        - name: state
+          in: query
+          schema: {type: string}
+      responses:
+        "200":
+          description: Session minted
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/SsoLogin"}
+        "400":
+          description: Token, nonce, state or algorithm refusal (recorded)
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/Error"}
+        "403":
+          description: MFA not asserted while sso.require_mfa, or JIT-off unknown subject
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/Error"}
+
+  /api/v1/auth/sso/logout:
+    post:
+      tags: [sso]
+      summary: End your own SSO session
+      description: >
+        Self-service logout: the presented SSO bearer is the authorization
+        (no admin role), the session is revoked immediately and the event
+        lands on the `sso` trail. A missing or dead bearer is a 403.
+      security:
+        - ssoSession: []
+      responses:
+        "200":
+          description: Session revoked
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [revoked, session_id]
+                properties:
+                  revoked: {type: boolean, enum: [true]}
+                  session_id: {type: integer}
+        "403":
+          description: Not an active SSO session
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/Error"}
+
+  /api/v1/auth/sso/sessions:
+    get:
+      tags: [sso]
+      summary: SSO sessions
+      description: >
+        Active sessions by default; ?active=all includes expired and
+        revoked rows as evidence. The bearer itself is never shown - only
+        its `vypam-sso1.<id>.` prefix. Admin-only.
+      security:
+        - bearerAuth: []
+        - adminTokenHeader: []
+        - rbacToken: [auditor, auditor-read-only]
+        - ldapTicket: [auditor, auditor-read-only]
+        - {}
+      parameters:
+        - name: active
+          in: query
+          schema: {type: string, enum: [all]}
+      responses:
+        "200":
+          description: Sessions
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/SsoSessionList"}
+        "401": {$ref: "#/components/responses/Unauthorized"}
+
+  /api/v1/auth/sso/sessions/{session_id}/revoke:
+    post:
+      tags: [sso]
+      summary: Revoke one SSO session
+      description: >
+        The bearer stops authenticating immediately; the row stays as
+        evidence and the event lands on the `sso` trail. Admin-only.
+      security:
+        - bearerAuth: []
+        - adminTokenHeader: []
+        - {}
+      parameters:
+        - name: session_id
+          in: path
+          required: true
+          schema: {type: integer}
+      responses:
+        "200":
+          description: Session revoked
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/SsoSession"}
+        "401": {$ref: "#/components/responses/Unauthorized"}
+        "404": {$ref: "#/components/responses/NotFound"}
+        "409": {$ref: "#/components/responses/Conflict"}
+
+  /api/v1/hsm/status:
+    get:
+      tags: [hsm]
+      summary: HSM/KMS custody state
+      description: >
+        Provider, advisory/enforced mode, seal state and reason, wrap-file
+        record (provider, key label, wrapped_at), rotation-due flag against
+        the configured window, key_in_use (`provider` only when enforced and
+        unsealed) and the last health probe. No key material, ever.
+        Admin-only.
+      security:
+        - bearerAuth: []
+        - adminTokenHeader: []
+        - rbacToken: [auditor, auditor-read-only]
+        - ldapTicket: [auditor, auditor-read-only]
+        - {}
+      responses:
+        "200":
+          description: Custody state
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/HsmStatus"}
+        "401": {$ref: "#/components/responses/Unauthorized"}
+
+  /api/v1/hsm/seal:
+    post:
+      tags: [hsm]
+      summary: Seal the vault
+      description: >
+        Drop every trace of key material from this process - the file key
+        cache and the unwrapped provider key both go. Vault operations then
+        fail with 503 until an explicit unseal; in enforced mode there is
+        no file fallback. The event lands on the `hsm` trail. Admin-only.
+      security:
+        - bearerAuth: []
+        - adminTokenHeader: []
+        - {}
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                reason: {type: string, maxLength: 200, default: operator seal}
+      responses:
+        "200":
+          description: Vault sealed
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/HsmSealResult"}
+        "400": {$ref: "#/components/responses/BadRequest"}
+        "401": {$ref: "#/components/responses/Unauthorized"}
+
+  /api/v1/hsm/unseal:
+    post:
+      tags: [hsm]
+      summary: Unseal the vault
+      description: >
+        Advisory mode reloads the file key; enforced mode must unwrap
+        through the provider. A dead provider refuses with 503 and the
+        vault STAYS sealed, said so - honest failure, never a silent file
+        fallback. Admin-only.
+      security:
+        - bearerAuth: []
+        - adminTokenHeader: []
+        - {}
+      responses:
+        "200":
+          description: Vault unsealed
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/HsmSealResult"}
+        "401": {$ref: "#/components/responses/Unauthorized"}
+        "503":
+          description: Provider unwrap failed - the vault stays sealed (seal_reason says why)
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/Error"}
+
+  /api/v1/hsm/keys/rotate:
+    post:
+      tags: [hsm]
+      summary: Re-wrap the master key under the provider
+      description: >
+        First-wrap or re-wrap the SAME master key under the configured
+        provider (Vault transit, AWS KMS SigV4, Azure wrapkey, PKCS#11):
+        custody moves, key material never changes, every existing
+        ciphertext stays valid. The wrap record lands on the `hsm` trail
+        without any key material. Admin-only.
+      security:
+        - bearerAuth: []
+        - adminTokenHeader: []
+        - {}
+      responses:
+        "200":
+          description: Key re-wrapped (key_changed is always false - the point)
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/HsmRotateResult"}
+        "401": {$ref: "#/components/responses/Unauthorized"}
+        "503":
+          description: Vault sealed, provider unreachable or credentials missing (named in details)
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/Error"}
 
 components:
   securitySchemes:
@@ -4647,6 +5003,10 @@ components:
       type: http
       scheme: bearer
       description: "A signed LDAP login ticket as `Authorization: Bearer <ticket>` (minted by POST /api/v1/auth/ldap after a real bind). The directory vouches for the username; a role binding (kind `ldap`) decides what it may do - no binding, no access."
+    ssoSession:
+      type: http
+      scheme: bearer
+      description: "An SSO session bearer as `Authorization: Bearer vypam-sso1.<id>.<secret>` (shown once at a successful SAML/OIDC login). Stored as a sha256 hash with `last_used_at` on use; a role binding (kind `sso`, principal = subject) decides what it may do - no binding, no access (the same rule LDAP follows)."
   parameters:
     LicenseKey:
       name: license_key
@@ -4662,6 +5022,12 @@ components:
       name: offset
       in: query
       schema: {type: integer, minimum: 0, default: 0}
+    SsoSlot:
+      name: slot
+      in: path
+      required: true
+      description: The SSO slot (SSO_SLOTS).
+      schema: {type: string, enum: [primary, secondary]}
   responses:
     BadRequest:
       description: Validation failed (`details` names the offending field(s)).
@@ -7885,7 +8251,7 @@ components:
         id: {type: integer}
         principal: {type: string, description: "The identity: a local principal's name, or the directory username for kind ldap."}
         role: {type: string}
-        kind: {type: string, enum: [local, ldap]}
+        kind: {type: string, enum: [local, ldap, sso]}
         token_prefix: {type: string, description: "The public part of the minted token (`vypam-rbac1.<id>.`) - never the secret."}
         has_token: {type: boolean}
         scope: {$ref: "#/components/schemas/RoleBindingScope"}
@@ -7906,7 +8272,7 @@ components:
       properties:
         principal: {type: string, minLength: 1, maxLength: 128}
         role: {type: string, enum: [admin, approver, operator, auditor, auditor-read-only]}
-        kind: {type: string, enum: [local, ldap], default: local}
+        kind: {type: string, enum: [local, ldap, sso], default: local}
         scope: {$ref: "#/components/schemas/RoleBindingScope"}
 
     WhoAmI:
@@ -7916,7 +8282,7 @@ components:
         mode: {type: string, enum: [open, token]}
         principal: {type: string}
         role: {type: string, enum: [admin, approver, operator, auditor, auditor-read-only]}
-        kind: {type: string, enum: [open, admin-token, local, ldap]}
+        kind: {type: string, enum: [open, admin-token, local, ldap, sso]}
         scope: {type: object, additionalProperties: true, nullable: true}
         operations:
           description: "The admin operations this role may call (the string `all` in open mode)."
@@ -7924,3 +8290,149 @@ components:
             - {type: string}
             - {type: array, items: {type: string}}
         operations_count: {type: integer}
+
+    SsoStatus:
+      type: object
+      required: [configured, enforce_sso, jit_provisioning, require_mfa, session_ttl_minutes, slots, subjects, sessions_total, sessions_active, last_login_at, sp_metadata_url]
+      properties:
+        configured: {type: boolean, description: At least one slot has a provider}
+        enforce_sso: {type: boolean}
+        jit_provisioning: {type: boolean}
+        require_mfa: {type: boolean}
+        session_ttl_minutes: {type: integer}
+        primary_entity_id: {type: string, nullable: true}
+        slots:
+          type: object
+          description: Per-slot configuration truth (SSO_SLOTS keys).
+          additionalProperties:
+            type: object
+            required: [provider, enabled, protocol, metadata_url]
+            properties:
+              provider: {type: string}
+              enabled: {type: boolean}
+              protocol: {type: string}
+              metadata_url: {type: string}
+        subjects: {type: integer, description: JIT-provisioned subjects so far}
+        sessions_total: {type: integer}
+        sessions_active: {type: integer}
+        last_login_at: {type: string, format: date-time, nullable: true, description: Newest unrevoked, unexpired session}
+        sp_metadata_url: {type: string, description: Absolute URL of the SAML SP metadata}
+
+    SsoSpMetadata:
+      type: object
+      required: [acs_url, login_urls, oidc_redirect_uris, saml_metadata_urls, protocol, name_id_format]
+      properties:
+        primary_entity_id: {type: string, nullable: true}
+        acs_url: {type: string, description: The SAML AssertionConsumerService URL}
+        login_urls:
+          type: object
+          description: Per-slot SAML login start URLs.
+          additionalProperties: {type: string}
+        oidc_redirect_uris:
+          type: object
+          description: Per-slot OIDC redirect URIs to register at the provider.
+          additionalProperties: {type: string}
+        saml_metadata_urls:
+          type: object
+          description: Per-slot URLs serving this SP's SAML metadata XML.
+          additionalProperties: {type: string}
+        protocol: {type: string}
+        name_id_format: {type: string}
+
+    SsoLogin:
+      type: object
+      description: A successful SAML/OIDC login - the session minted for a verified subject.
+      required: [session_id, token, token_prefix, subject, email, slot, protocol, mfa, expires_at, jit_provisioned, role, bound]
+      properties:
+        session_id: {type: integer}
+        token: {type: string, description: "Shown once: `vypam-sso1.<id>.<secret>` - sha256 at rest, never recoverable."}
+        token_prefix: {type: string}
+        subject: {type: string}
+        email: {type: string}
+        name: {type: string}
+        slot: {type: string, enum: [primary, secondary]}
+        protocol: {type: string, enum: [saml2, oidc]}
+        mfa: {type: boolean, description: The IdP asserted multi-factor (fail-closed check)}
+        expires_at: {type: string, format: date-time}
+        jit_provisioned: {type: boolean, description: This login created the subject (first login)}
+        role: {type: string, nullable: true, description: The role of the subject's `sso` binding, if any}
+        bound: {type: boolean, description: A live `sso` role binding exists for this subject}
+        note: {type: string, nullable: true, description: Honest hint when no binding exists - no binding, no admin access}
+
+    SsoSession:
+      type: object
+      required: [id, subject, email, slot, protocol, mfa, amr, token_prefix, expires_at, created_at]
+      properties:
+        id: {type: integer}
+        subject: {type: string}
+        email: {type: string}
+        slot: {type: string, enum: [primary, secondary]}
+        protocol: {type: string, enum: [saml2, oidc]}
+        mfa: {type: boolean}
+        amr: {type: array, items: {type: string}, description: Authentication methods the IdP asserted}
+        token_prefix: {type: string, description: "`vypam-sso1.<id>.` - the secret is never returned."}
+        last_used_at: {type: string, format: date-time, nullable: true}
+        expires_at: {type: string, format: date-time}
+        revoked_at: {type: string, format: date-time, nullable: true}
+        created_at: {type: string, format: date-time}
+
+    SsoSessionList:
+      type: object
+      required: [total, active, sessions]
+      properties:
+        total: {type: integer}
+        active: {type: integer}
+        sessions: {type: array, items: {$ref: "#/components/schemas/SsoSession"}}
+
+    HsmStatus:
+      type: object
+      required: [provider, mode, sealed, seal_reason, key_in_use, rotation_due, wrapped_key, wrap_error, last_health]
+      properties:
+        provider:
+          type: string
+          description: Configured provider ("" until one is chosen - honest, no pretend default).
+          enum: [aws-cloudhsm, azure-dedicated-hsm, gcp-cloud-hsm, hashicorp-vault, local-pkcs11, ""]
+        mode: {type: string, enum: [advisory, enforced]}
+        sealed: {type: boolean}
+        seal_reason: {type: string, description: Why the vault is sealed ("" while unsealed)}
+        key_label: {type: string, nullable: true}
+        cluster_id: {type: string, nullable: true}
+        region: {type: string, nullable: true}
+        fips_profile: {type: string, nullable: true}
+        key_rotation_hours: {type: integer}
+        seal_delay_seconds: {type: integer, nullable: true, description: Watchdog grace period before an unreachable provider seals}
+        wrapped_key:
+          type: object
+          nullable: true
+          description: The wrap record on disk - provider metadata only, never key material.
+          required: [provider, key_label, wrapped_at]
+          properties:
+            provider: {type: string}
+            key_label: {type: string}
+            wrapped_at: {type: string, format: date-time}
+        wrap_error: {type: string, nullable: true, description: Why no wrap record could be read}
+        rotation_due: {type: boolean}
+        key_in_use: {type: string, enum: [provider, file], description: "`provider` only when enforced AND unsealed - otherwise the file key is what really opens the vault."}
+        last_health:
+          type: object
+          additionalProperties: true
+          description: Last provider probe ({reachable, detail}).
+
+    HsmSealResult:
+      type: object
+      required: [sealed, mode]
+      properties:
+        sealed: {type: boolean}
+        reason: {type: string, description: Seal reason (seal responses only)}
+        mode: {type: string, enum: [advisory, enforced]}
+
+    HsmRotateResult:
+      type: object
+      required: [provider, mode, wrapped_at, key_changed, detail]
+      properties:
+        provider: {type: string, enum: [aws-cloudhsm, azure-dedicated-hsm, gcp-cloud-hsm, hashicorp-vault, local-pkcs11]}
+        mode: {type: string, enum: [advisory, enforced]}
+        key_label: {type: string, nullable: true}
+        wrapped_at: {type: string, format: date-time}
+        key_changed: {type: boolean, enum: [false], description: Always false - re-wrapping moves custody, never key material.}
+        detail: {type: string}

@@ -142,7 +142,9 @@ def verify(client):
 # ---------------------------------------------------------------------------
 # fan-in: every module trail reaches the one ledger
 # ---------------------------------------------------------------------------
-def test_every_module_trail_reaches_the_ledger(client):
+def test_every_module_trail_reaches_the_ledger(client, monkeypatch):
+    import sso as sso_module
+
     install(client)
     client.put("/api/v1/settings/zsp", json={"tier0_quorum_approvers": 3},
                headers=ACTOR)
@@ -212,12 +214,44 @@ def test_every_module_trail_reaches_the_ledger(client):
         headers=ACTOR,
     ).status_code == 201
 
+    # 6c: a real SSO login start (IdP metadata served from a stub - the
+    # login path is the same code a live IdP drives) puts `sso` on the
+    # ledger, and an operator seal puts `hsm`
+    metadata = (
+        '<?xml version="1.0"?>'
+        '<md:EntityDescriptor xmlns:md="urn:oasis:names:tc:SAML:2.0:metadata"'
+        ' entityID="https://idp.ledger.test">'
+        '<md:IDPSSODescriptor'
+        ' protocolSupportEnumeration="urn:oasis:names:tc:SAML:2.0:protocol">'
+        '<md:KeyDescriptor use="signing">'
+        '<ds:KeyInfo xmlns:ds="http://www.w3.org/2000/09/xmldsig#">'
+        '<ds:X509Data><ds:X509Certificate>QUJD</ds:X509Certificate>'
+        "</ds:X509Data></ds:KeyInfo></md:KeyDescriptor>"
+        '<md:SingleSignOnService'
+        ' Binding="urn:oasis:names:tc:SAML:2.0:bindings:HTTP-POST"'
+        ' Location="https://idp.ledger.test/sso"/>'
+        "</md:IDPSSODescriptor></md:EntityDescriptor>"
+    ).encode("utf-8")
+    monkeypatch.setattr(sso_module, "_http_get", lambda url: (200, metadata))
+    client.put(
+        "/api/v1/settings/sso",
+        json={"protocol": "saml2", "primary_provider": "okta",
+              "primary_metadata_url": "https://idp.ledger.test/metadata"},
+        headers=ACTOR,
+    )
+    login = client.get("/api/v1/auth/sso/saml/primary/login")
+    assert login.status_code == 302, login.get_data(as_text=True)
+    assert client.post("/api/v1/hsm/seal", json={}, headers=ACTOR).status_code == 200
+    # the seal flag is module state, not database state - leave the process
+    # unsealed so the rest of the suite runs on a clean vault
+    assert client.post("/api/v1/hsm/unseal", headers=ACTOR).status_code == 200
+
     state = stats(client)
     assert state["total"] >= 8
-    # one real record behind each of the seventeen sources, none fabricated
+    # one real record behind each of the nineteen sources, none fabricated
     assert all(count >= 1 for count in state["by_source"].values()), state
 
-    # the feed filter that works for the old four works for all seventeen
+    # the feed filter that works for the old four works for all nineteen
     for source in audit.AUDIT_SOURCES:
         page = client.get("/api/v1/events",
                           query_string={"source": source}).get_json()
@@ -625,8 +659,14 @@ def test_drift_guard_every_event_model_is_mirrored(client):
     sources = event_models - {AuditEvent}
     assert sources <= set(audit.MAPPERS)  # no event model left unaudited
     assert CommandIncident in audit.MAPPERS
-    assert set(audit.MAPPERS) <= sources | {CommandIncident}
-    assert len(audit.MAPPERS) == len(sources) + 1
+    # 6c: the SSO flow and session rows are lifecycle rows (not *Event
+    # tables) and still fold into the ledger under source `sso`
+    assert set(audit.MAPPERS) <= sources | {
+        CommandIncident,
+        models.SsoFlow,
+        models.SsoSession,
+    }
+    assert len(audit.MAPPERS) == len(sources) + 3
     # the sources the contract advertises match the mappers exactly
     mapped_sources = set(stats(client)["by_source"])
     assert mapped_sources == set(audit.AUDIT_SOURCES)

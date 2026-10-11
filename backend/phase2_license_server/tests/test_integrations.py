@@ -1265,9 +1265,11 @@ def test_integration_trail_reaches_the_ledger_and_the_feed(client):
     stats = client.get("/api/v1/audit/stats").get_json()
     assert "integration" in stats["by_source"]
     assert stats["by_source"]["integration"] >= 1
-    assert len(audit_module.AUDIT_SOURCES) == 17
-    assert audit_module.AUDIT_SOURCES[-2] == "cluster"
-    assert audit_module.AUDIT_SOURCES[-1] == "rbac"
+    assert len(audit_module.AUDIT_SOURCES) == 19
+    assert audit_module.AUDIT_SOURCES[-4] == "cluster"
+    assert audit_module.AUDIT_SOURCES[-3] == "rbac"
+    assert audit_module.AUDIT_SOURCES[-2] == "sso"
+    assert audit_module.AUDIT_SOURCES[-1] == "hsm"
 
     feed = client.get("/api/v1/events", query_string={"source": "integration"})
     assert feed.status_code == 200
