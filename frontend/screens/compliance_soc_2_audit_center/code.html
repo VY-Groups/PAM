@@ -812,7 +812,7 @@
         license: 'workspace_premium', settings: 'tune', vault: 'key',
         discovery: 'travel_explore', jit: 'bolt', session: 'present_to_all',
         command: 'gpp_maybe', risk: 'speed', 'break-glass': 'emergency_home',
-        integration: 'hub',
+        integration: 'hub', auth: 'shield_person',
       };
       const SOURCE_LABELS = {
         license: 'License audit trail', settings: 'Settings audit trail',
@@ -821,6 +821,7 @@
         command: 'Command audit trail', risk: 'Risk audit trail',
         'break-glass': 'Break-glass audit trail',
         integration: 'Integration audit trail',
+        auth: 'Identity & login audit trail',
       };
 
       // headline-xl spans: [overall posture, SOC-2 pass, evidence, next cycle]
@@ -927,7 +928,7 @@
       const SOURCES = ['all', 'license', 'settings', 'vault', 'discovery',
         'jit', 'session', 'command', 'risk', 'bypass', 'break-glass',
         'integration', 'vendor', 'cloud', 'broker', 'agent', 'cluster', 'rbac',
-        'sso', 'hsm'];
+        'sso', 'hsm', 'auth'];
       let activeSource = 'all';
       const filterWrap = document.createElement('div');
       filterWrap.className = 'flex flex-wrap gap-1.5 pb-1';

@@ -16,7 +16,7 @@ from flask import Flask, abort, jsonify, send_from_directory
 from sqlalchemy import text
 
 from config import REPO_ROOT, Config
-from errors import APIError
+from errors import APIError, ServiceUnavailable
 from extensions import db
 from keys import KeyConfigError, ensure_keys
 from licensing_bridge import sig
@@ -80,6 +80,39 @@ def create_app(config: Optional[Config] = None) -> Flask:
     db.init_app(app)
     app.register_blueprint(api)
     _register_error_handlers(app)
+
+    # phase 7: CSRF double-submit for cookie-authenticated mutations. A
+    # request that presents no bearer/header credential but carries the
+    # session cookie must send the X-CSRF-Token minted at login; header
+    # (machine) clients skip this because a bearer token is never an
+    # ambient credential.
+    @app.before_request
+    def enforce_cookie_csrf():
+        from flask import g, request
+
+        if request.method in ("GET", "HEAD", "OPTIONS"):
+            return None
+        if request.headers.get("Authorization") or request.headers.get("X-Admin-Token"):
+            return None
+        cookie = request.cookies.get("vypam_session")
+        if not cookie:
+            return None
+        import identity as identity_module
+
+        user, session = identity_module.verify_console_session(cookie)
+        g.console_session = session
+        g.console_user = user
+        g.auth_via = "cookie"
+        presented = request.headers.get("X-CSRF-Token", "")
+        if not identity_module.csrf_ok(session, presented):
+            from errors import Forbidden
+
+            raise Forbidden(
+                "CSRF token missing or invalid for a cookie-authenticated "
+                "mutation (send the csrf_token from login in X-CSRF-Token)",
+                {"reason": "csrf"},
+            )
+        return None
 
     @app.after_request
     def add_auth_mode_header(response):
@@ -185,6 +218,26 @@ def create_app(config: Optional[Config] = None) -> Flask:
         roles_seeded = ensure_rbac_seed()
         if roles_seeded:
             logger.info("RBAC: seeded %d built-in roles", roles_seeded)
+        # phase 7 (Addendum C): the sealed emergency admin, seeded once -
+        # its password is random + sealed and grants nothing until a
+        # dual-approved grant opens a window.
+        import identity as identity_module
+
+        try:
+            if identity_module.ensure_emergency_admin() is not None:
+                logger.info(
+                    "Identity: seeded the sealed emergency admin ('%s')",
+                    identity_module.EMERGENCY_USERNAME,
+                )
+        except ServiceUnavailable as exc:
+            # fail-closed for the seal, fail-open for the boot: sealing
+            # needs the vault key, and a node without one must still
+            # start (it refuses vault operations with an honest 503
+            # instead). The seed happens on the next boot, once the key
+            # exists.
+            logger.warning(
+                "Identity: emergency admin not seeded this boot - %s", exc
+            )
 
     # Optional real-clock rotation scheduler (ROTATION_SCHEDULER=1); off in
     # tests and dev unless explicitly enabled, never fabricated when quiet.

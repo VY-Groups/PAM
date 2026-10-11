@@ -1,6 +1,6 @@
 # VY-PAM — Deployment & Operations Runbook
 
-**Status:** as-built for Phase 6c
+**Status:** as-built for Phase 7
 Docker exists **only** for development and runtime testing (vendor tool +
 license server). The shipped product
 installs directly on a machine — no VM, no container.
@@ -118,7 +118,7 @@ across the restored history).
 → start. Schema changes are additive and applied at boot by
 `ensure_schema()`; the one-time chain backfill and rule seeding never repeat.
 Run the boundary suites before exposing it: `python -m pytest backend -q`
-(expect **664**) and `python -m pytest pam_master -q` (**46**).
+(expect **760**) and `python -m pytest pam_master -q` (**46**).
 
 ## 7. HA / DC / DR runbooks (§18)
 
@@ -268,9 +268,9 @@ curl -s -X POST $PAM/role-bindings \
 # -> {"id":1,"token":"vypam-rbac1.<id>.<secret>", ...}
 ```
 
-- `admin` 111 ops · `operator` 45 (day-2 work, never approvals) ·
-  `auditor` 21 (reads incl. evidence exports) · `auditor-read-only` 18
-  · `approver` 10 (decisions only) - approver ∩ operator = ∅ by design.
+- `admin` 127 ops · `operator` 45 (day-2 work, never approvals) ·
+  `auditor` 27 (reads incl. evidence exports) · `auditor-read-only` 24
+  · `approver` 12 (decisions only) - approver ∩ operator = ∅ by design.
 - optional ABAC `scope`: `{"targets":["db-prod-*"],
   "vault_items":[3,7]}` — fnmatch on session targets, explicit vault
   item ids; empty scope = the role governs everywhere. Out-of-scope →
@@ -368,3 +368,99 @@ curl -s -X POST $PAM/hsm/unseal    -H "X-Admin-Token: <admin token>"   # reload 
 - The custody trail lands on the §19 ledger under source `hsm`;
   posture `hsm_backed` passes only on enforced + a reachable provider
   (real health probe).
+
+## 14. Identity & login security operations (phase 7)
+
+**Users & console sessions** (the `auth` settings group holds policy —
+`mfa_required`, `lockout_threshold`/`lockout_minutes`,
+`rate_limit_per_account`/`rate_limit_per_ip`, `spray_threshold`,
+`progressive_delay`, `session_idle_minutes`, `stepup_ttl_minutes`,
+`emergency_window_minutes`):
+
+```bash
+# create a user - no password given => a generated one is shown ONCE
+curl -s -X POST $PAM/users -H "Content-Type: application/json" \
+  -H "X-Actor: runbook" -H "X-Admin-Token: <admin token>" \
+  -d '{"username":"alice"}'
+# -> {"user":{...,"must_change_password":true},"generated_password":"..."}
+
+# alice logs in; with mfa_required (default) and no factor yet she gets a
+# fail-closed 403 + a one-time enrolment ticket - never a session:
+#   {"status":"enrolment_required","enrol_ticket":"vypam-enr1.…"}
+curl -s -X POST $PAM/auth/mfa/enroll/totp \
+  -H "Content-Type: application/json" \
+  -d '{"enrol_ticket":"<from the 403>"}'          # -> secret shown ONCE
+curl -s -X POST $PAM/auth/mfa/enroll/totp/verify \
+  -H "Content-Type: application/json" \
+  -d '{"enrol_ticket":"<same ticket>","code":"<live TOTP>"}'
+# -> session_token vypam-ui1.… + csrf_token + HttpOnly vypam_session cookie
+```
+
+- A console session is **not** an admin token: mutations authenticated by
+  the cookie must send `X-CSRF-Token: <csrf_token>` (credential headers
+  skip CSRF by design); the admin token alone holds no console session.
+- Lockout doubles on further failures; unlock with
+  `POST /api/v1/users/<id>/unlock` — the password path stays MFA-fail-
+  closed after unlock. `POST /api/v1/auth/logout-all` revokes every
+  session but the caller's.
+- Actor is bound to the authenticated principal: for console sessions
+  `X-Actor` is ignored (what makes requester ≠ approver real).
+
+**E-mail OTP** (sealed `smtp` group — `enabled`/`host`/`port`/`username`/
+`password`/`from_address`/`use_tls`; SMS is settings+DLT only, a
+documented gap):
+
+```bash
+curl -s -X PUT $PAM/settings/smtp -H "Content-Type: application/json" \
+  -H "X-Actor: runbook" -H "X-Admin-Token: <admin token>" \
+  -d '{"enabled":true,"host":"smtp.example.com","port":587,"username":"pam@example.com",
+       "password":"<smtp password>","from_address":"pam@example.com","use_tls":true}'
+```
+
+- With SMTP unconfigured the OTP path **still creates a real challenge**
+  and records a *suppressed* delivery with the honest reason
+  (`GET /api/v1/auth/deliveries`, admin) — it never fakes a send and
+  never returns a code. Start answers identically for known and unknown
+  accounts (no enumeration).
+
+**SCIM lifecycle** (own bearer, rotated via the sealed `scim` group):
+
+```bash
+curl -s -X POST $PAM/settings/scim/rotate -H "X-Admin-Token: <admin token>"
+# -> {"token":"vypam-scim1.…"}   shown ONCE - configure it on the IdP now
+curl -s $PAM/scim/v2/Users -H "Authorization: Bearer <the scim token>"
+```
+
+- The IdP owns joiner/mover/leaver; SCIM users land in `users` with
+  `source=scim` and their logins answer the same uniform 401 as a wrong
+  password (true `scim-managed` reason only on the ledger). DELETE keeps
+  the row as evidence (`active=false`), never a hard erase. Local console
+  users stay invisible to the `/scim/v2/Users` surface.
+
+**RADIUS factor** (`radius` group: `enabled`, `host`, `port`, `secret`,
+`timeout_seconds`): point it at your RFC 2865 server, then a user enrols
+with `POST /api/v1/auth/mfa/enroll/radius` (session + CSRF). A factor
+whose server is unreachable **fails closed** (honest 503, recorded
+`auth.mfa.radius-unreachable`) — never a silent pass.
+
+**Sealed emergency admin** (`emergency-admin`): seeded at first boot with
+**no usable password** (sealed; the seeding runs under the vault key). If
+the vault key is absent at boot, seeding is skipped with a warning and
+the server still boots — the account simply doesn't exist yet; it is
+never created with an invented password. Opening it is dual-controlled:
+
+```bash
+curl -s $PAM/auth/emergency -H "X-Admin-Token: <admin token>"
+# -> {"username":"emergency-admin","grants":[...]}
+curl -s -X POST $PAM/auth/emergency/open -H "Content-Type: application/json" \
+  -H "X-Actor: alice" -H "X-Admin-Token: <admin token>" \
+  -d '{"reason":"dc fire drill","ticket":"CHG-1234"}'   # reason >= 8 chars
+# then two DISTINCT approvers (never the requester):
+curl -s -X POST $PAM/auth/emergency/grants/<id>/approve \
+  -H "X-Actor: bob" -H "X-Admin-Token: <admin token>" -d '{"decision":"approve"}'
+```
+
+- The window is time-boxed by `auth.emergency_window_minutes`; the login
+  (`POST /api/v1/auth/emergency/login`) still demands the sealed
+  password, is single-use, and rotates the seal after use. Every step
+  lands on the ledger under source `auth`.

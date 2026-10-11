@@ -1,6 +1,6 @@
 # VY-PAM — Testing & QA Strategy
 
-**Status:** as-built for Phase 6c
+**Status:** as-built for Phase 7
 Every number below was collected from the real suite at this commit.
 
 ---
@@ -9,7 +9,7 @@ Every number below was collected from the real suite at this commit.
 
 | Suite | File | Tests |
 |---|---|---|
-| **Backend total** | `python -m pytest backend -q` | **664** |
+| **Backend total** | `python -m pytest backend -q` | **760** |
 | ├ licensing core | `backend/ipam_licensing/test_license_core.py` | 46 |
 | ├ licensing spec | `backend/ipam_licensing/test_license_spec.py` | 35 |
 | ├ licensing bridge | `backend/ipam_licensing/test_licensing.py` | 1 |
@@ -36,6 +36,12 @@ Every number below was collected from the real suite at this commit.
 | ├ RBAC/ABAC (6b) | `…/tests/test_rbac.py` | 31 |
 | ├ SSO login (6c) | `…/tests/test_sso.py` | 37 |
 | ├ HSM custody (6c) | `…/tests/test_hsm.py` | 14 |
+| ├ identity & login (7) | `…/tests/test_identity.py` | 33 |
+| ├ MFA challenge (7) | `…/tests/test_mfa.py` | 11 |
+| ├ e-mail OTP (7) | `…/tests/test_otp.py` | 13 |
+| ├ WebAuthn (7) | `…/tests/test_webauthn.py` | 17 |
+| ├ RADIUS (7) | `…/tests/test_radius.py` | 13 |
+| ├ SCIM (7) | `…/tests/test_scim.py` | 9 |
 | └ OpenAPI contract | `…/tests/test_openapi_contract.py` | 9 |
 | **Vendor tool total** | `python -m pytest pam_master -q` | **46** |
 | ├ registry (encrypted PII) | `pam_master/tests/test_registry.py` | 15 |
@@ -44,12 +50,12 @@ Every number below was collected from the real suite at this commit.
 | └ vendor OpenAPI contract | `pam_master/tests/test_openapi_contract.py` | 6 |
 
 Contract test asserts (9): valid OpenAPI 3.1, documented ⇄ implemented
-routes both directions, security schemes on **111** admin operations, the
+routes both directions, security schemes on **127** admin operations, the
 documented admin set ⇄ runtime (`service.ADMIN_OPERATIONS` ∪ `whoami`),
 per-op role lists ⇄ `ROLE_OPERATIONS`, the `rbacToken`/`ldapTicket`
 schemes + `/auth/whoami` documenting every credential, enums ⇄ code
-constants, required `info`/tags (22), and live response shapes ⇄ schemas —
-currently **149 paths / 178 operations**.
+constants, required `info`/tags (23), and live response shapes ⇄ schemas —
+currently **192 paths / 229 operations**.
 
 ## 2. Test design rules
 
@@ -109,7 +115,7 @@ a fullPage path.
 ## 4. Boundary regression (run before every commit)
 
 ```powershell
-python -X utf8 -m pytest backend -q          # 664
+python -X utf8 -m pytest backend -q          # 760
 python -X utf8 -m pytest pam_master -q       # 46
 python -X utf8 -m pytest backend\phase2_license_server\tests\test_openapi_contract.py -q   # 9
 # boundary smoke (Temp\opencode\smoke_restructure.py): 17/17
@@ -167,6 +173,7 @@ Each pending phase adds a test file and grows the contract — **counts are
 | 6a §18 | `test_cluster.py` (36) | 15 cluster paths + the `Health` node-identity fields |
 | 6b | `test_rbac.py` (31) | 4 rbac paths + role scope lists on the 74 role-declaring admin ops + `rbacToken`/`ldapTicket` schemes |
 | 6c | `test_sso.py` (37), `test_hsm.py` (14) | 14 SSO/HSM paths + settings enforcement + posture evidence |
+| 7 | `test_identity.py` (33), `test_mfa.py` (11), `test_otp.py` (13), `test_webauthn.py` (17), `test_radius.py` (13), `test_scim.py` (9) | 41 identity paths / 49 ops + the `identity` tag + security schemes on the 16 new admin operations |
 
 Standing expectations for every future phase: the 4-way lockstep
 (routes ⇄ openapi ⇄ ADMIN ⇄ tests), mapper-coverage test keeps all event

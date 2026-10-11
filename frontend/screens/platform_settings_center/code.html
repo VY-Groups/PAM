@@ -573,6 +573,89 @@
 </div>
 </div>
 </section>
+<!-- SECTION 5B: Identity & Login Security (Addendum C - phase 7) -->
+<section class="bg-surface-container-lowest rounded-xl p-space-lg shadow-sm">
+<div class="flex flex-wrap items-start justify-between gap-space-sm pb-space-sm mb-space-md border-b border-surface-container">
+<div class="max-w-3xl">
+<div class="flex items-center gap-2">
+<span class="material-symbols-outlined text-primary text-[20px]">shield_person</span>
+<h2 class="font-headline-sm text-headline-sm text-on-surface">Identity &amp; Login Security (Addendum C)</h2>
+</div>
+<p class="font-body-sm text-body-sm text-on-surface-variant mt-1">Local login over memory-hard scrypt, server-side console sessions with CSRF double-submit, lockout + rate limits + progressive delay, the fail-closed MFA gate, and the email OTP / WebAuthn / RADIUS / SCIM surfaces. Every field renders live from <span class="font-code-sm text-code-sm">GET /api/v1/settings</span>; secrets (SMTP password, RADIUS shared secret) are sealed at rest and never leave the server.</p>
+</div>
+</div>
+<div class="grid grid-cols-1 xl:grid-cols-2 gap-space-md">
+<!-- Login security card (auth group) -->
+<div class="p-space-sm rounded-lg bg-surface-container-low border border-outline-variant/30 flex flex-col gap-space-sm">
+<div class="flex items-center justify-between gap-2">
+<h3 class="font-headline-sm text-[14px] text-on-surface font-semibold">Login security - lockout, limits, MFA gate</h3>
+<span class="font-code-sm text-code-sm text-on-surface-variant" data-group-meta="auth">loading...</span>
+</div>
+<p class="font-body-sm text-body-sm text-on-surface-variant">Per-account and per-IP refusal limits, spray-detection alerts, progressive delay, and the <span class="font-code-sm text-code-sm">mfa_required</span> gate that answers <span class="font-code-sm text-code-sm">mfa_required</span> instead of a silent pass when no factor is enrolled.</p>
+<div class="grid grid-cols-1 md:grid-cols-2 gap-space-sm" data-settings-group="auth"></div>
+</div>
+<!-- WebAuthn card -->
+<div class="p-space-sm rounded-lg bg-surface-container-low border border-outline-variant/30 flex flex-col gap-space-sm">
+<div class="flex items-center justify-between gap-2">
+<h3 class="font-headline-sm text-[14px] text-on-surface font-semibold">WebAuthn / FIDO2 - relying party</h3>
+<span class="font-code-sm text-code-sm text-on-surface-variant" data-group-meta="webauthn">loading...</span>
+</div>
+<p class="font-body-sm text-body-sm text-on-surface-variant">Attestation and assertion verified in-product (minimal CBOR, authData/clientData checks, ES256/RS256); registration options answer <span class="font-code-sm text-code-sm">202</span> whether or not a handle exists - never an existence oracle.</p>
+<div class="grid grid-cols-1 md:grid-cols-2 gap-space-sm" data-settings-group="webauthn"></div>
+</div>
+<!-- Email OTP card -->
+<div class="p-space-sm rounded-lg bg-surface-container-low border border-outline-variant/30 flex flex-col gap-space-sm">
+<div class="flex items-center justify-between gap-2">
+<h3 class="font-headline-sm text-[14px] text-on-surface font-semibold">Email OTP - sealed SMTP delivery</h3>
+<span class="font-code-sm text-code-sm text-on-surface-variant" data-group-meta="smtp">loading...</span>
+</div>
+<p class="font-body-sm text-body-sm text-on-surface-variant">CSPRNG codes HMAC-hashed at rest, 5-minute TTL, single use, attempt caps and resend cooldown; suppression (no send) is identical to success to callers. The SMTP password is sealed at rest.</p>
+<div class="grid grid-cols-1 md:grid-cols-2 gap-space-sm" data-settings-group="smtp"></div>
+</div>
+<!-- SMS card -->
+<div class="p-space-sm rounded-lg bg-surface-container-low border border-outline-variant/30 flex flex-col gap-space-sm">
+<div class="flex items-center justify-between gap-2">
+<h3 class="font-headline-sm text-[14px] text-on-surface font-semibold">SMS OTP - DLT-registered templates (India)</h3>
+<span class="font-code-sm text-code-sm text-on-surface-variant" data-group-meta="sms">loading...</span>
+</div>
+<p class="font-body-sm text-body-sm text-on-surface-variant">Sender id, DLT content template id and country. Honest gap: no SMS gateway is wired - delivery refuses as unconfigured and is never simulated.</p>
+<div class="grid grid-cols-1 md:grid-cols-2 gap-space-sm" data-settings-group="sms"></div>
+</div>
+<!-- RADIUS card -->
+<div class="p-space-sm rounded-lg bg-surface-container-low border border-outline-variant/30 flex flex-col gap-space-sm">
+<div class="flex items-center justify-between gap-2">
+<h3 class="font-headline-sm text-[14px] text-on-surface font-semibold">RADIUS - RFC 2865 push/OTP factor</h3>
+<span class="font-code-sm text-code-sm text-on-surface-variant" data-group-meta="radius">loading...</span>
+</div>
+<p class="font-body-sm text-body-sm text-on-surface-variant">A real Access-Request over UDP: the code travels masked as User-Password. Access-Accept passes, Access-Reject fails, a timeout or bad response authenticator is an honest <span class="font-code-sm text-code-sm">503</span> - never a pass. The shared secret is sealed at rest.</p>
+<div class="grid grid-cols-1 md:grid-cols-2 gap-space-sm" data-settings-group="radius"></div>
+</div>
+<!-- SCIM card -->
+<div class="p-space-sm rounded-lg bg-surface-container-low border border-outline-variant/30 flex flex-col gap-space-sm">
+<div class="flex items-center justify-between gap-2">
+<h3 class="font-headline-sm text-[14px] text-on-surface font-semibold">SCIM 2.0 - identity provider lifecycle</h3>
+<span class="font-code-sm text-code-sm text-on-surface-variant" data-group-meta="scim">loading...</span>
+</div>
+<p class="font-body-sm text-body-sm text-on-surface-variant">Joiner-mover-leaver on <span class="font-code-sm text-code-sm">/api/v1/scim/v2/Users</span> and <span class="font-code-sm text-code-sm">/Groups</span>; deactivation revokes every live console session in the same transaction and the row stays as evidence. The bearer token is shown once at rotation - only its sha256 is stored.</p>
+<div class="grid grid-cols-1 md:grid-cols-2 gap-space-sm" data-settings-group="scim"></div>
+</div>
+</div>
+<!-- Sealed emergency admin card -->
+<div class="mt-space-md p-space-sm rounded-lg bg-surface-container-low border border-outline-variant/30 flex flex-col gap-space-sm">
+<div class="flex items-center justify-between gap-2">
+<h3 class="font-headline-sm text-[14px] text-on-surface font-semibold">Offline emergency admin (sealed)</h3>
+<span class="font-code-sm text-code-sm text-on-surface-variant" id="emergencyState">loading...</span>
+</div>
+<p class="font-body-sm text-body-sm text-on-surface-variant">A dedicated local account for SSO outages: the password is random + sealed, the row grants nothing, and a window opens only through a dual-approved grant (two distinct approvers, never the requester) that is alerted on use and rotated after. Reads <span class="font-code-sm text-code-sm">GET /api/v1/auth/emergency</span>.</p>
+<div class="flex flex-wrap items-center gap-2">
+<button class="flex items-center gap-1.5 px-space-md py-2 rounded-lg bg-primary-container text-on-primary-container hover:bg-primary font-label-md text-label-md font-semibold shadow-sm disabled:opacity-50" id="btn-emergency-open" type="button" disabled>
+<span class="material-symbols-outlined text-[16px]">emergency_home</span>
+<span>Request Open Grant</span>
+</button>
+<span class="font-code-sm text-code-sm text-on-surface-variant" id="emergencyGrants">&mdash;</span>
+</div>
+</div>
+</section>
 <!-- SECTION 6: HA / DC / DR (architecture section 18) -->
 <section class="bg-surface-container-lowest rounded-xl p-space-lg shadow-sm" data-role="cluster-section">
 <div class="flex flex-wrap items-start justify-between gap-space-sm pb-space-sm mb-space-md border-b border-surface-container">
@@ -724,7 +807,7 @@
 <select class="px-3 py-2 rounded bg-surface-container-lowest text-on-surface font-body-sm text-body-sm focus:outline-none focus:ring-1 focus:ring-primary-container" data-role="rbac-input-role"><option value="operator">operator</option><option value="approver">approver</option><option value="auditor">auditor</option><option value="auditor-read-only">auditor-read-only</option><option value="admin">admin</option></select>
 </label>
 <label class="flex flex-col gap-1 font-headline-sm text-[13px] text-on-surface font-medium">Kind
-<select class="px-3 py-2 rounded bg-surface-container-lowest text-on-surface font-body-sm text-body-sm focus:outline-none focus:ring-1 focus:ring-primary-container" data-role="rbac-input-kind"><option value="local">local (mint a token)</option><option value="ldap">ldap (directory username)</option><option value="sso">sso (SSO subject)</option></select>
+<select class="px-3 py-2 rounded bg-surface-container-lowest text-on-surface font-body-sm text-body-sm focus:outline-none focus:ring-1 focus:ring-primary-container" data-role="rbac-input-kind"><option value="local">local (mint a token)</option><option value="ldap">ldap (directory username)</option><option value="sso">sso (SSO subject)</option><option value="user">user (local console user)</option></select>
 </label>
 <label class="flex flex-col grow min-w-[180px] gap-1 font-headline-sm text-[13px] text-on-surface font-medium">Scope: targets (optional)
 <input class="px-3 py-2 rounded bg-surface-container-lowest text-on-surface font-body-sm text-body-sm focus:outline-none focus:ring-1 focus:ring-primary-container" data-role="rbac-input-targets" placeholder="web-*, bastion-1" type="text"/>
@@ -1204,6 +1287,62 @@
     }
   }
 
+  /* ---------------------------------- sealed emergency admin (phase 7) --- */
+  async function loadEmergency() {
+    var stateEl = document.getElementById('emergencyState');
+    var grantsEl = document.getElementById('emergencyGrants');
+    var openBtn = document.getElementById('btn-emergency-open');
+    try {
+      var res = await fetch(API + 'auth/emergency', { headers: headers(false) });
+      if (!res.ok) throw new Error('HTTP ' + res.status);
+      var data = await res.json();
+      var grants = data.grants || [];
+      var pending = grants.filter(function (g) { return g.status === 'pending'; });
+      var open = grants.filter(function (g) { return g.status === 'open'; });
+      if (stateEl) {
+        stateEl.textContent = open.length
+          ? 'window OPEN - ' + data.username + ' usable until the grant expires'
+          : pending.length
+            ? 'sealed - grant ' + pending[0].id + ' awaits two approvals'
+            : 'sealed - ' + data.username + ' grants nothing';
+      }
+      if (grantsEl) {
+        grantsEl.textContent = grants.length
+          ? grants.length + ' grant(s) on record'
+          : 'no grants on record';
+      }
+      if (openBtn) openBtn.disabled = pending.length > 0 || open.length > 0;
+    } catch (err) {
+      if (stateEl) stateEl.textContent = 'unreachable';
+      console.info('Emergency status unreachable - card stays honest.', err);
+    }
+    if (openBtn && !openBtn.__bound) {
+      openBtn.__bound = true;
+      openBtn.addEventListener('click', requestEmergencyOpen);
+    }
+  }
+
+  async function requestEmergencyOpen() {
+    var reason = window.prompt(
+      'Reason for opening the emergency admin (at least 8 characters):');
+    if (reason === null) return;
+    var stateEl = document.getElementById('emergencyState');
+    try {
+      var res = await fetch(API + 'auth/emergency/open', {
+        method: 'POST', headers: headers(true),
+        body: JSON.stringify({ reason: reason }),
+      });
+      var body = await res.json().catch(function () { return {}; });
+      if (!res.ok) throw new Error(body.error || ('HTTP ' + res.status));
+      await loadEmergency();
+    } catch (err) {
+      // the honest refusal (short reason, pending grant, step-up needed...)
+      if (stateEl) {
+        stateEl.textContent = 'request refused: ' + err.message;
+      }
+    }
+  }
+
   /* --------------------------------------------- sso + hsm runtime (6c) */
   async function loadSsoHsm() {
     try {
@@ -1595,6 +1734,7 @@
     await health();
     await loadAudit();
     await loadIntegrations();
+    await loadEmergency();
     await loadSsoHsm();
     await loadCluster();
     await loadRbac();

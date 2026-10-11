@@ -1,6 +1,6 @@
 # VY-PAM — Backend Schema
 
-**Status:** as-built for Phase 6c
+**Status:** as-built for Phase 7
 Two databases: the **shipped runtime DB** (`backend/phase2_license_server/
 licenses.db`, SQLAlchemy/Flask-SQLAlchemy) and the **vendor-tool DB**
 (`pam_master/master.db`, raw `sqlite3`). Both are SQLite, both git-ignored.
@@ -11,7 +11,7 @@ external migration tool.
 
 ---
 
-## 1. Shipped runtime - 51 tables
+## 1. Shipped runtime - 67 tables
 
 ### ERD (logical)
 
@@ -52,6 +52,19 @@ sso_flows                                 (one outstanding SAML AuthnRequest id 
 sso_subjects ─1:n─ sso_sessions           (JIT subject directory (slot, subject unique) ← subject_id; existence only - privilege comes from a role binding)
 sso_sessions                              (server-side sessions minted at login; `vypam-sso1.` bearer sha256 at rest → ledger source `sso`)
 hsm_key_events                            (wrap/unwrap/health/seal/unseal/rotate custody trail → ledger source `hsm`)
+users ─1:n─ console_sessions             (user_id → users; `vypam-ui1.` bearer + csrf both sha256 at rest; revoke = timestamp, row kept as evidence)
+users ─1:n─ mfa_factors                   (user_id → users; kind totp/webauthn/email/radius; `last_step` blocks a reused TOTP time step)
+users ─1:n─ login_challenges              (user_id → users; the two-step `vypam-mfa1` / `vypam-enr1` tickets, single-use + TTL → fail-closed MFA)
+users ─1:n─ mfa_backup_codes              (user_id → users; hashed, single-use, replay refused)
+users ─1:n─ auth_otps ─1:n─ smtp_deliveries (challenge bound to an HMAC-hashed code, attempt-capped, TTL'd; delivery measured - never a code)
+users ─1:n─ auth_devices                  (user_id → users; RADIUS device bindings, hashed)
+users ─1:n─ webauthn_credentials          (user_id → users; public key + sign_count for clone detection)
+users ─1:n─ webauthn_challenges           (user_id → users; single-use register/authenticate options - 202 for known and unknown handles)
+users ─1:n─ factor_recovery_requests ─1:n─ factor_recovery_approvals (request_id → factor_recovery_requests; dual control, never the requester)
+users                                     (source=scim joiners land here from the IdP; source=emergency is the sealed break-glass admin)
+emergency_grants ─1:n─ emergency_approvals (grant_id → emergency_grants; dual control, time-boxed window, single use → ledger source `auth`)
+scim_groups                               (IdP group directory; SCIM bearer is the sealed `scim.token_sha256` settings field)
+auth_events                               (identity actions → ledger source `auth`; the true reason lives here, never in the reply)
 audit_events                                    (hash chain over all of the above)
 ```
 
@@ -626,7 +639,7 @@ DateTime indexed.
 | description | String(255) | ✗ | `''` | what the role may call, in plain words |
 | created_at | DateTime | ✗ | now | |
 
-The per-operation policy - which of the 111 admin operations each role
+The per-operation policy - which of the 127 admin operations each role
 may call - is code, not data: `service.ROLE_OPERATIONS` derives it from
 `service.ADMIN_OPERATIONS` (the single source the contract test pins).
 
@@ -734,6 +747,238 @@ Folded into the §19 ledger by `_map_hsm` under the nineteenth source
 `_map_sso_session`). The audit drift guard keeps it honest: the model is
 an `*Event` table, so it must join the chain.
 
+### 1.52 `users` — local + SCIM + emergency identities (Phase 7)
+
+| Column | Type | Null | Default | Index/Notes |
+|---|---|---|---|---|
+| id | INTEGER PK | ✗ | | |
+| username | String(64) | ✗ | | unique, indexed |
+| email | String(255) | ✗ | `''` | |
+| display_name | String(128) | ✗ | `''` | |
+| password_hash | String(255) | ✗ | | scrypt (N=2**14) — the sealed emergency admin holds no usable hash |
+| source | String(16) | ✗ | `local` | `local` / `scim` / `emergency` |
+| is_active | Boolean | ✗ | True | deactivation revokes live sessions |
+| is_emergency | Boolean | ✗ | False | the dedicated sealed break-glass login |
+| must_change_password | Boolean | ✗ | False | generated passwords force a change |
+| failed_logins | Integer | ✗ | 0 | |
+| lockout_streak | Integer | ✗ | 0 | doubling backoff |
+| locked_until | DateTime | ✗ | None | nullable |
+| last_login_at | DateTime | ✗ | None | nullable |
+| password_changed_at | DateTime | ✗ | None | nullable |
+| created_at | DateTime | ✗ | now | indexed |
+| created_by | String(64) | ✗ | `system` | |
+
+SCIM-managed users (`source=scim`) answer the same uniform login 401 as a
+wrong password; the true `scim-managed` reason is recorded only on the
+ledger, never in the reply.
+
+### 1.53 `console_sessions` — server-side sessions (Phase 7)
+
+| Column | Type | Null | Default | Index/Notes |
+|---|---|---|---|---|
+| id | INTEGER PK | ✗ | | |
+| user_id | INTEGER FK→users | ✗ | | indexed |
+| token_sha256 | String(64) | ✗ | | the `vypam-ui1.…` bearer, sha256 at rest (never plaintext) |
+| token_prefix | String(40) | ✗ | `''` | shown in listings |
+| csrf_sha256 | String(64) | ✗ | | double-submit secret |
+| mfa_at | DateTime | ✗ | None | last successful step-up (drives `stepup_ttl_minutes`) |
+| mfa_methods | JSON | ✗ | `[]` | |
+| is_emergency | Boolean | ✗ | False | |
+| source_ip | String(64) | ✗ | `''` | |
+| user_agent | String(255) | ✗ | `''` | |
+| last_seen_at | DateTime | ✗ | None | idle clock |
+| idle_expires_at | DateTime | ✗ | now | indexed |
+| absolute_expires_at | DateTime | ✗ | now | indexed |
+| revoked_at | DateTime | ✗ | None | nullable |
+| revoked_reason | String(64) | ✗ | `''` | |
+| created_at | DateTime | ✗ | now | indexed |
+
+### 1.54 `mfa_factors` — enrolled factors per user (Phase 7)
+
+| Column | Type | Null | Default | Index/Notes |
+|---|---|---|---|---|
+| id | INTEGER PK | ✗ | | |
+| user_id | INTEGER FK→users | ✗ | | indexed |
+| kind | String(16) | ✗ | | `totp` / `webauthn` / `email` / `radius` |
+| name | String(64) | ✗ | `''` | |
+| secret_sealed | JSON | ✗ | None | sealed secret material; never returned after enrol |
+| last_step | Integer | ✗ | 0 | TOTP replay guard — reject a reused time step |
+| active | Boolean | ✗ | True | |
+| created_at | DateTime | ✗ | now | indexed |
+| last_used_at | DateTime | ✗ | None | nullable |
+
+### 1.55 `login_challenges` — the two-step `vypam-mfa1` / `vypam-enr1` tickets (Phase 7)
+
+| Column | Type | Null | Default | Index/Notes |
+|---|---|---|---|---|
+| id | String(64) PK | ✗ | | the challenge / enrolment-ticket id |
+| user_id | INTEGER FK→users | ✗ | | indexed |
+| kind | String(16) | ✗ | `mfa` | `mfa` / `enrolment` |
+| secret_sha256 | String(64) | ✗ | `''` | |
+| expires_at | DateTime | ✗ | | indexed (300 s TTL) |
+| consumed_at | DateTime | ✗ | None | single-use — a spent challenge 401s |
+| created_at | DateTime | ✗ | now | |
+
+### 1.56 `mfa_backup_codes` — hashed single-use codes (Phase 7)
+
+| Column | Type | Null | Default | Index/Notes |
+|---|---|---|---|---|
+| id | INTEGER PK | ✗ | | |
+| user_id | INTEGER FK→users | ✗ | | indexed |
+| code_hash | String(64) | ✗ | | sha256 of the code |
+| used_at | DateTime | ✗ | None | nullable — replay refused |
+| created_at | DateTime | ✗ | now | |
+
+### 1.57 `auth_otps` — e-mail OTP challenges (Phase 7)
+
+| Column | Type | Null | Default | Index/Notes |
+|---|---|---|---|---|
+| id | INTEGER PK | ✗ | | |
+| challenge_id | String(64) | ✗ | | binds the code to its challenge |
+| user_id | INTEGER FK→users | ✗ | None | nullable (unknown username still gets a challenge — no enumeration) |
+| username | String(64) | ✗ | `''` | |
+| purpose | String(16) | ✗ | `login` | |
+| code_hmac | String(64) | ✗ | | HMAC-hashed — never the code itself |
+| attempts | Integer | ✗ | 0 | |
+| max_attempts | Integer | ✗ | 5 | attempt cap locks the challenge |
+| delivery_id | INTEGER FK→smtp_deliveries | ✗ | None | nullable |
+| expires_at | DateTime | ✗ | | indexed (~5 min TTL) |
+| consumed_at | DateTime | ✗ | None | single-use |
+| created_at | DateTime | ✗ | now | |
+
+### 1.58 `smtp_deliveries` — measured delivery, never a code (Phase 7)
+
+| Column | Type | Null | Default | Index/Notes |
+|---|---|---|---|---|
+| id | INTEGER PK | ✗ | | |
+| purpose | String(16) | ✗ | `otp` | |
+| recipient_masked | String(255) | ✗ | `''` | masked address |
+| status | String(16) | ✗ | `queued` | `queued` / `sent` / `suppressed` / `failed` |
+| attempts | Integer | ✗ | 0 | |
+| last_error | String(255) | ✗ | `''` | the honest reason (e.g. "not configured") |
+| sent_at | DateTime | ✗ | None | nullable |
+| created_at | DateTime | ✗ | now | indexed |
+
+### 1.59 `auth_devices` — RADIUS device bindings (Phase 7)
+
+| Column | Type | Null | Default | Index/Notes |
+|---|---|---|---|---|
+| id | INTEGER PK | ✗ | | |
+| user_id | INTEGER FK→users | ✗ | | indexed |
+| device_sha256 | String(64) | ✗ | | |
+| device_prefix | String(40) | ✗ | `''` | |
+| expires_at | DateTime | ✗ | | indexed |
+| last_used_at | DateTime | ✗ | None | nullable |
+| revoked_at | DateTime | ✗ | None | nullable |
+| created_at | DateTime | ✗ | now | |
+
+### 1.60 `auth_events` — identity module action log (Phase 7, ledger source `auth`)
+
+| Column | Type | Null | Default | Index/Notes |
+|---|---|---|---|---|
+| id | INTEGER PK | ✗ | | |
+| action | String(64) | ✗ | | e.g. `auth.login.failed`, `auth.mfa.enrolled`, `auth.emergency.opened`, `otp-suppressed` |
+| actor | String(64) | ✗ | `system` | |
+| subject | String(128) | ✗ | `''` | indexed |
+| detail | JSON | ✗ | `{}` | the true reason — never a secret, token, or code |
+| created_at | DateTime | ✗ | now | indexed |
+
+Folded into the §19 ledger under the **twentieth** source `auth` by the
+identity/mfa/otp/radius/scim/webauthn modules. The audit drift guard
+keeps it honest: it is an `*Event` table, so it must join the chain.
+
+### 1.61 `webauthn_credentials` — registered authenticators (Phase 7)
+
+| Column | Type | Null | Default | Index/Notes |
+|---|---|---|---|---|
+| id | INTEGER PK | ✗ | | |
+| user_id | INTEGER FK→users | ✗ | | indexed |
+| credential_id | String(255) | ✗ | | unique |
+| public_key_b64 | String(512) | ✗ | | |
+| sign_count | Integer | ✗ | 0 | clone detection |
+| name | String(64) | ✗ | `''` | |
+| transports | JSON | ✗ | `[]` | |
+| created_at | DateTime | ✗ | now | indexed |
+| last_used_at | DateTime | ✗ | None | nullable |
+
+### 1.62 `webauthn_challenges` — single-use options (Phase 7)
+
+| Column | Type | Null | Default | Index/Notes |
+|---|---|---|---|---|
+| id | String(64) PK | ✗ | | |
+| user_id | INTEGER FK→users | ✗ | | indexed |
+| purpose | String(16) | ✗ | `register` | `register` / `authenticate` |
+| challenge | String(128) | ✗ | | |
+| expires_at | DateTime | ✗ | | indexed |
+| consumed_at | DateTime | ✗ | None | single-use |
+| created_at | DateTime | ✗ | now | |
+
+### 1.63 `emergency_grants` — sealed-admin open requests (Phase 7)
+
+| Column | Type | Null | Default | Index/Notes |
+|---|---|---|---|---|
+| id | INTEGER PK | ✗ | | |
+| status | String(16) | ✗ | `pending` | `pending` / `open` / `denied` / `used` / `expired` |
+| requested_by | String(64) | ✗ | `''` | |
+| reason | String(255) | ✗ | `''` | ≥ 8 chars enforced |
+| ticket | String(64) | ✗ | `''` | |
+| opened_at | DateTime | ✗ | None | nullable |
+| expires_at | DateTime | ✗ | None | nullable (`auth.emergency_window_minutes`) |
+| used_at | DateTime | ✗ | None | single-use once the sealed password is spent |
+| rotated_at | DateTime | ✗ | None | nullable |
+| created_at | DateTime | ✗ | now | indexed |
+
+### 1.64 `emergency_approvals` — append-only dual-control signatures (Phase 7)
+
+| Column | Type | Null | Default | Index/Notes |
+|---|---|---|---|---|
+| id | INTEGER PK | ✗ | | |
+| grant_id | INTEGER FK→emergency_grants | ✗ | | indexed |
+| approver | String(64) | ✗ | | never the requester (403 verbatim) |
+| decision | String(16) | ✗ | | `approve` / `deny` |
+| note | String(255) | ✗ | `''` | |
+| created_at | DateTime | ✗ | now | |
+
+### 1.65 `factor_recovery_requests` — lost-every-factor recovery (Phase 7)
+
+| Column | Type | Null | Default | Index/Notes |
+|---|---|---|---|---|
+| id | INTEGER PK | ✗ | | |
+| user_id | INTEGER FK→users | ✗ | | indexed |
+| status | String(16) | ✗ | `pending` | `pending` / `approved` / `denied` |
+| reason | String(255) | ✗ | `''` | |
+| resolved_at | DateTime | ✗ | None | nullable |
+| created_at | DateTime | ✗ | now | |
+
+### 1.66 `factor_recovery_approvals` — dual-control signatures (Phase 7)
+
+| Column | Type | Null | Default | Index/Notes |
+|---|---|---|---|---|
+| id | INTEGER PK | ✗ | | |
+| request_id | INTEGER FK→factor_recovery_requests | ✗ | | indexed |
+| approver | String(64) | ✗ | | never the requester |
+| decision | String(16) | ✗ | | `approve` / `deny` |
+| note | String(255) | ✗ | `''` | |
+| created_at | DateTime | ✗ | now | |
+
+### 1.67 `scim_groups` — IdP group directory (Phase 7)
+
+| Column | Type | Null | Default | Index/Notes |
+|---|---|---|---|---|
+| id | INTEGER PK | ✗ | | |
+| scim_id | String(64) | ✗ | | unique |
+| display_name | String(128) | ✗ | | |
+| members | JSON | ✗ | `[]` | |
+| active | Boolean | ✗ | True | |
+| created_at | DateTime | ✗ | now | |
+| updated_at | DateTime | ✗ | None | nullable |
+
+SCIM users are not a separate table — a joiner's User lands in §1.52
+`users` with `source=scim` (the IdP owns lifecycle; local console users
+stay invisible to the `/scim/v2/Users` surface). The SCIM bearer itself is
+the sealed `scim.token_sha256` settings field, minted once via
+`POST /settings/scim/rotate`.
+
 ## 2. Vendor tool - `pam_master/master.db` (4 tables)
 
 Raw SQL (`pam_master/db.py`), `PRAGMA foreign_keys = ON`, ISO-8601 TEXT
@@ -805,7 +1050,7 @@ column sets land with the code + contract commit; counts are `—` until then.
 
 | Phase | Tables | Notes |
 |---|---|---|
-| — | none pending | 6c landed (`sso_flows` / `sso_subjects` / `sso_sessions` / `hsm_key_events`, §1.48–1.51); the next phase's tables are recorded here when it starts |
+| — | none pending | 7 landed (`users` … `scim_groups`, §1.52–1.67); the next phase's tables are recorded here when it starts |
 
 All planned tables follow the standing rules: additive `ensure_schema()`,
 ledger emission in the same transaction, application-enforced references

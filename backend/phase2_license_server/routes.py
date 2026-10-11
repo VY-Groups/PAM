@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import fnmatch
+import hashlib
 import hmac
 import json
 import re
@@ -11,11 +12,20 @@ from typing import Any, Dict, Optional
 from flask import Blueprint, Response, current_app, g, jsonify, redirect, request
 
 import hsm
+import identity
+import mfa
+import otp
+import radius_client
+import scim
 import service
 import sso
+import webauthn
 from config import Config
-from errors import Conflict, Forbidden, Unauthorized, ValidationFailed
+from datetime import datetime
+from errors import Conflict, Forbidden, NotFound, ServiceUnavailable, Unauthorized, ValidationFailed
+from extensions import db
 from licensing_bridge import sig
+from models import ConsoleSession, LoginChallenge
 
 api = Blueprint("api", __name__, url_prefix="/api/v1")
 
@@ -120,21 +130,32 @@ def _operation_rule() -> str:
 
 def _presented_credential() -> str:
     """The token this request presents as its admin-side credential: the
-    X-Admin-Token header, or the Authorization bearer value when present."""
+    X-Admin-Token header, or the Authorization bearer value when present,
+    else the session cookie (browser clients - the same value, so the
+    identity machinery sees one shape)."""
     token = request.headers.get("X-Admin-Token")
     auth_header = request.headers.get("Authorization", "")
     if auth_header.lower().startswith("bearer "):
         token = auth_header[7:].strip()
+    if not token:
+        token = request.cookies.get("vypam_session") or ""
     return (token or "").strip()
 
 
 def _unbound_principal_error(principal: Dict[str, Any]) -> Forbidden:
     """The honest refusal for an authenticated identity with no role
-    binding - the directory rule, now shared with SSO subjects."""
+    binding - the directory rule, now shared with SSO subjects and console
+    users."""
     if principal.get("kind") == "sso":
         return Forbidden(
             f"SSO identity '{principal['principal']}' has no role binding - "
             "an admin must grant one (POST /api/v1/role-bindings, kind `sso`)",
+            {"principal": principal["principal"], "role_required": True},
+        )
+    if principal.get("kind") == "user":
+        return Forbidden(
+            f"Console user '{principal['principal']}' has no role binding - "
+            "an admin must grant one (POST /api/v1/role-bindings, kind `user`)",
             {"principal": principal["principal"], "role_required": True},
         )
     return Forbidden(
@@ -483,11 +504,16 @@ def put_platform_settings(group: str):
 def _actor(default: str = "admin") -> str:
     """Who is acting: a bound principal's own name (its credential is the
     identity - X-Actor is not consulted, as for pipeline and agent tokens),
-    else the X-Actor header, else the configured default. The admin token
-    keeps the X-Actor convention."""
+    else a live console session's username (a session is an identity too,
+    not an ambient header), else the X-Actor header, else the configured
+    default. The admin token keeps the X-Actor convention."""
     principal = getattr(g, "rbac_principal", None)
     if principal is not None and principal.get("kind") != "admin-token":
         return str(principal.get("principal") or default)[:64] or default
+    if principal is None:
+        console_user = getattr(g, "console_user", None)
+        if console_user is not None:
+            return str(getattr(console_user, "username", "") or default)[:64] or default
     return (request.headers.get("X-Actor") or default).strip()[:64] or default
 
 
@@ -872,6 +898,7 @@ def revoke_vault_checkout(item_id: int):
 def reveal_vault_secret(item_id: int):
     """Decrypt and return the current secret version (admin-only reveal);
     the reveal itself is an audited ledger event."""
+    _stepup_if_human()
     _require_scope(item_id=item_id)
     return jsonify(service.reveal_vault_secret(item_id, actor=_actor()))
 
@@ -965,6 +992,7 @@ def get_jit_request(request_id: int):
 @require_admin
 def approve_jit_request(request_id: int):
     """Record a manager/security approval (403 for self-approval)."""
+    _stepup_if_human()
     item = service.approve_jit_request(
         request_id, actor=_actor(), payload=_json_body()
     )
@@ -1662,6 +1690,7 @@ def bypass_stats():
 def create_break_glass_request():
     """File one emergency request: reason + severity + target, awaiting two
     distinct approvals before any credential is released."""
+    _stepup_if_human()
     req = service.create_break_glass_request(_json_body(), actor=_actor())
     return (
         jsonify(
@@ -1705,6 +1734,7 @@ def get_break_glass_request(request_id: int):
 @require_admin
 def approve_break_glass_request(request_id: int):
     """Record one approval signature (1/2, then 2/2 flips to approved)."""
+    _stepup_if_human()
     view = service.approve_break_glass_request(
         request_id, actor=_actor(), payload=_json_body(required=False)
     )
@@ -1739,6 +1769,7 @@ def deny_break_glass_request(request_id: int):
 def open_break_glass_request(request_id: int):
     """Release the emergency credential through the real vault checkout and
     start the mandatory recorded session (record=true forced)."""
+    _stepup_if_human()
     result = service.open_break_glass_request(
         request_id, actor=_actor(), payload=_json_body(required=False)
     )
@@ -2748,3 +2779,943 @@ def delete_role_binding_route(binding_id: int):
     directory binding stops counting; the row stays as evidence."""
     binding = service.revoke_role_binding(binding_id, actor=_actor())
     return jsonify({"binding": binding, "message": "Role binding revoked"})
+
+
+# ---------------------------------------------------------------------------
+# real identity & login security (phase 7, Addendum C)
+# ---------------------------------------------------------------------------
+SESSION_COOKIE = "vypam_session"
+
+
+def _cookie_for_session(session) -> Response:
+    """Attach the HttpOnly/SameSite session cookie to a JSON response (the
+    bearer twin is in the body, shown once, for API clients)."""
+    response = jsonify(session)
+    response.set_cookie(
+        SESSION_COOKIE,
+        f"{session['session_token']}",
+        httponly=True,
+        samesite="Lax",
+        secure=bool(request.is_secure),
+        path="/",
+    )
+    return response
+
+
+def require_console(view):
+    """The route needs a live console session (own-actions surface; role
+    bindings decide the admin surface, not this decorator)."""
+
+    @wraps(view)
+    def wrapped(*args, **kwargs):
+        session = getattr(g, "console_session", None)
+        if session is None:
+            user, session = identity.verify_console_session(_presented_credential())
+            g.console_session = session
+            g.console_user = user
+        return view(*args, **kwargs)
+
+    return wrapped
+
+
+def _stepup_if_human() -> None:
+    """Sensitive actions demand a fresh MFA assertion from a human console
+    session (reveal, break-glass, critical approval, emergency, factor
+    changes). Machine credentials assert per-request and are not human
+    sessions, so they pass - the honest scope of a step-up control."""
+    session = getattr(g, "console_session", None)
+    if session is not None and identity.stepup_stale(session):
+        raise Forbidden(
+            "Step-up MFA required for this action "
+            f"(POST /api/v1/auth/mfa/stepup within {identity.auth_settings()['stepup_ttl_minutes']} min)",
+            {"reason": "stepup_required"},
+        )
+
+
+def _split_prefixed(presented: str, prefix: str) -> Optional[Any]:
+    """`<prefix>.<id>.<secret>` -> (id, secret), else None."""
+    if not isinstance(presented, str) or not presented.startswith(prefix + "."):
+        return None
+    body = presented[len(prefix) + 1 :]
+    id_part, dot, secret = body.partition(".")
+    if not dot or not id_part or not secret:
+        return None
+    return id_part, secret
+
+
+def _consume_enrol_ticket(body: Dict[str, Any], *, consume: bool) -> Any:
+    """Validate (and optionally consume) the forced-enrolment ticket
+    `vypam-enr1.<id>.<secret>`; returns the user on success. Without a
+    ticket a live console session stands in (re-enrolment/rotation from
+    the signed-in account - the step-up guard runs in each route first)."""
+    ticket = body.get("enrol_ticket") or request.headers.get("X-Enrol-Ticket") or ""
+    parts = _split_prefixed(str(ticket), identity.ENROL_TICKET_PREFIX)
+    if parts is None:
+        user = getattr(g, "console_user", None)
+        if user is None:
+            credential = _presented_credential()
+            if credential:
+                try:
+                    user, session = identity.verify_console_session(credential)
+                    g.console_session = session
+                    g.console_user = user
+                except Unauthorized:
+                    user = None
+        if user is not None:
+            return user
+        raise Unauthorized("An enrol ticket is required (from POST /api/v1/auth/login)")
+    challenge_id, secret = parts
+    if consume:
+        user, _challenge = identity.consume_challenge(
+            challenge_id, secret, kind="enrol"
+        )
+        return user
+    import hashlib as _hashlib
+    import hmac as _hmac
+
+    challenge = db.session.get(LoginChallenge, str(challenge_id or ""))
+    if (
+        challenge is None
+        or challenge.kind != "enrol"
+        or challenge.consumed_at is not None
+        or challenge.expires_at <= datetime.now()
+        or not _hmac.compare_digest(
+            _hashlib.sha256(secret.encode("utf-8")).hexdigest(),
+            challenge.secret_sha256 or "",
+        )
+    ):
+        raise Unauthorized("Enrol ticket invalid or expired")
+    return db.session.get(identity.User, challenge.user_id)
+
+
+def db_get_login_challenge(challenge_id: str):
+    return db.session.get(LoginChallenge, str(challenge_id or ""))
+
+
+def _minted(result: Dict[str, Any]) -> Response:
+    """The login/step-up success response: HttpOnly cookie + the bearer
+    and CSRF twins shown exactly once."""
+    return _cookie_for_session(result)
+
+
+@api.post("/auth/login")
+def auth_login():
+    """Local console login. The password check yields a session (no factor
+    and `mfa_required` off), an MFA challenge (`vypam-mfa1` - pass a factor
+    inline: `totp_code`, `otp_challenge_id`+`otp_code`, `backup_code`, or
+    the WebAuthn assertion after `/auth/mfa/webauthn/options`), or an
+    enrolment ticket (`vypam-enr1`, fail-closed). Lockout, per-account and
+    per-IP rate limits, progressive delay and spray detection run first;
+    `X-Actor` is never read - the session is the identity."""
+    body = _json_body()
+    username = str(body.get("username") or "")
+    password = str(body.get("password") or "")
+    result = identity.login(
+        username=username,
+        password=password,
+        source_ip=request.remote_addr or "",
+        user_agent=str(request.headers.get("User-Agent") or "")[:255],
+        device_token=str(body.get("device_token") or ""),
+        remember_device=bool(body.get("remember_device")),
+    )
+    if result.get("status") == "mfa_required":
+        assertion_material = any(
+            body.get(key)
+            for key in (
+                "totp_code",
+                "code",
+                "otp_code",
+                "radius_code",
+                "backup_code",
+                "webauthn",
+            )
+        )
+        if not assertion_material:
+            # No factor presented yet: deliver the step challenge in a 403
+            # (the same shape as enrolment_required) - the retry presents it
+            # as `login_challenge` alongside the assertion. The challenge is
+            # never swallowed into a bare 401: that would make the MFA step
+            # impossible to complete.
+            return jsonify(result), 403
+        challenge = str(body.get("login_challenge") or result["challenge"])
+        parts = _split_prefixed(challenge, identity.MFA_CHALLENGE_PREFIX)
+        if parts is None:
+            raise Unauthorized("MFA challenge invalid or expired")
+        challenge_id, secret = parts
+        # verify the assertion against the challenge's user first, consume
+        # the challenge only when the assertion passed
+        row = db.session.get(LoginChallenge, str(challenge_id or ""))
+        if (
+            row is None
+            or row.kind != "mfa"
+            or row.consumed_at is not None
+            or row.expires_at <= datetime.now()
+            or not hmac.compare_digest(
+                hashlib.sha256(secret.encode("utf-8")).hexdigest(),
+                row.secret_sha256 or "",
+            )
+        ):
+            raise Unauthorized("MFA challenge invalid or expired")
+        user = db.session.get(identity.User, row.user_id)
+        assertion = body.get("webauthn")
+        method = None
+        if isinstance(assertion, dict) and assertion:
+            method = webauthn.verify_assertion(
+                user,
+                challenge_id=str(assertion.get("challenge_id") or ""),
+                credential_id=str(assertion.get("credential_id") or ""),
+                client_data_json=str(assertion.get("client_data_json") or ""),
+                authenticator_data=str(assertion.get("authenticator_data") or ""),
+                signature=str(assertion.get("signature") or ""),
+            )
+        else:
+            method = mfa.verify_assertion(user, body)
+        if method is None:
+            raise Unauthorized("MFA assertion failed")
+        user, _consumed = identity.consume_challenge(challenge_id, secret, kind="mfa")
+        result = identity.mint_session(
+            user,
+            methods=[method],
+            source_ip=request.remote_addr or "",
+            user_agent=str(request.headers.get("User-Agent") or "")[:255],
+        )
+        result = identity.maybe_remember_device(
+            user,
+            result,
+            requested=bool(body.get("remember_device")),
+            source_ip=request.remote_addr or "",
+        )
+    if result.get("status") == "enrolment_required":
+        return jsonify(result), 403
+    return _minted(result)
+
+
+@api.post("/auth/logout")
+@require_console
+def auth_logout():
+    """Revoke this console session (the cookie is cleared on the way out)."""
+    session = g.console_session
+    identity.revoke_session(session.id, actor=_actor(), reason="logout")
+    response = jsonify({"status": "logged_out"})
+    response.delete_cookie(SESSION_COOKIE, path="/")
+    return response
+
+
+@api.get("/auth/sessions")
+@require_console
+def auth_list_sessions():
+    """This user's live console sessions (idle/absolute deadlines, last
+    seen, where from) - the self-service view of `log out everywhere`."""
+    user = g.console_user
+    include_revoked = (
+        (request.args.get("include_revoked") or "").strip().lower() in ("1", "true", "yes")
+    )
+    return jsonify(
+        {
+            "sessions": identity.list_user_sessions(
+                user.id, include_revoked=include_revoked
+            ),
+            "current_session_id": g.console_session.id,
+        }
+    )
+
+
+@api.delete("/auth/sessions/<int:session_id>")
+@require_console
+def auth_revoke_session(session_id: int):
+    """Revoke one console session: your own, or any when you hold the
+    admin role."""
+    session = g.console_session
+    principal = getattr(g, "rbac_principal", None)
+    is_admin = (
+        not _config().admin_token
+        or (principal is not None and principal.get("role") == "admin")
+    )
+    target = db_get_console_session(session_id)
+    if target is None:
+        raise NotFound(f"Unknown console session {session_id}")
+    if target.user_id != session.user_id and not is_admin:
+        raise Forbidden("You may only revoke your own sessions")
+    data = identity.revoke_session(session_id, actor=_actor(), reason="revoked-by-user")
+    return jsonify({"session": data, "message": "Session revoked"})
+
+
+def db_get_console_session(session_id: int):
+    return db.session.get(ConsoleSession, session_id)
+
+
+@api.post("/auth/logout-all")
+@require_console
+def auth_logout_all():
+    """Log out everywhere: every other session of this user dies now."""
+    user = g.console_user
+    count = identity.logout_all(
+        user.id, actor=user.username, keep_session_id=g.console_session.id
+    )
+    return jsonify({"revoked": count, "message": f"{count} other session(s) revoked"})
+
+
+@api.post("/auth/mfa/stepup")
+@require_console
+def auth_stepup():
+    """Refresh the step-up window with a fresh factor assertion (TOTP,
+    e-mail OTP challenge, RADIUS, backup code or WebAuthn)."""
+    body = _json_body()
+    session = g.console_session
+    user = g.console_user
+    assertion = body.get("webauthn")
+    method = None
+    if isinstance(assertion, dict) and assertion:
+        method = webauthn.verify_assertion(
+            user,
+            challenge_id=str(assertion.get("challenge_id") or ""),
+            credential_id=str(assertion.get("credential_id") or ""),
+            client_data_json=str(assertion.get("client_data_json") or ""),
+            authenticator_data=str(assertion.get("authenticator_data") or ""),
+            signature=str(assertion.get("signature") or ""),
+        )
+    else:
+        method = mfa.verify_assertion(user, body)
+    if method is None:
+        raise Unauthorized("MFA assertion failed")
+    identity.touch_stepup(session)
+    return jsonify({"status": "verified", "method": method, "mfa_at": session.mfa_at.isoformat()})
+
+
+@api.post("/auth/password")
+def auth_change_password():
+    """Change your password: authenticated by the current password (with or
+    without a live session - this is the first-login forced change path
+    too). Old sessions die except the one making the change."""
+    body = _json_body()
+    session = None
+    username = str(body.get("username") or "")
+    if not username:
+        try:
+            user, session = identity.verify_console_session(_presented_credential())
+            username = user.username
+        except Unauthorized:
+            raise ValidationFailed("'username' is required when signed out") from None
+    result = identity.change_password(
+        username=username,
+        old_password=str(body.get("old_password") or ""),
+        new_password=str(body.get("new_password") or ""),
+        session=session,
+    )
+    return jsonify(
+        {
+            "user": result["user"],
+            "sessions_revoked": result["sessions_revoked"],
+            "message": "Password changed",
+        }
+    )
+
+
+@api.post("/auth/otp/start")
+def auth_otp_start():
+    """Start an e-mail OTP challenge (login second factor, step-up or
+    password recovery). The answer is identical whether or not the account
+    exists - no user enumeration, ever."""
+    body = _json_body()
+    result = otp.start_otp(
+        str(body.get("username") or ""),
+        purpose=str(body.get("purpose") or "login"),
+    )
+    return jsonify(result), 202
+
+
+@api.post("/auth/recovery/start")
+def auth_recovery_start():
+    """Password-recovery start: the same generic 202 for every username."""
+    body = _json_body()
+    result = otp.start_otp(str(body.get("username") or ""), purpose="recovery")
+    return jsonify(result), 202
+
+
+@api.post("/auth/recovery/reset")
+def auth_recovery_reset():
+    """Password reset after a verified recovery OTP (single use, attempt-
+    capped). Every session dies; the MFA factors stay."""
+    body = _json_body()
+    username = str(body.get("username") or "").strip().lower()
+    try:
+        otp.verify_code(
+            str(body.get("challenge_id") or ""),
+            str(body.get("code") or ""),
+            purpose="recovery",
+            username=username,
+        )
+    except otp.UnauthorizedOtp as exc:
+        raise Unauthorized("One-time code invalid or expired") from exc
+    result = identity.set_password_with_recovery(
+        username=username, new_password=str(body.get("new_password") or "")
+    )
+    return jsonify(
+        {
+            "user": result["user"],
+            "sessions_revoked": result["sessions_revoked"],
+            "message": "Password reset - sign in again",
+        }
+    )
+
+
+# --- MFA enrolment + management (enrol ticket or a live session) ----------
+@api.post("/auth/mfa/enroll/totp")
+def auth_enroll_totp():
+    """Mint (or rotate) your TOTP factor: the seed + otpauth URI come back
+    exactly once - scan it, then verify. Works with the forced-enrolment
+    ticket or a live session."""
+    _stepup_if_human()
+    body = _json_body()
+    user = _consume_enrol_ticket(body, consume=False)
+    data = mfa.enroll_totp(user, actor=user.username)
+    return jsonify(data), 201
+
+
+@api.post("/auth/mfa/enroll/totp/verify")
+def auth_enroll_totp_verify():
+    """Verify the first code (replay-protected). With an enrol ticket this
+    consumes it and mints the session - enrolment complete."""
+    body = _json_body()
+    user = _consume_enrol_ticket(body, consume=False)
+    if not mfa.verify_totp_code(user, str(body.get("code") or ""), actor=user.username):
+        raise Unauthorized("TOTP code invalid")
+    ticket = body.get("enrol_ticket") or request.headers.get("X-Enrol-Ticket") or ""
+    parts = _split_prefixed(str(ticket), identity.ENROL_TICKET_PREFIX)
+    if parts is not None:
+        user, _ = identity.consume_challenge(parts[0], parts[1], kind="enrol")
+        result = identity.mint_session(
+            user,
+            methods=["totp"],
+            source_ip=request.remote_addr or "",
+            user_agent=str(request.headers.get("User-Agent") or "")[:255],
+        )
+        return _minted(result)
+    if getattr(g, "console_session", None) is not None:
+        identity.touch_stepup(g.console_session)
+    return jsonify({"status": "verified", "method": "totp"})
+
+
+@api.post("/auth/mfa/enroll/email")
+def auth_enroll_email():
+    """Enrol e-mail OTP as a factor: a real code goes to your registered
+    mailbox; verify it to activate (proof of mailbox ownership)."""
+    _stepup_if_human()
+    body = _json_body()
+    user = _consume_enrol_ticket(body, consume=False)
+    if not user.email:
+        raise ValidationFailed(
+            "This account has no e-mail address - an admin sets it first "
+            "(PATCH /api/v1/users/{user_id})"
+        )
+    result = otp.start_otp(user.username, purpose="stepup")
+    return jsonify({"status": "sent", "challenge_id": result.get("challenge_id")}), 202
+
+
+@api.post("/auth/mfa/enroll/email/verify")
+def auth_enroll_email_verify():
+    """Verify the enrolment code and activate the email factor."""
+    body = _json_body()
+    user = _consume_enrol_ticket(body, consume=False)
+    try:
+        otp.verify_code(
+            str(body.get("challenge_id") or ""),
+            str(body.get("code") or ""),
+            purpose="stepup",
+            username=user.username,
+        )
+    except otp.UnauthorizedOtp as exc:
+        raise Unauthorized("One-time code invalid or expired") from exc
+    from models import MfaFactor as _MfaFactor
+
+    factor = _MfaFactor.query.filter(
+        _MfaFactor.user_id == user.id, _MfaFactor.kind == "email"
+    ).first()
+    if factor is None:
+        factor = _MfaFactor(user_id=user.id, kind="email", name="E-mail OTP")
+        db.session.add(factor)
+    factor.active = True
+    identity.auth_event(
+        "auth.mfa.enrolled",
+        actor=user.username,
+        subject=user.username,
+        detail={"kind": "email"},
+    )
+    db.session.commit()
+    return jsonify({"status": "enrolled", "kind": "email"})
+
+
+@api.post("/auth/mfa/enroll/radius")
+@require_console
+def auth_enroll_radius():
+    """Enrol the RADIUS push/OTP factor (the code arrives on the
+    authenticator the configured RADIUS server owns)."""
+    _stepup_if_human()
+    body = _json_body()
+    data = radius_client.enroll_radius(g.console_user, actor=_actor())
+    return jsonify({"factor": data}), 201
+
+
+@api.post("/auth/mfa/backup-codes")
+@require_console
+def auth_backup_codes():
+    """Generate ten single-use backup codes (shown once, hashed at rest);
+    every earlier code dies. Step-up fresh required."""
+    _stepup_if_human()
+    codes = mfa.generate_backup_codes(g.console_user, actor=_actor())
+    return jsonify(
+        {
+            "codes": codes,
+            "count": len(codes),
+            "message": "Shown once - store them now; they cannot be recovered.",
+        }
+    )
+
+
+@api.get("/auth/mfa/factors")
+@require_console
+def auth_list_factors():
+    """Your enrolled factors (kind, when last used) - never a seed."""
+    return jsonify({"factors": mfa.list_factors(g.console_user.id)})
+
+
+@api.delete("/auth/mfa/factors/<int:factor_id>")
+@require_console
+def auth_delete_factor(factor_id: int):
+    """Remove one of your factors. The last factor with `mfa_required` on
+    is refused (fail-closed) - use the two-admin recovery instead."""
+    _stepup_if_human()
+    data = mfa.delete_factor(g.console_user.id, factor_id, actor=_actor())
+    return jsonify({"factor": data, "message": "Factor removed"})
+
+
+@api.post("/auth/mfa/webauthn/options")
+def auth_webauthn_options():
+    """Start a WebAuthn ceremony (register with a session/ticket later,
+    authenticate for login or step-up): a server-side challenge, the
+    relying party id and the allowed origins."""
+    body = _json_body()
+    username = str(body.get("username") or "").strip().lower()
+    purpose = str(body.get("purpose") or "authenticate")
+    if username:
+        user = identity.get_user(username)
+        if user is None or not user.is_active:
+            # identical challenge shape for unknown/inactive usernames (no
+            # enumeration): the random challenge backs no server-side row,
+            # so no assertion against it can ever verify
+            return jsonify(webauthn.decoy_challenge()), 202
+    elif getattr(g, "console_session", None) is not None:
+        user = g.console_user
+    else:
+        try:
+            user, session = identity.verify_console_session(_presented_credential())
+            g.console_session, g.console_user = session, user
+        except Unauthorized:
+            raise Unauthorized("Sign in or present a username") from None
+    if purpose not in ("register", "authenticate"):
+        raise ValidationFailed("purpose must be 'register' or 'authenticate'")
+    # one status for both answers: 202 whether the username exists or not -
+    # the status code itself must not be an enumeration surface
+    return jsonify(webauthn.start_challenge(user, purpose=purpose)), 202
+
+
+@api.post("/auth/mfa/webauthn/assert")
+def auth_webauthn_assert():
+    """Consume a WebAuthn assertion: with an enrol ticket it mints the
+    session (login), with a live session it is a step-up."""
+    body = _json_body()
+    assertion = body.get("webauthn") if isinstance(body.get("webauthn"), dict) else body
+    ticket = body.get("enrol_ticket") or request.headers.get("X-Enrol-Ticket") or ""
+    parts = _split_prefixed(str(ticket), identity.ENROL_TICKET_PREFIX)
+    if parts is not None:
+        user = _consume_enrol_ticket(body, consume=False)
+        method = webauthn.verify_assertion(
+            user,
+            challenge_id=str(assertion.get("challenge_id") or ""),
+            credential_id=str(assertion.get("credential_id") or ""),
+            client_data_json=str(assertion.get("client_data_json") or ""),
+            authenticator_data=str(assertion.get("authenticator_data") or ""),
+            signature=str(assertion.get("signature") or ""),
+        )
+        user, _ = identity.consume_challenge(parts[0], parts[1], kind="enrol")
+        result = identity.mint_session(
+            user,
+            methods=[method],
+            source_ip=request.remote_addr or "",
+            user_agent=str(request.headers.get("User-Agent") or "")[:255],
+        )
+        return _minted(result)
+    try:
+        user, session = identity.verify_console_session(_presented_credential())
+    except Unauthorized:
+        raise Unauthorized("Console session or enrol ticket required") from None
+    g.console_session, g.console_user = session, user
+    method = webauthn.verify_assertion(
+        user,
+        challenge_id=str(assertion.get("challenge_id") or ""),
+        credential_id=str(assertion.get("credential_id") or ""),
+        client_data_json=str(assertion.get("client_data_json") or ""),
+        authenticator_data=str(assertion.get("authenticator_data") or ""),
+        signature=str(assertion.get("signature") or ""),
+    )
+    identity.touch_stepup(session)
+    return jsonify({"status": "verified", "method": method})
+
+
+@api.post("/auth/mfa/enroll/webauthn")
+@require_console
+def auth_register_webauthn():
+    """Register a security key / passkey (attestation verified in-product:
+    `none` and packed self-attestation; every other format refused)."""
+    _stepup_if_human()
+    body = _json_body()
+    data = webauthn.register_credential(
+        g.console_user,
+        challenge_id=str(body.get("challenge_id") or ""),
+        client_data_json=str(body.get("client_data_json") or ""),
+        attestation_object=str(body.get("attestation_object") or ""),
+        name=str(body.get("name") or ""),
+        transports=body.get("transports") if isinstance(body.get("transports"), list) else None,
+    )
+    return jsonify({"credential": data, "message": "Security key registered"}), 201
+
+
+@api.get("/auth/mfa/webauthn/credentials")
+@require_console
+def auth_list_webauthn():
+    """Your registered security keys (public keys never leave the server
+    side of this API - the list carries ids and counters only)."""
+    return jsonify({"credentials": webauthn.list_credentials(g.console_user.id)})
+
+
+@api.delete("/auth/mfa/webauthn/credentials/<int:credential_id>")
+@require_console
+def auth_delete_webauthn(credential_id: int):
+    """Remove one registered security key (last-factor fail-closed)."""
+    _stepup_if_human()
+    data = webauthn.delete_credential(
+        g.console_user.id, credential_id, actor=_actor()
+    )
+    return jsonify({"credential": data, "message": "Credential removed"})
+
+
+@api.post("/auth/factor-recovery/request")
+def auth_factor_recovery_request():
+    """Ask for factor recovery (lost every factor): an enrol ticket or a
+    live session proves the password; two admins must approve before any
+    factor is deleted."""
+    body = _json_body()
+    user = _consume_enrol_ticket(body, consume=False)
+    data = identity.request_factor_recovery(user.id, reason=str(body.get("reason") or ""))
+    return jsonify({"request": data}), 201
+
+
+# --- admin: users, sessions, recovery, emergency, report -------------------
+@api.get("/users")
+@require_admin
+def list_users_route():
+    """Every console user (local, SCIM-managed, the sealed emergency row):
+    lockout state, source, last login - never a hash or a seed."""
+    return jsonify({"users": identity.list_users(source=str(request.args.get("source") or ""))})
+
+
+@api.post("/users")
+@require_admin
+def create_user_route():
+    """Create a local console user (201). No password given means a strong
+    one is generated and returned exactly once, with `must_change_password`."""
+    body = _json_body()
+    data, generated = identity.create_user(
+        username=str(body.get("username") or ""),
+        email=str(body.get("email") or ""),
+        display_name=str(body.get("display_name") or ""),
+        password=str(body.get("password") or ""),
+        actor=_actor(),
+    )
+    payload = {"user": data, "message": "User created"}
+    if generated:
+        payload["generated_password"] = generated
+        payload["password_notice"] = "Shown once - the user must change it at first sign-in."
+    return jsonify(payload), 201
+
+
+@api.patch("/users/<int:user_id>")
+@require_admin
+def patch_user_route(user_id: int):
+    """Activate/deactivate (deactivation revokes every live session) and
+    edit contact fields."""
+    body = _json_body()
+    data = identity.update_user(
+        user_id,
+        actor=_actor(),
+        active=body.get("active") if "active" in body else None,
+        email=body.get("email") if "email" in body else None,
+        display_name=body.get("display_name") if "display_name" in body else None,
+    )
+    return jsonify({"user": data, "message": "User updated"})
+
+
+@api.post("/users/<int:user_id>/unlock")
+@require_admin
+def unlock_user_route(user_id: int):
+    """Clear a lockout (the failure counters reset with it)."""
+    data = identity.unlock_user(user_id, actor=_actor())
+    return jsonify({"user": data, "message": "User unlocked"})
+
+
+@api.post("/users/<int:user_id>/password-reset")
+@require_admin
+def admin_reset_password_route(user_id: int):
+    """Admin-assisted reset: a fresh password (generated when not given,
+    shown once) with `must_change_password`; every session dies. The body
+    is optional, as the contract documents."""
+    body = _json_body(required=False)
+    data = identity.admin_reset_password(
+        user_id, actor=_actor(), password=str(body.get("password") or "")
+    )
+    payload = {"user": data, "message": "Password reset - every session revoked"}
+    if data.get("generated_password"):
+        payload["generated_password"] = data["generated_password"]
+        payload["password_notice"] = "Shown once - store it now."
+    return jsonify(payload)
+
+
+@api.get("/users/<int:user_id>/sessions")
+@require_admin
+def user_sessions_route(user_id: int):
+    """This user's console sessions (live by default; ?include_revoked=1
+    keeps the evidence)."""
+    include_revoked = (
+        (request.args.get("include_revoked") or "").strip().lower() in ("1", "true", "yes")
+    )
+    return jsonify(
+        {"sessions": identity.list_user_sessions(user_id, include_revoked=include_revoked)}
+    )
+
+
+@api.delete("/users/<int:user_id>/sessions")
+@require_admin
+def revoke_user_sessions_route(user_id: int):
+    """Revoke every live session of this user now (offboarding, suspected
+    compromise)."""
+    user = db.session.get(identity.User, user_id)
+    if user is None:
+        raise NotFound(f"Unknown user {user_id}")
+    count = identity._revoke_all_sessions(user, reason="admin-revoked", actor=_actor())
+    db.session.commit()
+    return jsonify({"revoked": count, "message": f"{count} session(s) revoked"})
+
+
+@api.get("/auth/factor-recovery")
+@require_admin
+def list_factor_recovery_route():
+    """Every factor-recovery request with its approvals (two distinct
+    admins close a request; one denial kills it)."""
+    status = str(request.args.get("status") or "")
+    return jsonify({"requests": identity.list_factor_recovery_requests(status=status)})
+
+
+@api.post("/auth/factor-recovery/<int:request_id>/approve")
+@require_admin
+def approve_factor_recovery_route(request_id: int):
+    """Approve (or deny) a factor recovery. Two distinct approvers delete
+    the factors; the next sign-in forces a fresh enrolment."""
+    _stepup_if_human()
+    body = _json_body() or {}
+    data = identity.approve_factor_recovery(
+        request_id,
+        approver=_actor(),
+        decision=str(body.get("decision") or "approve"),
+        note=str(body.get("note") or ""),
+    )
+    return jsonify({"request": data, "message": f"Recovery {data['status']}"})
+
+
+@api.get("/auth/emergency")
+@require_admin
+def list_emergency_route():
+    """The sealed emergency admin's grant history + current state (open
+    window, pending requests)."""
+    return jsonify(
+        {
+            "grants": identity.list_emergency_grants(),
+            "username": identity.EMERGENCY_USERNAME,
+        }
+    )
+
+
+@api.post("/auth/emergency/open")
+@require_admin
+def open_emergency_route():
+    """Request to open the emergency admin: a pending grant awaiting two
+    distinct approvals (never the requester)."""
+    _stepup_if_human()
+    body = _json_body() or {}
+    data = identity.request_emergency_open(
+        actor=_actor(),
+        reason=str(body.get("reason") or ""),
+        ticket=str(body.get("ticket") or ""),
+    )
+    return jsonify({"grant": data, "message": "Emergency grant requested"}), 201
+
+
+@api.post("/auth/emergency/grants/<int:grant_id>/approve")
+@require_admin
+def approve_emergency_route(grant_id: int):
+    """Approve (or deny) an emergency grant. Two distinct approvals open a
+    short window; every state change is alerted on the `auth` trail."""
+    _stepup_if_human()
+    body = _json_body() or {}
+    data = identity.approve_emergency_open(
+        grant_id,
+        approver=_actor(),
+        decision=str(body.get("decision") or "approve"),
+        note=str(body.get("note") or ""),
+    )
+    return jsonify({"grant": data, "message": f"Emergency grant {data['status']}"})
+
+
+@api.post("/auth/emergency/login")
+def emergency_login_route():
+    """One login through the sealed credential while a grant is open. The
+    seal rotates on success (the used password never works twice) and the
+    use is alerted."""
+    body = _json_body() or {}
+    result = identity.emergency_login(
+        password=str(body.get("password") or ""),
+        source_ip=request.remote_addr or "",
+        user_agent=str(request.headers.get("User-Agent") or "")[:255],
+    )
+    return _minted(result)
+
+
+@api.get("/auth/report")
+@require_admin
+def auth_report_route():
+    """The login-security report for auditors: counts per action plus the
+    newest `auth` ledger events (never a secret)."""
+    window = _int_param("window_hours", 24, minimum=1)
+    return jsonify(identity.auth_report(window_hours=window))
+
+
+@api.get("/auth/deliveries")
+@require_admin
+def auth_deliveries_route():
+    """OTP e-mail delivery status for admins: measured `sent`/`failed`/
+    `queued` with the provider's error - never a code."""
+    return jsonify({"deliveries": otp.delivery_status()})
+
+
+@api.post("/settings/smtp/test")
+@require_admin
+def smtp_test_route():
+    """Send a real test message through the configured SMTP server (503
+    with the honest reason when it is not configured)."""
+    body = _json_body() or {}
+    delivery = otp.send_test_email(str(body.get("to") or ""), actor=_actor())
+    return jsonify({"delivery": delivery, "message": "Test message sent"})
+
+
+@api.post("/settings/scim/rotate")
+@require_admin
+def scim_rotate_route():
+    """Mint a fresh SCIM bearer token for the identity provider (shown
+    exactly once; only its sha256 is stored)."""
+    token = scim.rotate_token()
+    return jsonify(
+        {
+            "token": token,
+            "message": "Shown once - configure it on the identity provider now.",
+        }
+    )
+
+
+# --- SCIM 2.0 lifecycle surface (the identity provider's credential) ------
+def _require_scim():
+    auth_header = request.headers.get("Authorization", "")
+    presented = auth_header[7:].strip() if auth_header.lower().startswith("bearer ") else ""
+    if not scim.verify_token(presented):
+        raise Unauthorized("SCIM bearer token required")
+
+
+@api.get("/scim/v2/Users")
+def scim_list_users():
+    """SCIM Users (filter userName eq, startIndex/count paging)."""
+    _require_scim()
+    filter_raw = str(request.args.get("filter") or "").strip()
+    user_name = ""
+    if filter_raw:
+        match = re.match(r'^userName\s+eq\s+"?([^"]+)"?$', filter_raw)
+        if match is None:
+            raise scim.ScimError(400, f"Unsupported filter: {filter_raw}")
+        user_name = match.group(1).strip()
+    return jsonify(
+        scim.list_users(
+            start_index=int(request.args.get("startIndex") or 1),
+            count=int(request.args.get("count") or 100),
+            user_name=user_name,
+        )
+    )
+
+
+@api.post("/scim/v2/Users")
+def scim_create_user():
+    """SCIM create: a provider-managed user (password login refused - the
+    IdP owns the credential)."""
+    _require_scim()
+    return jsonify(scim.create_user(_json_body())), 201
+
+
+@api.get("/scim/v2/Users/<string:scim_id>")
+def scim_get_user(scim_id: str):
+    _require_scim()
+    return jsonify(scim.get_user(scim_id))
+
+
+@api.put("/scim/v2/Users/<string:scim_id>")
+def scim_replace_user(scim_id: str):
+    _require_scim()
+    return jsonify(scim.replace_user(scim_id, _json_body()))
+
+
+@api.patch("/scim/v2/Users/<string:scim_id>")
+def scim_patch_user(scim_id: str):
+    """SCIM PATCH (`replace active false` = offboard: sessions die now)."""
+    _require_scim()
+    return jsonify(scim.patch_user(scim_id, _json_body()))
+
+
+@api.delete("/scim/v2/Users/<string:scim_id>")
+def scim_delete_user(scim_id: str):
+    _require_scim()
+    scim.delete_user(scim_id)
+    return "", 204
+
+
+@api.get("/scim/v2/Groups")
+def scim_list_groups():
+    _require_scim()
+    return jsonify(
+        scim.list_groups(
+            start_index=int(request.args.get("startIndex") or 1),
+            count=int(request.args.get("count") or 100),
+        )
+    )
+
+
+@api.post("/scim/v2/Groups")
+def scim_create_group():
+    _require_scim()
+    return jsonify(scim.create_group(_json_body())), 201
+
+
+@api.get("/scim/v2/Groups/<string:scim_id>")
+def scim_get_group(scim_id: str):
+    _require_scim()
+    return jsonify(scim.get_group(scim_id))
+
+
+@api.put("/scim/v2/Groups/<string:scim_id>")
+def scim_replace_group(scim_id: str):
+    _require_scim()
+    return jsonify(scim.replace_group(scim_id, _json_body()))

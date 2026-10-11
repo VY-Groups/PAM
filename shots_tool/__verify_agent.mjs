@@ -1,9 +1,12 @@
-// 6a+6b+6c gate: HA/DC/DR and RBAC/ABAC sections on Platform Settings,
-// cluster source chip, and the 6c SSO/HSM enforcement lines (live chips,
+// 6a+6b+6c+7 gate: HA/DC/DR and RBAC/ABAC sections on Platform Settings,
+// cluster source chip, the 6c SSO/HSM enforcement lines (live chips,
 // stored groups, SSO/HSM API truth, an advisory-rig seal/unseal cycle, and
 // - when GATE_SSO_IDP names a running SAML test IdP - the full login
-// handshake, honestly skipped with a note otherwise). Keeps every 5d check
-// (JIT agent section) and the 6a UI assertions. Set GATE_ADMIN_TOKEN to run
+// handshake, honestly skipped with a note otherwise), and the phase-7
+// identity & login security lines (the six identity settings boxes, the
+// sealed emergency-admin card, SCIM/RADIUS honest refusals, and the
+// compliance screen's auth chip). Keeps every 5d check (JIT agent
+// section) and the 6a UI assertions. Set GATE_ADMIN_TOKEN to run
 // the flows against a token-mode rig. Exit code 1 on any failed assertion.
 // Viewport 1920x1600, headless.
 import { chromium } from 'playwright-core';
@@ -97,10 +100,10 @@ const compBits = await comp.evaluate(() => {
 });
 check(compErrors.length === 0, 'Compliance screen: no page/console errors '
   + JSON.stringify(compErrors.slice(0, 3)));
-check(compBits.chips.length === 20,
-  'Compliance screen: 20 source chips (got ' + compBits.chips.length + ')');
-check(compBits.chips.slice(-3).join(',') === 'rbac,sso,hsm',
-  'Compliance screen: sso + hsm chips appended after rbac -> ' + JSON.stringify(compBits.chips.slice(-3)));
+check(compBits.chips.length === 21,
+  'Compliance screen: 21 source chips (got ' + compBits.chips.length + ')');
+check(compBits.chips.slice(-4).join(',') === 'rbac,sso,hsm,auth',
+  'Compliance screen: auth chip appended after hsm -> ' + JSON.stringify(compBits.chips.slice(-4)));
 await comp.close();
 
 // ---- Platform settings: HA / DC / DR section ----------------------------
@@ -250,8 +253,8 @@ check(/^key in use: (provider|file)$/.test(ssoHsm.hsmKey),
   'Settings screen: HSM key-in-use chip honest -> "' + ssoHsm.hsmKey + '"');
 check(ssoHsm.hsmGroupRendered && ssoHsm.hsmGroupFields >= 6,
   'Settings screen: hsm settings group renders its fields -> ' + ssoHsm.hsmGroupFields);
-check(ssoHsm.kindOptions.indexOf('sso') >= 0,
-  'Settings screen: binding kind select offers the sso kind -> ' + JSON.stringify(ssoHsm.kindOptions));
+check(ssoHsm.kindOptions.indexOf('sso') >= 0 && ssoHsm.kindOptions.indexOf('user') >= 0,
+  'Settings screen: binding kind select offers sso + user -> ' + JSON.stringify(ssoHsm.kindOptions));
 
 // ---- 6c: SSO + HSM API truth (metadata, status, honest refusals) --------
 const ssoHsmApi = await ps.evaluate(async (adminToken) => {
@@ -356,6 +359,72 @@ if (hsmCycle.skipped) {
     && hsmCycle.afterSealed === false,
     'HSM cycle: unseal restores the baseline -> ' + JSON.stringify(hsmCycle.unsealBody));
 }
+
+// ---- 7: identity & login security section (Addendum C) -----------------
+const ident = await ps.evaluate(() => {
+  const q = (s) => document.querySelector(s);
+  const t = (s) => (q(s) || {}).textContent || '';
+  const groupFields = (g) => {
+    const box = q('[data-settings-group="' + g + '"]');
+    return box ? box.querySelectorAll('input,select').length : 0;
+  };
+  return {
+    fields: {
+      auth: groupFields('auth'), webauthn: groupFields('webauthn'),
+      smtp: groupFields('smtp'), sms: groupFields('sms'),
+      radius: groupFields('radius'), scim: groupFields('scim'),
+    },
+    emergencyState: t('#emergencyState').trim(),
+    emergencyGrants: t('#emergencyGrants').trim(),
+    openBtn: !!q('#btn-emergency-open'),
+    openBtnDisabled: q('#btn-emergency-open') ? q('#btn-emergency-open').disabled : true,
+  };
+});
+check(ident.fields.auth === 16 && ident.fields.webauthn === 3
+  && ident.fields.smtp === 7 && ident.fields.sms === 5
+  && ident.fields.radius === 5 && ident.fields.scim === 2,
+  'Settings screen: identity group boxes render their real schema fields -> '
+  + JSON.stringify(ident.fields));
+check(/^(sealed - emergency-admin (grants nothing|awaits two approvals)|window OPEN - emergency-admin)/.test(ident.emergencyState),
+  'Settings screen: emergency card state is real data -> "' + ident.emergencyState + '"');
+check(ident.openBtn && /^(no grants on record|\d+ grant\(s\) on record)$/.test(ident.emergencyGrants),
+  'Settings screen: emergency grants line honest -> "' + ident.emergencyGrants + '"');
+
+// ---- 7: identity API truth (emergency sealed state, honest refusals) ----
+const identApi = await ps.evaluate(async (adminToken) => {
+  const api = '/api/v1/';
+  const inline = adminToken ? { 'X-Admin-Token': adminToken } : {};
+  const get = async (path) => {
+    var res = await fetch(api + path, { headers: inline });
+    return { status: res.status, body: await res.json().catch(function () { return {}; }) };
+  };
+  const post = async (path) => {
+    var res = await fetch(api + path, { method: 'POST' });
+    return { status: res.status, body: await res.json().catch(function () { return {}; }) };
+  };
+  var emergency = await get('auth/emergency');
+  var scimNoToken = await get('scim/v2/Users');
+  var radiusEnroll = await post('auth/mfa/enroll/radius');
+  return {
+    emergencyStatus: emergency.status,
+    emergencyBody: emergency.body,
+    scimStatus: scimNoToken.status,
+    scimBody: scimNoToken.body,
+    radiusStatus: radiusEnroll.status,
+    radiusBody: radiusEnroll.body,
+  };
+}, ADMIN_TOKEN);
+check(identApi.emergencyStatus === 200
+  && identApi.emergencyBody.username === 'emergency-admin'
+  && Array.isArray(identApi.emergencyBody.grants),
+  'Identity API: /auth/emergency honest (username + grant history) -> '
+  + JSON.stringify({ username: identApi.emergencyBody.username,
+    grants: (identApi.emergencyBody.grants || []).length }));
+check(identApi.scimStatus === 401 && /SCIM bearer token required/.test(identApi.scimBody.error || ''),
+  'Identity API: SCIM without its own bearer is refused honestly (401) -> ' + identApi.scimStatus);
+check(identApi.radiusStatus === 401 || identApi.radiusStatus === 503,
+  'Identity API: RADIUS enrol without a console session is refused honestly -> ' + identApi.radiusStatus
+  + ' ' + JSON.stringify(identApi.radiusBody));
 
 // real register -> probe -> sync (honest failure) -> remove flow against the
 // live server; the registry must come back to its baseline afterwards

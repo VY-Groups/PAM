@@ -1,7 +1,7 @@
 # VY-PAM — API Reference
 
-**Status:** as-built for Phase 6c
-**Contract:** `apis/openapi.yaml` (OpenAPI 3.1) - **149 paths / 178
+**Status:** as-built for Phase 7
+**Contract:** `apis/openapi.yaml` (OpenAPI 3.1) - **192 paths / 229
 operations**, enforced in both directions by
 `backend/phase2_license_server/tests/test_openapi_contract.py`. If this page
 and the YAML ever disagree, the YAML wins.
@@ -15,13 +15,13 @@ and the YAML ever disagree, the YAML wins.
 | Base URL (dev) | `http://127.0.0.1:5000` (`LICENSE_SERVER_HOST`/`LICENSE_SERVER_PORT`) |
 | Version | `/api/v1/…` (`/health`, `/api/v1/meta` unversioned) |
 | Content type | `application/json` (license import also accepts multipart upload / raw body) |
-| Auth | When `LICENSE_ADMIN_TOKEN` is set: `Authorization: Bearer <token>` **or** `X-Admin-Token: <token>` on the **111 admin operations**. When unset: open dev mode - responses carry `X-Auth-Mode: open` (explicit, never silent). Pipeline `/broker` operations require the broker API token and AI-agent `/agent-access` operations require the agent API token — neither is ever waived, even in open dev mode. In token mode, `admin-token` (kind admin) may call everything; a bound principal (API token or LDAP ticket) may call only its role's operations and only its ABAC scope - see §2 `rbac`. |
+| Auth | When `LICENSE_ADMIN_TOKEN` is set: `Authorization: Bearer <token>` **or** `X-Admin-Token: <token>` on the **127 admin operations**. When unset: open dev mode - responses carry `X-Auth-Mode: open` (explicit, never silent). Pipeline `/broker` operations require the broker API token and AI-agent `/agent-access` operations require the agent API token - neither is ever waived, even in open dev mode. In token mode, `admin-token` (kind admin) may call everything; a bound principal (API token or LDAP ticket) may call only its role's operations and only its ABAC scope - see §2 `rbac`. Console sessions (`/api/v1/auth/…`) are a **separate** credential: `vypam-ui1` bearer + HttpOnly `vypam_session` cookie, with `X-CSRF-Token` double-submit on cookie-authenticated mutations (credential headers skip CSRF); the admin token alone holds no console session. |
 | Actor | `X-Actor: <name>` recorded verbatim in the audit ledger on every audited write |
 | Errors | `{"error": "<message>", "details"?: {…}}` — 400 validation · 401 auth · 403 policy refusal (risk gate) · 404 · 409 conflict/state · 422 unprocessable shape · 503 fail-closed dependency |
 | Pagination | `limit` (≤200) + `offset`, newest first |
 | Ordering | Ledger/session streams ascending `seq`; listings newest-first |
 
-## 2. Operations by tag (22 tags)
+## 2. Operations by tag (23 tags)
 
 ### `ops` — unversioned
 | Method | Path | Summary |
@@ -45,7 +45,7 @@ and the YAML ever disagree, the YAML wins.
 ### `settings` — configuration groups
 | Method | Path | Summary |
 |---|---|---|
-| GET | `/api/v1/settings` | all groups (`sso`, `hsm`, `zsp`, `worm`, `mfa`, `itsm`, `siem`, `ldap`) |
+| GET | `/api/v1/settings` | all 14 groups (`auth`, `webauthn`, `smtp`, `sms`, `radius`, `scim`, `sso`, `hsm`, `zsp`, `worm`, `mfa`, `itsm`, `siem`, `ldap`) |
 | PUT | `/api/v1/settings/{group}` | upsert group; writes per-field diff event (secrets sealed, readonly `mfa.*` rejected) |
 | GET | `/api/v1/settings/audit` | changelog (group filter) |
 
@@ -315,6 +315,42 @@ honors `hsm.seal_delay_seconds`); `advisory` keeps the file key and says
 so. The `hsm_backed` posture control passes only on enforced + a
 reachable provider (real health probe), never on settings booleans.
 
+### `identity` — real identity & login security (Phase 7, 41 paths / 49 operations)
+
+The `auth` settings group governs policy (`mfa_required`, lockout/rate
+limits, `session_idle_minutes`, `stepup_ttl_minutes`,
+`emergency_window_minutes`, `progressive_delay`, `spray_threshold`); the
+`webauthn`/`smtp`/`sms`/`radius`/`scim` groups configure their factors.
+Secrets read back as the literal `<set>` (keep-stored sentinel), never
+echoed.
+
+| Method | Path | Summary |
+|---|---|---|
+| POST | `/api/v1/auth/login` | local console login (scrypt, NIST policy) → either a session (`vypam-ui1` bearer + HttpOnly `vypam_session`, `csrf_token`) or a fail-closed 403: `enrolment_required` (`vypam-enr1` ticket) or `mfa_required` (`vypam-mfa1` challenge) |
+| POST | `/api/v1/auth/logout` / `logout-all` | end this session / every session but the caller's (CSRF double-submit) |
+| GET | `/api/v1/auth/whoami` | the authenticated principal + role/kind; unbound console session → 403 `role_required` (token mode) |
+| GET | `/api/v1/auth/sessions` · DELETE `/api/v1/auth/sessions/{id}` | list + revoke console sessions |
+| POST | `/api/v1/auth/password` | change password (old + new; policy-validated) |
+| POST | `/api/v1/auth/mfa/enroll/totp` · `…/verify` | enrol RFC-6238 TOTP (seed shown once) / verify a code → session |
+| POST | `/api/v1/auth/mfa/enroll/email` · `…/verify` | enrol e-mail OTP (real code) / verify |
+| POST | `/api/v1/auth/mfa/enroll/radius` | enrol the RADIUS factor (session + CSRF) |
+| POST | `/api/v1/auth/mfa/backup-codes` | ten hashed single-use backup codes (shown once) |
+| POST | `/api/v1/auth/mfa/webauthn/options` · `…/register` · `…/authenticate` | WebAuthn (options 202 for existing **and** non-existing handles — no enumeration) |
+| POST | `/api/v1/auth/otp/start` | e-mail OTP challenge — 202 `sent` identically for known and unknown accounts (no enumeration; code never returned) |
+| GET | `/api/v1/auth/deliveries` | measured OTP delivery state (recipient masked, real `last_error`; **never a code**) |
+| GET | `/api/v1/auth/emergency` · POST `/api/v1/auth/emergency/open` · POST `/api/v1/auth/emergency/grants/{id}/approve` · POST `/api/v1/auth/emergency/login` | sealed emergency admin: state, request-to-open (reason ≥ 8 chars, dual control — never the requester), approve, login only while an open grant holds |
+| GET | `/api/v1/auth/factor-recovery` · POST `/api/v1/auth/factor-recovery/request` · POST `/api/v1/auth/factor-recovery/{id}/approve` | lost-every-factor recovery (dual control) |
+| POST | `/api/v1/settings/scim/rotate` | mint the SCIM bearer (`vypam-scim1` — shown once) |
+| GET/POST/PATCH/DELETE | `/api/v1/scim/v2/Users` · `/api/v1/scim/v2/Groups` | SCIM 2.0 lifecycle over its own bearer (joiner/mover/leaver; local users invisible to the IdP; delete leaves the row as evidence) |
+
+Local logins that are unknown, wrong-password, or inactive all answer the
+**identical** 401 `Invalid username or password` (no enumeration oracle);
+the true reason lives only in the ledger. A SCIM-managed account's login
+is refused with that same 401 (reason `scim-managed` on the ledger).
+Repeated failures lock the account (doubling, admin unlock) while the
+password path stays MFA-fail-closed. A RADIUS factor whose server is
+unreachable fails closed (honest 503), never a silent pass.
+
 ### Ledger (Compliance feeds)
 | Method | Path | Summary |
 |---|---|---|
@@ -371,10 +407,10 @@ keys only via `python -m pam_master.keygen`.
 
 ## 5. Planned endpoints (NOT in the contract — see `IMPLEMENTATION_PLAN.md`)
 
-These do **not** exist today; the contract's **149 paths / 178 operations**
+These do **not** exist today; the contract's **192 paths / 229 operations**
 are the complete current surface. Each lands in `openapi.yaml` + ADMIN
 security + tests in the same commit when its phase starts (counts `—`):
 
 | Phase | Planned additions |
 |---|---|
-| — | none pending: every phase through 6c has landed (the `sso` + `hsm` rows joined §2 in 6c); the next phase's additions are recorded here when it starts |
+| — | none pending: every phase through 7 has landed (the `identity` tag's 41 paths joined §2 in 7); the next phase's additions are recorded here when it starts |

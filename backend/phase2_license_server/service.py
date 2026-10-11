@@ -76,6 +76,7 @@ from models import (
     CLOUD_METHODS,
     CLOUD_PROVIDERS,
     CLOUD_SERVICES,
+    CONSOLE_TOKEN_PREFIX,
     DISCOVERY_ACTION_ASSET_DISCOVERED,
     DISCOVERY_ACTION_ASSET_ONBOARDED,
     DISCOVERY_ACTION_ASSET_UPDATED,
@@ -1090,6 +1091,99 @@ SETTINGS_SCHEMA: Dict[str, Dict[str, Dict[str, Any]]] = {
         "timeout_seconds": {"type": "int", "min": 1, "max": 30, "default": 5},
         "ticket_ttl_seconds": {"type": "int", "min": 60, "max": 86400, "default": 900},
     },
+    # --- phase 7: real identity & login security (Addendum C) -------------
+    "auth": {
+        # fail-closed: with this on, a login with no enrolled factor gets a
+        # forced-enrolment ticket, never a silent pass
+        "mfa_required": {"type": "bool", "default": True},
+        # NIST: length over complexity
+        "password_min_length": {"type": "int", "min": 8, "max": 64, "default": 14},
+        "breached_password_extra": {
+            "type": "str",
+            "max_length": 4096,
+            "allow_empty": True,
+            "default": "",
+        },
+        "lockout_threshold": {"type": "int", "min": 3, "max": 10, "default": 5},
+        "lockout_minutes": {"type": "int", "min": 1, "max": 1440, "default": 15},
+        "rate_limit_per_ip": {"type": "int", "min": 5, "max": 1000, "default": 30},
+        "rate_limit_per_account": {"type": "int", "min": 3, "max": 500, "default": 15},
+        "spray_threshold": {"type": "int", "min": 3, "max": 50, "default": 10},
+        "progressive_delay": {"type": "bool", "default": True},
+        "session_idle_minutes": {"type": "int", "min": 1, "max": 240, "default": 30},
+        "session_absolute_hours": {"type": "int", "min": 1, "max": 72, "default": 12},
+        "max_sessions_per_user": {"type": "int", "min": 1, "max": 50, "default": 5},
+        "stepup_ttl_minutes": {"type": "int", "min": 1, "max": 60, "default": 5},
+        "remember_device_days": {"type": "int", "min": 1, "max": 90, "default": 30},
+        "emergency_window_minutes": {"type": "int", "min": 5, "max": 120, "default": 15},
+        "require_device_posture": {"type": "bool", "default": False},
+    },
+    # e-mail OTP delivery (sealed password; test-send proves the path)
+    "smtp": {
+        "enabled": {"type": "bool", "default": False},
+        "host": {"type": "str", "max_length": 255, "allow_empty": True, "default": ""},
+        "port": {"type": "int", "min": 1, "max": 65535, "default": 587},
+        "use_tls": {"type": "bool", "default": True},
+        "username": {"type": "str", "max_length": 128, "allow_empty": True, "default": ""},
+        "password": {"type": "secret", "max_length": 4096, "allow_empty": True, "default": ""},
+        "from_address": {"type": "str", "max_length": 255, "allow_empty": True, "default": ""},
+    },
+    # SMS stays optional: the group validates provider + India DLT fields,
+    # and the product refuses to *send* until a provider is really wired
+    "sms": {
+        "enabled": {"type": "bool", "default": False},
+        "provider": {
+            "type": "enum",
+            "choices": ("none", "twilio", "aws-sns", "plivo"),
+            "default": "none",
+        },
+        "sender_id": {
+            "type": "str",
+            "max_length": 16,
+            "allow_empty": True,
+            "default": "",
+            "help": "DLT-registered sender ID (required for India)",
+        },
+        "template_id": {
+            "type": "str",
+            "max_length": 64,
+            "allow_empty": True,
+            "default": "",
+            "help": "DLT-registered content template id (required for India)",
+        },
+        "country": {"type": "str", "max_length": 2, "default": "IN"},
+    },
+    # RADIUS push/OTP factor (RFC 2865 client; shared secret sealed)
+    "radius": {
+        "enabled": {"type": "bool", "default": False},
+        "host": {"type": "str", "max_length": 255, "allow_empty": True, "default": ""},
+        "port": {"type": "int", "min": 1, "max": 65535, "default": 1812},
+        "secret": {"type": "secret", "max_length": 512, "allow_empty": True, "default": ""},
+        "timeout_seconds": {"type": "int", "min": 1, "max": 30, "default": 5},
+    },
+    # SCIM 2.0 lifecycle sync (bearer token minted once, sha256 at rest)
+    "scim": {
+        "enabled": {"type": "bool", "default": False},
+        "token_sha256": {
+            "type": "str",
+            "max_length": 64,
+            "allow_empty": True,
+            "default": "",
+            "readonly": True,
+        },
+    },
+    # WebAuthn / FIDO2 relying party
+    "webauthn": {
+        "rp_id": {"type": "str", "max_length": 255, "allow_empty": True, "default": ""},
+        "rp_name": {"type": "str", "max_length": 128, "default": "VY-PAM"},
+        "allowed_origins": {
+            "type": "str",
+            "max_length": 2048,
+            "allow_empty": True,
+            "default": "",
+            "help": "Comma-separated origins, e.g. https://pam.corp.example",
+        },
+    },
 }
 
 SETTINGS_GROUPS = tuple(SETTINGS_SCHEMA)
@@ -1299,6 +1393,10 @@ def update_settings(group: str, payload: Any, actor: str = "admin") -> Dict[str,
         new_value = _validate_setting(group, name, spec, raw)
         old_value = current.get(name)
         if spec.get("type") == "secret":
+            # `<set>` is the read-time sentinel: echoing it back means
+            # "keep what is stored", never "seal this literal string"
+            if new_value == "<set>":
+                continue
             # plaintext never reaches the changelog or the response: the
             # row gets ciphertext, the event gets `<set>` / `<cleared>`
             if new_value:
@@ -1312,6 +1410,8 @@ def update_settings(group: str, payload: Any, actor: str = "admin") -> Dict[str,
             changes[name] = {"old": old_value, "new": new_value}
             stored[name] = new_value
 
+    _validate_group_semantics(group, {**current, **stored})
+
     if not changes:
         return {
             "group": group,
@@ -1322,6 +1422,28 @@ def update_settings(group: str, payload: Any, actor: str = "admin") -> Dict[str,
         }
 
     return _persist_settings(group, changes, stored, actor)
+
+
+def _validate_group_semantics(group: str, merged: Dict[str, Any]) -> None:
+    """Cross-field rules a per-field validator cannot express (phase 7)."""
+    if group == "sms" and merged.get("enabled"):
+        provider = str(merged.get("provider") or "none")
+        if provider == "none":
+            raise ValidationFailed(
+                "SMS is enabled but no provider is selected",
+                {"field": "provider", "choices": ["twilio", "aws-sns", "plivo"]},
+            )
+        if str(merged.get("country") or "IN").upper() == "IN":
+            # India DLT: the sender ID and content template must be
+            # registered with the telecom regulator before traffic flows
+            if not str(merged.get("sender_id") or "").strip() or not str(
+                merged.get("template_id") or ""
+            ).strip():
+                raise ValidationFailed(
+                    "India DLT rules: sender_id and template_id are required "
+                    "before SMS can be enabled",
+                    {"field": "sender_id", "country": "IN"},
+                )
 
 
 def _persist_settings(
@@ -11031,6 +11153,23 @@ ADMIN_OPERATIONS = [
     ("post", "/api/v1/hsm/seal"),
     ("post", "/api/v1/hsm/unseal"),
     ("post", "/api/v1/hsm/keys/rotate"),
+    # --- phase 7: real identity & login security (Addendum C) -------------
+    ("get", "/api/v1/users"),
+    ("post", "/api/v1/users"),
+    ("patch", "/api/v1/users/{user_id}"),
+    ("post", "/api/v1/users/{user_id}/unlock"),
+    ("post", "/api/v1/users/{user_id}/password-reset"),
+    ("get", "/api/v1/users/{user_id}/sessions"),
+    ("delete", "/api/v1/users/{user_id}/sessions"),
+    ("get", "/api/v1/auth/factor-recovery"),
+    ("post", "/api/v1/auth/factor-recovery/{request_id}/approve"),
+    ("get", "/api/v1/auth/emergency"),
+    ("post", "/api/v1/auth/emergency/open"),
+    ("post", "/api/v1/auth/emergency/grants/{grant_id}/approve"),
+    ("get", "/api/v1/auth/report"),
+    ("get", "/api/v1/auth/deliveries"),
+    ("post", "/api/v1/settings/scim/rotate"),
+    ("post", "/api/v1/settings/smtp/test"),
 ]
 
 # The approver: decision operations only - approve, deny and close across
@@ -11047,6 +11186,9 @@ _RBAC_APPROVER_OPERATIONS = frozenset(
         ("post", "/api/v1/vendors/{vendor_id}/deny"),
         ("post", "/api/v1/broker/credentials/{credential_id}/approve"),
         ("post", "/api/v1/broker/credentials/{credential_id}/deny"),
+        # phase 7: recovery and emergency are dual-control by design
+        ("post", "/api/v1/auth/factor-recovery/{request_id}/approve"),
+        ("post", "/api/v1/auth/emergency/grants/{grant_id}/approve"),
     }
 )
 
@@ -11428,6 +11570,32 @@ def resolve_principal(token: Any, *, config: Config) -> Optional[Dict[str, Any]]
             "role": binding.role,
             "kind": binding.kind,
             "scope": binding.scope or {},
+        }
+    # phase 7: a live console session bearer authenticates the human user;
+    # a role binding (kind `user`, principal = username) decides the role -
+    # no binding, no admin access (the same rule LDAP and SSO follow). The
+    # client's X-Actor is never consulted for these: the session IS the
+    # identity, which is what makes requester != approver a real control.
+    if isinstance(token, str) and token.startswith(CONSOLE_TOKEN_PREFIX + "."):
+        import identity as identity_module
+
+        try:
+            user, session = identity_module.verify_console_session(token)
+        except Unauthorized:
+            return None
+        binding = RoleBinding.query.filter(
+            RoleBinding.principal == user.username,
+            RoleBinding.kind == "user",
+            RoleBinding.revoked_at.is_(None),
+        ).first()
+        if binding is None:
+            return {"principal": user.username, "unbound": True, "kind": "user"}
+        return {
+            "principal": binding.principal,
+            "role": binding.role,
+            "kind": "user",
+            "scope": binding.scope or {},
+            "session_id": session.id,
         }
     # 6c: a live SSO session bearer authenticates like the others; the
     # binding (kind `sso`, principal = subject) decides the role - no
@@ -12221,13 +12389,22 @@ def run_cluster_monitor(*, actor: str = "cluster-monitor") -> Dict[str, Any]:
 
     6c: the HSM health watchdog rides every tick too - while enforcement is
     on, a provider that stays unreachable for `seal_delay_seconds` seals the
-    vault, and that outcome is reported under the `hsm` key."""
+    vault, and that outcome is reported under the `hsm` key.
+
+    7: queued OTP e-mail deliveries ride the same tick - a transient SMTP
+    failure retries here (max three attempts, the code rotates per attempt
+    so no plaintext sits at rest) and reports under `otp_deliveries`."""
     import hsm as hsm_module
 
     result = _run_cluster_monitor_tick(actor=actor)
     watchdog = hsm_module.watchdog_tick(actor="hsm-watchdog")
     if watchdog is not None:
         result["hsm"] = watchdog
+    import otp as otp_module
+
+    otp_retries = otp_module.retry_failed_deliveries()
+    if otp_retries.get("retried"):
+        result["otp_deliveries"] = otp_retries
     return result
 
 

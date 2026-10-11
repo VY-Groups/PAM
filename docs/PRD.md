@@ -1,6 +1,6 @@
 # VY-PAM — Product Requirements Document (PRD)
 
-**Status:** as-built for Phase 6c
+**Status:** as-built for Phase 7
 **Source of truth:** `VY-PAM_Enterprise_PAM_Architecture.md` (requirements) and
 `VY-PAM_MASTER_and_PAM_Workflow.md` (phase checkpoints)
 **Companion docs:** `TRD.md`, `PAM_FLOW.md`, `UI_UX_DESIGN_BRIEF.md`,
@@ -94,7 +94,8 @@ from the architecture doc, phase assigned in `IMPLEMENTATION_PLAN.md`:
 | §18 HA / DC / DR | Active-active/passive, load balancer, vault/audit/session replication, failover, health checks | **Shipped in 6a** (single-binary scope): node registry, real probes, pull replication, passive gate, failover + verified backups — external LB topology + multi-writer store remain | 6a |
 | §20 Enterprise Integrations | IAM/MFA/ITSM/SIEM/SOAR/EDR connectors — real verification/push when configured, `not connected` otherwise | Shipped in 4i for TOTP-MFA, ITSM, SIEM and LDAP (each honest `not connected` until configured); SOAR/EDR only if ever configured | 4i |
 | RBAC / ABAC | Multi-role model over the admin operations (single admin token today) | **Shipped in 6b**: five seeded roles over all admin operations (policy in code), sha256-at-rest API tokens shown once, LDAP directory authenticates but the binding decides, ABAC target/vault-item scoping, `rbac` ledger source — `admin-token` remains the bootstrap superuser | 6b |
-| SSO / MFA / HSM enforcement | Settings **schema** exists; enforcement not implemented | **Shipped in 6c** for SSO/HSM: SAML 2.0 + OIDC login (signature-verified, fail-closed MFA assertion, JIT subjects, server-side sessions, binding kind `sso` on the 6b model) and HSM/KMS key custody (provider abstraction over the master key, `advisory`/`enforced` with seal/unseal, no file-key fallback when enforced); 4i shipped the TOTP MFA gate — login-time MFA rides the SSO assertion | 6c (SSO/HSM), 4i (MFA) |
+| SSO / HSM enforcement | Settings **schema** exists; enforcement not implemented | **Shipped in 6c** for SSO/HSM: SAML 2.0 + OIDC login (signature-verified, fail-closed MFA assertion, JIT subjects, server-side sessions, binding kind `sso` on the 6b model) and HSM/KMS key custody (provider abstraction over the master key, `advisory`/`enforced` with seal/unseal, no file-key fallback when enforced) | 6c |
+| Real identity & login security | Users, server-side console sessions, MFA at login, actor bound to the authenticated user | **Shipped in 7**: scrypt local login, HttpOnly cookie + CSRF double-submit sessions, fail-closed `mfa_required` (enrolment ticket / MFA challenge, TOTP replay guard, backup codes), step-up, lockout + rate limits, `X-Actor` ignored for console sessions, e-mail OTP + WebAuthn + RADIUS + SCIM, sealed emergency admin (dual control) — Addendum C in full; 4i shipped the operator TOTP gate | 7 |
 
 ## 6. Functional requirements detail (selected)
 
@@ -170,17 +171,17 @@ from the architecture doc, phase assigned in `IMPLEMENTATION_PLAN.md`:
 | Data honesty | No fabricated values anywhere in the product | Live-data wiring + FORBIDDEN-string sweep (`shots_tool/__verify_live.mjs`, 9 screens × HTTP/file) |
 | Portability | Installs directly on a machine | Pure Python deps; SQLite files; Docker only under `pam_master/` and `backend/phase2_license_server/` for development |
 | Tamper evidence | Audit trail provable | sha256 chain + append-only triggers + `/audit/verify` |
-| Least privilege | Admin actions authenticated, least-privilege roles | 111 admin operations require `Bearer`/`X-Admin-Token` when `LICENSE_ADMIN_TOKEN` is set; in token mode a bound principal (RBAC API token or LDAP ticket) may call only its role's operations and only its ABAC scope; open dev mode is explicit (`X-Auth-Mode: open`); pipeline `/broker` operations require the broker API token and AI-agent `/agent-access` operations the agent API token — neither is ever waived |
+| Least privilege | Admin actions authenticated, least-privilege roles | 127 admin operations require `Bearer`/`X-Admin-Token` when `LICENSE_ADMIN_TOKEN` is set; in token mode a bound principal (RBAC API token, LDAP ticket, SSO subject, or local console user) may call only its role's operations and only its ABAC scope; open dev mode is explicit (`X-Auth-Mode: open`); pipeline `/broker` operations require the broker API token and AI-agent `/agent-access` operations the agent API token — neither is ever waived; console sessions are a separate credential (cookie + CSRF, actor bound to the principal) |
 | Bounded resource use | Scans and lists bounded | Scan ≤256 hosts × ≤24 ports, single-flight; pagination `limit` max 200 |
 | Contract stability | API evolution controlled | OpenAPI 3.1, both-direction contract test, `/api/v1` version segment |
-| Testability | Every phase ships tests | 664 backend + 46 vendor-tool tests; UI verifiers; 17-step smoke |
+| Testability | Every phase ships tests | 760 backend (678 phase2 + 82 licensing) + 46 vendor-tool tests; UI verifiers; 17-step smoke |
 | Offline crypto | Verification without network | Phase 1 validator verifies envelope/JWS offline (signature → structure → expiry) |
 
 ## 8. Success criteria (per release)
 
-1. `python -m pytest backend -q` green (currently **664**) and
+1. `python -m pytest backend -q` green (currently **760**) and
    `python -m pytest pam_master -q` green (**46**).
-2. Contract test green: **149** documented paths both directions, **111**
+2. Contract test green: **192** documented paths both directions, **127**
    admin operations carrying security schemes.
 3. Boundary verifiers green: smoke 17/17, `__verify_live.mjs`,
    `__verify_discovery.mjs`.
@@ -190,11 +191,11 @@ from the architecture doc, phase assigned in `IMPLEMENTATION_PLAN.md`:
 
 ## 9. Roadmap
 
-The full phase-wise backlog (6c), scope, dependencies and
+The full phase-wise backlog (7), scope, dependencies and
 definition-of-done per phase live in **`docs/IMPLEMENTATION_PLAN.md`**;
 execution checkpoints are logged in
-`VY-PAM_MASTER_and_PAM_Workflow.md`. Next phase: **6c — SSO + HSM
-enforcement** (Phases 4a–4k, 5a–5d and 6a/6b complete).
+`VY-PAM_MASTER_and_PAM_Workflow.md`. Next phase: **8 — Session gateway
+& recording** (Phases 4a–4k, 5a–5d, 6a/6b/6c and 7 complete).
 
 ## 10. Target end-state (final output after full development)
 
@@ -214,6 +215,6 @@ DevOps and AI environments"*):
 | **Threat response** | Bypass detection, UEBA anomalies, and risk banding all drive the *real* response machinery — session cascade, forced rotation, incidents with preserved evidence |
 | **Integrations** | IAM, MFA, ITSM, SIEM, SOAR, EDR, cloud and DevSecOps connectors — each either verified working against a real endpoint or explicitly `not connected` |
 | **Scale** | §18 replicated deployment (load balancer, vault/audit replication, failover) with runbooks; single-node install remains Docker-free |
-| **Contracts** | `apis/openapi.yaml` (149 paths today, `-` at completion) enforced both-ways; vendor tool contract likewise; zero dark endpoints |
-| **Quality** | Backend suite (664 today) grows per phase with real counts recorded in READMEs; pam_master 46 stays green; smoke + both UI verifiers green at every boundary |
+| **Contracts** | `apis/openapi.yaml` (192 paths today, `-` at completion) enforced both-ways; vendor tool contract likewise; zero dark endpoints |
+| **Quality** | Backend suite (760 today) grows per phase with real counts recorded in READMEs; pam_master 46 stays green; smoke + both UI verifiers green at every boundary |
 | **Honesty invariant** | Unchanged and non-negotiable: every displayed number comes from an API at render time — the product never fabricates, complete or not |

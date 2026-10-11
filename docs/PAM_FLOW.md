@@ -1,6 +1,6 @@
 # VY-PAM — PAM Flow (Application Flow)
 
-**Status:** as-built for Phase 6c
+**Status:** as-built for Phase 7
 Maps navigation, user journeys, and state machines across the console.
 Screen files live in `frontend/screens/<slug>/code.html`; the canonical
 navigation is the 11-item sidebar rendered on every screen.
@@ -23,7 +23,7 @@ Sidebar order (slugs = `data-path`, labels = nav text, icons = Material Symbols)
 | 8 | `license-entitlement-center` | Licensing & Entitlements | `workspace_premium` | ✅ `/licenses/*` |
 | 9 | `break-glass-emergency-protocol` | Emergency Break-Glass | `emergency_home` (rendered in `text-error`) | ✅ `/break-glass/*` |
 | 10 | `vendor-access-third-party-lifecycle` | Vendor Access | `handshake` | ✅ `/vendors/*` |
-| 11 | `platform-settings-center` | Settings | `tune` | ✅ `/settings/*`, `/cluster/*` |
+| 11 | `platform-settings-center` | Settings | `tune` | ✅ `/settings/*`, `/cluster/*`, `/auth/emergency`, `/scim/v2/*` |
 
 Plus the **launcher** (`frontend/launcher.html`) — a link hub, and the static
 spec screens (`enterprise_licensing_…`, `platform_settings_idp_hsm_…`) used as
@@ -124,10 +124,10 @@ Policy screen §7 section → Evaluate (advisory)
 Compliance screen
   Ledger digest (real totals, chain intact/first-break)
   Verify walk (recompute all hashes) → first break index or OK
-  Per-source chips (16 incl. All): all, license, settings, vault,
+  Per-source chips (22 incl. All): all, license, settings, vault,
                         discovery, jit, session, command, risk, bypass,
                         break-glass, integration, vendor, cloud, broker,
-                        agent → filter trail
+                        agent, cluster, rbac, sso, hsm, auth → filter trail
   Export → NDJSON in chain order (SIEM seam)
   Record-inspect modal → one event's full payload
 ```
@@ -135,9 +135,12 @@ Compliance screen
 ### 2.7 Settings change
 
 ```
-Settings screen → edit group (sso | hsm | zsp | worm)
+Settings screen → edit any of the 14 groups (auth | webauthn | smtp | sms |
+  radius | scim | sso | hsm | zsp | worm | mfa | itsm | siem | ldap)
   → PUT /settings/{group} → per-field diff persisted
   → changelog widget shows actor + before/after (real rows)
+  → sealed secrets read back as `<set>` - sending `<set>` back keeps
+    the stored value (never clobbers a secret with a sentinel string)
 ```
 
 ### 2.8 PAM bypass detection (§10)
@@ -386,6 +389,39 @@ HSM custody (Platform Settings → hsm group: provider, endpoint, enforcement):
     provider token stays sealed - no file fallback, ever
   every wrap/health/seal/unseal/rotate lands on the ledger as `hsm`
   Compliance gains the sso + hsm chips (19 sources + All = 20)
+
+Identity & login security (phase 7) - Platform Settings → Identity
+  local login: POST /auth/login (scrypt) →
+    no factor + mfa_required → 403 enrolment_required + vypam-enr1 ticket
+    factor enrolled but not proven → 403 mfa_required + vypam-mfa1 challenge
+    password path open + no factor → same fail-closed 403, never a session
+  enrol: POST /auth/mfa/enroll/totp (seed shown once) →
+    /enroll/totp/verify {enrol_ticket, code} → session minted
+      (vypam-ui1 + HttpOnly vypam_session + csrf_token; sha256 at rest)
+  login with a factor: challenge single-use (300s); wrong code → 401,
+    challenge survives; reused TOTP time step → refused (last_step)
+  step-up: sensitive routes need a fresh mfa_at (stepup_ttl_minutes);
+    backup codes are hashed + single-use; replay → 401
+  lockout: threshold doublings → 403 locked; admin unlock clears the
+    counter but the password path stays MFA-fail-closed
+  CSRF: cookie-authenticated mutations need X-CSRF-Token double-submit;
+    credential headers skip it; the admin token holds no console session
+  actor: X-Actor is ignored for console sessions (bound to the principal)
+  e-mail OTP: POST /auth/otp/start → 202 identically for known + unknown
+    (no enumeration); suppressed deliveries measured in smtp_deliveries,
+    never a code; /auth/deliveries shows the honest last_error
+  webauthn: /auth/mfa/webauthn/options → 202 for existing AND
+    non-existing handles (no oracle); register/authenticate single-use
+  radius: factor enrolls via session + CSRF; server unreachable →
+    honest 503 (fail-closed), ledger auth.mfa.radius-unreachable
+  scim: rotate → vypam-scim1 bearer (shown once); /scim/v2/Users joiner
+    / mover / leaver over its own bearer; local users invisible; SCIM
+    login → uniform 401 (true scim-managed reason only on the ledger)
+  emergency admin: sealed at boot (no usable password); open a grant →
+    reason >= 8 chars + two distinct approvers (never the requester) →
+    time-boxed window; login still demands the sealed password, single-
+    use, rotates the seal after use
+  Compliance gains the auth chip (21 sources + All = 22)
 ```
 
 ## 3. Cross-cutting interaction rules
@@ -450,6 +486,25 @@ AgentIdentity.status: active ⇄ disabled  (disable/enable reversible)
                        closes first — active grants release and rotate —
                        then the token dies; settings and task scopes
                        frozen at 409)
+
+ConsoleSession.status:
+                     live → revoked   (revoke / logout / logout-all /
+                       factor deactivation; idle + absolute expiry are
+                       timestamps checked on every request)
+
+EmergencyGrant.status:
+                     pending → open | denied
+                     open → used → expired
+                     pending|open → expired   (real clock,
+                       auth.emergency_window_minutes)
+                     (open: two distinct approvers, never the requester;
+                      used: the sealed password was spent - the seal
+                      then rotates; a denied/expired grant is evidence)
+
+LoginChallenge.status (vypam-mfa1 / vypam-enr1):
+                     pending → consumed   (single use; a spent or
+                       expired challenge 401s - the wrong-code attempt
+                       does not spend it)
 ```
 
 ## 5. Roles & separation of duties
@@ -459,6 +514,10 @@ AgentIdentity.status: active ⇄ disabled  (disable/enable reversible)
 | Call an admin operation (token mode) | the `admin-token` (kind admin), or a bound principal whose role includes the operation — a denial is 403 verbatim (`Role 'x' may not call …`) and the binding's ABAC scope may narrow it further (targets / vault items) |
 | Hold a role | an admin via `POST /api/v1/role-bindings` (the API token is shown once, sha256 at rest); directory users need a `kind=ldap` binding — the directory authenticates, the binding decides (no binding → 403) |
 | Sign in with SSO | the IdP over SAML 2.0 / OIDC (signature-verified, MFA asserted fail-closed); the login creates the subject + session only — admin access still needs a `kind=sso` binding (unbound → 403 verbatim) |
+| Sign in locally | scrypt over `users`; with `mfa_required` the password path alone mints **no** session — it returns a fail-closed 403 with a single-use enrolment ticket / MFA challenge; unknown, wrong and inactive all answer the identical 401 (no enumeration) |
+| Hold a console session | the user themself (server-side, `vypam-ui1` bearer + HttpOnly cookie, CSRF double-submit); `X-Actor` is **ignored** for console sessions — the actor is the authenticated principal; the admin token alone holds no console session |
+| Open the sealed emergency admin | the requester + two distinct approvers (never the requester, 403); the window is time-boxed and the login still demands the sealed password — single use, then the seal rotates |
+| Approve factor recovery (lost every factor) | two distinct approvers (never the requester) |
 | Seal / unseal the master key | an admin; in `enforced` mode the key only ever comes from the HSM/KMS provider — no file fallback, an unreachable provider seals |
 | Approve JIT | anyone but the requester; security role additionally required on `high` |
 | Approve/deny held command | another actor resolves the append-only approval row |

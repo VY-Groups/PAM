@@ -57,11 +57,12 @@ from models import (
     SettingsEvent,
     SsoFlow,
     SsoSession,
+    AuthEvent,
     VaultEvent,
     VendorEvent,
 )
 
-# the nineteen trails folded into the ledger (the unified feed reads these)
+# the twenty trails folded into the ledger (the unified feed reads these)
 AUDIT_SOURCES = (
     "license",
     "settings",
@@ -82,6 +83,7 @@ AUDIT_SOURCES = (
     "rbac",
     "sso",
     "hsm",
+    "auth",
 )
 SOURCE_RANK = {name: index for index, name in enumerate(AUDIT_SOURCES)}
 
@@ -566,6 +568,22 @@ def _map_hsm(event: HsmKeyEvent, db_session) -> Dict[str, Any]:
     )
 
 
+def _map_auth_event(event: AuthEvent, db_session) -> Dict[str, Any]:
+    """Console-login security under the twentieth trail `auth` (Addendum
+    C): logins, MFA, OTP, lockouts, revocations, emergency use. Passwords,
+    codes, tokens and seeds never enter `detail`."""
+    return _entry(
+        source="auth",
+        event_ref=f"auth:{event.id}",
+        action=_value(event, "action"),
+        actor=_value(event, "actor"),
+        subject=_value(event, "subject"),
+        detail=_value(event, "detail") or {},
+        created_at=event.created_at,
+        sort_id=event.id,
+    )
+
+
 # every event model that must reach the ledger, in a stable backfill order
 LEDGER_MODELS = (
     LicenseEvent,
@@ -590,6 +608,8 @@ LEDGER_MODELS = (
     SsoFlow,
     SsoSession,
     HsmKeyEvent,
+    # 7 appends: the console-login security trail
+    AuthEvent,
 )
 
 MAPPERS = {
@@ -614,6 +634,7 @@ MAPPERS = {
     SsoFlow: _map_sso_flow,
     SsoSession: _map_sso_session,
     HsmKeyEvent: _map_hsm,
+    AuthEvent: _map_auth_event,
 }
 
 

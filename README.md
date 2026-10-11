@@ -24,7 +24,7 @@ PAM/
 │   ├── screens/<name>/          #   one folder per screen: code.html + screen.png
 │   └── README.md                #   layout + how to add a screen (the contract)
 ├── apis/                            # HTTP contract for every backend service
-│   ├── openapi.yaml             #   OpenAPI 3.1: all 149 paths (synced by a test)
+│   ├── openapi.yaml             #   OpenAPI 3.1: all 192 paths (synced by a test)
 │   └── README.md                #   conventions + how to view
 ├── backend/
 │   ├── ipam_licensing/              # Phase 1: library + CLIs
@@ -60,6 +60,12 @@ PAM/
 │       ├── tests/test_rbac.py         # §10 RBAC/ABAC roles, bindings, scope (31 tests)
 │       ├── tests/test_sso.py          # SAML/OIDC login path, MFA fail-closed, sessions (37 tests)
 │       ├── tests/test_hsm.py          # HSM/KMS key custody, seal/unseal, wrap envelope (14 tests)
+│       ├── tests/test_identity.py      # 7 identity & login: scrypt, console sessions + CSRF, MFA ladder, uniform 401, emergency (33 tests)
+│       ├── tests/test_mfa.py           # 7 MFA: TOTP replay guard, two-step login challenge, step-up, backup codes (11 tests)
+│       ├── tests/test_otp.py           # 7 e-mail OTP: uniform answers, TTL/caps, measured suppression - never a code (13 tests)
+│       ├── tests/test_webauthn.py      # 7 WebAuthn: packed + none, single-use challenge, 202 options no enumeration (17 tests)
+│       ├── tests/test_radius.py        # 7 RADIUS: RFC 2865 stub flow, Accept/Reject/timeout, honest 503 fail-closed (13 tests)
+│       ├── tests/test_scim.py          # 7 SCIM 2.0: own bearer, joiner/mover/leaver lifecycle, uniform 401 (9 tests)
 │       ├── tests/test_openapi_contract.py # apis/openapi.yaml ↔ routes (9 tests)
 │       ├── Dockerfile + docker-compose.yml  # development/runtime testing only
 │       └── README.md                # full API reference
@@ -101,7 +107,7 @@ python -m pam_master.keygen                      # RSA + Ed25519 + registry PII 
 python -m pam_master                             # http://127.0.0.1:5400
 
 # Tests (shared core + shipped API contract + vendor tool)
-python -m pytest backend -q                      # 664 tests
+python -m pytest backend -q                      # 760 tests
 python -m pytest pam_master -q                   # 46 tests (vendor tool)
 ```
 
@@ -141,8 +147,9 @@ python -m pytest pam_master -q                   # 46 tests (vendor tool)
   backed by `GET/PUT /api/v1/settings` with an audit changelog, plus the §20
   Enterprise Integrations cards over `GET /api/v1/integrations/status`), the Command
   Center and Compliance screens (backed by `GET /api/v1/overview` and the
-  unified `GET /api/v1/events` feed - a nineteen-source trail filter that
-  includes the `integration`, `vendor`, `cloud`, `broker`, `agent` and `cluster` trails, plus a live SIEM-push chip - and the
+  unified `GET /api/v1/events` feed - a twenty-source trail filter that
+  includes the `integration`, `vendor`, `cloud`, `broker`, `agent`,
+  `cluster`, `rbac`, `sso`, `hsm` and `auth` trails, plus a live SIEM-push chip - and the
   Command Center's §10 PAM
   bypass detection section over `GET/POST /api/v1/bypass/*` — real auth-log
   ingest, correlation against managed targets and recorded sessions,

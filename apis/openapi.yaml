@@ -66,6 +66,12 @@ tags:
     description: SSO enforcement - SAML 2.0 and OIDC login handshake, SP metadata, single-use flows, MFA fail-closed session minting and session administration (architecture 9, phase 6c)
   - name: hsm
     description: HSM/KMS master-key custody - advisory/enforced provider wrap, seal/unseal, health watchdog, key rotation (architecture 20, phase 6c)
+  - name: identity
+    description: >-
+      Real identity and login security - local users, console sessions, MFA
+      (TOTP / e-mail OTP / WebAuthn / RADIUS / backup codes), NIST passwords,
+      lockout and rate limits, recovery, emergency admin, SCIM lifecycle
+      (phase 7, Addendum C)
 paths:
   /health:
     get:
@@ -405,7 +411,7 @@ paths:
         - name: group
           in: path
           required: true
-          schema: {type: string, enum: [sso, hsm, zsp, worm, mfa, itsm, siem, ldap]}
+          schema: {type: string, enum: [sso, hsm, zsp, worm, mfa, itsm, siem, ldap, auth, smtp, sms, radius, scim, webauthn]}
         - name: X-Actor
           in: header
           description: Who is making the change (recorded in the audit changelog).
@@ -4615,6 +4621,7 @@ paths:
         - rbacToken: []
         - ldapTicket: []
         - ssoSession: []
+        - consoleSession: []
         - {}
       responses:
         "200":
@@ -4976,6 +4983,1630 @@ paths:
             application/json:
               schema: {$ref: "#/components/schemas/Error"}
 
+  # ---------------------------------------------------------------------------
+  # real identity & login security (phase 7, Addendum C)
+  # ---------------------------------------------------------------------------
+  /api/v1/auth/login:
+    post:
+      tags: [identity]
+      summary: Local console login (password -> session, MFA challenge or enrolment ticket)
+      description: >
+        Behind per-IP and per-account sliding-window rate limits, progressive
+        delay on failures and spray detection (one IP touching too many
+        usernames is blocked and alerted on the `auth` trail). Outcomes: a
+        session when no factor is enrolled and `auth.mfa_required` is off; an
+        MFA challenge (`vypam-mfa1.<id>.<secret>`) when a factor is enrolled -
+        pass `totp_code`, `otp_challenge_id` + `otp_code`, `backup_code` or
+        `webauthn` inline to finish in the same call, or take the 403 reply
+        (`status: mfa_required` with the `challenge`) and retry with it;
+        or, fail-closed under `mfa_required`, an enrolment ticket
+        (`vypam-enr1.<id>.<secret>`)
+        authorising only the enrolment endpoints and minting a session once a
+        factor verifies. The reply sets the HttpOnly/SameSite `vypam_session`
+        cookie and returns the bearer + CSRF twins exactly once. `X-Actor` is
+        never read - the session is the identity. Unknown user, wrong
+        password and inactive account answer with the same 401; lockout,
+        rate-limit and spray refusals are explicit 403s. The outcome lands on
+        the `auth` ledger (login.succeeded / login.failed / login.refused /
+        enrolment.required).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [username, password]
+              properties:
+                username: {type: string, maxLength: 64}
+                password: {type: string, maxLength: 200}
+                login_challenge:
+                  type: string
+                  description: The `vypam-mfa1` challenge from a previous reply (the inline `challenge` value is accepted too).
+                totp_code:
+                  type: string
+                  description: 'RFC-6238 code (replay-protected: a reused time step is refused).'
+                otp_challenge_id: {type: string, description: E-mail OTP challenge started at /auth/otp/start.}
+                otp_code: {type: string, maxLength: 16}
+                backup_code: {type: string, description: Single-use hashed backup code (dashes optional).}
+                webauthn:
+                  type: object
+                  description: WebAuthn assertion (obtain an authenticate challenge at /auth/mfa/webauthn/options first).
+                  additionalProperties: true
+                device_token:
+                  type: string
+                  description: Remembered-device token (`vypam-dev1...`) - only low-privilege roles may be remembered.
+                remember_device: {type: boolean}
+      responses:
+        "200":
+          description: Session minted (cookie set; bearer + csrf shown once)
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/ConsoleSessionMint"}
+        "400": {$ref: "#/components/responses/BadRequest"}
+        "401":
+          description: Invalid username or password (identical for unknown users), or an MFA assertion failed
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/Error"}
+        "403":
+          description: >-
+            Password verified but the flow continues (the reply carries a
+            `status`: `mfa_required` + `challenge`, or `enrolment_required` +
+            `enrol_ticket`), or an explicit refusal without `status` (account
+            locked, inactive or SCIM-managed, password change required, rate
+            limit or spray block)
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/Error"}
+
+  /api/v1/auth/logout:
+    post:
+      tags: [identity]
+      summary: End your own console session
+      description: >
+        Self-service logout: the presented console session is the
+        authorization (no role binding needed), the row is revoked with
+        reason `logout` on the `auth` trail and the cookie is cleared. A
+        missing or dead session is a 401.
+      security:
+        - consoleSession: []
+      responses:
+        "200":
+          description: Session revoked
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [status]
+                properties:
+                  status: {type: string, enum: [logged_out]}
+        "401": {$ref: "#/components/responses/Unauthorized"}
+
+  /api/v1/auth/sessions:
+    get:
+      tags: [identity]
+      summary: Your live console sessions
+      description: >
+        Idle and absolute deadlines, last seen, source address and user agent
+        per session, plus `current_session_id`. `?include_revoked=1` keeps
+        the revoked rows as evidence. Self-service - no role binding needed.
+      security:
+        - consoleSession: []
+      responses:
+        "200":
+          description: This user's sessions
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  sessions: {type: array, items: {type: object, additionalProperties: true}}
+                  current_session_id: {type: integer}
+        "401": {$ref: "#/components/responses/Unauthorized"}
+
+  /api/v1/auth/sessions/{session_id}:
+    delete:
+      tags: [identity]
+      summary: Revoke one console session
+      description: >
+        Your own session, or any session when you hold the admin role.
+        Revocation is a timestamp plus a reason; the row stays as evidence on
+        the `auth` trail.
+      security:
+        - consoleSession: []
+      parameters:
+        - name: session_id
+          in: path
+          required: true
+          schema: {type: integer}
+      responses:
+        "200":
+          description: Session revoked
+          content:
+            application/json:
+              schema: {type: object, additionalProperties: true}
+        "401": {$ref: "#/components/responses/Unauthorized"}
+        "403": {$ref: "#/components/responses/Forbidden"}
+        "404": {$ref: "#/components/responses/NotFound"}
+        "409": {$ref: "#/components/responses/Conflict"}
+
+  /api/v1/auth/logout-all:
+    post:
+      tags: [identity]
+      summary: Log out everywhere
+      description: >
+        Revokes every other live session of this user immediately (reason
+        `logout-all`), keeping only the calling one. Each revocation lands on
+        the `auth` trail.
+      security:
+        - consoleSession: []
+      responses:
+        "200":
+          description: Other sessions revoked
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  revoked: {type: integer}
+                  message: {type: string}
+        "401": {$ref: "#/components/responses/Unauthorized"}
+
+  /api/v1/auth/mfa/stepup:
+    post:
+      tags: [identity]
+      summary: Refresh the step-up window with a fresh factor assertion
+      description: >
+        Sensitive actions (secret reveal, break-glass, critical approval,
+        emergency and factor changes) demand an MFA assertion younger than
+        `auth.stepup_ttl_minutes`; this endpoint is how a human session
+        refreshes it. TOTP (replay-protected), e-mail OTP challenge, RADIUS,
+        backup code or WebAuthn assertion. Machine credentials assert
+        per-request and are not human sessions - a step-up never applies to
+        them.
+      security:
+        - consoleSession: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              description: 'One assertion: `totp_code`, `otp_challenge_id` + `otp_code`, `radius_code`, `backup_code` or `webauthn`.'
+              additionalProperties: true
+      responses:
+        "200":
+          description: Step-up verified
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status: {type: string, enum: [verified]}
+                  method: {type: string}
+                  mfa_at: {type: string}
+        "401":
+          description: MFA assertion failed (or no session)
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/Error"}
+        "503": {$ref: "#/components/responses/ServiceUnavailable"}
+
+  /api/v1/auth/password:
+    post:
+      tags: [identity]
+      summary: Change your password (also the first-login forced change)
+      description: >
+        Authenticated by the current password - with a live session or
+        signed out (this is the `must_change_password` path after an
+        admin reset). Policy is NIST-style: length over complexity
+        (`auth.password_min_length`, default 14), the embedded
+        breached-password denylist, username containment refused, no forced
+        rotation. Every other session dies; the calling one survives. The
+        refusal lands on the `auth` trail, never the passwords.
+      security:
+        - consoleSession: []
+        - {}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                username: {type: string, description: Required only when signed out.}
+                old_password: {type: string}
+                new_password: {type: string, maxLength: 200}
+      responses:
+        "200":
+          description: Password changed (other sessions revoked)
+          content:
+            application/json:
+              schema: {type: object, additionalProperties: true}
+        "400": {$ref: "#/components/responses/BadRequest"}
+        "401":
+          description: Current password incorrect
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/Error"}
+
+  /api/v1/auth/otp/start:
+    post:
+      tags: [identity]
+      summary: Start an e-mail OTP challenge (generic answer - no enumeration)
+      description: >
+        Sends a CSPRNG 8-digit code, HMAC-hashed at rest, bound to the
+        challenge id, valid `otp`-TTL 5 minutes, single use, attempt-capped
+        with a resend cooldown - over the sealed `smtp` settings group. The
+        response is byte-identical whether the account exists, is inactive or
+        SMTP is unconfigured (a cooldown silently re-supplies the live
+        challenge); only the ledger records the honest internals
+        (`otp-sent` / `otp-suppressed` / `otp-failed`) and never the code.
+        Purposes: `login`, `stepup`, `recovery`. Per-IP rate limits still
+        apply.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [username]
+              properties:
+                username: {type: string, maxLength: 64}
+                purpose: {type: string, enum: [login, stepup, recovery], default: login}
+      responses:
+        "202":
+          description: 'Generic `{"status": "sent"}` + challenge_id, always'
+          content:
+            application/json:
+              schema: {type: object, additionalProperties: true}
+        "400": {$ref: "#/components/responses/BadRequest"}
+        "403":
+          description: Per-IP rate limit reached
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/Error"}
+
+  /api/v1/auth/recovery/start:
+    post:
+      tags: [identity]
+      summary: Start password recovery (same generic 202 for every username)
+      description: >
+        Wraps /auth/otp/start with purpose `recovery`: the identical generic
+        answer whether or not the account exists (no enumeration), a real
+        code to the registered mailbox when SMTP is configured, and the
+        honest suppression on the `auth` trail when it is not. Rate-limited
+        per IP.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [username]
+              properties:
+                username: {type: string, maxLength: 64}
+      responses:
+        "202":
+          description: 'Generic `{"status": "sent"}` + challenge_id, always'
+          content:
+            application/json:
+              schema: {type: object, additionalProperties: true}
+        "400": {$ref: "#/components/responses/BadRequest"}
+        "403":
+          description: Per-IP rate limit reached
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/Error"}
+
+  /api/v1/auth/recovery/reset:
+    post:
+      tags: [identity]
+      summary: Reset a password with a verified recovery OTP
+      description: >
+        Verifies the single-use, attempt-capped code bound to this challenge
+        and username, applies the full password policy to the new password
+        and revokes every session (reason `password-recovered`). The MFA
+        factors stay - a password alone never downgrades a factor; factor
+        recovery is the two-admin flow. The event lands on the `auth` trail
+        without any secret.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [username, challenge_id, code, new_password]
+              properties:
+                username: {type: string, maxLength: 64}
+                challenge_id: {type: string}
+                code: {type: string, maxLength: 16}
+                new_password: {type: string, maxLength: 200}
+      responses:
+        "200":
+          description: Password reset (all sessions revoked)
+          content:
+            application/json:
+              schema: {type: object, additionalProperties: true}
+        "400": {$ref: "#/components/responses/BadRequest"}
+        "401":
+          description: Code invalid, expired or already used
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/Error"}
+
+  /api/v1/auth/mfa/enroll/totp:
+    post:
+      tags: [identity]
+      summary: Enrol (or rotate) your TOTP factor - seed shown once
+      description: >
+        Mints an RFC-6238 seed, seals it AES-256-GCM per user and returns it
+        exactly once with the otpauth URI for the authenticator app; the
+        factor carries `last_step` so a captured code cannot be replayed in
+        its own time step. Re-enrolling rotates the seed and resets the
+        replay counter. Needs the enrolment ticket or a live session; on an
+        existing session the step-up window must be fresh (an attacker with
+        a stolen session cannot add their own factor). The event lands on
+        the `auth` trail without the seed.
+      security:
+        - consoleSession: []
+        - enrolTicket: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                enrol_ticket: {type: string, description: "`vypam-enr1...` (or the X-Enrol-Ticket header)."}
+      responses:
+        "201":
+          description: Seed + otpauth URI (shown once)
+          content:
+            application/json:
+              schema: {type: object, additionalProperties: true}
+        "401": {$ref: "#/components/responses/Unauthorized"}
+        "403":
+          description: Step-up MFA required on an existing session (reason `stepup_required`)
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/Error"}
+
+  /api/v1/auth/mfa/enroll/totp/verify:
+    post:
+      tags: [identity]
+      summary: Verify the first TOTP code (completes enrolment)
+      description: >
+        Checks the code against the sealed seed with replay protection. With
+        an enrolment ticket this consumes it and mints the session -
+        fail-closed enrolment complete; with a live session it just confirms
+        the factor and refreshes the step-up window.
+      security:
+        - consoleSession: []
+        - enrolTicket: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [code]
+              properties:
+                code: {type: string, maxLength: 8}
+                enrol_ticket: {type: string}
+      responses:
+        "200":
+          description: Session minted (enrol ticket) or factor verified (session)
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/ConsoleSessionMint"}
+        "401":
+          description: Code invalid, or ticket invalid/expired
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/Error"}
+
+  /api/v1/auth/mfa/enroll/email:
+    post:
+      tags: [identity]
+      summary: Enrol e-mail OTP as a factor (a real code goes to your mailbox)
+      description: >
+        Starts a `stepup` OTP challenge addressed to the account's registered
+        e-mail; verify it at the /verify endpoint to activate the factor.
+        Refuses honestly when the account has no address (an admin sets it).
+        On an existing session the step-up window must be fresh (an attacker
+        with a stolen session cannot add their own factor).
+      security:
+        - consoleSession: []
+        - enrolTicket: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                enrol_ticket: {type: string}
+      responses:
+        "202":
+          description: Code sent (challenge_id) - generic answer, no enumeration
+          content:
+            application/json:
+              schema: {type: object, additionalProperties: true}
+        "400":
+          description: This account has no e-mail address (named honestly)
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/Error"}
+        "401": {$ref: "#/components/responses/Unauthorized"}
+        "403":
+          description: Step-up MFA required on an existing session (reason `stepup_required`)
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/Error"}
+        "503": {$ref: "#/components/responses/ServiceUnavailable"}
+
+  /api/v1/auth/mfa/enroll/email/verify:
+    post:
+      tags: [identity]
+      summary: Verify the enrolment code and activate the e-mail factor
+      description: >
+        Consumes the single-use, attempt-capped OTP bound to this account and
+        activates the `email` factor; the verification lands on the `auth`
+        trail without the code.
+      security:
+        - consoleSession: []
+        - enrolTicket: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [challenge_id, code]
+              properties:
+                challenge_id: {type: string}
+                code: {type: string, maxLength: 16}
+                enrol_ticket: {type: string}
+      responses:
+        "200":
+          description: Factor enrolled
+          content:
+            application/json:
+              schema: {type: object, additionalProperties: true}
+        "401":
+          description: Code invalid, expired or already used
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/Error"}
+        "503": {$ref: "#/components/responses/ServiceUnavailable"}
+
+  /api/v1/auth/mfa/enroll/radius:
+    post:
+      tags: [identity]
+      summary: Enrol the RADIUS push/OTP factor
+      description: >
+        The code arrives out of band on the authenticator the configured
+        RADIUS server owns; at login it travels as the RFC 2865
+        User-Password attribute. Refuses honestly with 503 while the `radius`
+        settings group is unconfigured (host, port, sealed shared secret).
+        The step-up window must be fresh before enrolling on an existing
+        session (an attacker with a stolen session cannot add their own
+        factor).
+      security:
+        - consoleSession: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {type: object, additionalProperties: true}
+      responses:
+        "201":
+          description: Factor enrolled
+          content:
+            application/json:
+              schema: {type: object, additionalProperties: true}
+        "401": {$ref: "#/components/responses/Unauthorized"}
+        "403":
+          description: Step-up MFA required (reason `stepup_required`)
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/Error"}
+        "503": {$ref: "#/components/responses/ServiceUnavailable"}
+
+  /api/v1/auth/mfa/backup-codes:
+    post:
+      tags: [identity]
+      summary: Generate ten single-use backup codes (shown once)
+      description: >
+        64 bits of CSPRNG output per code, sha256 at rest, displayed exactly
+        once; regeneration invalidates every earlier code. Using a code burns
+        it and lands on the `auth` trail (`mfa.backup-code-used`) without the
+        code itself. Step-up fresh required.
+      security:
+        - consoleSession: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {type: object, additionalProperties: true}
+      responses:
+        "200":
+          description: The ten codes (once)
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  codes: {type: array, items: {type: string}}
+                  count: {type: integer}
+                  message: {type: string}
+        "401": {$ref: "#/components/responses/Unauthorized"}
+        "403":
+          description: Step-up MFA required (reason `stepup_required`)
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/Error"}
+
+  /api/v1/auth/mfa/factors:
+    get:
+      tags: [identity]
+      summary: Your enrolled MFA factors
+      description: Kind, label, replay counter state and last use - never a seed, code or token.
+      security:
+        - consoleSession: []
+      responses:
+        "200":
+          description: Factor list
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  factors: {type: array, items: {type: object, additionalProperties: true}}
+        "401": {$ref: "#/components/responses/Unauthorized"}
+
+  /api/v1/auth/mfa/factors/{factor_id}:
+    delete:
+      tags: [identity]
+      summary: Remove one of your factors
+      description: >
+        The last remaining factor with `auth.mfa_required` on is refused
+        (fail-closed - never a silent downgrade to single factor): use the
+        two-admin factor-recovery flow instead. Step-up fresh required; the
+        deletion lands on the `auth` trail.
+      security:
+        - consoleSession: []
+      parameters:
+        - name: factor_id
+          in: path
+          required: true
+          schema: {type: integer}
+      responses:
+        "200":
+          description: Factor removed
+          content:
+            application/json:
+              schema: {type: object, additionalProperties: true}
+        "401": {$ref: "#/components/responses/Unauthorized"}
+        "403":
+          description: Last factor with mfa_required on, or step-up required
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/Error"}
+        "404": {$ref: "#/components/responses/NotFound"}
+
+  /api/v1/auth/mfa/webauthn/options:
+    post:
+      tags: [identity]
+      summary: Start a WebAuthn ceremony (challenge + relying party + origins)
+      description: >
+        Single-use, TTL-bound server-side challenge for `register` or
+        `authenticate`, plus the configured `rp_id`, `rp_name` and allowed
+        origins. Pass `username` when signing in (unknown usernames get the
+        identical 202 shape - no enumeration); a live session works without
+        one.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                username: {type: string, maxLength: 64}
+                purpose: {type: string, enum: [register, authenticate], default: authenticate}
+      responses:
+        "202":
+          description: >-
+            Challenge issued - the identical shape and status whether the
+            username exists or not (the unknown-user challenge backs no
+            server-side row, so no assertion against it can verify).
+          content:
+            application/json:
+              schema: {type: object, additionalProperties: true}
+        "400": {$ref: "#/components/responses/BadRequest"}
+        "401": {$ref: "#/components/responses/Unauthorized"}
+
+  /api/v1/auth/mfa/webauthn/assert:
+    post:
+      tags: [identity]
+      summary: Consume a WebAuthn assertion (step-up, or mint with an enrol ticket)
+      description: >
+        Verifies clientDataJSON type/challenge/origin, the rpIdHash and the
+        signature over authenticatorData || clientDataHash with the stored
+        key (ES256/RS256/EdDSA), and enforces the signature counter: a
+        rollback with a non-zero counter means a cloned authenticator - the
+        assertion is refused and alerted (`auth.webauthn.clone-detected`).
+        With an enrolment ticket this consumes it and mints the session; with
+        a live session it is a step-up.
+      security:
+        - consoleSession: []
+        - enrolTicket: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [challenge_id, credential_id, client_data_json, authenticator_data, signature]
+              properties:
+                challenge_id: {type: string}
+                credential_id: {type: string}
+                client_data_json: {type: string}
+                authenticator_data: {type: string}
+                signature: {type: string}
+                enrol_ticket: {type: string}
+      responses:
+        "200":
+          description: Session minted (enrol ticket) or step-up verified (session)
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/ConsoleSessionMint"}
+        "401": {$ref: "#/components/responses/Unauthorized"}
+        "403":
+          description: Challenge invalid/expired, origin refused, or counter rolled back (clone)
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/Error"}
+        "404": {$ref: "#/components/responses/NotFound"}
+        "400": {$ref: "#/components/responses/BadRequest"}
+
+  /api/v1/auth/mfa/enroll/webauthn:
+    post:
+      tags: [identity]
+      summary: Register a security key / passkey (attestation verified in-product)
+      description: >
+        Decodes the attestation object (strict CBOR, no new dependency),
+        checks clientDataJSON type/challenge/origin and the rpIdHash, and
+        accepts the `none` format or `packed` self-attestation (the
+        credential's own key signs authenticatorData || clientDataHash);
+        every other format is refused honestly, not skipped. The public key
+        is stored SPKI-DER; registering creates the `webauthn` factor so the
+        next login demands it. Step-up fresh required on an existing session.
+      security:
+        - consoleSession: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [challenge_id, client_data_json, attestation_object]
+              properties:
+                challenge_id: {type: string}
+                client_data_json: {type: string}
+                attestation_object: {type: string}
+                name: {type: string, maxLength: 64}
+                transports: {type: array, items: {type: string}}
+      responses:
+        "201":
+          description: Credential registered
+          content:
+            application/json:
+              schema: {type: object, additionalProperties: true}
+        "400":
+          description: Malformed payload, unsupported attestation format or bad signature
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/Error"}
+        "401": {$ref: "#/components/responses/Unauthorized"}
+        "403":
+          description: WebAuthn not configured (rp_id/origins missing), challenge invalid, or step-up required
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/Error"}
+
+  /api/v1/auth/mfa/webauthn/credentials:
+    get:
+      tags: [identity]
+      summary: Your registered security keys
+      description: Credential ids, names, signature counters and last use (never the public key material).
+      security:
+        - consoleSession: []
+      responses:
+        "200":
+          description: Credential list
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  credentials: {type: array, items: {type: object, additionalProperties: true}}
+        "401": {$ref: "#/components/responses/Unauthorized"}
+
+  /api/v1/auth/mfa/webauthn/credentials/{credential_id}:
+    delete:
+      tags: [identity]
+      summary: Remove one registered security key
+      description: >
+        Deleting the last credential also drops the `webauthn` factor - and
+        that last-factor delete is refused while `auth.mfa_required` is on
+        (fail-closed; use the two-admin recovery). Step-up fresh required.
+      security:
+        - consoleSession: []
+      parameters:
+        - name: credential_id
+          in: path
+          required: true
+          schema: {type: integer}
+      responses:
+        "200":
+          description: Credential removed
+          content:
+            application/json:
+              schema: {type: object, additionalProperties: true}
+        "401": {$ref: "#/components/responses/Unauthorized"}
+        "403":
+          description: Last factor with mfa_required on, or step-up required
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/Error"}
+        "404": {$ref: "#/components/responses/NotFound"}
+
+  /api/v1/auth/factor-recovery/request:
+    post:
+      tags: [identity]
+      summary: Ask for factor recovery (lost every factor)
+      description: >
+        The enrolment ticket (you proved the password but are stuck at MFA)
+        or a live session authorises the request; two distinct admins must
+        approve before any factor is deleted - recovery is never
+        self-service. One pending request per user; a second is a 409. The
+        request lands on the `auth` trail.
+      security:
+        - consoleSession: []
+        - enrolTicket: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                reason: {type: string, maxLength: 255}
+                enrol_ticket: {type: string}
+      responses:
+        "201":
+          description: Recovery request pending approval
+          content:
+            application/json:
+              schema: {type: object, additionalProperties: true}
+        "401": {$ref: "#/components/responses/Unauthorized"}
+        "409": {$ref: "#/components/responses/Conflict"}
+
+  /api/v1/auth/factor-recovery:
+    get:
+      tags: [identity]
+      summary: Factor-recovery requests with their approvals
+      description: >
+        Every request (filter `?status=`), each with the distinct approvers
+        so far; two approvals delete the user's factors and the next sign-in
+        forces a fresh enrolment. Admin-only.
+      security:
+        - bearerAuth: []
+        - adminTokenHeader: []
+        - rbacToken: [auditor, auditor-read-only]
+        - ldapTicket: [auditor, auditor-read-only]
+        - {}
+      parameters:
+        - name: status
+          in: query
+          schema: {type: string, enum: [pending, approved, denied]}
+      responses:
+        "200":
+          description: Recovery requests
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  requests: {type: array, items: {type: object, additionalProperties: true}}
+        "401": {$ref: "#/components/responses/Unauthorized"}
+
+  /api/v1/auth/factor-recovery/{request_id}/approve:
+    post:
+      tags: [identity]
+      summary: Approve or deny a factor recovery (dual control)
+      description: >
+        Two distinct approvals (never the affected user) delete every MFA
+        factor and close the request - the next sign-in forces a fresh
+        enrolment; one denial closes it as `denied`. Every decision lands on
+        the `auth` trail. Admin-only (also granted to `approver`).
+      security:
+        - bearerAuth: []
+        - adminTokenHeader: []
+        - rbacToken: [approver]
+        - ldapTicket: [approver]
+        - {}
+      parameters:
+        - name: request_id
+          in: path
+          required: true
+          schema: {type: integer}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                decision: {type: string, enum: [approve, deny], default: approve}
+                note: {type: string, maxLength: 255}
+      responses:
+        "200":
+          description: Recovery request approved / denied / pending second approval
+          content:
+            application/json:
+              schema: {type: object, additionalProperties: true}
+        "401": {$ref: "#/components/responses/Unauthorized"}
+        "403": {$ref: "#/components/responses/Forbidden"}
+        "404": {$ref: "#/components/responses/NotFound"}
+        "409": {$ref: "#/components/responses/Conflict"}
+
+  /api/v1/auth/emergency:
+    get:
+      tags: [identity]
+      summary: Emergency admin state and grant history
+      description: >
+        The sealed offline admin's grants (pending / open / used / expired /
+        denied) with their distinct approvals and timestamps - the evidence
+        that opening it is always dual-approved. Admin-only.
+      security:
+        - bearerAuth: []
+        - adminTokenHeader: []
+        - rbacToken: [auditor, auditor-read-only]
+        - ldapTicket: [auditor, auditor-read-only]
+        - {}
+      responses:
+        "200":
+          description: Grants + sealed username
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  grants: {type: array, items: {type: object, additionalProperties: true}}
+                  username: {type: string}
+        "401": {$ref: "#/components/responses/Unauthorized"}
+
+  /api/v1/auth/emergency/open:
+    post:
+      tags: [identity]
+      summary: Request to open the sealed emergency admin (dual-approved)
+      description: >
+        Creates a `pending` grant awaiting two distinct approvals (never the
+        requester); approval opens a short window (`auth.emergency_window_minutes`,
+        default 15). The account's password is sealed at rest and unusable
+        until then - the row alone grants nothing. The request lands on the
+        `auth` trail with reason and ticket, never a secret. Admin-only.
+      security:
+        - bearerAuth: []
+        - adminTokenHeader: []
+        - {}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [reason]
+              properties:
+                reason: {type: string, minLength: 8, maxLength: 255}
+                ticket: {type: string, maxLength: 64}
+      responses:
+        "201":
+          description: Grant pending approval
+          content:
+            application/json:
+              schema: {type: object, additionalProperties: true}
+        "400": {$ref: "#/components/responses/BadRequest"}
+        "401": {$ref: "#/components/responses/Unauthorized"}
+        "409": {$ref: "#/components/responses/Conflict"}
+
+  /api/v1/auth/emergency/grants/{grant_id}/approve:
+    post:
+      tags: [identity]
+      summary: Approve or deny an emergency-open grant (dual control)
+      description: >
+        Two distinct approvals (never the requester) open the window and
+        alert on the `auth` trail; one denial closes the grant as `denied`.
+        Admin-only (also granted to `approver`).
+      security:
+        - bearerAuth: []
+        - adminTokenHeader: []
+        - rbacToken: [approver]
+        - ldapTicket: [approver]
+        - {}
+      parameters:
+        - name: grant_id
+          in: path
+          required: true
+          schema: {type: integer}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                decision: {type: string, enum: [approve, deny], default: approve}
+                note: {type: string, maxLength: 255}
+      responses:
+        "200":
+          description: Grant open / denied / pending second approval
+          content:
+            application/json:
+              schema: {type: object, additionalProperties: true}
+        "401": {$ref: "#/components/responses/Unauthorized"}
+        "403": {$ref: "#/components/responses/Forbidden"}
+        "404": {$ref: "#/components/responses/NotFound"}
+        "409": {$ref: "#/components/responses/Conflict"}
+
+  /api/v1/auth/emergency/login:
+    post:
+      tags: [identity]
+      summary: Emergency admin login (only while a grant is open)
+      description: >
+        The sealed credential unseals for this call only: a wrong password,
+        an expired or missing grant and every other refusal are honest and
+        alerted (`auth.emergency.refused`). Success marks the grant `used`,
+        rotates the seal to a fresh random value (the used password never
+        works twice), alerts (`auth.emergency.used`) and mints an emergency
+        console session. The emergency session exists for SSO outages: its
+        compensating controls are the dual approval, the rotation and the
+        alerting.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [password]
+              properties:
+                password: {type: string, maxLength: 200}
+      responses:
+        "200":
+          description: Emergency session minted (cookie + bearer + csrf, once)
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/ConsoleSessionMint"}
+        "401":
+          description: Emergency password incorrect
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/Error"}
+        "403":
+          description: No open grant (request + dual-approve one first), or expired
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/Error"}
+
+  /api/v1/auth/report:
+    get:
+      tags: [identity]
+      summary: Login-security report for auditors (the `auth` trail, summarised)
+      description: >
+        Counts per action plus the newest raw `auth` ledger events over
+        `?window_hours=` (default 24, capped at 720): logins, MFA, OTP,
+        lockouts, revocations, recovery and emergency use - never a password,
+        code or token. Admin-only.
+      security:
+        - bearerAuth: []
+        - adminTokenHeader: []
+        - rbacToken: [auditor, auditor-read-only]
+        - ldapTicket: [auditor, auditor-read-only]
+        - {}
+      parameters:
+        - name: window_hours
+          in: query
+          schema: {type: integer, minimum: 1, maximum: 720, default: 24}
+      responses:
+        "200":
+          description: Report
+          content:
+            application/json:
+              schema: {type: object, additionalProperties: true}
+        "400": {$ref: "#/components/responses/BadRequest"}
+        "401": {$ref: "#/components/responses/Unauthorized"}
+
+  /api/v1/auth/deliveries:
+    get:
+      tags: [identity]
+      summary: OTP e-mail delivery status (measured, never a code)
+      description: >
+        Recent `smtp_deliveries` rows: `sent` with the timestamp, `failed`
+        with the provider's own error, or `queued` for the monitor tick's
+        retry (max three attempts; the code rotates per attempt so no
+        plaintext sits at rest). Recipients are masked. Admin-only.
+      security:
+        - bearerAuth: []
+        - adminTokenHeader: []
+        - rbacToken: [auditor, auditor-read-only]
+        - ldapTicket: [auditor, auditor-read-only]
+        - {}
+      responses:
+        "200":
+          description: Delivery rows
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  deliveries: {type: array, items: {type: object, additionalProperties: true}}
+        "401": {$ref: "#/components/responses/Unauthorized"}
+
+  /api/v1/users:
+    get:
+      tags: [identity]
+      summary: Console users (local, SCIM-managed, the sealed emergency row)
+      description: >
+        Username, contact, source, active flag, lockout counters and last
+        login - never a hash, seed or token. `?source=` filters. Admin-only.
+      security:
+        - bearerAuth: []
+        - adminTokenHeader: []
+        - rbacToken: [auditor, auditor-read-only]
+        - ldapTicket: [auditor, auditor-read-only]
+        - {}
+      parameters:
+        - name: source
+          in: query
+          schema: {type: string, enum: [local, scim, emergency]}
+      responses:
+        "200":
+          description: User list
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  users: {type: array, items: {type: object, additionalProperties: true}}
+        "401": {$ref: "#/components/responses/Unauthorized"}
+    post:
+      tags: [identity]
+      summary: Create a local console user (generated password shown once)
+      description: >
+        Validates the username shape and the full NIST-style password policy
+        (or generates a strong password, returned exactly once with
+        `must_change_password`). Username collisions are a 409. The event
+        lands on the `auth` trail without any secret. Admin-only.
+      security:
+        - bearerAuth: []
+        - adminTokenHeader: []
+        - {}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [username]
+              properties:
+                username: {type: string, maxLength: 64}
+                email: {type: string, maxLength: 255}
+                display_name: {type: string, maxLength: 128}
+                password: {type: string, maxLength: 200, description: Omit to generate a strong one (shown once).}
+      responses:
+        "201":
+          description: User created (+ generated_password once when generated)
+          content:
+            application/json:
+              schema: {type: object, additionalProperties: true}
+        "400": {$ref: "#/components/responses/BadRequest"}
+        "401": {$ref: "#/components/responses/Unauthorized"}
+        "409": {$ref: "#/components/responses/Conflict"}
+
+  /api/v1/users/{user_id}:
+    patch:
+      tags: [identity]
+      summary: Activate / deactivate a user, edit contact fields
+      description: >
+        Deactivation revokes every live console session in the same
+        transaction (reason `user-deactivated`) - the offboarding half of
+        joiner-mover-leaver. Admin-only.
+      security:
+        - bearerAuth: []
+        - adminTokenHeader: []
+        - {}
+      parameters:
+        - name: user_id
+          in: path
+          required: true
+          schema: {type: integer}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                active: {type: boolean}
+                email: {type: string, maxLength: 255}
+                display_name: {type: string, maxLength: 128}
+      responses:
+        "200":
+          description: User updated
+          content:
+            application/json:
+              schema: {type: object, additionalProperties: true}
+        "400": {$ref: "#/components/responses/BadRequest"}
+        "401": {$ref: "#/components/responses/Unauthorized"}
+        "404": {$ref: "#/components/responses/NotFound"}
+
+  /api/v1/users/{user_id}/unlock:
+    post:
+      tags: [identity]
+      summary: Clear an account lockout
+      description: >
+        Resets `locked_until` and the failure counters; the unlock lands on
+        the `auth` trail (`user.unlocked`). Admin-only.
+      security:
+        - bearerAuth: []
+        - adminTokenHeader: []
+        - {}
+      parameters:
+        - name: user_id
+          in: path
+          required: true
+          schema: {type: integer}
+      responses:
+        "200":
+          description: User unlocked
+          content:
+            application/json:
+              schema: {type: object, additionalProperties: true}
+        "401": {$ref: "#/components/responses/Unauthorized"}
+        "404": {$ref: "#/components/responses/NotFound"}
+
+  /api/v1/users/{user_id}/password-reset:
+    post:
+      tags: [identity]
+      summary: Admin-assisted password reset (shown once, every session dies)
+      description: >
+        A generated or supplied password (policy-checked), forced change at
+        the next sign-in, and every session revoked. The sealed emergency
+        admin and SCIM-managed users are refused honestly - their
+        credentials live elsewhere. Admin-only.
+      security:
+        - bearerAuth: []
+        - adminTokenHeader: []
+        - {}
+      parameters:
+        - name: user_id
+          in: path
+          required: true
+          schema: {type: integer}
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                password: {type: string, maxLength: 200, description: Omit to generate (shown once).}
+      responses:
+        "200":
+          description: Password reset (+ generated_password once when generated)
+          content:
+            application/json:
+              schema: {type: object, additionalProperties: true}
+        "400": {$ref: "#/components/responses/BadRequest"}
+        "401": {$ref: "#/components/responses/Unauthorized"}
+        "403": {$ref: "#/components/responses/Forbidden"}
+        "404": {$ref: "#/components/responses/NotFound"}
+
+  /api/v1/users/{user_id}/sessions:
+    get:
+      tags: [identity]
+      summary: A user's console sessions
+      description: >
+        Live sessions by default (idle/absolute deadlines, source address,
+        last seen); `?include_revoked=1` keeps the revoked rows as evidence -
+        only the `vypam-ui1.<id>.` prefix of each token is ever shown.
+        Admin-only.
+      security:
+        - bearerAuth: []
+        - adminTokenHeader: []
+        - rbacToken: [auditor, auditor-read-only]
+        - ldapTicket: [auditor, auditor-read-only]
+        - {}
+      parameters:
+        - name: user_id
+          in: path
+          required: true
+          schema: {type: integer}
+        - name: include_revoked
+          in: query
+          schema: {type: boolean}
+      responses:
+        "200":
+          description: Session list
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  sessions: {type: array, items: {type: object, additionalProperties: true}}
+        "401": {$ref: "#/components/responses/Unauthorized"}
+        "404": {$ref: "#/components/responses/NotFound"}
+    delete:
+      tags: [identity]
+      summary: Revoke every live session of a user now
+      description: >
+        Offboarding or suspected compromise: every session of this user is
+        revoked in one transaction (reason `admin-revoked`), each landing on
+        the `auth` trail. Admin-only.
+      security:
+        - bearerAuth: []
+        - adminTokenHeader: []
+        - {}
+      parameters:
+        - name: user_id
+          in: path
+          required: true
+          schema: {type: integer}
+      responses:
+        "200":
+          description: Sessions revoked
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  revoked: {type: integer}
+                  message: {type: string}
+        "401": {$ref: "#/components/responses/Unauthorized"}
+        "404": {$ref: "#/components/responses/NotFound"}
+
+  /api/v1/settings/smtp/test:
+    post:
+      tags: [settings]
+      summary: Send a real test message through the configured SMTP server
+      description: >
+        Proves host/port/TLS/credentials before e-mail OTP is enabled: the
+        outcome is measured into an `smtp_deliveries` row (`sent` or
+        `failed` with the provider's error) and the `settings` trail records
+        it. SMTP unconfigured is an honest 503 naming what to set.
+        Admin-only.
+      security:
+        - bearerAuth: []
+        - adminTokenHeader: []
+        - {}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [to]
+              properties:
+                to: {type: string, description: Destination address for the test message.}
+      responses:
+        "200":
+          description: Test message sent (measured)
+          content:
+            application/json:
+              schema: {type: object, additionalProperties: true}
+        "400": {$ref: "#/components/responses/BadRequest"}
+        "401": {$ref: "#/components/responses/Unauthorized"}
+        "503": {$ref: "#/components/responses/ServiceUnavailable"}
+
+  /api/v1/settings/scim/rotate:
+    post:
+      tags: [settings]
+      summary: Mint a fresh SCIM bearer token for the identity provider
+      description: >
+        Generates `vypam-scim1.<secret>`, stores only its sha256 in the
+        `scim` settings group (readonly field, managed here - never by
+        PUT /settings), enables the group and records `auth.scim.token-rotated`.
+        The token itself is returned exactly once. Admin-only.
+      security:
+        - bearerAuth: []
+        - adminTokenHeader: []
+        - {}
+      responses:
+        "200":
+          description: Fresh token (shown once)
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  token: {type: string}
+                  message: {type: string}
+        "401": {$ref: "#/components/responses/Unauthorized"}
+
+  /api/v1/scim/v2/Users:
+    get:
+      tags: [identity]
+      summary: SCIM 2.0 Users list (identity provider's credential)
+      description: >
+        Provider-managed users only (`source=scim`), with `startIndex` /
+        `count` paging and the `userName eq "..."` filter. 401 unless the
+        bearer token matches the rotated SCIM token.
+      security:
+        - scimToken: []
+      parameters:
+        - name: startIndex
+          in: query
+          schema: {type: integer, minimum: 1, default: 1}
+        - name: count
+          in: query
+          schema: {type: integer, minimum: 1, maximum: 200, default: 100}
+        - name: filter
+          in: query
+          schema: {type: string, description: "userName eq \"alice\" - any other filter shape is refused honestly as 400"}
+      responses:
+        "200":
+          description: ListResponse
+          content:
+            application/json:
+              schema: {type: object, additionalProperties: true}
+        "400": {$ref: "#/components/responses/BadRequest"}
+        "401": {$ref: "#/components/responses/Unauthorized"}
+    post:
+      tags: [identity]
+      summary: SCIM 2.0 create user (joiner)
+      description: >
+        Creates a `source=scim` row with no local password (password login
+        for it is refused - the IdP owns the credential); privilege still
+        only ever comes from a role binding. Duplicate userName is an RFC
+        7644-shaped 409; malformed payloads an RFC 7644-shaped 400.
+      security:
+        - scimToken: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {type: object, required: [userName], additionalProperties: true}
+      responses:
+        "201":
+          description: User created
+          content:
+            application/json:
+              schema: {type: object, additionalProperties: true}
+        "400":
+          description: SCIM-shaped error (userName required / bad shape)
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/Error"}
+        "401": {$ref: "#/components/responses/Unauthorized"}
+        "409":
+          description: SCIM-shaped error (already exists)
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/Error"}
+
+  /api/v1/scim/v2/Users/{scim_id}:
+    get:
+      tags: [identity]
+      summary: SCIM 2.0 read user
+      security:
+        - scimToken: []
+      parameters:
+        - name: scim_id
+          in: path
+          required: true
+          schema: {type: string}
+      responses:
+        "200":
+          description: User resource
+          content:
+            application/json:
+              schema: {type: object, additionalProperties: true}
+        "401": {$ref: "#/components/responses/Unauthorized"}
+        "404":
+          description: SCIM-shaped error (unknown id)
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/Error"}
+    put:
+      tags: [identity]
+      summary: SCIM 2.0 replace user (mover)
+      description: Replaces contact fields and the `active` flag; deactivating revokes every live session immediately.
+      security:
+        - scimToken: []
+      parameters:
+        - name: scim_id
+          in: path
+          required: true
+          schema: {type: string}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {type: object, required: [userName], additionalProperties: true}
+      responses:
+        "200":
+          description: User resource
+          content:
+            application/json:
+              schema: {type: object, additionalProperties: true}
+        "400":
+          description: SCIM-shaped error
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/Error"}
+        "401": {$ref: "#/components/responses/Unauthorized"}
+        "404":
+          description: SCIM-shaped error (unknown id)
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/Error"}
+    patch:
+      tags: [identity]
+      summary: 'SCIM 2.0 PATCH user (leaver: `replace active false`)'
+      description: >
+        Only `replace` operations for `active`, `displayName` and `emails`
+        are supported (anything else is an honest 400). `active: false` is
+        the offboarding path: every live session dies in the same
+        transaction and `auth.scim.user-patched` records it.
+      security:
+        - scimToken: []
+      parameters:
+        - name: scim_id
+          in: path
+          required: true
+          schema: {type: string}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [Operations]
+              properties:
+                Operations: {type: array, items: {type: object, additionalProperties: true}}
+      responses:
+        "200":
+          description: User resource
+          content:
+            application/json:
+              schema: {type: object, additionalProperties: true}
+        "400":
+          description: SCIM-shaped error (no operations / unsupported op)
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/Error"}
+        "401": {$ref: "#/components/responses/Unauthorized"}
+        "404":
+          description: SCIM-shaped error (unknown id)
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/Error"}
+    delete:
+      tags: [identity]
+      summary: SCIM 2.0 delete user (deactivate - the row stays as evidence)
+      security:
+        - scimToken: []
+      parameters:
+        - name: scim_id
+          in: path
+          required: true
+          schema: {type: string}
+      responses:
+        "204": {description: Deactivated}
+        "401": {$ref: "#/components/responses/Unauthorized"}
+        "404":
+          description: SCIM-shaped error (unknown id)
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/Error"}
+
+  /api/v1/scim/v2/Groups:
+    get:
+      tags: [identity]
+      summary: SCIM 2.0 Groups list
+      description: Provider-owned group membership for joiner-mover-leaver reviews (members resolved to local usernames).
+      security:
+        - scimToken: []
+      parameters:
+        - name: startIndex
+          in: query
+          schema: {type: integer, minimum: 1, default: 1}
+        - name: count
+          in: query
+          schema: {type: integer, minimum: 1, maximum: 200, default: 100}
+      responses:
+        "200":
+          description: ListResponse
+          content:
+            application/json:
+              schema: {type: object, additionalProperties: true}
+        "401": {$ref: "#/components/responses/Unauthorized"}
+    post:
+      tags: [identity]
+      summary: SCIM 2.0 create group
+      security:
+        - scimToken: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {type: object, required: [displayName], additionalProperties: true}
+      responses:
+        "201":
+          description: Group created
+          content:
+            application/json:
+              schema: {type: object, additionalProperties: true}
+        "400":
+          description: SCIM-shaped error (displayName required)
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/Error"}
+        "401": {$ref: "#/components/responses/Unauthorized"}
+
+  /api/v1/scim/v2/Groups/{scim_id}:
+    get:
+      tags: [identity]
+      summary: SCIM 2.0 read group
+      security:
+        - scimToken: []
+      parameters:
+        - name: scim_id
+          in: path
+          required: true
+          schema: {type: string}
+      responses:
+        "200":
+          description: Group resource
+          content:
+            application/json:
+              schema: {type: object, additionalProperties: true}
+        "401": {$ref: "#/components/responses/Unauthorized"}
+        "404":
+          description: SCIM-shaped error (unknown id)
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/Error"}
+    put:
+      tags: [identity]
+      summary: SCIM 2.0 replace group (displayName + members)
+      security:
+        - scimToken: []
+      parameters:
+        - name: scim_id
+          in: path
+          required: true
+          schema: {type: string}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {type: object, additionalProperties: true}
+      responses:
+        "200":
+          description: Group resource
+          content:
+            application/json:
+              schema: {type: object, additionalProperties: true}
+        "401": {$ref: "#/components/responses/Unauthorized"}
+        "404":
+          description: SCIM-shaped error (unknown id)
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/Error"}
+
 components:
   securitySchemes:
     bearerAuth:
@@ -5007,6 +6638,32 @@ components:
       type: http
       scheme: bearer
       description: "An SSO session bearer as `Authorization: Bearer vypam-sso1.<id>.<secret>` (shown once at a successful SAML/OIDC login). Stored as a sha256 hash with `last_used_at` on use; a role binding (kind `sso`, principal = subject) decides what it may do - no binding, no access (the same rule LDAP follows)."
+    consoleSession:
+      type: http
+      scheme: bearer
+      description: >-
+        A console session as `Authorization: Bearer vypam-ui1.<id>.<secret>` (shown once at
+        a successful local login), or the same value in the HttpOnly/SameSite `vypam_session`
+        cookie with the `X-CSRF-Token` double-submit header on cookie-carrying mutations.
+        Stored as a sha256 hash with idle + absolute timeouts; a role binding (kind `user`,
+        principal = the username) decides the admin surface - `X-Actor` is never consulted
+        for a human session.
+    enrolTicket:
+      type: apiKey
+      in: header
+      name: X-Enrol-Ticket
+      description: >-
+        The forced-enrolment ticket `vypam-enr1.<id>.<secret>` issued by POST
+        /api/v1/auth/login when `auth.mfa_required` is on and no factor is enrolled (the
+        body field `enrol_ticket` is equivalent). Single-use and TTL-bound; authorises only
+        the enrolment endpoints and mints the session once a factor verifies.
+    scimToken:
+      type: http
+      scheme: bearer
+      description: >-
+        The SCIM 2.0 bearer token `vypam-scim1.<secret>` (minted once by POST
+        /api/v1/settings/scim/rotate, sha256 at rest in the `scim` settings group)
+        presented by the identity provider on /api/v1/scim/v2/*.
   parameters:
     LicenseKey:
       name: license_key
@@ -5062,6 +6719,29 @@ components:
         application/json:
           schema: {$ref: "#/components/schemas/Error"}
   schemas:
+    ConsoleSessionMint:
+      type: object
+      description: >-
+        The one-time console session reply of login / enrolment-mint / step-up mint: the
+        bearer and CSRF twins are shown exactly once, the cookie carries the same token
+        HttpOnly.
+      properties:
+        session_id: {type: integer}
+        session_token:
+          type: string
+          description: "Bearer twin `vypam-ui1.<id>.<secret>` - sha256 at rest, shown once."
+        csrf_token:
+          type: string
+          description: Double-submit value for the `X-CSRF-Token` header on cookie-carrying mutations.
+        expires_at: {type: string, format: date-time, description: Absolute deadline.}
+        idle_expires_at: {type: string, format: date-time, description: Idle deadline (slides on use).}
+        user: {type: object, additionalProperties: true, description: The signed-in user (no hashes or secrets).}
+        mfa_methods: {type: array, items: {type: string}, description: Methods that backed this session.}
+        is_emergency: {type: boolean, description: True only for the sealed emergency admin's session.}
+        device_token:
+          type: string
+          description: "Remembered-device token (`vypam-dev1...`, sha256 at rest, shown once) - only present when `remember_device` was asked for and policy allows (never approver/admin bindings)."
+        device_expires_at: {type: string, format: date-time, description: When the remembered device expires.}
     Error:
       type: object
       required: [error]
@@ -8249,9 +9929,9 @@ components:
       required: [id, principal, role, kind, has_token, created_at, created_by]
       properties:
         id: {type: integer}
-        principal: {type: string, description: "The identity: a local principal's name, or the directory username for kind ldap."}
+        principal: {type: string, description: "The identity: a local principal's name, the directory username for kind ldap, the SSO subject for kind sso, or the console username for kind user."}
         role: {type: string}
-        kind: {type: string, enum: [local, ldap, sso]}
+        kind: {type: string, enum: [local, ldap, sso, user]}
         token_prefix: {type: string, description: "The public part of the minted token (`vypam-rbac1.<id>.`) - never the secret."}
         has_token: {type: boolean}
         scope: {$ref: "#/components/schemas/RoleBindingScope"}
@@ -8272,7 +9952,7 @@ components:
       properties:
         principal: {type: string, minLength: 1, maxLength: 128}
         role: {type: string, enum: [admin, approver, operator, auditor, auditor-read-only]}
-        kind: {type: string, enum: [local, ldap, sso], default: local}
+        kind: {type: string, enum: [local, ldap, sso, user], default: local}
         scope: {$ref: "#/components/schemas/RoleBindingScope"}
 
     WhoAmI:
@@ -8282,7 +9962,7 @@ components:
         mode: {type: string, enum: [open, token]}
         principal: {type: string}
         role: {type: string, enum: [admin, approver, operator, auditor, auditor-read-only]}
-        kind: {type: string, enum: [open, admin-token, local, ldap, sso]}
+        kind: {type: string, enum: [open, admin-token, local, ldap, sso, user]}
         scope: {type: object, additionalProperties: true, nullable: true}
         operations:
           description: "The admin operations this role may call (the string `all` in open mode)."

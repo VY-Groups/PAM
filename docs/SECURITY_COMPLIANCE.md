@@ -1,6 +1,6 @@
 # VY-PAM — Security & Compliance Overview
 
-**Status:** as-built for Phase 6c
+**Status:** as-built for Phase 7
 States what the platform **actually enforces today** — implemented controls
 are described with their evidence; gaps are named plainly.
 
@@ -79,7 +79,7 @@ token or explicit open dev mode), (c) runtime↔disk (encrypted secrets),
 
 ## 4. Authentication & accountability
 
-- **111 admin operations** carry security schemes in `openapi.yaml`
+- **127 admin operations** carry security schemes in `openapi.yaml`
   (contract-tested) — they require `Bearer`/`X-Admin-Token` whenever
   `LICENSE_ADMIN_TOKEN` is set.
 - **Least-privilege roles (6b):** in token mode the `admin-token` may call
@@ -100,6 +100,30 @@ token or explicit open dev mode), (c) runtime↔disk (encrypted secrets),
   rest, TTL, revoke 401s immediately); a login grants **existence only**
   — admin access still needs a `kind=sso` binding, so privilege never
   rides the assertion.
+- **Local identity & login security (7):** scrypt (N=2**14) local login
+  with NIST policy (length over complexity, breached-password and
+  username-containment refusals, generated passwords shown once + forced
+  change); server-side console sessions (`vypam-ui1.…` bearer sha256 at
+  rest + HttpOnly `vypam_session` cookie, `X-CSRF-Token` double-submit on
+  cookie-authenticated mutations, idle + absolute expiry, revoke /
+  logout / logout-all). `mfa_required` is **fail-closed**: no factor ⇒ a
+  single-use `vypam-enr1` enrolment ticket (never a session, never a
+  cookie), an unproven factor ⇒ a single-use `vypam-mfa1` challenge (300
+  s; a wrong assertion survives it, a reused TOTP time step does not);
+  step-up for sensitive routes with hashed single-use backup codes;
+  per-account / per-IP rate limits, progressive delay, spray detection
+  and doubling lockout with admin unlock (the password path stays
+  MFA-fail-closed after unlock). E-mail OTP is HMAC-hashed, TTL'd,
+  attempt-capped and answers identically for known and unknown accounts
+  (no enumeration; suppressed deliveries are measured with the honest
+  reason and never a code); WebAuthn options are 202 for existing **and**
+  non-existing handles; the RADIUS factor fails closed 503 on an
+  unreachable server; SCIM 2.0 drives the joiner/mover/leaver lifecycle
+  over its own shown-once bearer (SCIM-managed logins get the uniform
+  401, the true `scim-managed` reason only on the ledger). The sealed
+  emergency admin has no usable password and opens only on a reason ≥ 8
+  chars plus two distinct approvers (never the requester), in a
+  time-boxed window; its login is single-use and rotates the seal.
 - **Open dev mode is loud, never silent:** responses carry
   `X-Auth-Mode: open`, the console profile shows `no user session` /
   `auth: -`, and the security posture checklist records it as the single
@@ -107,7 +131,11 @@ token or explicit open dev mode), (c) runtime↔disk (encrypted secrets),
   **87.5**, one violation, honestly reported).
 - **Actor capture:** `X-Actor` is recorded verbatim on every audited write;
   in token mode a missing actor is a 401, in open mode it degrades to an
-  explicitly labelled value rather than a fake identity.
+  explicitly labelled value rather than a fake identity. For **console
+  sessions `X-Actor` is ignored** — the actor is the authenticated
+  principal, which is what makes requester ≠ approver and dual approval
+  real controls instead of header conventions — and the admin token
+  alone holds no console session.
 - **Separation of duties:** JIT requester ≠ approver (enforced in code);
   `high` band requires manager **and** security approvals; held commands are
   resolved through append-only approval rows by another actor.
@@ -166,7 +194,7 @@ with per-event `seq` and custody watermarks.
 
 | Control theme | Status | Where |
 |---|---|---|
-| Logical access — least privilege on admin APIs | ✅ (token mode) | 86 secured operations, contract-tested |
+| Logical access — least privilege on admin APIs | ✅ (token mode) | 127 secured operations, contract-tested |
 | Logical access — dev-mode transparency | ✅ explicit | `X-Auth-Mode: open`, posture violation logged |
 | Encryption of secrets at rest | ✅ | AES-256-GCM vault versions |
 | Change management — config change log | ✅ | `settings_events` per-field diffs |
@@ -175,7 +203,8 @@ with per-event `seq` and custody watermarks.
 | Key management — custody + rotation | ✅ partial | vault key rotation; license key = manual reissue (no HSM) |
 | Incident response evidence | ✅ | incidents + preserved session events |
 | PAM bypass detection (§10) | ✅ | verbatim auth-log evidence → correlation vs inventory + sessions → incident with forced rotation; ledger `bypass` |
-| SSO / MFA / HSM integration | ⚠️ MFA enforced when enrolled | §20 RFC-6238 gate at session start + break-glass open (no factor → honest `not configured`, never simulated); SSO/HSM stay settings-store only — posture counts them honestly |
+| Logical access — MFA at login for local users | ✅ fail-closed | `mfa_required` (default on): no factor ⇒ single-use enrolment ticket, unproven factor ⇒ single-use challenge; TOTP replay guard, step-up + backup codes, lockout doubling; e-mail OTP / WebAuthn / RADIUS factors; sealed emergency admin opens only on dual approval (§7 phase 7, `identity` tag) |
+| SSO / MFA / HSM integration | ✅ | SAML 2.0 / OIDC login with signature-verified IdP metadata + assertion / `id_token`, single-use flows, fail-closed MFA assertion, JIT subjects + server-side sessions + `kind=sso` bindings (6c); HSM/KMS providers envelope-wrap the master key — `enforcement=enforced` refuses file fallback and seals on provider failure; posture counts real evidence, never settings booleans |
 | Geo-IP / UEBA behavioral analytics | ⚠️ UEBA built, no geo feed | §11 baselines from real history + named deviations (unusual time/device/IP/target/command/privilege) driving the block→rotate→incident chain; `location` stays `is_global` (no geo feed claimed) |
 | TLS in transit | ⛔ at app layer | terminate at reverse proxy (see runbook) |
 | HA / DR | ✅ | multi-node registry + real `/health` probes, hash-verified pull replication (audit/vault/sessions), passive write gate, manual failover + opt-in auto-promote, verified SQLite backups — runbooks in the deployment runbook §7 |
@@ -191,8 +220,9 @@ reported as missing — never as partial-good.
 
 | Gap today | Closes in | Target state |
 |---|---|---|
-| ~~Single admin role~~ — **✅ closed in 6b** | 6b | Five seeded roles over all 111 admin operations, sha256-at-rest tokens shown once, LDAP binding-required (the directory authenticates, the binding decides), ABAC target / vault-item scoping; `admin-token` stays the bootstrap superuser and open dev mode remains an explicit, posture-recorded violation |
+| ~~Single admin role~~ — **✅ closed in 6b** | 6b | Five seeded roles over all admin operations (admin 127 / operator 45 / auditor 27 / auditor-read-only 24 / approver 12), sha256-at-rest tokens shown once, LDAP binding-required (the directory authenticates, the binding decides), ABAC target / vault-item scoping; `admin-token` stays the bootstrap superuser and open dev mode remains an explicit, posture-recorded violation |
 | ~~SSO/HSM schema-only~~ — **✅ closed in 6c** | 6c | SAML 2.0 + OIDC login with verified signatures, single-use flows and fail-closed MFA; JIT subjects + server-side sessions; `kind=sso` bindings on the 6b model (the IdP authenticates, the binding decides). HSM/KMS providers wrap the master key (envelope — same key, ciphertexts stay valid); `enforcement=enforced` refuses any file fallback and seals on provider failure — `sso_mfa`/`hsm_backed` posture now count real evidence, never settings booleans |
+| ~~No real identity behind logins~~ — **✅ closed in 7** | 7 | scrypt local users, fail-closed MFA at login, CSRF-bound server-side console sessions, actor bound to the authenticated principal (`X-Actor` ignored for sessions), lockout + spray detection, e-mail OTP / WebAuthn / RADIUS / SCIM lifecycle, and the sealed emergency admin with dual-approved, time-boxed, single-use open — Addendum C in full; `auth` is the 20th ledger source |
 | TLS not terminated by the app | runbook §5 (now) | Reverse-proxy TLS - documented and checklisted; app stays plain HTTP by design |
 | Geo-IP feed (`location` = `is_global`) | 4i | Device/IP context now sits in the trained §11 baselines; a real geo feed only if one is ever configured - otherwise the honest label stays |
 

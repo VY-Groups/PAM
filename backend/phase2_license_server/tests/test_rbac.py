@@ -356,7 +356,7 @@ def test_role_and_kind_validation(client):
         headers=ADMIN,
     )
     assert response.status_code == 400
-    assert response.get_json()["details"]["allowed"] == ["local", "ldap", "sso"]
+    assert response.get_json()["details"]["allowed"] == ["local", "ldap", "sso", "user"]
 
 
 def test_scope_validation(client):

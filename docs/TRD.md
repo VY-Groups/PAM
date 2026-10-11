@@ -1,6 +1,6 @@
 # VY-PAM — Technical Requirements & Design Document (TRD)
 
-**Status:** as-built for Phase 6c
+**Status:** as-built for Phase 7
 **Audience:** engineers extending or operating the system
 **Companion docs:** `PRD.md`, `PAM_FLOW.md`, `BACKEND_SCHEMA.md`, `API_REFERENCE.md`
 
@@ -51,7 +51,7 @@ repo.
 | Store | SQLite (`licenses.db`, git-ignored) | append-only enforced by triggers on `audit_events` |
 | Crypto | `cryptography` lib | RSA-PSS-SHA256 (default) / Ed25519 envelopes; AES-256-GCM secrets |
 | Frontend | Static HTML + Tailwind (CDN build) + vanilla JS | 11 sidebar screens, no bundler, works from `file://` |
-| Tests | pytest | 664 backend + 46 pam_master |
+| Tests | pytest | 760 backend + 46 pam_master |
 | UI verification | Node + `playwright-core` (`shots_tool/`) | viewport 1920×1600, never `fullPage` |
 | Vendor tool | Flask + raw `sqlite3` | `pam_master` package, `python -m pam_master` |
 
@@ -232,7 +232,7 @@ Rules enforced by tests/conventions:
 - `BreakGlassEvent` actions (`requested`, `approved`, `denied`, `opened`,
   `closed`) fan into the §19 chain as the **tenth** source `break-glass`
   (eleven with 4i's `integration`, twelve with 5a's `vendor`, thirteen with
-  5b's `cloud`, fourteen with 5c's `broker`, fifteen with 5d's `agent`, sixteen with 6a's `cluster`, seventeen with 6b's `rbac`, eighteen with 6c's `sso`, nineteen with 6c's `hsm`);
+  5b's `cloud`, fourteen with 5c's `broker`, fifteen with 5d's `agent`, sixteen with 6a's `cluster`, seventeen with 6b's `rbac`, eighteen with 6c's `sso`, nineteen with 6c's `hsm`, twenty with 7's `auth`);
   `bg-` request refs, stats and the
   compliance feed stay generic. The emergency path runs the §20 MFA gate at
   open: a factor enrolled demands a `mfa_code` (401 `details.mfa`), no
@@ -607,12 +607,102 @@ Rules enforced by tests/conventions:
   and the standing gate walks the live login handshake when
   `GATE_SSO_IDP` names a running IdP.
 
+### 4.23 Real identity & login security - Phase 7
+
+- **Data**: `users` (scrypt N=2**14 hash; `source local|scim|emergency`;
+  lockout counters + `locked_until`; `must_change_password`) +
+  `console_sessions` (`vypam-ui1.` bearer and CSRF secret both sha256 at
+  rest, `mfa_at` drives step-up, idle + absolute expiry, revoke is a
+  timestamp) + `mfa_factors` (kind `totp|webauthn|email|radius`;
+  `last_step` is the TOTP replay guard) + `login_challenges` (the
+  single-use `vypam-mfa1` / `vypam-enr1` tickets, 300 s TTL) +
+  `mfa_backup_codes` (hashed, single-use) + `auth_otps` (HMAC-hashed
+  code bound to its challenge, attempt-capped, TTL'd) +
+  `smtp_deliveries` (measured — recipient masked, honest `last_error`,
+  never a code) + `auth_devices` (RADIUS device bindings) + `auth_events`
+  (the module trail) + `webauthn_credentials` / `webauthn_challenges`
+  (single-use options) + `emergency_grants` / `emergency_approvals`
+  (dual control) + `factor_recovery_requests` /
+  `factor_recovery_approvals` + `scim_groups`. Tables **51→67**.
+- **Login**: `POST /auth/login` verifies scrypt, then the fail-closed
+  ladder: password path blocked (`password-change-required`), no factor
+  under `mfa_required` → 403 `enrolment_required` + a `vypam-enr1` ticket
+  (no cookie is ever set), factor present but unproven → 403
+  `mfa_required` + a `vypam-mfa1` challenge carrying `methods` +
+  `expires_in_seconds`. Step 2 repeats the password with
+  `login_challenge` + `totp_code`/`radius_code`: a wrong assertion is
+  401 and the challenge survives; a spent or expired one is 401
+  `MFA challenge invalid or expired`. Unknown / wrong / inactive all
+  answer the byte-identical 401 (no enumeration oracle); the true reason
+  (`scim-managed`, `emergency-sealed`, …) is written to `auth_events`
+  only.
+- **Sessions & CSRF**: a minted session returns `session_token` +
+  `csrf_token` + `expires_at` / `idle_expires_at` and sets the HttpOnly
+  `vypam_session` cookie. Cookie-authenticated mutations require the
+  `X-CSRF-Token` double-submit (403 `csrf`); credential headers skip it
+  by design; a revoked session 401s on every request that presents it.
+  `logout-all` keeps only the calling session. The admin token alone
+  holds no console session — an admin op with only `X-Admin-Token` on
+  `/auth/*` session routes is 401 `Console session required`.
+- **Actor binding**: for console sessions `X-Actor` is ignored — the
+  actor is the authenticated principal (`whoami`), which is what makes
+  requester ≠ approver and the emergency/factor-recovery dual approvals
+  real controls. Bindings of kind `user` join the 6b model (the console
+  user authenticates, the binding decides).
+- **Step-up**: sensitive routes (backup-code generation, reveal, …)
+  require `mfa_at` fresher than `auth.stepup_ttl_minutes`; a stale
+  session gets 403 `stepup_required`, and `POST /auth/mfa/stepup` with a
+  backup code (hashed, single-use — replay is 401) refreshes it.
+- **Rate limiting / lockout**: per-account and per-IP sliding counters
+  (`auth.rate_limit_per_account` / `rate_limit_per_ip`), optional
+  progressive delay (`auth.progressive_delay`), spray detection
+  (`auth.spray_threshold` distinct usernames per source address), and
+  doubling lockout (`auth.lockout_threshold` × `lockout_minutes`) with
+  `POST /users/{id}/unlock`; after unlock the password path stays
+  MFA-fail-closed.
+- **Factors**: TOTP enrolment shows the seed once and verifies a live
+  code (`integrations.hotp`, 30 s period, `last_step` refuses a reused
+  step); e-mail OTP (`otp.py`) answers 202 `sent` identically for known
+  and unknown accounts, HMAC-hashes the code, caps attempts, cools down
+  resends, and records a *suppressed* delivery with the honest reason
+  when SMTP is unconfigured — never a simulated send, never a code in
+  any reply; WebAuthn registration/authentication (packed + none formats,
+  EC P-256, single-use challenge) returns 202 options for existing **and**
+  non-existing handles; RADIUS (`radius_client.py`, RFC 2865
+  Access-Request/Accept/Reject, shared-secret HMAC binding over the
+  response attributes) is a first-class factor that fails closed with an
+  honest 503 when the server is unreachable.
+- **SCIM 2.0** (`scim.py`): the bearer (`vypam-scim1.`) is minted once
+  via `POST /settings/scim/rotate` and stored as `scim.token_sha256`;
+  `/scim/v2/Users` drives the joiner/mover/leaver lifecycle into
+  `users` (`source=scim`; deactivation revokes live sessions; DELETE
+  keeps the row as evidence, `active=false`); local console users stay
+  invisible to the IdP surface, and a SCIM-managed login is the uniform
+  401 with `scim-managed` on the ledger.
+- **Emergency admin**: seeded sealed at startup (no usable password —
+  the hash is a sentinel, not a crackable value); `POST
+  /auth/emergency/open` requires a reason ≥ 8 chars + a ticket, records
+  the requester, and needs two distinct approvals (self-approval 403
+  `may not approve`, duplicates ignored) to open a window of
+  `auth.emergency_window_minutes`; `POST /auth/emergency/login` works
+  only while a window is open, is single-use, and rotates the seal after
+  use. If the vault key is absent at boot, seeding is skipped with a
+  warning and the server still boots — never an invented password.
+- **Contract**: the `identity` tag, 41 paths / 49 operations (16 admin —
+  users CRUD/unlock/password-reset, session list/revoke, deliveries,
+  emergency state/open/approve, factor-recovery list/approve, SCIM
+  rotate) → **192 paths / 229 ops / 23 tags / 127 admin / 254 schemas /
+  10 security schemes**. Suites: `test_identity.py` **33**,
+  `test_mfa.py` **11**, `test_otp.py` **13**, `test_webauthn.py` **17**,
+  `test_radius.py` **13**, `test_scim.py` **9**; both-rig E2E **129
+  checks / 0 failed**; standing gate **69** (open) / **76** (token).
+
 ## 5. API conventions
 
 | Concern | Rule |
 |---|---|
 | Versioning | Everything under `/api/v1` (health/meta unversioned) |
-| Auth | `LICENSE_ADMIN_TOKEN` set → `Authorization: Bearer …` or `X-Admin-Token: …` on the 111 admin operations; unset → explicit open dev mode (`X-Auth-Mode: open` response header); pipeline `/broker` operations require the broker API token and AI-agent `/agent-access` operations the agent API token — neither is ever waived. In token mode a bound principal (RBAC API token or LDAP ticket) may call only its role's operations and only its ABAC scope (§4.21). |
+| Auth | `LICENSE_ADMIN_TOKEN` set → `Authorization: Bearer …` or `X-Admin-Token: …` on the 127 admin operations; unset → explicit open dev mode (`X-Auth-Mode: open` response header); pipeline `/broker` operations require the broker API token and AI-agent `/agent-access` operations the agent API token — neither is ever waived. In token mode a bound principal (RBAC API token, LDAP ticket, SSO subject, or local console user) may call only its role's operations and only its ABAC scope (§4.21). Console sessions (§4.23) are a separate credential: `vypam-ui1` bearer + HttpOnly `vypam_session` cookie with `X-CSRF-Token` double-submit on cookie-authenticated mutations. |
 | Actor | `X-Actor` header recorded on every audited write |
 | Errors | `{"error": {"code", "message", "details?"}}`; 400 validation, 401 auth, 403 policy refusal, 404, 409 conflict/state, 422 shape, 503 fail-closed dependency |
 | Pagination | `limit` (max 200) + `offset`, newest first |
@@ -672,7 +762,7 @@ its phase starts (plan > code > docs, in that order).
 
 | Phase / section | Data additions | API additions | Runtime behavior |
 |---|---|---|---|
-| — | none pending | — | 6c SSO/HSM landed (§4.22); the next phase's design is recorded here when it starts |
+| — | none pending | — | 7 identity & login security landed (§4.23); the next phase's design is recorded here when it starts |
 
 Standing constraints that carry into all of these: ledger emission inside
 the same transaction, contract lockstep in one commit, additive-only schema,

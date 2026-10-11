@@ -26,11 +26,17 @@ Supported wire formats and algorithms:
 | `config.py` | Environment-driven configuration (`.env` supported) |
 | `routes.py` | HTTP layer: parsing, auth, status codes |
 | `service.py` | Business logic: import, list, revoke, restore, validate, usage, checks, `meta`, platform settings, credential vault, dashboard overview + unified events, infrastructure discovery, JIT access grants, privileged sessions, zero-trust command-control policy engine, risk-based access engine (§7), PAM bypass detection (§10), break-glass emergency path (§17), immutable §19 audit ledger, §20 integrations (MFA gate, ITSM verify, SIEM status, LDAP login), §13 third-party vendor PAM, §14 cloud PAM, §15 CI/CD credential broker, §16 AI-agent PAM |
-| `models.py` | `LicenseRecord` (signed license + spec fields), `LicenseEvent`, `SettingGroup` + `SettingsEvent` (config changelog), `VaultItem` + `VaultEvent` + `VaultSecretVersion` (vault inventory + audit + immutable versions), `DiscoveredAsset`/`DiscoveredAccount`/`DiscoveryScan`/`DiscoveryEvent`, `JitRequest` + `JitEvent` (grants + trail), `PrivilegedSession` + `SessionEvent` (session recording, append-only), `CommandRule` + `CommandIncident` (zero-trust policy + escalations, append-only), `RiskEvent` (§7 scored access evaluations), `BypassSignal` + `BypassIncident` + `BypassEvent` (§10 direct-access evidence, incidents, action log), `BreakGlassRequest` + `BreakGlassApproval` + `BreakGlassEvent` (§17 emergencies, dual-approval snapshots, action log), `AuditEvent` (immutable §19 hash chain), `IntegrationEvent` (§20 integration trail, fan-in 11), `VendorAccount` + `VendorEvent` (§13), `CloudConnector` + `CloudEvent` (§14), `BrokerPolicy` + `BrokerCredential` + `BrokerEvent` (§15), `AgentIdentity` + `AgentTaskScope` + `AgentEvent` (§16 agent identities, task allow-lists, action log), `SsoFlow` + `SsoSubject` + `SsoSession` (6c login flows, JIT subject directory, server-side sessions), `HsmKeyEvent` (6c custody trail — ledger fan-in 19) |
+| `models.py` | `LicenseRecord` (signed license + spec fields), `LicenseEvent`, `SettingGroup` + `SettingsEvent` (config changelog), `VaultItem` + `VaultEvent` + `VaultSecretVersion` (vault inventory + audit + immutable versions), `DiscoveredAsset`/`DiscoveredAccount`/`DiscoveryScan`/`DiscoveryEvent`, `JitRequest` + `JitEvent` (grants + trail), `PrivilegedSession` + `SessionEvent` (session recording, append-only), `CommandRule` + `CommandIncident` (zero-trust policy + escalations, append-only), `RiskEvent` (§7 scored access evaluations), `BypassSignal` + `BypassIncident` + `BypassEvent` (§10 direct-access evidence, incidents, action log), `BreakGlassRequest` + `BreakGlassApproval` + `BreakGlassEvent` (§17 emergencies, dual-approval snapshots, action log), `AuditEvent` (immutable §19 hash chain), `IntegrationEvent` (§20 integration trail, fan-in 11), `VendorAccount` + `VendorEvent` (§13), `CloudConnector` + `CloudEvent` (§14), `BrokerPolicy` + `BrokerCredential` + `BrokerEvent` (§15), `AgentIdentity` + `AgentTaskScope` + `AgentEvent` (§16 agent identities, task allow-lists, action log), `SsoFlow` + `SsoSubject` + `SsoSession` (6c login flows, JIT subject directory, server-side sessions), `HsmKeyEvent` (6c custody trail), `User` + `ConsoleSession` + `MfaFactor` + `LoginChallenge` + `MfaBackupCode` + `AuthOtp` + `SmtpDelivery` + `AuthDevice` + `AuthEvent` + `WebauthnCredential` + `WebauthnChallenge` + `EmergencyGrant` + `EmergencyApproval` + `FactorRecoveryRequest` + `FactorRecoveryApproval` + `ScimGroup` (7 identity & login security — ledger fan-in 20) |
 | `audit.py` | The §19 ledger: flush listener fans every module trail into `audit_events`, sha256 chain (`prev_hash`/`event_hash`), boot backfill, append-only triggers, verify/stats/export, plus the §20 SIEM drain — committed batches pushed outbound as signed NDJSON after commit |
 | `integrations.py` | §20 stdlib connectors: RFC-6238 TOTP (HMAC-SHA1/256/512, ±1 window), ITSM ticket verification (ServiceNow/Jira REST), SIEM push signing (`sha256=` HMAC, NDJSON), RFC-4515 LDAP filter escape + BER bind probe, LDAP login tickets |
 | `sso.py` | 6c SAML 2.0 + OIDC login: AuthnRequest/ACS with XML-DSig RSA-SHA256 (exclusive c14n + anti-XSW), OIDC discovery/JWKS RS256 verification, fail-closed MFA assertion, JIT subjects, server-side sessions |
 | `hsm.py` | 6c HSM/KMS custody: provider abstraction (Vault transit / AWS KMS / Azure Key Vault / optional PKCS#11), master-key envelope wrap, seal/unseal, advisory/enforced with no file-key fallback |
+| `identity.py` | 7 local identity & login: scrypt users, server-side console sessions (cookie + CSRF double-submit), fail-closed MFA ladder (enrolment ticket / login challenge), step-up, lockout/rate limits, factor recovery, sealed emergency admin (dual control) |
+| `mfa.py` | 7 MFA factors: TOTP enrol/verify (replay guard), backup codes, step-up, WebAuthn options, RADIUS enroll + RFC 2865 challenge (fails closed 503) |
+| `otp.py` | 7 e-mail OTP: CSPRNG code HMAC-hashed + TTL'd + attempt-capped, identical answer for known/unknown (no enumeration), measured `smtp_deliveries` suppression — never a code in any reply |
+| `radius_client.py` | 7 RADIUS: RFC 2865 Access-Request/Accept/Reject with shared-secret HMAC binding over the response attributes |
+| `scim.py` | 7 SCIM 2.0: `vypam-scim1.` bearer (shown once at rotate), Users/Groups joiner-mover-leaver into `users` (`source=scim`), delete leaves the row as evidence |
+| `webauthn.py` | 7 WebAuthn: registration/authentication options (packed + none, EC P-256), single-use challenge, 202 for existing and non-existing handles |
 | `keys.py` | Startup key checks (fail fast, public/private must match, both algorithms) |
 | `licensing_bridge.py` | Path bootstrap + cached Phase 1 `LicenseGenerator`/`LicenseValidator` |
 | `tests/test_api.py` | End-to-end license API tests |
@@ -41,7 +47,7 @@ Supported wire formats and algorithms:
 | `tests/test_jit.py` | JIT access: deterministic risk bands, approvals, time-boxed grants, expiry rotation |
 | `tests/test_sessions.py` | Privileged sessions: start/attach, channel events, control gating, lifecycle + cascades |
 | `tests/test_command_control.py` | Zero-trust command policy: rule CRUD, dry-run decisions, approval queue, incident escalation |
-| `tests/test_audit.py` | Immutable §19 ledger: nineteen-source fan-in, hash chain, append-only triggers, backfill, verify/export, drift guard |
+| `tests/test_audit.py` | Immutable §19 ledger: twenty-source fan-in, hash chain, append-only triggers, backfill, verify/export, drift guard |
 | `tests/test_risk.py` | §7 risk-based access engine: the eight scored components, bands/decisions, the session-start gate, ledger fan-in |
 | `tests/test_bypass.py` | §10 PAM bypass detection: log/JSON ingest, dedupe, correlation (candidate/covered/out_of_scope), incidents with forced rotation + honest `not_connected`, closure, stats, ledger fan-in |
 | `tests/test_break_glass.py` | §17 break-glass: request lifecycle, dual approval (self/second-signature rules), risk-gated open → recorded session → close with forced rotation + review, stats, ledger fan-in |
@@ -55,6 +61,12 @@ Supported wire formats and algorithms:
 | `tests/test_cluster.py` | §18 HA/DC/DR: node registry + real probes, hash-verified pull replication (audit/vault/sessions), passive write gate (409 before auth), role failover + opt-in monitor, verified SQLite backups, admin-401 |
 | `tests/test_sso.py` | 6c SSO: SAML + OIDC happy paths, signature/tamper/replay/expiry refusals, MFA fail-closed, sessions + revoke, binding-kind gating, ledger fan-in |
 | `tests/test_hsm.py` | 6c HSM custody: providers, envelope wrap/rotate, advisory/enforced, seal/unseal, honest refusals, ledger fan-in |
+| `tests/test_identity.py` | 7 identity & login: scrypt policy, console sessions + CSRF, fail-closed MFA ladder, identical 401 refusals (no enumeration), lockout/unlock, actor binding, emergency admin dual control, factor recovery |
+| `tests/test_mfa.py` | 7 MFA: TOTP enrol/verify + replay guard, two-step login challenge (single use), step-up + backup codes, deactivation cascades |
+| `tests/test_otp.py` | 7 e-mail OTP: uniform answer, TTL/attempt caps, measured suppression (never a code), recovery ends in a real reset |
+| `tests/test_webauthn.py` | 7 WebAuthn: real attestation/assertion over live routes, packed + none, challenge single use, 202 options for existing and non-existing handles |
+| `tests/test_radius.py` | 7 RADIUS: RFC 2865 flow against a real stub, Accept/Reject/timeout/garbage, shared-secret binding, honest 503 fail-closed, `<set>` sentinel guard |
+| `tests/test_scim.py` | 7 SCIM 2.0: bearer auth, joiner/mover/leaver lifecycle, local-user invisibility, uniform 401 for SCIM logins, delete leaves evidence |
 | `tests/test_openapi_contract.py` | `apis/openapi.yaml` ↔ live route map (both directions) |
 
 ## Quick start
@@ -175,8 +187,8 @@ is no seed inventory: every credential enters through **Onboard New Credential**
 "not connected" states instead of sample rows.
 
 ```bash
-python -m pytest tests -q     # 459 tests (from backend/phase2_license_server)
-python -m pytest backend -q   # 664 tests from the repo root (+ shared crypto core)
+python -m pytest tests -q     # 678 tests (from backend/phase2_license_server)
+python -m pytest backend -q   # 760 tests from the repo root (+ shared crypto core)
 ```
 
 **Docker (development/runtime testing only — never a shipping instruction):**

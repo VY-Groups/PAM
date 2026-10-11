@@ -2590,7 +2590,7 @@ RBAC_SEED_ROLES = (
     (RBAC_ROLE_AUDITOR, "Every read-only admin operation including the evidence exports (license files, vault and session chain exports) - no writes."),
     (RBAC_ROLE_AUDITOR_READ_ONLY, "Every read-only admin operation except the evidence exports and secret reveals - metadata only."),
 )
-RBAC_KINDS = ("local", "ldap", "sso")
+RBAC_KINDS = ("local", "ldap", "sso", "user")
 RBAC_SCOPE_MAX_TARGETS = 20
 RBAC_SCOPE_MAX_ITEMS = 100
 
@@ -2837,5 +2837,534 @@ class HsmKeyEvent(db.Model):
             "status": self.status,
             "actor": self.actor,
             "detail": self.detail or {},
+            "created_at": self.created_at.isoformat(),
+        }
+
+
+# ---------------------------------------------------------------------------
+# Real identity & login security (Addendum C - the phase-7 users, sessions,
+# MFA factors, OTP challenges, devices, emergency access and SCIM rows)
+# ---------------------------------------------------------------------------
+CONSOLE_TOKEN_PREFIX = "vypam-ui1"
+MFA_CHALLENGE_PREFIX = "vypam-mfa1"
+ENROL_TICKET_PREFIX = "vypam-enr1"
+DEVICE_TOKEN_PREFIX = "vypam-dev1"
+# user sources: `local` (created here), `scim` (provisioned by the identity
+# provider - no password login), `emergency` (the sealed offline admin)
+USER_SOURCES = ("local", "scim", "emergency")
+# console session authenticators recorded on the ledger; `mfa` is what was
+# asserted to mint the session (totp / webauthn / email-otp / radius / backup)
+MFA_KINDS = ("totp", "webauthn", "email", "radius")
+
+
+class User(db.Model):
+    """A human identity for the console itself (Addendum C): local login
+    with a memory-hard password hash (stdlib scrypt - argon2id-class, no
+    third-party binding), server-side sessions, lockout counters. `scim`
+    rows are provider-managed (password login refused); the single
+    `emergency` row is the sealed offline admin for SSO outages. Privilege
+    always comes from a role binding (kind `user`), never from the login."""
+
+    __tablename__ = "users"
+
+    id = db.Column(db.Integer, primary_key=True)
+    username = db.Column(db.String(64), nullable=False, unique=True, index=True)
+    email = db.Column(db.String(255), nullable=False, default="")
+    display_name = db.Column(db.String(128), nullable=False, default="")
+    password_hash = db.Column(db.String(255), nullable=False, default="")
+    source = db.Column(db.String(16), nullable=False, default="local")
+    is_active = db.Column(db.Boolean, nullable=False, default=True)
+    is_emergency = db.Column(db.Boolean, nullable=False, default=False)
+    must_change_password = db.Column(db.Boolean, nullable=False, default=False)
+    failed_logins = db.Column(db.Integer, nullable=False, default=0)
+    lockout_streak = db.Column(db.Integer, nullable=False, default=0)
+    locked_until = db.Column(db.DateTime, nullable=True)
+    last_login_at = db.Column(db.DateTime, nullable=True)
+    password_changed_at = db.Column(db.DateTime, nullable=True)
+    created_at = db.Column(
+        db.DateTime, nullable=False, default=datetime.now, index=True
+    )
+    created_by = db.Column(db.String(64), nullable=False, default="system")
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "id": self.id,
+            "username": self.username,
+            "email": self.email,
+            "display_name": self.display_name,
+            "source": self.source,
+            "is_active": self.is_active,
+            "is_emergency": self.is_emergency,
+            "must_change_password": self.must_change_password,
+            "failed_logins": self.failed_logins,
+            "lockout_streak": self.lockout_streak,
+            "locked_until": self.locked_until.isoformat() if self.locked_until else None,
+            "last_login_at": self.last_login_at.isoformat() if self.last_login_at else None,
+            "password_changed_at": (
+                self.password_changed_at.isoformat() if self.password_changed_at else None
+            ),
+            "has_password": bool(self.password_hash),
+            "created_at": self.created_at.isoformat(),
+            "created_by": self.created_by,
+        }
+
+
+class ConsoleSession(db.Model):
+    """A server-side console session (Addendum C): minted at a successful
+    login, presented as `vypam-ui1.<id>.<secret>` (sha256 at rest, shown
+    once) or the HttpOnly cookie of the same value; cookie-authenticated
+    mutations must carry the double-submit CSRF token. Idle + absolute
+    timeouts are enforced at every request; revocation is a timestamp plus
+    a reason, and the row stays as evidence."""
+
+    __tablename__ = "console_sessions"
+
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=False, index=True)
+    token_sha256 = db.Column(db.String(64), nullable=False)
+    token_prefix = db.Column(db.String(40), nullable=False, default="")
+    csrf_sha256 = db.Column(db.String(64), nullable=False)
+    mfa_at = db.Column(db.DateTime, nullable=True)
+    mfa_methods = db.Column(db.JSON, nullable=False, default=list)
+    is_emergency = db.Column(db.Boolean, nullable=False, default=False)
+    source_ip = db.Column(db.String(64), nullable=False, default="")
+    user_agent = db.Column(db.String(255), nullable=False, default="")
+    last_seen_at = db.Column(db.DateTime, nullable=True)
+    idle_expires_at = db.Column(db.DateTime, nullable=False)
+    absolute_expires_at = db.Column(db.DateTime, nullable=False)
+    revoked_at = db.Column(db.DateTime, nullable=True)
+    revoked_reason = db.Column(db.String(64), nullable=False, default="")
+    created_at = db.Column(
+        db.DateTime, nullable=False, default=datetime.now, index=True
+    )
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "id": self.id,
+            "user_id": self.user_id,
+            "token_prefix": self.token_prefix,
+            "mfa_at": self.mfa_at.isoformat() if self.mfa_at else None,
+            "mfa_methods": self.mfa_methods or [],
+            "is_emergency": self.is_emergency,
+            "source_ip": self.source_ip,
+            "user_agent": self.user_agent,
+            "last_seen_at": self.last_seen_at.isoformat() if self.last_seen_at else None,
+            "idle_expires_at": self.idle_expires_at.isoformat(),
+            "absolute_expires_at": self.absolute_expires_at.isoformat(),
+            "revoked_at": self.revoked_at.isoformat() if self.revoked_at else None,
+            "revoked_reason": self.revoked_reason,
+            "created_at": self.created_at.isoformat(),
+        }
+
+
+class MfaFactor(db.Model):
+    """One enrolled factor for one user. A `totp` factor seals its RFC-6238
+    seed (AES-256-GCM, never returned) and carries `last_step` so a reused
+    time step is refused (replay protection); `webauthn` factors point at
+    their credential rows; `radius` and `email` assert through the RADIUS
+    client and the OTP challenge machinery respectively."""
+
+    __tablename__ = "mfa_factors"
+    __table_args__ = (
+        db.UniqueConstraint("user_id", "kind", name="uq_mfa_user_kind"),
+    )
+
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=False, index=True)
+    kind = db.Column(db.String(16), nullable=False)
+    name = db.Column(db.String(64), nullable=False, default="")
+    secret_sealed = db.Column(db.JSON, nullable=True)
+    last_step = db.Column(db.Integer, nullable=False, default=0)
+    active = db.Column(db.Boolean, nullable=False, default=True)
+    created_at = db.Column(db.DateTime, nullable=False, default=datetime.now)
+    last_used_at = db.Column(db.DateTime, nullable=True)
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "id": self.id,
+            "user_id": self.user_id,
+            "kind": self.kind,
+            "name": self.name,
+            "last_step": self.last_step,
+            "active": self.active,
+            "created_at": self.created_at.isoformat(),
+            "last_used_at": self.last_used_at.isoformat() if self.last_used_at else None,
+        }
+
+
+class WebauthnCredential(db.Model):
+    """A registered FIDO2/WebAuthn credential (Addendum C: the
+    phishing-resistant factor). The public key is stored SPKI-DER base64;
+    `sign_count` carries the authenticator's counter for clone detection
+    (a rollback with a non-zero counter is refused and alerted)."""
+
+    __tablename__ = "webauthn_credentials"
+
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=False, index=True)
+    credential_id = db.Column(db.String(255), nullable=False, unique=True)
+    public_key_b64 = db.Column(db.String(512), nullable=False)
+    sign_count = db.Column(db.Integer, nullable=False, default=0)
+    name = db.Column(db.String(64), nullable=False, default="")
+    transports = db.Column(db.JSON, nullable=False, default=list)
+    created_at = db.Column(db.DateTime, nullable=False, default=datetime.now)
+    last_used_at = db.Column(db.DateTime, nullable=True)
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "id": self.id,
+            "user_id": self.user_id,
+            "credential_id": self.credential_id,
+            "sign_count": self.sign_count,
+            "name": self.name,
+            "transports": self.transports or [],
+            "created_at": self.created_at.isoformat(),
+            "last_used_at": self.last_used_at.isoformat() if self.last_used_at else None,
+        }
+
+
+class MfaBackupCode(db.Model):
+    """A hashed single-use backup code (shown once at generation, sha256 at
+    rest, refused after use). Regeneration invalidates every earlier code."""
+
+    __tablename__ = "mfa_backup_codes"
+
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=False, index=True)
+    code_hash = db.Column(db.String(64), nullable=False)
+    used_at = db.Column(db.DateTime, nullable=True)
+    created_at = db.Column(db.DateTime, nullable=False, default=datetime.now)
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "id": self.id,
+            "user_id": self.user_id,
+            "used_at": self.used_at.isoformat() if self.used_at else None,
+            "created_at": self.created_at.isoformat(),
+        }
+
+
+class AuthOtp(db.Model):
+    """One email-OTP challenge (Addendum C): a CSPRNG code stored HMAC-hashed,
+    ~5-minute TTL, single use, bound to this challenge id, with attempt caps.
+    `username` carries the login name even when no user exists (the send is
+    suppressed honestly, the API response stays identical - no enumeration).
+    The code itself never enters any column, log or ledger detail."""
+
+    __tablename__ = "auth_otps"
+
+    id = db.Column(db.Integer, primary_key=True)
+    challenge_id = db.Column(db.String(64), nullable=False, unique=True)
+    user_id = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=True)
+    username = db.Column(db.String(64), nullable=False, default="")
+    purpose = db.Column(db.String(16), nullable=False, default="login")
+    code_hmac = db.Column(db.String(64), nullable=False)
+    attempts = db.Column(db.Integer, nullable=False, default=0)
+    max_attempts = db.Column(db.Integer, nullable=False, default=5)
+    delivery_id = db.Column(db.Integer, db.ForeignKey("smtp_deliveries.id"), nullable=True)
+    expires_at = db.Column(db.DateTime, nullable=False)
+    consumed_at = db.Column(db.DateTime, nullable=True)
+    created_at = db.Column(
+        db.DateTime, nullable=False, default=datetime.now, index=True
+    )
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "id": self.id,
+            "challenge_id": self.challenge_id,
+            "user_id": self.user_id,
+            "username": self.username,
+            "purpose": self.purpose,
+            "attempts": self.attempts,
+            "max_attempts": self.max_attempts,
+            "delivery_id": self.delivery_id,
+            "expires_at": self.expires_at.isoformat(),
+            "consumed_at": self.consumed_at.isoformat() if self.consumed_at else None,
+            "created_at": self.created_at.isoformat(),
+        }
+
+
+class SmtpDelivery(db.Model):
+    """One attempted OTP e-mail send (Addendum C: retry queue + delivery
+    status for admins, never the code). Status is a measured fact:
+    `sent`, `failed` with the provider's error, or `queued` for retry."""
+
+    __tablename__ = "smtp_deliveries"
+
+    id = db.Column(db.Integer, primary_key=True)
+    purpose = db.Column(db.String(16), nullable=False, default="otp")
+    recipient_masked = db.Column(db.String(255), nullable=False, default="")
+    status = db.Column(db.String(16), nullable=False, default="queued")
+    attempts = db.Column(db.Integer, nullable=False, default=0)
+    last_error = db.Column(db.String(255), nullable=False, default="")
+    sent_at = db.Column(db.DateTime, nullable=True)
+    created_at = db.Column(
+        db.DateTime, nullable=False, default=datetime.now, index=True
+    )
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "id": self.id,
+            "purpose": self.purpose,
+            "recipient_masked": self.recipient_masked,
+            "status": self.status,
+            "attempts": self.attempts,
+            "last_error": self.last_error,
+            "sent_at": self.sent_at.isoformat() if self.sent_at else None,
+            "created_at": self.created_at.isoformat(),
+        }
+
+
+class AuthDevice(db.Model):
+    """A remembered device (Addendum C: `remember this device` only for
+    low-privilege roles, short lifetime - never for approvers/admins, a
+    check the service enforces at mint time). Only the sha256 of the
+    device token is stored; the token itself is shown once."""
+
+    __tablename__ = "auth_devices"
+
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=False, index=True)
+    device_sha256 = db.Column(db.String(64), nullable=False)
+    device_prefix = db.Column(db.String(40), nullable=False, default="")
+    expires_at = db.Column(db.DateTime, nullable=False)
+    last_used_at = db.Column(db.DateTime, nullable=True)
+    revoked_at = db.Column(db.DateTime, nullable=True)
+    created_at = db.Column(db.DateTime, nullable=False, default=datetime.now)
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "id": self.id,
+            "user_id": self.user_id,
+            "device_prefix": self.device_prefix,
+            "expires_at": self.expires_at.isoformat(),
+            "last_used_at": self.last_used_at.isoformat() if self.last_used_at else None,
+            "revoked_at": self.revoked_at.isoformat() if self.revoked_at else None,
+            "created_at": self.created_at.isoformat(),
+        }
+
+
+class AuthEvent(db.Model):
+    """One console-login security record (Addendum C: logins, MFA, OTP,
+    lockouts, session revocations, emergency use) folded into the ledger
+    under the twentieth trail `auth`. Passwords, codes, tokens and seeds
+    never enter `detail`."""
+
+    __tablename__ = "auth_events"
+
+    id = db.Column(db.Integer, primary_key=True)
+    action = db.Column(db.String(64), nullable=False)
+    actor = db.Column(db.String(64), nullable=False, default="system")
+    subject = db.Column(db.String(128), nullable=False, default="")
+    detail = db.Column(db.JSON, nullable=False, default=dict)
+    created_at = db.Column(
+        db.DateTime, nullable=False, default=datetime.now, index=True
+    )
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "id": self.id,
+            "action": self.action,
+            "actor": self.actor,
+            "subject": self.subject,
+            "detail": self.detail or {},
+            "created_at": self.created_at.isoformat(),
+        }
+
+
+class EmergencyGrant(db.Model):
+    """One request to open the sealed offline emergency admin (Addendum C:
+    dual-approved to open, alerted on use). `pending` waits for two
+    distinct approvals; `open` starts a short window; `used` records the
+    login and forces the sealed password to rotate."""
+
+    __tablename__ = "emergency_grants"
+
+    id = db.Column(db.Integer, primary_key=True)
+    status = db.Column(db.String(16), nullable=False, default="pending")
+    requested_by = db.Column(db.String(64), nullable=False, default="")
+    reason = db.Column(db.String(255), nullable=False, default="")
+    ticket = db.Column(db.String(64), nullable=False, default="")
+    opened_at = db.Column(db.DateTime, nullable=True)
+    expires_at = db.Column(db.DateTime, nullable=True)
+    used_at = db.Column(db.DateTime, nullable=True)
+    rotated_at = db.Column(db.DateTime, nullable=True)
+    created_at = db.Column(
+        db.DateTime, nullable=False, default=datetime.now, index=True
+    )
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "id": self.id,
+            "status": self.status,
+            "requested_by": self.requested_by,
+            "reason": self.reason,
+            "ticket": self.ticket,
+            "opened_at": self.opened_at.isoformat() if self.opened_at else None,
+            "expires_at": self.expires_at.isoformat() if self.expires_at else None,
+            "used_at": self.used_at.isoformat() if self.used_at else None,
+            "rotated_at": self.rotated_at.isoformat() if self.rotated_at else None,
+            "created_at": self.created_at.isoformat(),
+        }
+
+
+class EmergencyApproval(db.Model):
+    """One approval decision on an emergency-open grant: two distinct
+    approvers (never the requester) open the sealed account; a denial
+    closes the request."""
+
+    __tablename__ = "emergency_approvals"
+
+    id = db.Column(db.Integer, primary_key=True)
+    grant_id = db.Column(
+        db.Integer, db.ForeignKey("emergency_grants.id"), nullable=False, index=True
+    )
+    approver = db.Column(db.String(64), nullable=False)
+    decision = db.Column(db.String(16), nullable=False)
+    note = db.Column(db.String(255), nullable=False, default="")
+    created_at = db.Column(db.DateTime, nullable=False, default=datetime.now)
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "id": self.id,
+            "grant_id": self.grant_id,
+            "approver": self.approver,
+            "decision": self.decision,
+            "note": self.note,
+            "created_at": self.created_at.isoformat(),
+        }
+
+
+class WebauthnChallenge(db.Model):
+    """One outstanding WebAuthn ceremony challenge (registration or
+    authentication): single-use, TTL-bound, bound to the user."""
+
+    __tablename__ = "webauthn_challenges"
+
+    id = db.Column(db.String(64), primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=False, index=True)
+    purpose = db.Column(db.String(16), nullable=False, default="register")
+    challenge = db.Column(db.String(128), nullable=False)
+    expires_at = db.Column(db.DateTime, nullable=False)
+    consumed_at = db.Column(db.DateTime, nullable=True)
+    created_at = db.Column(db.DateTime, nullable=False, default=datetime.now)
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "id": self.id,
+            "user_id": self.user_id,
+            "purpose": self.purpose,
+            "expires_at": self.expires_at.isoformat(),
+            "consumed_at": self.consumed_at.isoformat() if self.consumed_at else None,
+            "created_at": self.created_at.isoformat(),
+        }
+
+
+class ScimGroup(db.Model):
+    """A SCIM 2.0 group shadow row (lifecycle sync): the identity provider
+    owns membership; joiner-mover-leaver reviews read this table and the
+    `scim` users beside it."""
+
+    __tablename__ = "scim_groups"
+
+    id = db.Column(db.Integer, primary_key=True)
+    scim_id = db.Column(db.String(64), nullable=False, unique=True)
+    display_name = db.Column(db.String(128), nullable=False)
+    members = db.Column(db.JSON, nullable=False, default=list)
+    active = db.Column(db.Boolean, nullable=False, default=True)
+    created_at = db.Column(db.DateTime, nullable=False, default=datetime.now)
+    updated_at = db.Column(db.DateTime, nullable=True)
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "id": self.id,
+            "scim_id": self.scim_id,
+            "display_name": self.display_name,
+            "members": self.members or [],
+            "active": self.active,
+            "created_at": self.created_at.isoformat(),
+            "updated_at": self.updated_at.isoformat() if self.updated_at else None,
+        }
+
+
+class FactorRecoveryRequest(db.Model):
+    """A lost-factor recovery request (Addendum C: recovery needs two-admin
+    approval, never self-service email alone). Approval deletes the factor;
+    the next login forces a fresh enrolment."""
+
+    __tablename__ = "factor_recovery_requests"
+
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=False, index=True)
+    status = db.Column(db.String(16), nullable=False, default="pending")
+    reason = db.Column(db.String(255), nullable=False, default="")
+    resolved_at = db.Column(db.DateTime, nullable=True)
+    created_at = db.Column(
+        db.DateTime, nullable=False, default=datetime.now, index=True
+    )
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "id": self.id,
+            "user_id": self.user_id,
+            "status": self.status,
+            "reason": self.reason,
+            "resolved_at": self.resolved_at.isoformat() if self.resolved_at else None,
+            "created_at": self.created_at.isoformat(),
+        }
+
+
+class FactorRecoveryApproval(db.Model):
+    """One admin decision on a factor-recovery request (two distinct
+    approvers required; a denial closes it)."""
+
+    __tablename__ = "factor_recovery_approvals"
+
+    id = db.Column(db.Integer, primary_key=True)
+    request_id = db.Column(
+        db.Integer, db.ForeignKey("factor_recovery_requests.id"), nullable=False, index=True
+    )
+    approver = db.Column(db.String(64), nullable=False)
+    decision = db.Column(db.String(16), nullable=False)
+    note = db.Column(db.String(255), nullable=False, default="")
+    created_at = db.Column(db.DateTime, nullable=False, default=datetime.now)
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "id": self.id,
+            "request_id": self.request_id,
+            "approver": self.approver,
+            "decision": self.decision,
+            "note": self.note,
+            "created_at": self.created_at.isoformat(),
+        }
+
+
+class LoginChallenge(db.Model):
+    """One outstanding login step (Addendum C): after the password check the
+    client holds a single-use, TTL-bound challenge instead of a session -
+    `mfa` waits for a factor assertion, `enrol` is the forced-enrolment
+    ticket `vypam-enr1` issued when `mfa_required` is on and no factor is
+    enrolled (never a silent pass). Consumed at exactly one session mint."""
+
+    __tablename__ = "login_challenges"
+
+    id = db.Column(db.String(64), primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=False, index=True)
+    kind = db.Column(db.String(16), nullable=False, default="mfa")
+    secret_sha256 = db.Column(db.String(64), nullable=False, default="")
+    expires_at = db.Column(db.DateTime, nullable=False)
+    consumed_at = db.Column(db.DateTime, nullable=True)
+    created_at = db.Column(
+        db.DateTime, nullable=False, default=datetime.now, index=True
+    )
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "id": self.id,
+            "user_id": self.user_id,
+            "kind": self.kind,
+            "expires_at": self.expires_at.isoformat(),
+            "consumed_at": self.consumed_at.isoformat() if self.consumed_at else None,
             "created_at": self.created_at.isoformat(),
         }

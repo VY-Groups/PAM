@@ -355,21 +355,33 @@ def test_chain_links_from_genesis_and_verifies(client):
     assert verified["head_hash"] == head_hash
 
 
-def test_empty_ledger_stays_honest(client):
+def test_fresh_ledger_holds_only_the_startup_seed(client):
+    # a brand-new deployment is not event-free: boot records the one
+    # honest event - the sealed emergency admin being seeded - and
+    # nothing else exists yet; the stats must say exactly that
     state = stats(client)
-    assert state["total"] == 0 and state["last_seq"] == 0
-    assert state["head_hash"] == ""
-    assert state["oldest_at"] is None and state["newest_at"] is None
+    assert state["total"] == 1 and state["last_seq"] == 1
+    assert state["head_hash"]
+    assert state["oldest_at"] and state["newest_at"]
     assert set(state["by_source"]) == set(audit.AUDIT_SOURCES)
-    assert all(count == 0 for count in state["by_source"].values())
+    assert state["by_source"]["auth"] == 1
+    assert all(
+        count == 0
+        for source, count in state["by_source"].items()
+        if source != "auth"
+    )
     assert state["trigger_protection"] is True
 
-    assert verify(client) == {
-        "intact": True, "checked": 0, "total": 0, "last_seq": 0,
-        "head_hash": "", "broken_at": None, "reason": None,
-    }
+    verified = verify(client)
+    assert verified["intact"] is True
+    assert verified["checked"] == 1 and verified["total"] == 1
+    assert verified["last_seq"] == 1 and verified["head_hash"]
+    assert verified["broken_at"] is None and verified["reason"] is None
+
     feed = client.get("/api/v1/events").get_json()
-    assert feed["events"] == [] and feed["total"] == 0
+    assert feed["total"] == 1
+    assert feed["events"][0]["source"] == "auth"
+    assert feed["events"][0]["action"] == "auth.emergency.seeded"
 
 
 def test_stats_report_real_ledger_state(client):
@@ -378,7 +390,9 @@ def test_stats_report_real_ledger_state(client):
     state = stats(client)
 
     assert state["total"] == (
-        state["by_source"]["license"] + state["by_source"]["vault"]
+        state["by_source"]["license"]
+        + state["by_source"]["vault"]
+        + state["by_source"]["auth"]  # the startup seed
     )
     assert state["last_seq"] == state["total"]
     assert state["trigger_protection"] is True
@@ -495,15 +509,18 @@ def test_backfill_chains_preexisting_history_once(app):
             {"created_at": (datetime.now() - timedelta(days=2)).isoformat(sep=" ")},
         )
         db.session.commit()
-        assert AuditEvent.query.count() == 0  # raw SQL bypassed the listener
+        assert AuditEvent.query.count() == 1  # only the startup seed
 
         assert audit.ensure_audit_chain() == 1
         rows = ledger_rows()
-        assert len(rows) == 1
+        assert len(rows) == 2  # the startup seed, then the backfilled row
         assert rows[0].seq == 1
-        assert rows[0].event_ref == "license:1"
-        assert rows[0].prev_hash == AUDIT_GENESIS_HASH
-        assert rows[0].detail == {"via": "raw"}
+        assert rows[0].source == "auth"  # the sealed-admin seed
+        backfill = rows[1]
+        assert backfill.seq == 2
+        assert backfill.event_ref == "license:1"
+        assert backfill.prev_hash == rows[0].event_hash
+        assert backfill.detail == {"via": "raw"}
         # already-current ledger: nothing to add, nothing to renumber
         assert audit.ensure_audit_chain() == 0
         assert audit.verify_chain()["intact"] is True

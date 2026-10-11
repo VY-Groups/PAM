@@ -1,6 +1,6 @@
 # VY-PAM — Implementation Plan (remaining architecture coverage)
 
-**Status:** maintained through Phase 6c — remaining backlog starts at 7
+**Status:** maintained through Phase 7 — remaining backlog starts at 8
 **Authoritative spec:** `VY-PAM_Enterprise_PAM_Architecture.md`
 **Execution log:** `VY-PAM_MASTER_and_PAM_Workflow.md` (checkpoint rows — the
 resumable source of truth while working)
@@ -26,7 +26,7 @@ resumable source of truth while working)
 | §7 Risk-Based Access | 8-component engine + session gate | ✅ built | 4f |
 | §8 Privileged Sessions | recording, controls, cascade | ✅ built | 4c |
 | §9 Command Control | default-allow rules, holds, incidents | ✅ built | 4d |
-| §19 Immutable Audit | hash chain, 19 sources, verify/export | ✅ built | 4e |
+| §19 Immutable Audit | hash chain, 20 sources, verify/export | ✅ built | 4e |
 | §10 PAM Bypass Detection | direct-access detection | ✅ built | **4g** |
 | §17 Break Glass | emergency protocol (dual approval → recorded session → rotation) | ✅ built | **4h** |
 | §20 Enterprise Integrations | TOTP MFA gate, ITSM verify, SIEM push, LDAP bind | ✅ built | **4i** |
@@ -39,7 +39,7 @@ resumable source of truth while working)
 | §18 HA / DC / DR | multi-node, replication, failover | ✅ built | **6a** |
 | RBAC / ABAC | multi-role model (single admin today) | ✅ built | 6b |
 | SSO / HSM enforcement | settings schema → real enforcement | ✅ built | **6c** |
-| Real identity & login security | users, server-side sessions, MFA at login, actor bound to the authenticated user | ⛔ pending | **7** |
+| Real identity & login security | users, server-side sessions, MFA at login, actor bound to the authenticated user | ✅ built | **7** |
 | §27 Session Gateway | the data plane: protocol proxy, credential injection, recording | ⛔ pending | **8** |
 | §5 target-side rotation | push the rotated secret to the target (connector framework) | ⛔ pending | **9** |
 | Data layer & HA at scale | PostgreSQL + migrations, UTC, measured RPO/RTO | ⛔ pending | **10** |
@@ -579,34 +579,78 @@ two register rows are already stale in our favour — G2 (HA/DR) shipped
 in 6a at single-binary scope and G4 (roles) shipped in 6b — the
 remaining aspects of each are named inside the matching phase below.
 
-### 7 — Real identity & login security (gap register G3 remainder, G21, G23's MFA half; Addendum C)
-Everything the gateway, SoD and change control will need: *who is the
-user*.
-- `users` table + local login (argon2id-class password hashing) +
-  server-side sessions (Secure/HttpOnly/SameSite, CSRF, idle + absolute
-  timeouts, revocation, "log out everywhere") — replacing stateless-only
-  trust; API tokens stay for machines.
-- Account lockout, per-account/per-IP rate limits, progressive delay,
-  spray-detection alerts; password policy per NIST (length over
-  complexity, breached-password check).
-- `mfa_required` policy flag, **fail-closed**: no enrolled factor ⇒
-  forced enrolment at first login, never a silent pass (fixes the
-  documented fail-open hole); MFA at login plus step-up for reveal /
-  critical approval / break-glass / high-critical JIT; TOTP replay
-  protection (reject reused time steps); hashed single-use backup codes.
-- Email OTP (CSPRNG code, HMAC-hashed, ~5 min TTL, single use, bound to
-  the challenge id, attempt caps + resend cooldown, no user
-  enumeration, never logged — ledger records `otp-sent/verified/failed/
-  locked` only) over a new sealed `smtp` settings group with a
-  test-send; SMS optional and provider-checked (DLT rules for India).
-- **Actor bound to the authenticated user**: client `X-Actor` ignored
-  for human sessions — what makes requester ≠ approver and dual
-  approval real controls instead of header conventions.
-- Dedicated offline emergency local admin (sealed, dual-approved to
-  open, alerted on use) for SSO outages; WebAuthn/FIDO2, RADIUS/push
-  and SCIM/lifecycle sync follow within the phase.
-- Ledger source `auth` (**17→18**), contract + UI + gate lockstep as
-  every phase. *Depends on 6c (SAML/OIDC lands there first).*
+### 7 — Real identity & login security ✅ (closed 2026-10-11)
+Real identity, not header conventions. Local `users` login over scrypt
+(N=2**14) with NIST policy (length over complexity, breached-password and
+username-containment refusals; generated passwords shown once + forced
+change) and server-side console sessions (`vypam-ui1.<id>.<secret>` sha256
+at rest, HttpOnly `vypam_session` cookie + `X-CSRF-Token` double-submit on
+cookie-authenticated mutations — credential headers skip CSRF by design;
+idle + absolute TTLs, revoke, logout, logout-all that keeps only the
+calling session). Fail-closed MFA (`mfa_required`): no factor ⇒ a
+status-carrying 403 carrying a single-use `vypam-enr1.` enrolment ticket
+(never a silent pass, never a cookie), enrolled ⇒ the two-step
+`vypam-mfa1.` login challenge (300 s, single use, a wrong assertion
+survives, a reused time step is refused); step-up for sensitive routes
+with hashed single-use backup codes; per-account/per-IP rate limits,
+progressive delay, spray detection, and doubling lockout with admin
+unlock — the password path stays MFA-fail-closed after unlock. Actor bound
+to the authenticated principal: client `X-Actor` is ignored for console
+sessions (which is what makes requester ≠ approver real), and the admin
+token alone holds no console session. E-mail OTP (CSPRNG, HMAC-hashed,
+TTL + attempt cap + resend cooldown; the start answers identically for
+known and unknown accounts — no enumeration; suppressed deliveries
+measured in `smtp_deliveries` with the real reason and never a code) over
+the sealed `smtp` group; SMS remains settings+DLT only (documented gap).
+WebAuthn registration/authentication (packed + none, single-use
+challenge) with 202 options for existing and non-existing handles alike;
+RADIUS (RFC 2865, shared-secret HMAC binding) as a real second factor
+that fails closed 503 against an unreachable server — never a silent
+pass; SCIM 2.0 (`vypam-scim1.` bearer shown once via
+`POST /settings/scim/rotate`, Users joiner/mover/leaver lifecycle with
+local users invisible to the IdP surface, SCIM-managed logins answered
+with the uniform 401 and the true `scim-managed` reason only in the
+ledger, delete leaving the row as evidence). The sealed emergency admin
+(`emergency-admin`) is seeded with no usable password; opening it demands
+a reason ≥ 8 chars and two distinct approvers (never the requester), the
+window is time-boxed (`auth.emergency_window_minutes`) and the login still
+requires the sealed password; a missing vault key at boot skips seeding
+with a warning and never invents a password. Settings GET never echoes
+secrets (the literal `<set>` sentinel keeps the stored value). `auth` is
+the **20th** ledger source (`identity.py`, `mfa.py`, `otp.py`,
+`radius_client.py`, `scim.py`, `webauthn.py`); **16** new tables —
+`users`, `console_sessions`, `mfa_factors`, `login_challenges`,
+`mfa_backup_codes`, `auth_otps`, `smtp_deliveries`, `auth_devices`,
+`auth_events`, `webauthn_credentials`, `webauthn_challenges`,
+`emergency_grants`, `emergency_approvals`, `factor_recovery_requests`,
+`factor_recovery_approvals`, `scim_groups` — **51→67** tables;
+`ADMIN_OPERATIONS` **111→127** (+16 admin — users CRUD/unlock/
+password-reset, session list/revoke, OTP deliveries, emergency state/
+open/approve, factor-recovery list/approve, SCIM rotate); 49 identity
+endpoints across 41 paths + openapi (**192 paths / 229 ops / 23 tags /
+127 admin / 254 schemas / 10 security schemes**, new `identity` tag)
+lockstep + `test_identity` **33** + `test_mfa` **11** + `test_otp` **13**
++ `test_webauthn` **17** + `test_radius` **13** + `test_scim` **9** +
+contract **9**; full backend **760** (678 phase2 + 82 licensing;
+in-container phase2 **678** on Linux); both-rig E2E **129
+checks, 0 failed** — real HTTP walking the enrolment ticket → TOTP seed
+shown once → live-code challenge → spent-challenge refusal, the CSRF
+double-submit and bearer/logout-all revocation chain, the identical 401
+for unknown/wrong/inactive, lockout → unlock → MFA-still-fail-closed,
+WebAuthn's identical 202, the measured never-coded OTP suppression, the
+RADIUS factor's honest 503 against a dead loopback port, the sealed
+emergency admin's self-approval refusal → two distinct approvals → open
+window that still demands the sealed password, the full SCIM lifecycle
+over its own bearer, and the `auth` trail (report + no secret material in
+it) — rig A in open dev mode, rig B in token mode (where the unbound
+session's 403 role_required and the admin-token-alone-401 are live);
+standing gate **69** checks in open mode / **76** under
+`GATE_ADMIN_TOKEN`. Platform Settings gains the Identity & Login Security
+section (auth/webauthn/smtp/sms/radius/scim cards rendering their exact
+schema fields + the sealed emergency-admin card with its real state and
+the dual-control open request), Compliance gains the 20th `auth` chip
+(21 sources + All), and the RBAC kind select offers `user`; both screens
+recaptured at 1920×1600.
 
 ### 8 — Session gateway & recording (§27; gaps G1, G9, G11, G12, G20; Addendum A + the recording storage paper)
 The data plane — the thing that actually sits between user and target.
@@ -843,9 +887,9 @@ real numbers collected at that time, `—` until then**:
 3. **Evidence:** one append-only ledger covering every module source (17
    sources), chain verified in CI, NDJSON + webhook export flowing to a real
    SIEM when configured.
-4. **Contracts:** `apis/openapi.yaml` (path count `-`, today 135) and the
+4. **Contracts:** `apis/openapi.yaml` (path count `-`, today 192) and the
    vendor tool contract both enforced both-ways; zero dark endpoints.
-5. **Quality gates:** backend suite (today **664**) grows per phase with real
+5. **Quality gates:** backend suite (today **760**) grows per phase with real
    counts recorded in the READMEs; pam_master stays green (**46**); smoke,
    both UI verifiers, leak check all green at every boundary.
 6. **Operations:** single-node install stays Docker-free; §18 adds replicated
