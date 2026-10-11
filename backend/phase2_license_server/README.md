@@ -119,9 +119,9 @@ bundle, run the correlation scan, review/close incidents; the Compliance
 screen also reads
 `GET /api/v1/audit/stats` for the immutable digest, runs `GET /api/v1/audit/verify`
 on its **Verify Hash Chain** button, exports `GET /api/v1/audit/export`, and its
-per-trail filter fetches one of the sixteen sources — license, settings, vault,
+per-trail filter fetches one of the seventeen sources — license, settings, vault,
 discovery, jit, session, command, risk, bypass, break-glass, integration,
-vendor, cloud, broker, agent, cluster — on
+vendor, cloud, broker, agent, cluster, rbac — on
 click, and its header chip reads the §20 SIEM push state), the **Credential Vault**
 (`GET/POST /api/v1/vault/*` — onboarding via **Onboard New Credential**, rotation
 SLA, type/status filters, JIT checkouts and an audit trail), the
@@ -170,7 +170,7 @@ is no seed inventory: every credential enters through **Onboard New Credential**
 
 ```bash
 python -m pytest tests -q     # 459 tests (from backend/phase2_license_server)
-python -m pytest backend -q   # 577 tests from the repo root (+ shared crypto core)
+python -m pytest backend -q   # 613 tests from the repo root (+ shared crypto core)
 ```
 
 **Docker (development/runtime testing only — never a shipping instruction):**

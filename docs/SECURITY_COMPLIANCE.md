@@ -70,9 +70,18 @@ token or explicit open dev mode), (c) runtime↔disk (encrypted secrets),
 
 ## 4. Authentication & accountability
 
-- **101 admin operations** carry security schemes in `openapi.yaml`
+- **105 admin operations** carry security schemes in `openapi.yaml`
   (contract-tested) — they require `Bearer`/`X-Admin-Token` whenever
   `LICENSE_ADMIN_TOKEN` is set.
+- **Least-privilege roles (6b):** in token mode the `admin-token` may call
+  everything; every other credential is a *binding* — five seeded roles
+  (admin / approver / operator / auditor / auditor-read-only) over the
+  admin operations (policy in code, approver∩operator = ∅, reveal
+  operator-only, evidence exports auditor-only), API tokens sha256 at
+  rest and shown once, ABAC `scope` limiting targets / vault items. An
+  LDAP directory authenticates but never authorizes: a valid ticket with
+  no binding reaches no admin route (403 verbatim). A denial records
+  `rbac` ledger evidence; revocation stops tokens immediately (401).
 - **Open dev mode is loud, never silent:** responses carry
   `X-Auth-Mode: open`, the console profile shows `no user session` /
   `auth: -`, and the security posture checklist records it as the single
@@ -117,7 +126,7 @@ token or explicit open dev mode), (c) runtime↔disk (encrypted secrets),
 | Ordered | `seq` unique, ascending | `test_audit.py` chain walk |
 | Chained | `prev_hash` → `event_hash = sha256(canonical record)`, genesis `0`×64 | verify endpoint recompute |
 | Append-only | SQLite triggers abort `UPDATE`/`DELETE` with `'audit_events is append-only (architecture 19)'` | trigger tests |
-| Complete coverage | 16 sources (`license settings vault discovery jit session command risk bypass break-glass integration vendor cloud broker agent cluster`); mapper-coverage test fails if any event model lacks a mapper | `MAPPERS` ⇄ models ⇄ `by_source` assertions |
+| Complete coverage | 17 sources (`license settings vault discovery jit session command risk bypass break-glass integration vendor cloud broker agent cluster rbac`); mapper-coverage test fails if any event model lacks a mapper | `MAPPERS` ⇄ models ⇄ `by_source` assertions |
 | Detect, don't repair | tampering is **reported** (`first break` index), never silently fixed | forged-insert test |
 | Portable evidence | `/audit/verify`, `/audit/export` NDJSON in chain order | contract + audit tests |
 
@@ -164,7 +173,7 @@ reported as missing — never as partial-good.
 
 | Gap today | Closes in | Target state |
 |---|---|---|
-| Single admin role (RBAC/ABAC claimed in matrix) | 6b | Roles + attribute bindings over all admin operations and vault/target scoping |
+| ~~Single admin role~~ — **✅ closed in 6b** | 6b | Five seeded roles over all 105 admin operations, sha256-at-rest tokens shown once, LDAP binding-required (the directory authenticates, the binding decides), ABAC target / vault-item scoping; `admin-token` stays the bootstrap superuser and open dev mode remains an explicit, posture-recorded violation |
 | SSO/HSM schema-only | 6c | SAML/OIDC login enforced; HSM/KMS-backed keys where configured |
 | TLS not terminated by the app | runbook §5 (now) | Reverse-proxy TLS - documented and checklisted; app stays plain HTTP by design |
 | Geo-IP feed (`location` = `is_global`) | 4i | Device/IP context now sits in the trained §11 baselines; a real geo feed only if one is ever configured - otherwise the honest label stays |

@@ -372,6 +372,35 @@ def test_no_screen_has_dead_sidebar_links():
         assert not dead, f"{folder} still has {len(dead)} dead sidebar links"
 
 
+def test_settings_screen_carries_the_rbac_section():
+    """The RBAC / ABAC section (architecture section 10) ships on Platform
+    Settings: the role registry, the grant form with every built-in role,
+    the one-time token box and the bindings table."""
+    html = (SCREENS_DIR / "platform_settings_center" / "code.html").read_text(
+        encoding="utf-8"
+    )
+    assert 'data-role="rbac-section"' in html
+    for marker in (
+        'data-role="rbac-role-rows"',
+        'data-role="rbac-binding-rows"',
+        'data-role="rbac-token-once"',
+        'data-role="btn-rbac-create"',
+        'id="rbac-token-value"',
+    ):
+        assert marker in html, marker
+    # the grant form offers exactly the built-in roles
+    select_block = html.split('data-role="rbac-input-role"')[1].split("</select>")[0]
+    roles = re.findall(r'<option value="([^"]+)">', select_block)
+    assert sorted(roles) == sorted(
+        ["admin", "approver", "operator", "auditor", "auditor-read-only"]
+    )
+    assert "vypam-rbac1" in html
+    assert "/api/v1/auth/whoami" in html
+    # the screen loads the live state and exposes it to the standing gate
+    assert "await loadRbac()" in html
+    assert "rbac: { load: loadRbac, state: rbacLive }" in html
+
+
 def test_launcher_links_every_screen():
     index = UI_ROOT / "index.html"
     assert index.is_file(), "frontend launcher index.html missing"

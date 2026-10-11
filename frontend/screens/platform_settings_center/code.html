@@ -650,6 +650,81 @@
 </div>
 </div>
 </section>
+<section class="bg-surface-container-lowest rounded-xl p-space-lg shadow-sm" data-role="rbac-section">
+<div class="flex flex-wrap items-start justify-between gap-space-sm pb-space-sm mb-space-md border-b border-surface-container">
+<div class="max-w-3xl">
+<div class="flex items-center gap-2">
+<span class="material-symbols-outlined text-primary text-[20px]">shield_lock</span>
+<h2 class="font-headline-sm text-headline-sm text-on-surface">Role-Based Access (RBAC / ABAC)</h2>
+</div>
+<p class="font-body-sm text-body-sm text-on-surface-variant mt-1">Five built-in roles over every admin operation: the admin token stays <span class="font-code-sm text-code-sm">admin</span> (everything), and a bound principal reaches exactly its role's operations. A <span class="font-code-sm text-code-sm">local</span> principal gets an API token once (<span class="font-code-sm text-code-sm">vypam-rbac1.&lt;id&gt;.&lt;secret&gt;</span>, sha256 at rest); an <span class="font-code-sm text-code-sm">ldap</span> principal is a directory username a login ticket carries - the directory authenticates, the binding decides (no binding, no access). Binding scope gates vault items and session targets. <span class="font-code-sm text-code-sm">GET /api/v1/auth/whoami</span> reports the acting principal.</p>
+</div>
+</div>
+<p class="font-code-sm text-code-sm text-on-surface-variant mb-space-md" data-role="rbac-summary">loading roles and bindings...</p>
+<!-- posture tiles, numbers from the live registry -->
+<div class="grid grid-cols-2 gap-space-sm mb-space-md">
+<div class="p-space-sm rounded-lg bg-surface-container-low flex flex-col gap-1">
+<span class="font-label-badge text-label-badge text-outline">BUILT-IN ROLES</span>
+<span class="font-headline-sm text-[15px] text-on-surface font-semibold" data-role="rbac-tile-roles">&#8212;</span>
+<span class="font-code-sm text-code-sm text-on-surface-variant" data-role="rbac-tile-roles-sub">seeded once at startup</span>
+</div>
+<div class="p-space-sm rounded-lg bg-surface-container-low flex flex-col gap-1">
+<span class="font-label-badge text-label-badge text-outline">ACTIVE BINDINGS</span>
+<span class="font-headline-sm text-[15px] text-on-surface font-semibold" data-role="rbac-tile-bindings">&#8212;</span>
+<span class="font-code-sm text-code-sm text-on-surface-variant" data-role="rbac-tile-bindings-sub">&#8212;</span>
+</div>
+</div>
+<!-- the role directory: what each role may call (computed, never stale) -->
+<div class="overflow-x-auto mb-space-md">
+<table class="w-full text-left border-collapse">
+<thead>
+<tr class="font-label-badge text-label-badge text-outline border-b border-surface-container">
+<th class="py-2 pr-space-sm">ROLE</th><th class="py-2 pr-space-sm">DESCRIPTION</th><th class="py-2">ADMIN OPERATIONS</th>
+</tr>
+</thead>
+<tbody data-role="rbac-role-rows">
+<tr><td class="py-2 font-body-sm text-body-sm text-on-surface-variant" colspan="3">loading roles...</td></tr>
+</tbody>
+</table>
+</div>
+<!-- grant a role: a token is minted once for local principals -->
+<div class="p-space-sm rounded-lg bg-surface-container-low border border-outline-variant/30 mb-space-md flex flex-wrap items-end gap-space-sm">
+<label class="flex flex-col gap-1 font-headline-sm text-[13px] text-on-surface font-medium">Principal
+<input class="px-3 py-2 rounded bg-surface-container-lowest text-on-surface font-body-sm text-body-sm focus:outline-none focus:ring-1 focus:ring-primary-container" data-role="rbac-input-principal" placeholder="svc-nightly" type="text"/>
+</label>
+<label class="flex flex-col gap-1 font-headline-sm text-[13px] text-on-surface font-medium">Role
+<select class="px-3 py-2 rounded bg-surface-container-lowest text-on-surface font-body-sm text-body-sm focus:outline-none focus:ring-1 focus:ring-primary-container" data-role="rbac-input-role"><option value="operator">operator</option><option value="approver">approver</option><option value="auditor">auditor</option><option value="auditor-read-only">auditor-read-only</option><option value="admin">admin</option></select>
+</label>
+<label class="flex flex-col gap-1 font-headline-sm text-[13px] text-on-surface font-medium">Kind
+<select class="px-3 py-2 rounded bg-surface-container-lowest text-on-surface font-body-sm text-body-sm focus:outline-none focus:ring-1 focus:ring-primary-container" data-role="rbac-input-kind"><option value="local">local (mint a token)</option><option value="ldap">ldap (directory username)</option></select>
+</label>
+<label class="flex flex-col grow min-w-[180px] gap-1 font-headline-sm text-[13px] text-on-surface font-medium">Scope: targets (optional)
+<input class="px-3 py-2 rounded bg-surface-container-lowest text-on-surface font-body-sm text-body-sm focus:outline-none focus:ring-1 focus:ring-primary-container" data-role="rbac-input-targets" placeholder="web-*, bastion-1" type="text"/>
+</label>
+<label class="flex flex-col grow min-w-[160px] gap-1 font-headline-sm text-[13px] text-on-surface font-medium">Scope: vault items (optional)
+<input class="px-3 py-2 rounded bg-surface-container-lowest text-on-surface font-body-sm text-body-sm focus:outline-none focus:ring-1 focus:ring-primary-container" data-role="rbac-input-items" placeholder="3, 7" type="text"/>
+</label>
+<button class="px-space-md py-2 rounded-lg bg-tertiary/15 text-tertiary hover:bg-tertiary/25 font-label-md text-label-md font-semibold shadow-sm" data-role="btn-rbac-create" type="button">Grant Role</button>
+</div>
+<!-- the minted token: shown once, at creation, never again -->
+<div class="hidden p-space-sm rounded-lg bg-primary/5 border border-primary/30 mb-space-md" data-role="rbac-token-once">
+<span class="font-label-badge text-label-badge text-primary">TOKEN SHOWN ONCE - STORE IT NOW, IT CANNOT BE RECOVERED</span>
+<code class="block mt-1 px-3 py-2 rounded bg-surface-container-lowest font-code-sm text-code-sm text-on-surface break-all" id="rbac-token-value"></code>
+</div>
+<!-- who holds what: role, kind, attribute scope, last use -->
+<div class="overflow-x-auto">
+<table class="w-full text-left border-collapse">
+<thead>
+<tr class="font-label-badge text-label-badge text-outline border-b border-surface-container">
+<th class="py-2 pr-space-sm">PRINCIPAL</th><th class="py-2 pr-space-sm">ROLE</th><th class="py-2 pr-space-sm">KIND</th><th class="py-2 pr-space-sm">SCOPE (ABAC)</th><th class="py-2 pr-space-sm">LAST USED</th><th class="py-2">ACTIONS</th>
+</tr>
+</thead>
+<tbody data-role="rbac-binding-rows">
+<tr><td class="py-2 font-body-sm text-body-sm text-on-surface-variant" colspan="6">loading bindings...</td></tr>
+</tbody>
+</table>
+</div>
+</section>
 </div>
 <!-- Right Rail: System Health Diagnostics & Config Audit Stream (4 of 12 columns) -->
 <div class="xl:col-span-4 flex flex-col gap-space-lg">
@@ -1445,6 +1520,7 @@
     await loadAudit();
     await loadIntegrations();
     await loadCluster();
+    await loadRbac();
   }
 
   async function health() {
@@ -1675,7 +1751,190 @@
       else if (action === 'remove') clusterRemove(id, button.getAttribute('data-node-name') || 'node');
     });
   }
-  window.settingsLive = { cluster: { load: loadCluster, state: clusterLive } };
+
+  /* ------------------------------------------------------ RBAC (section 10) */
+  var rbacLive = { reachable: false, roles: [], bindings: [] };
+
+  function rbacText(role, text) {
+    var node = document.querySelector('[data-role="' + role + '"]');
+    if (node) node.textContent = text;
+  }
+
+  function rbacEmptyRow(message, columns) {
+    return '<tr><td class="py-2 font-body-sm text-body-sm text-on-surface-variant" colspan="' +
+      columns + '">' + esc(message) + '</td></tr>';
+  }
+
+  function rbacRoleChip(role) {
+    var tone = role === 'admin' ? 'bg-error/10 text-error'
+      : role === 'operator' ? 'bg-tertiary/10 text-tertiary'
+      : 'bg-primary/10 text-primary';
+    return '<span class="px-2 py-0.5 rounded font-code-sm text-code-sm font-semibold ' + tone + '">' +
+      esc(role) + '</span>';
+  }
+
+  function rbacScopeSummary(binding) {
+    var scope = binding.scope || {};
+    var parts = [];
+    if (scope.targets && scope.targets.length) parts.push('targets ' + scope.targets.join(', '));
+    if (scope.vault_items && scope.vault_items.length) parts.push('vault items ' + scope.vault_items.join(', '));
+    return parts.length ? parts.join(' · ') : 'unscoped (role governs everywhere)';
+  }
+
+  function renderRbac(roles, bindings) {
+    rbacLive.reachable = true;
+    rbacLive.roles = roles;
+    rbacLive.bindings = bindings;
+
+    var local = bindings.filter(function (row) { return row.kind === 'local'; }).length;
+    var ldap = bindings.length - local;
+    rbacText('rbac-summary', roles.length + ' roles · ' + bindings.length +
+      ' active binding' + (bindings.length === 1 ? '' : 's') +
+      ' (' + local + ' local · ' + ldap + ' directory)');
+    rbacText('rbac-tile-roles', String(roles.length));
+    rbacText('rbac-tile-bindings', String(bindings.length));
+    rbacText('rbac-tile-bindings-sub', local + ' local · ' + ldap + ' directory');
+
+    var roleRows = document.querySelector('[data-role="rbac-role-rows"]');
+    if (roleRows) {
+      roleRows.innerHTML = roles.length ? roles.map(function (role) {
+        return '<tr class="border-b border-surface-container/60">' +
+          '<td class="py-2 pr-space-sm whitespace-nowrap">' + rbacRoleChip(role.name) + '</td>' +
+          '<td class="py-2 pr-space-sm font-body-sm text-body-sm text-on-surface-variant">' + esc(role.description || '') + '</td>' +
+          '<td class="py-2 font-code-sm text-code-sm text-on-surface">' + esc(String(role.operations)) + '</td>' +
+          '</tr>';
+      }).join('') : rbacEmptyRow('No roles seeded - restart the server to seed the built-in registry.', 3);
+    }
+
+    var bindingRows = document.querySelector('[data-role="rbac-binding-rows"]');
+    if (bindingRows) {
+      bindingRows.innerHTML = bindings.length ? bindings.map(function (binding) {
+        return '<tr class="border-b border-surface-container/60">' +
+          '<td class="py-2 pr-space-sm font-code-sm text-code-sm text-on-surface font-medium whitespace-nowrap">' + esc(binding.principal) + '</td>' +
+          '<td class="py-2 pr-space-sm">' + rbacRoleChip(binding.role) + '</td>' +
+          '<td class="py-2 pr-space-sm font-body-sm text-body-sm">' + esc(binding.kind) +
+          (binding.has_token ? ' <span class="font-code-sm text-code-sm text-outline">' + esc(binding.token_prefix || '') + '</span>' : '') + '</td>' +
+          '<td class="py-2 pr-space-sm font-body-sm text-body-sm text-on-surface-variant">' + esc(rbacScopeSummary(binding)) + '</td>' +
+          '<td class="py-2 pr-space-sm font-body-sm text-body-sm text-on-surface-variant whitespace-nowrap">' + esc(ago(binding.last_used_at)) + '</td>' +
+          '<td class="py-2"><button class="px-2 py-1 rounded font-label-md text-label-md text-error hover:bg-surface-container font-semibold" data-rbac-action="revoke" data-binding-id="' + binding.id + '" data-binding-name="' + esc(binding.principal) + '" type="button">Revoke</button></td>' +
+          '</tr>';
+      }).join('') : rbacEmptyRow('No role bindings yet - the admin token (and open/dev mode) remain the only access.', 6);
+    }
+  }
+
+  async function loadRbac() {
+    try {
+      var rolesRes = await fetch(API + 'roles', { headers: headers(false) });
+      if (rolesRes.status === 401) {
+        rbacText('rbac-summary', 'Admin token required to read roles and bindings - set it with the Token button.');
+        return;
+      }
+      if (!rolesRes.ok) throw new Error('HTTP ' + rolesRes.status);
+      var bindingsRes = await fetch(API + 'role-bindings', { headers: headers(false) });
+      if (!bindingsRes.ok) throw new Error('HTTP ' + bindingsRes.status);
+      var roles = (await rolesRes.json()).roles || [];
+      var bindings = (await bindingsRes.json()).bindings || [];
+      renderRbac(roles, bindings);
+    } catch (error) {
+      rbacLive.reachable = false;
+      rbacText('rbac-summary', 'RBAC state unavailable (license server not reachable).');
+    }
+  }
+
+  async function rbacAction(path, options) {
+    var res;
+    try {
+      res = await fetch(API + path, Object.assign({ headers: headers(true) }, options || {}));
+    } catch (error) {
+      banner('error', 'Could not reach the license server - the RBAC action did not run.');
+      return null;
+    }
+    var body = {};
+    try { body = await res.json(); } catch (parseError) { body = {}; }
+    if (res.status === 401) {
+      banner('error', body.error || 'Admin token required for role bindings.');
+      openToken();
+      return null;
+    }
+    if (!res.ok) {
+      banner('error', body.error || ('RBAC action failed (HTTP ' + res.status + ')'));
+      return null;
+    }
+    return body;
+  }
+
+  async function rbacCreate() {
+    var principal = (document.querySelector('[data-role="rbac-input-principal"]') || {}).value || '';
+    var roleSelect = document.querySelector('[data-role="rbac-input-role"]');
+    var kindSelect = document.querySelector('[data-role="rbac-input-kind"]');
+    var targetsInput = document.querySelector('[data-role="rbac-input-targets"]');
+    var itemsInput = document.querySelector('[data-role="rbac-input-items"]');
+    principal = principal.trim();
+    if (!principal) {
+      banner('error', 'A principal (name, or the directory username for kind ldap) is required.');
+      return;
+    }
+    var payload = {
+      principal: principal,
+      role: roleSelect ? roleSelect.value : 'operator',
+      kind: kindSelect ? kindSelect.value : 'local'
+    };
+    var targets = targetsInput ? targetsInput.value.split(',').map(function (p) { return p.trim(); }).filter(Boolean) : [];
+    var items = itemsInput ? itemsInput.value.split(',').map(function (p) { return p.trim(); }).filter(Boolean) : [];
+    if (targets.length || items.length) {
+      payload.scope = {};
+      if (targets.length) payload.scope.targets = targets;
+      if (items.length) payload.scope.vault_items = items.map(function (p) { return parseInt(p, 10); });
+    }
+    var body = await rbacAction('role-bindings', {
+      method: 'POST',
+      body: JSON.stringify(payload)
+    });
+    if (!body) return;
+    if (targetsInput) targetsInput.value = '';
+    if (itemsInput) itemsInput.value = '';
+    var principalInput = document.querySelector('[data-role="rbac-input-principal"]');
+    if (principalInput) principalInput.value = '';
+    var box = document.querySelector('[data-role="rbac-token-once"]');
+    if (body.token && box) {
+      var value = document.getElementById('rbac-token-value');
+      if (value) value.textContent = body.token;
+      box.classList.remove('hidden');
+    }
+    toast('Role binding created', body.binding.principal + ' is now ' + body.binding.role +
+      (body.token ? ' - the token is shown once above.' : ' (directory identity - a login ticket will carry it).'));
+    await loadRbac();
+  }
+
+  async function rbacRevoke(bindingId, principal) {
+    if (!window.confirm('Revoke the role binding for "' + principal + '"? Its token stops working immediately; the row stays as audit evidence.')) return;
+    var body = await rbacAction('role-bindings/' + bindingId, { method: 'DELETE' });
+    if (!body) return;
+    toast('Role binding revoked', principal + ' no longer holds ' + body.binding.role + '.');
+    await loadRbac();
+  }
+
+  /* ------------------------------------------------------ RBAC UI bindings */
+  function rbacBind(role, handler) {
+    var node = document.querySelector('[data-role="' + role + '"]');
+    if (node) node.addEventListener('click', handler);
+  }
+  rbacBind('btn-rbac-create', rbacCreate);
+  var rbacRowsBox = document.querySelector('[data-role="rbac-binding-rows"]');
+  if (rbacRowsBox) {
+    rbacRowsBox.addEventListener('click', function (event) {
+      var button = event.target.closest('[data-rbac-action]');
+      if (!button) return;
+      if (button.getAttribute('data-rbac-action') === 'revoke') {
+        rbacRevoke(button.getAttribute('data-binding-id'), button.getAttribute('data-binding-name') || 'principal');
+      }
+    });
+  }
+
+  window.settingsLive = {
+    cluster: { load: loadCluster, state: clusterLive },
+    rbac: { load: loadRbac, state: rbacLive }
+  };
 
   updateTokenUi();
   setState('idle', 'Connecting...');

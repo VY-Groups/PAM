@@ -38,6 +38,7 @@ from models import (
     AgentEvent,
     AnomalyEvent,
     AuditEvent,
+    RbacEvent,
     BreakGlassEvent,
     BrokerEvent,
     BypassEvent,
@@ -57,7 +58,7 @@ from models import (
     VendorEvent,
 )
 
-# the sixteen trails folded into the ledger (the unified feed reads these)
+# the seventeen trails folded into the ledger (the unified feed reads these)
 AUDIT_SOURCES = (
     "license",
     "settings",
@@ -75,6 +76,7 @@ AUDIT_SOURCES = (
     "broker",
     "agent",
     "cluster",
+    "rbac",
 )
 SOURCE_RANK = {name: index for index, name in enumerate(AUDIT_SOURCES)}
 
@@ -491,6 +493,22 @@ def _map_cluster(event: ClusterEvent, db_session) -> Dict[str, Any]:
     )
 
 
+def _map_rbac(event: RbacEvent, db_session) -> Dict[str, Any]:
+    """Role-binding lifecycle under the seventeenth trail `rbac`
+    (architecture section 10): who granted whom which role and scope, and
+    when it was revoked - never the token itself."""
+    return _entry(
+        source="rbac",
+        event_ref=f"rbac:{event.id}",
+        action=_value(event, "action"),
+        actor=_value(event, "actor"),
+        subject=_value(event, "subject"),
+        detail=_value(event, "detail") or {},
+        created_at=event.created_at,
+        sort_id=event.id,
+    )
+
+
 # every event model that must reach the ledger, in a stable backfill order
 LEDGER_MODELS = (
     LicenseEvent,
@@ -510,6 +528,7 @@ LEDGER_MODELS = (
     BrokerEvent,
     AgentEvent,
     ClusterEvent,
+    RbacEvent,
 )
 
 MAPPERS = {
@@ -530,6 +549,7 @@ MAPPERS = {
     BrokerEvent: _map_broker,
     AgentEvent: _map_agent,
     ClusterEvent: _map_cluster,
+    RbacEvent: _map_rbac,
 }
 
 

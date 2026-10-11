@@ -1,6 +1,6 @@
 # VY-PAM — Deployment & Operations Runbook
 
-**Status:** as-built for Phase 6a
+**Status:** as-built for Phase 6b
 Docker exists **only** for development and runtime testing (vendor tool +
 license server). The shipped product
 installs directly on a machine — no VM, no container.
@@ -118,7 +118,7 @@ across the restored history).
 → start. Schema changes are additive and applied at boot by
 `ensure_schema()`; the one-time chain backfill and rule seeding never repeat.
 Run the boundary suites before exposing it: `python -m pytest backend -q`
-(expect **577**) and `python -m pytest pam_master -q` (**46**).
+(expect **613**) and `python -m pytest pam_master -q` (**46**).
 
 ## 7. HA / DC / DR runbooks (§18)
 
@@ -243,3 +243,57 @@ Status per item — recorded so operations planning isn't surprising:
   install-directly guarantee stands for single-node editions.
 - Uninstall at scale: decommission order (drain nodes → final audit export →
   destroy keys per §10 on every node).
+
+## 12. RBAC / ABAC operations (§10, phase 6b)
+
+With `LICENSE_ADMIN_TOKEN` set, that token (kind `admin`) keeps calling
+everything as before — it is the bootstrap superuser. Every *other*
+credential is a **role binding**; the five seeded roles and their
+operation counts are at `GET /api/v1/roles` (also console → Platform
+Settings → *RBAC / ABAC*):
+
+```bash
+PAM=http://127.0.0.1:5000/api/v1
+curl -s -H "X-Admin-Token: <admin token>" $PAM/roles
+```
+
+**Grant a role** (the token is returned **once** — sha256 at rest,
+never retrievable again):
+
+```bash
+curl -s -X POST $PAM/role-bindings \
+  -H "Content-Type: application/json" -H "X-Actor: runbook" \
+  -H "X-Admin-Token: <admin token>" \
+  -d '{"principal":"ops-1","role":"operator"}'
+# -> {"id":1,"token":"vypam-rbac1.<id>.<secret>", ...}
+```
+
+- `admin` 105 ops · `operator` 45 (day-2 work, never approvals) ·
+  `auditor` 19 (reads incl. evidence exports) · `auditor-read-only` 16
+  · `approver` 10 (decisions only) — approver ∩ operator = ∅ by design.
+- optional ABAC `scope`: `{"targets":["db-prod-*"],
+  "vault_items":[3,7]}` — fnmatch on session targets, explicit vault
+  item ids; empty scope = the role governs everywhere. Out-of-scope →
+  403 with `details.target`.
+- Verify as the principal: `GET /api/v1/auth/whoami` with
+  `Authorization: Bearer <the minted token>` reports mode, principal,
+  role and its operation count; a denial is 403 verbatim
+  (`Role 'operator' may not call GET /api/v1/roles`).
+
+**LDAP migration note (the directory authenticates, the binding
+decides):** before 6b, any valid LDAP login ticket reached admin
+routes. From 6b a ticket alone reaches nothing — each directory user
+needs a binding with `"kind":"ldap"` (no token is minted; the signed
+ticket is the credential):
+
+```bash
+curl -s -X POST $PAM/role-bindings \
+  -H "Content-Type: application/json" -H "X-Actor: runbook" \
+  -H "X-Admin-Token: <admin token>" \
+  -d '{"principal":"alice","role":"operator","kind":"ldap"}'
+```
+
+**Revoke:** `DELETE /api/v1/role-bindings/<id>` — the principal's
+tokens 401 immediately; the row stays as evidence. Grants, revocations
+and refusals land on the §19 ledger under source `rbac`; open dev mode
+(no admin token set) waives all of it and says so (`mode: open`).

@@ -2538,3 +2538,127 @@ class ClusterBackup(db.Model):
             "created_at": self.created_at.isoformat(),
             "created_by": self.created_by,
         }
+
+
+class RbacEvent(db.Model):
+    """Module action log for the RBAC / ABAC model (architecture section
+    10): role-binding grants and revocations - who gave whom which role and
+    scope. Folded into the section-19 audit ledger under the seventeenth
+    source `rbac`. The minted token itself never enters `detail`."""
+
+    __tablename__ = "rbac_events"
+
+    id = db.Column(db.Integer, primary_key=True)
+    action = db.Column(db.String(64), nullable=False)
+    actor = db.Column(db.String(64), nullable=False, default="system")
+    subject = db.Column(db.String(128), nullable=False, default="")
+    detail = db.Column(db.JSON, nullable=False, default=dict)
+    created_at = db.Column(
+        db.DateTime, nullable=False, default=datetime.now, index=True
+    )
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "id": self.id,
+            "action": self.action,
+            "actor": self.actor,
+            "subject": self.subject,
+            "detail": self.detail or {},
+            "created_at": self.created_at.isoformat(),
+        }
+
+# ---------------------------------------------------------------------------
+# RBAC / ABAC (architecture section 10 - roles + attribute rules)
+# ---------------------------------------------------------------------------
+RBAC_TOKEN_PREFIX = "vypam-rbac1"
+RBAC_ROLE_ADMIN = "admin"
+RBAC_ROLE_APPROVER = "approver"
+RBAC_ROLE_OPERATOR = "operator"
+RBAC_ROLE_AUDITOR = "auditor"
+RBAC_ROLE_AUDITOR_READ_ONLY = "auditor-read-only"
+RBAC_ROLES = (
+    RBAC_ROLE_ADMIN,
+    RBAC_ROLE_APPROVER,
+    RBAC_ROLE_OPERATOR,
+    RBAC_ROLE_AUDITOR,
+    RBAC_ROLE_AUDITOR_READ_ONLY,
+)
+RBAC_SEED_ROLES = (
+    (RBAC_ROLE_ADMIN, "Every admin operation - the admin token equivalent."),
+    (RBAC_ROLE_APPROVER, "Decision operations only: approve, deny, close and release across JIT, command control, break-glass, vendor and broker requests."),
+    (RBAC_ROLE_OPERATOR, "Day-2 operations: vault checkout/rotate, session lifecycle, rotation, discovery, integrations, monitoring, backups and failover - never approvals."),
+    (RBAC_ROLE_AUDITOR, "Every read-only admin operation including the evidence exports (license files, vault and session chain exports) - no writes."),
+    (RBAC_ROLE_AUDITOR_READ_ONLY, "Every read-only admin operation except the evidence exports and secret reveals - metadata only."),
+)
+RBAC_KINDS = ("local", "ldap")
+RBAC_SCOPE_MAX_TARGETS = 20
+RBAC_SCOPE_MAX_ITEMS = 100
+
+
+class Role(db.Model):
+    """One built-in role of the access model (architecture section 10),
+    seeded once at startup. The per-operation policy - which of the admin
+    operations each role may call - lives in `service.ROLE_OPERATIONS`."""
+
+    __tablename__ = "roles"
+
+    id = db.Column(db.Integer, primary_key=True)
+    name = db.Column(db.String(64), nullable=False, unique=True, index=True)
+    description = db.Column(db.String(255), nullable=False, default="")
+    created_at = db.Column(db.DateTime, nullable=False, default=datetime.now)
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "id": self.id,
+            "name": self.name,
+            "description": self.description,
+            "created_at": self.created_at.isoformat(),
+        }
+
+
+class RoleBinding(db.Model):
+    """Who holds a role. A `local` principal authenticates with a minted API
+    token (sha256 at rest, shown once); an `ldap` principal is a directory
+    username carried by a signed login ticket - the directory vouches for
+    the identity, the binding decides the role (no binding, no access).
+    Revocation is a timestamp; the row stays as evidence. `scope` carries
+    the ABAC attribute rules - `targets` (fnmatch patterns) and
+    `vault_items` (explicit item ids); an empty scope means the role
+    governs everywhere."""
+
+    __tablename__ = "role_bindings"
+
+    id = db.Column(db.Integer, primary_key=True)
+    # not unique at the column level: a revoked binding keeps its principal
+    # as evidence, and the same name may be bound again later - service
+    # enforces uniqueness among the active rows only.
+    principal = db.Column(db.String(128), nullable=False, index=True)
+    role = db.Column(db.String(64), nullable=False, index=True)
+    kind = db.Column(db.String(16), nullable=False, default="local")
+    # sha256 of the secret part for local principals; NULL for ldap ones.
+    token_sha256 = db.Column(db.String(64), nullable=True)
+    # the public part of the minted token (`vypam-rbac1.<id>.<secret>`), so
+    # the UI can show which credential a row corresponds to.
+    token_prefix = db.Column(db.String(40), nullable=False, default="")
+    scope = db.Column(db.JSON, nullable=False, default=dict)
+    last_used_at = db.Column(db.DateTime, nullable=True)
+    revoked_at = db.Column(db.DateTime, nullable=True)
+    created_at = db.Column(db.DateTime, nullable=False, default=datetime.now)
+    created_by = db.Column(db.String(64), nullable=False, default="system")
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "id": self.id,
+            "principal": self.principal,
+            "role": self.role,
+            "kind": self.kind,
+            "token_sha256": self.token_sha256,
+            "token_prefix": self.token_prefix,
+            "scope": self.scope or {},
+            "last_used_at": (
+                self.last_used_at.isoformat() if self.last_used_at else None
+            ),
+            "revoked_at": self.revoked_at.isoformat() if self.revoked_at else None,
+            "created_at": self.created_at.isoformat(),
+            "created_by": self.created_by,
+        }

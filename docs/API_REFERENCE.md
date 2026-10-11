@@ -1,7 +1,7 @@
 # VY-PAM — API Reference
 
-**Status:** as-built for Phase 6a
-**Contract:** `apis/openapi.yaml` (OpenAPI 3.1) - **131 paths / 159
+**Status:** as-built for Phase 6b
+**Contract:** `apis/openapi.yaml` (OpenAPI 3.1) - **135 paths / 164
 operations**, enforced in both directions by
 `backend/phase2_license_server/tests/test_openapi_contract.py`. If this page
 and the YAML ever disagree, the YAML wins.
@@ -15,13 +15,13 @@ and the YAML ever disagree, the YAML wins.
 | Base URL (dev) | `http://127.0.0.1:5000` (`LICENSE_SERVER_HOST`/`LICENSE_SERVER_PORT`) |
 | Version | `/api/v1/…` (`/health`, `/api/v1/meta` unversioned) |
 | Content type | `application/json` (license import also accepts multipart upload / raw body) |
-| Auth | When `LICENSE_ADMIN_TOKEN` is set: `Authorization: Bearer <token>` **or** `X-Admin-Token: <token>` on the **101 admin operations**. When unset: open dev mode - responses carry `X-Auth-Mode: open` (explicit, never silent). Pipeline `/broker` operations require the broker API token and AI-agent `/agent-access` operations require the agent API token — neither is ever waived, even in open dev mode. |
+| Auth | When `LICENSE_ADMIN_TOKEN` is set: `Authorization: Bearer <token>` **or** `X-Admin-Token: <token>` on the **105 admin operations**. When unset: open dev mode - responses carry `X-Auth-Mode: open` (explicit, never silent). Pipeline `/broker` operations require the broker API token and AI-agent `/agent-access` operations require the agent API token — neither is ever waived, even in open dev mode. In token mode, `admin-token` (kind admin) may call everything; a bound principal (API token or LDAP ticket) may call only its role's operations and only its ABAC scope - see §2 `rbac`. |
 | Actor | `X-Actor: <name>` recorded verbatim in the audit ledger on every audited write |
 | Errors | `{"error": "<message>", "details"?: {…}}` — 400 validation · 401 auth · 403 policy refusal (risk gate) · 404 · 409 conflict/state · 422 unprocessable shape · 503 fail-closed dependency |
 | Pagination | `limit` (≤200) + `offset`, newest first |
 | Ordering | Ledger/session streams ascending `seq`; listings newest-first |
 
-## 2. Operations by tag (19 tags)
+## 2. Operations by tag (20 tags)
 
 ### `ops` — unversioned
 | Method | Path | Summary |
@@ -259,6 +259,24 @@ outside `/api/v1/cluster/*` (and `/api/v1/auth/*`) with 409 *before* auth
 runs - `details.promote` names the way back. `/health` carries this node's
 `node`/`site`/`role` so peers can identify each other.
 
+### `rbac` — roles & bindings (Phase 6b, 4 paths / 5 operations)
+
+| Method | Path | Summary |
+|---|---|---|
+| GET | `/api/v1/roles` | the five built-in roles with their computed operation counts (admin 105 / operator 45 / auditor 19 / auditor-read-only 16 / approver 10) |
+| GET | `/api/v1/role-bindings` | who holds a role (active bindings; revoked ones are ledger evidence, not rows) |
+| POST | `/api/v1/role-bindings` | create a binding (201): `principal` + `role` (+ `kind` `api`\|`ldap`, optional ABAC `scope`); an API token binding returns its `token` **once** - sha256 at rest, never retrievable again |
+| DELETE | `/api/v1/role-bindings/{binding_id}` | revoke a binding; its tokens stop working immediately (401) and `rbac` ledger evidence stays |
+| GET | `/api/v1/auth/whoami` | who the caller is: `mode` (`open`\|`token`), `principal`, `kind`, `role`, `operations` (+ count) |
+
+Token-mode rules the `rbac` operations enforce: `admin-token` may call
+everything; a bound API token or LDAP ticket may call only its role's
+operations (`403 Role '<role>' may not call <METHOD> <path>`) and only
+the targets / vault items its `scope` covers (403 with
+`details.target`). An LDAP ticket with no binding is refused the same
+way - the directory authenticates, the binding decides. Open dev mode
+waives all of it and says so (`mode: open`).
+
 ### Ledger (Compliance feeds)
 | Method | Path | Summary |
 |---|---|---|
@@ -315,10 +333,10 @@ keys only via `python -m pam_master.keygen`.
 
 ## 5. Planned endpoints (NOT in the contract — see `IMPLEMENTATION_PLAN.md`)
 
-These do **not** exist today; the contract's **131 paths / 159 operations**
+These do **not** exist today; the contract's **135 paths / 164 operations**
 are the complete current surface. Each lands in `openapi.yaml` + ADMIN
 security + tests in the same commit when its phase starts (counts `—`):
 
 | Phase | Planned additions |
 |---|---|
-| 6b | security schemes gain role requirements across existing admin ops |
+| 6c | SAML/OIDC login path + HSM/KMS-backed key operations (PKCS#11 or cloud KMS) |

@@ -1,16 +1,18 @@
 """HTTP routes for the Phase 2 license server."""
 from __future__ import annotations
 
+import fnmatch
 import hmac
 import json
+import re
 from functools import wraps
-from typing import Any, Dict
+from typing import Any, Dict, Optional
 
 from flask import Blueprint, Response, current_app, g, jsonify, request
 
 import service
 from config import Config
-from errors import Conflict, Unauthorized, ValidationFailed
+from errors import Conflict, Forbidden, Unauthorized, ValidationFailed
 from licensing_bridge import sig
 
 api = Blueprint("api", __name__, url_prefix="/api/v1")
@@ -102,34 +104,104 @@ def _int_param(name: str, default: int, *, minimum: int = 0) -> int:
     return value
 
 
-def _require_admin_credential() -> None:
-    """Raise Unauthorized unless a valid admin credential is presented.
+_RULE_PARAM = re.compile(r"<(?:[a-z_][a-z0-9_]*:)?([a-z_][a-z0-9_]*)>")
 
-    The admin token is the default credential. In token mode a signed LDAP
-    login ticket (minted by POST /api/v1/auth/ldap after a real bind) is
-    also accepted - the directory vouches for the operator, the routes stay
-    identical. When LICENSE_ADMIN_TOKEN is unset the server runs in
-    open/dev mode and every route is allowed (the response header reports
-    this).
-    """
-    config = _config()
-    if not config.admin_token:
-        return
+
+def _operation_rule() -> str:
+    """The request's URL rule in contract form: Flask writes path params
+    as `/x/<int:item_id>`, the openapi document (and ROLE_OPERATIONS) as
+    `/x/{item_id}` - the two must be the same key for the role policy to
+    match what the contract documents."""
+    rule = request.url_rule.rule if request.url_rule is not None else request.path
+    return _RULE_PARAM.sub(r"{\1}", rule)
+
+
+def _presented_credential() -> str:
+    """The token this request presents as its admin-side credential: the
+    X-Admin-Token header, or the Authorization bearer value when present."""
     token = request.headers.get("X-Admin-Token")
     auth_header = request.headers.get("Authorization", "")
     if auth_header.lower().startswith("bearer "):
         token = auth_header[7:].strip()
-    if not token or not hmac.compare_digest(token, config.admin_token):
-        identity = service.verify_ldap_ticket(token, config=config)
-        if identity is None:
-            raise Unauthorized(
-                "Admin token required (Authorization: Bearer <token> or X-Admin-Token)"
+    return (token or "").strip()
+
+
+def _unbound_principal_error(principal: Dict[str, Any]) -> Forbidden:
+    """The honest refusal for a directory identity with no role binding."""
+    return Forbidden(
+        f"Directory identity '{principal['principal']}' has no role "
+        "binding - an admin must grant one (POST /api/v1/role-bindings)",
+        {"principal": principal["principal"], "role_required": True},
+    )
+
+
+def _require_admin_credential() -> None:
+    """Raise Unauthorized unless a valid admin-side credential is presented,
+    and Forbidden unless that credential's role may call this operation
+    (RBAC/ABAC, architecture section 10).
+
+    Three credentials are accepted in token mode. The admin token is
+    `admin` - every operation. A role binding's `vypam-rbac1.<id>.<secret>`
+    token is its binding's role - exactly the operations ROLE_OPERATIONS
+    grants it. A signed LDAP login ticket (minted by POST /api/v1/auth/ldap
+    after a real bind) authenticates the directory username - and a role
+    binding decides what that username may do, so an unbound directory
+    identity is refused instead of silently holding the admin token. The
+    acting principal is left on `g.rbac_principal` for the audit actor and
+    the attribute checks. When LICENSE_ADMIN_TOKEN is unset the server runs
+    in open/dev mode and every route is allowed (the response header
+    reports this).
+    """
+    config = _config()
+    if not config.admin_token:
+        return
+    principal = service.resolve_principal(_presented_credential(), config=config)
+    if principal is None:
+        raise Unauthorized(
+            "Admin token required (Authorization: Bearer <token> or X-Admin-Token)"
+        )
+    if principal.get("unbound"):
+        raise _unbound_principal_error(principal)
+    g.rbac_principal = principal
+    role = principal["role"]
+    rule = _operation_rule()
+    if not service.role_allows(role, request.method, rule):
+        raise Forbidden(
+            f"Role '{role}' may not call {request.method} {rule}",
+            {"role": role, "operation": f"{request.method.lower()} {rule}"},
+        )
+
+
+def _require_scope(*, item_id: Optional[int] = None, target: Optional[str] = None) -> None:
+    """ABAC (architecture section 10): enforce the acting principal's
+    binding scope on a vault item operation or a session target. The admin
+    role and unscoped bindings are unrestricted; a scoped binding only
+    reaches the vault items and target patterns its admin granted it."""
+    principal = getattr(g, "rbac_principal", None)
+    if principal is None or principal.get("role") == "admin":
+        return
+    scope = principal.get("scope") or {}
+    if item_id is not None:
+        allowed_items = scope.get("vault_items") or []
+        if allowed_items and item_id not in allowed_items:
+            raise Forbidden(
+                f"Role binding '{principal['principal']}' is not scoped to "
+                f"vault item {item_id}",
+                {"scope": scope, "item_id": item_id},
+            )
+    if target is not None:
+        patterns = scope.get("targets") or []
+        if patterns and not any(fnmatch.fnmatch(target, pattern) for pattern in patterns):
+            raise Forbidden(
+                f"Role binding '{principal['principal']}' is not scoped to "
+                f"target '{target}'",
+                {"scope": scope, "target": target},
             )
 
 
 def require_admin(view):
-    """Reject the request unless a valid admin credential is presented
-    (see _require_admin_credential for the accepted credentials)."""
+    """Reject the request unless a valid admin credential is presented and
+    its role may call this operation (see _require_admin_credential)."""
 
     @wraps(view)
     def wrapped(*args, **kwargs):
@@ -400,7 +472,13 @@ def put_platform_settings(group: str):
 # dashboard (Command Center + Compliance screens)
 # ---------------------------------------------------------------------------
 def _actor(default: str = "admin") -> str:
-    """Who is acting: X-Actor header, else the configured default."""
+    """Who is acting: a bound principal's own name (its credential is the
+    identity - X-Actor is not consulted, as for pipeline and agent tokens),
+    else the X-Actor header, else the configured default. The admin token
+    keeps the X-Actor convention."""
+    principal = getattr(g, "rbac_principal", None)
+    if principal is not None and principal.get("kind") != "admin-token":
+        return str(principal.get("principal") or default)[:64] or default
     return (request.headers.get("X-Actor") or default).strip()[:64] or default
 
 
@@ -473,12 +551,53 @@ def verify_itsm_ticket():
 def ldap_login():
     """Verify credentials with a real LDAP bind (section 20 IAM). In token
     mode a successful bind returns a short-lived ticket the admin routes
-    accept beside the admin token; in open dev mode there is nothing to
-    grant and the response says so."""
+    accept beside the admin token - and a role binding (kind `ldap`) decides
+    what that directory username may do with it; in open dev mode there is
+    nothing to grant and the response says so."""
     result = service.ldap_login(
         _json_body(), actor=_actor(default=""), config=_config()
     )
     return jsonify(result)
+
+
+@api.get("/auth/whoami")
+def whoami():
+    """Who the caller is and what their role may call (section 10): open
+    mode, the admin token, a role binding's token, or a directory login
+    ticket. Honest 401 without a credential, honest 403 for a directory
+    identity that has no binding."""
+    config = _config()
+    if not config.admin_token:
+        return jsonify(
+            {
+                "mode": "open",
+                "principal": "open-dev-mode",
+                "role": "admin",
+                "kind": "open",
+                "scope": None,
+                "operations": "all",
+                "operations_count": len(service.ADMIN_OPERATIONS),
+            }
+        )
+    principal = service.resolve_principal(_presented_credential(), config=config)
+    if principal is None:
+        raise Unauthorized(
+            "Admin token required (Authorization: Bearer <token> or X-Admin-Token)"
+        )
+    if principal.get("unbound"):
+        raise _unbound_principal_error(principal)
+    operations = service.operations_for_role(principal["role"])
+    return jsonify(
+        {
+            "mode": "token",
+            "principal": principal["principal"],
+            "role": principal["role"],
+            "kind": principal["kind"],
+            "scope": principal.get("scope"),
+            "operations": operations,
+            "operations_count": len(operations),
+        }
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -566,6 +685,7 @@ def create_vault_item():
 @api.post("/vault/items/<int:item_id>/checkout")
 @require_admin
 def checkout_vault_item(item_id: int):
+    _require_scope(item_id=item_id)
     body = _json_body(required=False)
     item = service.checkout_vault_item(
         item_id, actor=_actor(), reason=body.get("reason")
@@ -576,6 +696,7 @@ def checkout_vault_item(item_id: int):
 @api.post("/vault/items/<int:item_id>/revoke")
 @require_admin
 def revoke_vault_checkout(item_id: int):
+    _require_scope(item_id=item_id)
     item = service.revoke_vault_checkout(item_id, actor=_actor())
     return jsonify({"item": item.to_dict(), "message": "Checkout revoked"})
 
@@ -585,12 +706,14 @@ def revoke_vault_checkout(item_id: int):
 def reveal_vault_secret(item_id: int):
     """Decrypt and return the current secret version (admin-only reveal);
     the reveal itself is an audited ledger event."""
+    _require_scope(item_id=item_id)
     return jsonify(service.reveal_vault_secret(item_id, actor=_actor()))
 
 
 @api.post("/vault/items/<int:item_id>/rotate")
 @require_admin
 def rotate_vault_item(item_id: int):
+    _require_scope(item_id=item_id)
     item, detail = service.rotate_vault_item(item_id, actor=_actor())
     return jsonify(
         {"item": item.to_dict(), "rotation": detail, "message": "Rotation recorded"}
@@ -745,7 +868,10 @@ def create_session():
     """Start a session: protocol + target, optional checkout or JIT grant.
     The request is scored first (architecture 7); CRITICAL/HIGH-without-
     approval answers 403 with the evaluation that refused it."""
-    session, risk = service.create_session(_json_body(), actor=_actor())
+    body = _json_body()
+    if body.get("target"):
+        _require_scope(target=str(body["target"]))
+    session, risk = service.create_session(body, actor=_actor())
     return (
         jsonify(
             {
@@ -2401,3 +2527,58 @@ def cluster_export_sessions_route():
     """This node's session metadata for a peer's replication pull: who had
     access to what, when, and how it ended."""
     return jsonify(service.export_sessions())
+
+
+# ---------------------------------------------------------------------------
+# RBAC / ABAC (architecture section 10: roles + attribute rules)
+# ---------------------------------------------------------------------------
+@api.get("/roles")
+@require_admin
+def list_roles():
+    """The five built-in roles with the exact number of admin operations
+    each may call - the policy is computed, never a stale copy."""
+    return jsonify({"roles": service.list_roles_with_operations()})
+
+
+@api.get("/role-bindings")
+@require_admin
+def list_role_bindings_route():
+    """Who holds a role: active bindings by default, revoked rows kept as
+    evidence behind ?include_revoked=1. The token itself is shown once at
+    creation and never again - only whether a credential exists."""
+    include_revoked = (
+        (request.args.get("include_revoked") or "").strip().lower()
+        in ("1", "true", "yes")
+    )
+    return jsonify(
+        {"bindings": service.list_role_bindings(include_revoked=include_revoked)}
+    )
+
+
+@api.post("/role-bindings")
+@require_admin
+def create_role_binding_route():
+    """Create a role binding: a `local` principal receives its API token
+    once (`vypam-rbac1.<id>.<secret>` - sha256 at rest, never recoverable);
+    an `ldap` principal is a directory username that a signed login ticket
+    will carry. Optional `scope` carries the ABAC attribute rules."""
+    binding, token = service.create_role_binding(_json_body(), actor=_actor())
+    payload: Dict[str, Any] = {
+        "binding": binding,
+        "message": "Role binding created",
+    }
+    if token is not None:
+        payload["token"] = token
+        payload["token_notice"] = (
+            "Shown once - store it now; it cannot be recovered."
+        )
+    return jsonify(payload), 201
+
+
+@api.delete("/role-bindings/<int:binding_id>")
+@require_admin
+def delete_role_binding_route(binding_id: int):
+    """Revoke a role binding: its token stops working immediately and a
+    directory binding stops counting; the row stays as evidence."""
+    binding = service.revoke_role_binding(binding_id, actor=_actor())
+    return jsonify({"binding": binding, "message": "Role binding revoked"})

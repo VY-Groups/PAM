@@ -9,12 +9,12 @@ Every number below was collected from the real suite at this commit.
 
 | Suite | File | Tests |
 |---|---|---|
-| **Backend total** | `python -m pytest backend -q` | **577** |
+| **Backend total** | `python -m pytest backend -q` | **613** |
 | ├ licensing core | `backend/ipam_licensing/test_license_core.py` | 46 |
 | ├ licensing spec | `backend/ipam_licensing/test_license_spec.py` | 35 |
 | ├ licensing bridge | `backend/ipam_licensing/test_licensing.py` | 1 |
 | ├ API & licenses | `…/tests/test_api.py` | 59 |
-| ├ settings + UI structure | `…/tests/test_settings_and_ui.py` | 32 |
+| ├ settings + UI structure | `…/tests/test_settings_and_ui.py` | 33 |
 | ├ vault | `…/tests/test_vault_dashboard.py` | 19 |
 | ├ rotation | `…/tests/test_rotation.py` | 30 |
 | ├ discovery | `…/tests/test_discovery.py` | 19 |
@@ -33,17 +33,21 @@ Every number below was collected from the real suite at this commit.
 | ├ broker (5c) | `…/tests/test_broker.py` | 24 |
 | ├ agent PAM (5d) | `…/tests/test_agent.py` | 29 |
 | ├ HA/DC/DR (6a) | `…/tests/test_cluster.py` | 36 |
-| └ OpenAPI contract | `…/tests/test_openapi_contract.py` | 5 |
+| ├ RBAC/ABAC (6b) | `…/tests/test_rbac.py` | 31 |
+| └ OpenAPI contract | `…/tests/test_openapi_contract.py` | 9 |
 | **Vendor tool total** | `python -m pytest pam_master -q` | **46** |
 | ├ registry (encrypted PII) | `pam_master/tests/test_registry.py` | 15 |
 | ├ skeleton/custody/health | `pam_master/tests/test_skeleton.py` | 13 |
 | ├ issuance + delivery | `pam_master/tests/test_issuance.py` | 12 |
 | └ vendor OpenAPI contract | `pam_master/tests/test_openapi_contract.py` | 6 |
 
-Contract test asserts (5): documented ⇄ implemented routes both directions,
-security schemes on **101** admin operations, enums ⇄ code constants,
-required `info`/tags (19), and live response shapes ⇄ schemas — currently
-**131 paths / 159 operations**.
+Contract test asserts (9): valid OpenAPI 3.1, documented ⇄ implemented
+routes both directions, security schemes on **105** admin operations, the
+documented admin set ⇄ runtime (`service.ADMIN_OPERATIONS` ∪ `whoami`),
+per-op role lists ⇄ `ROLE_OPERATIONS`, the `rbacToken`/`ldapTicket`
+schemes + `/auth/whoami` documenting every credential, enums ⇄ code
+constants, required `info`/tags (20), and live response shapes ⇄ schemas —
+currently **135 paths / 164 operations**.
 
 ## 2. Test design rules
 
@@ -93,7 +97,7 @@ required `info`/tags (19), and live response shapes ⇄ schemas — currently
 |---|---|
 | `__verify_live.mjs` | **9 live screens** render with real API data over HTTP **and** honest `file://` fallback; sweeps the DOM for FORBIDDEN fabricated strings (exact pairs like `'Showing 5 of 2,875'`; a bare `'Showing 5 of'` is *not* forbidden — live pagination may honestly show `Showing 5 of 5 items`) |
 | `__verify_discovery.mjs` | discovery screen flows (scan/adopt/filter against a throwaway server) |
-| `__verify_agent.mjs` | **6a standing gate - 33 checks, ALL PASSED**: §16 AI-Agent Access section on the JIT screen (below the broker block, zero `id=`, live `/agents*` + `/agent-access/*`, honest zero-state `0 agents · 0 open grants · 0 agent events`, numeric tiles, one-time token reveal modal, `window.jitLive.agent`), the Compliance screen's 17 source chips (`cluster` appended last), and the §18 HA / DC / DR section on Platform Settings (summary shape, role badge vs the Promote/Demote label, numeric THIS NODE/PEERS/REPLICATION/BACKUPS tiles, node + replica + backup rows, zero `id=`, `window.settingsLive.cluster`) plus a live register → probe → sync → remove flow against an unreachable peer asserting the verbatim probe/sync errors and the registry returning to its baseline |
+| `__verify_agent.mjs` | **6a+6b standing gate - 50 checks, ALL PASSED**: §16 AI-Agent Access section on the JIT screen (below the broker block, zero `id=`, live `/agents*` + `/agent-access/*`, honest zero-state `0 agents · 0 open grants · 0 agent events`, numeric tiles, one-time token reveal modal, `window.jitLive.agent`), the Compliance screen's 18 source chips (`rbac` appended last), the §18 HA / DC / DR section on Platform Settings (summary shape, role badge vs the Promote/Demote label, numeric THIS NODE/PEERS/REPLICATION/BACKUPS tiles, node + replica + backup rows, zero `id=`, `window.settingsLive.cluster`) plus a live register → probe → sync → remove flow against an unreachable peer asserting the verbatim probe/sync errors and the registry returning to its baseline, and the §10 RBAC / ABAC section on Platform Settings (summary, five seeded roles, bindings table, hidden one-time token box, zero `id=`, `window.settingsLive.rbac`) plus — under `GATE_ADMIN_TOKEN` against a token-mode rig — a live grant → 403 verbatim → allowed op → scope 403 → revoke → 401 flow; in open dev mode it says so and skips honestly |
 | `__shots.mjs` / `__debug_screen.mjs` | pre-existing capture/debug helpers (kept) |
 
 Screenshots: **1920×1600 viewport, `fullPage: false` always**; tall pages use
@@ -103,9 +107,9 @@ a fullPage path.
 ## 4. Boundary regression (run before every commit)
 
 ```powershell
-python -X utf8 -m pytest backend -q          # 577
+python -X utf8 -m pytest backend -q          # 613
 python -X utf8 -m pytest pam_master -q       # 46
-python -X utf8 -m pytest backend\phase2_license_server\tests\test_openapi_contract.py -q   # 5
+python -X utf8 -m pytest backend\phase2_license_server\tests\test_openapi_contract.py -q   # 9
 # boundary smoke (Temp\opencode\smoke_restructure.py): 17/17
 node shots_tool/__verify_live.mjs            # ALL CHECKS PASSED
 node shots_tool/__verify_discovery.mjs       # ALL CHECKS PASSED
@@ -159,7 +163,7 @@ Each pending phase adds a test file and grows the contract — **counts are
 |---|---|---|
 | 5a-5d | `test_vendor_pam.py`, `test_cloud.py`, `test_broker.py`, `test_agent.py` | per-phase path additions |
 | 6a §18 | `test_cluster.py` (36) | 15 cluster paths + the `Health` node-identity fields |
-| 6b | `test_rbac.py` | security schemes gain role requirements across admin ops |
+| 6b | `test_rbac.py` (31) | 4 rbac paths + role scope lists on the 74 role-declaring admin ops + `rbacToken`/`ldapTicket` schemes |
 | 6c | `test_sso_hsm.py` | SSO/HSM endpoints + settings enforcement |
 
 Standing expectations for every future phase: the 4-way lockstep

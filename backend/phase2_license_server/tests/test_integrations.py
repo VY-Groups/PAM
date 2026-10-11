@@ -1118,7 +1118,22 @@ def test_ldap_login_binds_for_real_and_mints_a_ticket(client):
         assert events[0]["action"] == "ldap-login"
         assert LDAP_PASSWORD not in json.dumps(events)
 
-        # the minted ticket authenticates to an admin route on its own
+        # the minted ticket alone reaches no admin route - the directory
+        # authenticates, the binding decides (architecture section 10)
+        probe = client.post(
+            "/api/v1/risk/evaluate",
+            json={"subject": "alice"},
+            headers={"Authorization": f"Bearer {body['ticket']}"},
+        )
+        assert probe.status_code == 403, probe.get_json()
+        assert "has no role binding" in probe.get_json()["error"]
+
+        # once an admin binds alice to a role, her ticket carries that role
+        assert client.post(
+            "/api/v1/role-bindings",
+            json={"principal": "alice", "role": "operator", "kind": "ldap"},
+            headers=ACTOR,
+        ).status_code == 201
         probe = client.post(
             "/api/v1/risk/evaluate",
             json={"subject": "alice"},
@@ -1250,8 +1265,9 @@ def test_integration_trail_reaches_the_ledger_and_the_feed(client):
     stats = client.get("/api/v1/audit/stats").get_json()
     assert "integration" in stats["by_source"]
     assert stats["by_source"]["integration"] >= 1
-    assert len(audit_module.AUDIT_SOURCES) == 16
-    assert audit_module.AUDIT_SOURCES[-1] == "cluster"
+    assert len(audit_module.AUDIT_SOURCES) == 17
+    assert audit_module.AUDIT_SOURCES[-2] == "cluster"
+    assert audit_module.AUDIT_SOURCES[-1] == "rbac"
 
     feed = client.get("/api/v1/events", query_string={"source": "integration"})
     assert feed.status_code == 200

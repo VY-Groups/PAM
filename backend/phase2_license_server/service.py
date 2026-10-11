@@ -25,7 +25,7 @@ import urllib.request
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Set, Tuple
 
 from config import Config
 from errors import (
@@ -96,6 +96,16 @@ from models import (
     EVENT_USAGE_REPORTED,
     JIT_ROLES,
     JIT_STATUSES,
+    RBAC_KINDS,
+    RBAC_ROLE_ADMIN,
+    RBAC_ROLE_APPROVER,
+    RBAC_ROLE_AUDITOR,
+    RBAC_ROLE_AUDITOR_READ_ONLY,
+    RBAC_ROLE_OPERATOR,
+    RBAC_SCOPE_MAX_ITEMS,
+    RBAC_SCOPE_MAX_TARGETS,
+    RBAC_SEED_ROLES,
+    RBAC_TOKEN_PREFIX,
     RISK_CONTEXT_MANUAL,
     RISK_CONTEXT_SESSION_START,
     RISK_CONTEXTS,
@@ -134,7 +144,10 @@ from models import (
     LicenseEvent,
     LicenseRecord,
     PrivilegedSession,
+    RbacEvent,
     RiskEvent,
+    Role,
+    RoleBinding,
     SessionEvent,
     SettingGroup,
     SettingsEvent,
@@ -10823,6 +10836,521 @@ CLUSTER_FAILOVER_FAILURES = 3
 # outbound probe/sync timeouts (seconds) unless a caller overrides them
 CLUSTER_PROBE_TIMEOUT = 5
 CLUSTER_SYNC_TIMEOUT = 30
+
+
+# ---------------------------------------------------------------------------
+# RBAC / ABAC (architecture section 10: roles + attribute rules)
+# ---------------------------------------------------------------------------
+# Every operation that requires an admin credential, exactly as documented
+# in apis/openapi.yaml (the contract test asserts the two stay equal).
+# Roles other than `admin` are policy over this list: the approver and
+# operator sets below are explicit, the two auditor roles are rules over
+# the read-only operations.
+ADMIN_OPERATIONS = [
+    ("post", "/api/v1/licenses/import"),
+    ("get", "/api/v1/licenses/{license_key}/file"),
+    ("post", "/api/v1/licenses/{license_key}/revoke"),
+    ("post", "/api/v1/licenses/{license_key}/restore"),
+    ("post", "/api/v1/licenses/{license_key}/usage"),
+    ("put", "/api/v1/settings/{group}"),
+    ("post", "/api/v1/vault/items"),
+    ("post", "/api/v1/vault/items/{item_id}/checkout"),
+    ("post", "/api/v1/vault/items/{item_id}/revoke"),
+    ("post", "/api/v1/vault/items/{item_id}/rotate"),
+    ("get", "/api/v1/vault/items/{item_id}/secret"),
+    ("post", "/api/v1/rotation/run"),
+    ("post", "/api/v1/rotation/session-end"),
+    ("post", "/api/v1/jit/requests"),
+    ("post", "/api/v1/jit/requests/{request_id}/approve"),
+    ("post", "/api/v1/jit/requests/{request_id}/deny"),
+    ("post", "/api/v1/jit/requests/{request_id}/consume"),
+    ("post", "/api/v1/jit/requests/{request_id}/close"),
+    ("post", "/api/v1/sessions"),
+    ("post", "/api/v1/sessions/{session_id}/events"),
+    ("post", "/api/v1/sessions/{session_id}/controls"),
+    ("post", "/api/v1/sessions/{session_id}/pause"),
+    ("post", "/api/v1/sessions/{session_id}/lock"),
+    ("post", "/api/v1/sessions/{session_id}/resume"),
+    ("post", "/api/v1/sessions/{session_id}/terminate"),
+    ("post", "/api/v1/sessions/{session_id}/complete"),
+    ("post", "/api/v1/sessions/{session_id}/events/{seq}/approve"),
+    ("post", "/api/v1/sessions/{session_id}/events/{seq}/deny"),
+    ("post", "/api/v1/command-control/rules"),
+    ("put", "/api/v1/command-control/rules/{rule_id}"),
+    ("delete", "/api/v1/command-control/rules/{rule_id}"),
+    ("post", "/api/v1/command-control/incidents/{incident_id}/close"),
+    ("post", "/api/v1/discovery/assets"),
+    ("patch", "/api/v1/discovery/assets/{asset_id}"),
+    ("post", "/api/v1/discovery/assets/{asset_id}/onboard"),
+    ("post", "/api/v1/discovery/scans"),
+    ("post", "/api/v1/risk/evaluate"),
+    ("post", "/api/v1/risk/baselines/train"),
+    ("post", "/api/v1/bypass/ingest"),
+    ("post", "/api/v1/bypass/scans"),
+    ("post", "/api/v1/bypass/incidents/{incident_id}/close"),
+    ("post", "/api/v1/break-glass/requests"),
+    ("post", "/api/v1/break-glass/requests/{request_id}/approve"),
+    ("post", "/api/v1/break-glass/requests/{request_id}/deny"),
+    ("post", "/api/v1/break-glass/requests/{request_id}/open"),
+    ("post", "/api/v1/break-glass/requests/{request_id}/close"),
+    ("post", "/api/v1/mfa/enroll"),
+    ("post", "/api/v1/mfa/verify"),
+    ("post", "/api/v1/itsm/verify"),
+    ("post", "/api/v1/vendors"),
+    ("patch", "/api/v1/vendors/{vendor_id}"),
+    ("post", "/api/v1/vendors/{vendor_id}/mfa"),
+    ("post", "/api/v1/vendors/{vendor_id}/nda"),
+    ("post", "/api/v1/vendors/{vendor_id}/ticket"),
+    ("post", "/api/v1/vendors/{vendor_id}/approve"),
+    ("post", "/api/v1/vendors/{vendor_id}/deny"),
+    ("post", "/api/v1/vendors/{vendor_id}/revoke"),
+    ("post", "/api/v1/vendors/{vendor_id}/requests"),
+    ("post", "/api/v1/cloud/connectors"),
+    ("patch", "/api/v1/cloud/connectors/{connector_id}"),
+    ("delete", "/api/v1/cloud/connectors/{connector_id}"),
+    ("post", "/api/v1/cloud/connectors/{connector_id}/test"),
+    ("post", "/api/v1/cloud/connectors/{connector_id}/discover"),
+    ("post", "/api/v1/cloud/connectors/{connector_id}/rbac/requests"),
+    ("post", "/api/v1/broker/policies"),
+    ("get", "/api/v1/broker/policies"),
+    ("get", "/api/v1/broker/policies/{policy_id}"),
+    ("patch", "/api/v1/broker/policies/{policy_id}"),
+    ("delete", "/api/v1/broker/policies/{policy_id}"),
+    ("get", "/api/v1/broker/credentials"),
+    ("get", "/api/v1/broker/credentials/{credential_id}"),
+    ("post", "/api/v1/broker/credentials/{credential_id}/approve"),
+    ("post", "/api/v1/broker/credentials/{credential_id}/deny"),
+    ("post", "/api/v1/broker/credentials/{credential_id}/close"),
+    ("get", "/api/v1/agents"),
+    ("post", "/api/v1/agents"),
+    ("get", "/api/v1/agents/{agent_id}"),
+    ("patch", "/api/v1/agents/{agent_id}"),
+    ("delete", "/api/v1/agents/{agent_id}"),
+    ("get", "/api/v1/agents/{agent_id}/tasks"),
+    ("post", "/api/v1/agents/{agent_id}/tasks"),
+    ("patch", "/api/v1/agents/{agent_id}/tasks/{task_id}"),
+    ("delete", "/api/v1/agents/{agent_id}/tasks/{task_id}"),
+    ("get", "/api/v1/agent-access/requests"),
+    ("get", "/api/v1/agent-access/requests/{request_id}"),
+    ("post", "/api/v1/agent-access/requests/{request_id}/close"),
+    ("get", "/api/v1/cluster"),
+    ("get", "/api/v1/cluster/nodes"),
+    ("post", "/api/v1/cluster/nodes"),
+    ("get", "/api/v1/cluster/nodes/{node_id}"),
+    ("patch", "/api/v1/cluster/nodes/{node_id}"),
+    ("delete", "/api/v1/cluster/nodes/{node_id}"),
+    ("post", "/api/v1/cluster/nodes/{node_id}/probe"),
+    ("post", "/api/v1/cluster/nodes/{node_id}/sync"),
+    ("get", "/api/v1/cluster/replicas"),
+    ("post", "/api/v1/cluster/failover"),
+    ("post", "/api/v1/cluster/monitor/tick"),
+    ("get", "/api/v1/cluster/backups"),
+    ("post", "/api/v1/cluster/backups"),
+    ("get", "/api/v1/cluster/export/vault"),
+    ("get", "/api/v1/cluster/export/sessions"),
+    ("get", "/api/v1/roles"),
+    ("get", "/api/v1/role-bindings"),
+    ("post", "/api/v1/role-bindings"),
+    ("delete", "/api/v1/role-bindings/{binding_id}"),
+]
+
+# The approver: decision operations only - approve, deny and close across
+# every request surface (JIT, session events, break-glass, vendor, broker).
+_RBAC_APPROVER_OPERATIONS = frozenset(
+    {
+        ("post", "/api/v1/jit/requests/{request_id}/approve"),
+        ("post", "/api/v1/jit/requests/{request_id}/deny"),
+        ("post", "/api/v1/sessions/{session_id}/events/{seq}/approve"),
+        ("post", "/api/v1/sessions/{session_id}/events/{seq}/deny"),
+        ("post", "/api/v1/break-glass/requests/{request_id}/approve"),
+        ("post", "/api/v1/break-glass/requests/{request_id}/deny"),
+        ("post", "/api/v1/vendors/{vendor_id}/approve"),
+        ("post", "/api/v1/vendors/{vendor_id}/deny"),
+        ("post", "/api/v1/broker/credentials/{credential_id}/approve"),
+        ("post", "/api/v1/broker/credentials/{credential_id}/deny"),
+    }
+)
+
+# The operator: day-2 operations - vault checkout/rotate/revoke and reveal,
+# session lifecycle, rotation, discovery, integrations, monitoring, backups
+# and failover. Filing requests is operational; approving them is not, and
+# configuration, licensing, identity lifecycles and policy stay admin-only.
+_RBAC_OPERATOR_OPERATIONS = frozenset(
+    {
+        ("post", "/api/v1/vault/items/{item_id}/checkout"),
+        ("post", "/api/v1/vault/items/{item_id}/revoke"),
+        ("post", "/api/v1/vault/items/{item_id}/rotate"),
+        ("get", "/api/v1/vault/items/{item_id}/secret"),
+        ("post", "/api/v1/rotation/run"),
+        ("post", "/api/v1/rotation/session-end"),
+        ("post", "/api/v1/jit/requests"),
+        ("post", "/api/v1/jit/requests/{request_id}/consume"),
+        ("post", "/api/v1/jit/requests/{request_id}/close"),
+        ("post", "/api/v1/sessions"),
+        ("post", "/api/v1/sessions/{session_id}/events"),
+        ("post", "/api/v1/sessions/{session_id}/controls"),
+        ("post", "/api/v1/sessions/{session_id}/pause"),
+        ("post", "/api/v1/sessions/{session_id}/lock"),
+        ("post", "/api/v1/sessions/{session_id}/resume"),
+        ("post", "/api/v1/sessions/{session_id}/terminate"),
+        ("post", "/api/v1/sessions/{session_id}/complete"),
+        ("post", "/api/v1/command-control/incidents/{incident_id}/close"),
+        ("post", "/api/v1/discovery/assets"),
+        ("patch", "/api/v1/discovery/assets/{asset_id}"),
+        ("post", "/api/v1/discovery/assets/{asset_id}/onboard"),
+        ("post", "/api/v1/discovery/scans"),
+        ("post", "/api/v1/risk/evaluate"),
+        ("post", "/api/v1/bypass/ingest"),
+        ("post", "/api/v1/bypass/scans"),
+        ("post", "/api/v1/bypass/incidents/{incident_id}/close"),
+        ("post", "/api/v1/break-glass/requests"),
+        ("post", "/api/v1/break-glass/requests/{request_id}/open"),
+        ("post", "/api/v1/break-glass/requests/{request_id}/close"),
+        ("post", "/api/v1/mfa/enroll"),
+        ("post", "/api/v1/mfa/verify"),
+        ("post", "/api/v1/itsm/verify"),
+        ("post", "/api/v1/vendors/{vendor_id}/requests"),
+        ("post", "/api/v1/cloud/connectors/{connector_id}/discover"),
+        ("post", "/api/v1/cloud/connectors/{connector_id}/rbac/requests"),
+        ("post", "/api/v1/broker/credentials/{credential_id}/close"),
+        ("post", "/api/v1/agent-access/requests/{request_id}/close"),
+        ("post", "/api/v1/cluster/nodes"),
+        ("patch", "/api/v1/cluster/nodes/{node_id}"),
+        ("delete", "/api/v1/cluster/nodes/{node_id}"),
+        ("post", "/api/v1/cluster/nodes/{node_id}/probe"),
+        ("post", "/api/v1/cluster/nodes/{node_id}/sync"),
+        ("post", "/api/v1/cluster/failover"),
+        ("post", "/api/v1/cluster/monitor/tick"),
+        ("post", "/api/v1/cluster/backups"),
+    }
+)
+
+# The evidence exports write files out of the system: the auditor's, never
+# the read-only auditor's. The secret reveal is never an auditor read.
+_RBAC_EVIDENCE_EXPORT_OPERATIONS = frozenset(
+    {
+        ("get", "/api/v1/licenses/{license_key}/file"),
+        ("get", "/api/v1/cluster/export/vault"),
+        ("get", "/api/v1/cluster/export/sessions"),
+    }
+)
+_RBAC_SECRET_REVEAL_OPERATION = ("get", "/api/v1/vault/items/{item_id}/secret")
+
+
+def _build_role_operations() -> Dict[Tuple[str, str], Set[str]]:
+    """The non-admin roles allowed to call each admin operation. The admin
+    role is implicit (every operation); unknown operations default to
+    admin-only."""
+    mapping: Dict[Tuple[str, str], Set[str]] = {}
+    for method, path in ADMIN_OPERATIONS:
+        key = (method, path)
+        roles: Set[str] = set()
+        if key in _RBAC_APPROVER_OPERATIONS:
+            roles.add(RBAC_ROLE_APPROVER)
+        if key in _RBAC_OPERATOR_OPERATIONS:
+            roles.add(RBAC_ROLE_OPERATOR)
+        if method == "get" and key not in _RBAC_OPERATOR_OPERATIONS:
+            if key == _RBAC_SECRET_REVEAL_OPERATION:
+                pass
+            elif key in _RBAC_EVIDENCE_EXPORT_OPERATIONS:
+                roles.add(RBAC_ROLE_AUDITOR)
+            else:
+                roles.add(RBAC_ROLE_AUDITOR)
+                roles.add(RBAC_ROLE_AUDITOR_READ_ONLY)
+        if roles:
+            mapping[key] = roles
+    return mapping
+
+
+ROLE_OPERATIONS = _build_role_operations()
+
+
+def role_allows(role: str, method: str, path_rule: str) -> bool:
+    """Whether `role` may call the admin operation (method, url-rule path).
+    The admin role may call everything; the other roles are exactly what
+    ROLE_OPERATIONS grants them."""
+    if role == RBAC_ROLE_ADMIN:
+        return True
+    return role in ROLE_OPERATIONS.get((method.lower(), path_rule), set())
+
+
+def operations_for_role(role: str) -> List[str]:
+    """The admin operations a role may call, as sorted `method path`
+    strings; the admin role may call all of them."""
+    if role == RBAC_ROLE_ADMIN:
+        return [f"{method} {path}" for method, path in ADMIN_OPERATIONS]
+    allowed = {
+        f"{method} {path}"
+        for (method, path), roles in ROLE_OPERATIONS.items()
+        if role in roles
+    }
+    return sorted(allowed)
+
+
+def _rbac_event(
+    action: str,
+    *,
+    actor: str,
+    subject: str = "",
+    detail: Optional[Dict[str, Any]] = None,
+) -> RbacEvent:
+    """Queue one RBAC action record; the flush listener folds it into the
+    audit ledger under the seventeenth source `rbac` in the same commit.
+    The minted token never enters `detail`."""
+    event = RbacEvent(
+        action=action,
+        actor=actor,
+        subject=subject,
+        detail=detail or {},
+    )
+    db.session.add(event)
+    return event
+
+
+def ensure_rbac_seed() -> int:
+    """Seed the five built-in roles once (like the cluster self row: no
+    trail event - the registry is configuration, not an action). Returns
+    the number of roles created."""
+    created = 0
+    existing = {name for (name,) in Role.query.with_entities(Role.name).all()}
+    for name, description in RBAC_SEED_ROLES:
+        if name in existing:
+            continue
+        db.session.add(Role(name=name, description=description))
+        created += 1
+    if created:
+        db.session.commit()
+    return created
+
+
+def list_roles_with_operations() -> List[Dict[str, Any]]:
+    """The built-in roles with the exact number of admin operations each may
+    call - the policy is computed, never a stale copy."""
+    counts: Dict[str, int] = {RBAC_ROLE_ADMIN: len(ADMIN_OPERATIONS)}
+    for roles in ROLE_OPERATIONS.values():
+        for role in roles:
+            counts[role] = counts.get(role, 0) + 1
+    return [
+        {**row.to_dict(), "operations": counts.get(row.name, 0)}
+        for row in Role.query.order_by(Role.name).all()
+    ]
+
+
+def list_role_bindings(*, include_revoked: bool = False) -> List[Dict[str, Any]]:
+    """Active bindings by default; `include_revoked` keeps revoked rows
+    visible as evidence. The token hash is never returned - only whether a
+    credential exists."""
+    query = RoleBinding.query
+    if not include_revoked:
+        query = query.filter(RoleBinding.revoked_at.is_(None))
+    rows = []
+    for binding in query.order_by(RoleBinding.id).all():
+        data = binding.to_dict()
+        data["has_token"] = bool(data.pop("token_sha256"))
+        rows.append(data)
+    return rows
+
+
+def _validate_role_scope(value: Any) -> Dict[str, Any]:
+    """The ABAC attribute rules: `targets` (fnmatch patterns over target
+    names) and `vault_items` (explicit item ids). An empty scope means the
+    role governs everywhere; unknown keys are refused, not ignored."""
+    if value in (None, ""):
+        return {}
+    if not isinstance(value, dict):
+        raise ValidationFailed("scope must be an object", {"field": "scope"})
+    unknown = sorted(set(value) - {"targets", "vault_items"})
+    if unknown:
+        raise ValidationFailed(
+            f"Unknown scope key(s): {', '.join(unknown)}",
+            {"field": "scope", "allowed": ["targets", "vault_items"]},
+        )
+    scope: Dict[str, Any] = {}
+    targets = value.get("targets")
+    if targets not in (None, []):
+        if not isinstance(targets, list) or len(targets) > RBAC_SCOPE_MAX_TARGETS:
+            raise ValidationFailed(
+                "scope.targets must be a list of at most "
+                f"{RBAC_SCOPE_MAX_TARGETS} patterns",
+                {"field": "scope.targets"},
+            )
+        patterns = []
+        for entry in targets:
+            if not isinstance(entry, str) or not entry.strip() or len(entry) > 128:
+                raise ValidationFailed(
+                    "scope.targets entries must be 1-128 character patterns",
+                    {"field": "scope.targets"},
+                )
+            patterns.append(entry.strip())
+        scope["targets"] = patterns
+    items = value.get("vault_items")
+    if items not in (None, []):
+        if not isinstance(items, list) or len(items) > RBAC_SCOPE_MAX_ITEMS:
+            raise ValidationFailed(
+                "scope.vault_items must be a list of at most "
+                f"{RBAC_SCOPE_MAX_ITEMS} item ids",
+                {"field": "scope.vault_items"},
+            )
+        ids = []
+        for entry in items:
+            if isinstance(entry, bool) or not isinstance(entry, int) or entry < 1:
+                raise ValidationFailed(
+                    "scope.vault_items entries must be positive item ids",
+                    {"field": "scope.vault_items"},
+                )
+            ids.append(entry)
+        scope["vault_items"] = ids
+    return scope
+
+
+def create_role_binding(
+    payload: Any, *, actor: str
+) -> Tuple[Dict[str, Any], Optional[str]]:
+    """Create a role binding. A `local` principal gets an API token minted
+    once (sha256 at rest, shown once, never recoverable); an `ldap`
+    principal is a directory username that a signed login ticket carries -
+    the directory vouches for the identity, the binding decides the role.
+    Returns the binding and the plaintext token (None for ldap)."""
+    if not isinstance(payload, dict):
+        raise ValidationFailed(
+            "Body must be an object with principal, role and kind"
+        )
+    principal = str(payload.get("principal") or "").strip()
+    if not 1 <= len(principal) <= 128:
+        raise ValidationFailed(
+            "principal must be 1-128 characters", {"field": "principal"}
+        )
+    role = str(payload.get("role") or "").strip()
+    known = {name for (name,) in Role.query.with_entities(Role.name).all()}
+    if role not in known:
+        raise ValidationFailed(
+            f"Unknown role '{role}'", {"field": "role", "allowed": sorted(known)}
+        )
+    kind = str(payload.get("kind") or "local").strip() or "local"
+    if kind not in RBAC_KINDS:
+        raise ValidationFailed(
+            f"Unknown kind '{kind}'", {"field": "kind", "allowed": list(RBAC_KINDS)}
+        )
+    scope = _validate_role_scope(payload.get("scope"))
+    active = RoleBinding.query.filter(
+        RoleBinding.principal == principal, RoleBinding.revoked_at.is_(None)
+    ).first()
+    if active is not None:
+        raise Conflict(
+            f"Role binding for '{principal}' already exists",
+            {"principal": principal, "role": active.role, "binding_id": active.id},
+        )
+    binding = RoleBinding(
+        principal=principal, role=role, kind=kind, scope=scope, created_by=actor
+    )
+    db.session.add(binding)
+    db.session.flush()
+    token = None
+    if kind == "local":
+        secret = secrets.token_urlsafe(32)
+        binding.token_sha256 = hashlib.sha256(secret.encode("utf-8")).hexdigest()
+        binding.token_prefix = f"{RBAC_TOKEN_PREFIX}.{binding.id}."
+        token = f"{binding.token_prefix}{secret}"
+    _rbac_event(
+        "rbac.binding.created",
+        actor=actor,
+        subject=principal,
+        detail={"role": role, "kind": kind, "scope": scope},
+    )
+    db.session.commit()
+    data = binding.to_dict()
+    data["has_token"] = bool(data.pop("token_sha256"))
+    return data, token
+
+
+def revoke_role_binding(binding_id: int, *, actor: str) -> Dict[str, Any]:
+    """Revoke a binding: its token stops working immediately, a directory
+    binding stops counting, and the row stays as evidence."""
+    binding = db.session.get(RoleBinding, binding_id)
+    if binding is None:
+        raise NotFound(f"Unknown role binding {binding_id}")
+    if binding.revoked_at is not None:
+        raise Conflict(
+            f"Role binding {binding.id} ('{binding.principal}') is already revoked"
+        )
+    binding.revoked_at = datetime.now()
+    _rbac_event(
+        "rbac.binding.revoked",
+        actor=actor,
+        subject=binding.principal,
+        detail={"role": binding.role, "kind": binding.kind},
+    )
+    db.session.commit()
+    data = binding.to_dict()
+    data["has_token"] = bool(data.pop("token_sha256"))
+    return data
+
+
+def verify_rbac_token(token: Any) -> Optional[RoleBinding]:
+    """The active binding a presented `vypam-rbac1.<id>.<secret>` token
+    authenticates, else None (wrong prefix, unknown or revoked binding,
+    wrong kind or tampered secret - all indistinguishable)."""
+    if not isinstance(token, str) or not token.startswith(RBAC_TOKEN_PREFIX + "."):
+        return None
+    body = token[len(RBAC_TOKEN_PREFIX) + 1 :]
+    parts = body.split(".")
+    if len(parts) != 2 or not parts[0].isdigit() or not parts[1]:
+        return None
+    binding = db.session.get(RoleBinding, int(parts[0]))
+    if (
+        binding is None
+        or binding.revoked_at is not None
+        or binding.kind != "local"
+        or not binding.token_sha256
+    ):
+        return None
+    digest = hashlib.sha256(parts[1].encode("utf-8")).hexdigest()
+    if not hmac.compare_digest(digest, binding.token_sha256):
+        return None
+    binding.last_used_at = datetime.now()
+    db.session.commit()
+    return binding
+
+
+def resolve_principal(token: Any, *, config: Config) -> Optional[Dict[str, Any]]:
+    """The acting principal for a presented admin-side credential, or None
+    when nothing valid was presented. The admin token is `admin-token` (all
+    operations); a `vypam-rbac1` token is its binding; a signed LDAP login
+    ticket is the directory username's binding - and when no binding exists
+    for that username the result is flagged `unbound`, so the caller is
+    refused honestly instead of silently holding the admin token."""
+    if isinstance(token, str) and token and hmac.compare_digest(token, config.admin_token):
+        return {
+            "principal": "admin-token",
+            "role": RBAC_ROLE_ADMIN,
+            "kind": "admin-token",
+            "scope": None,
+        }
+    binding = verify_rbac_token(token)
+    if binding is not None:
+        return {
+            "principal": binding.principal,
+            "role": binding.role,
+            "kind": binding.kind,
+            "scope": binding.scope or {},
+        }
+    identity = verify_ldap_ticket(token, config=config)
+    if identity is None:
+        return None
+    username = str(identity.get("username") or "")
+    binding = RoleBinding.query.filter(
+        RoleBinding.principal == username,
+        RoleBinding.kind == "ldap",
+        RoleBinding.revoked_at.is_(None),
+    ).first()
+    if binding is None:
+        return {"principal": username, "unbound": True}
+    return {
+        "principal": binding.principal,
+        "role": binding.role,
+        "kind": binding.kind,
+        "scope": binding.scope or {},
+    }
 
 
 def _cluster_event(

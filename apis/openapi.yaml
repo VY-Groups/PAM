@@ -60,6 +60,8 @@ tags:
     description: AI-Agent PAM - agent identities and API tokens, task-scoped allowed-command lists, risk-scored access requests and monitored sessions (architecture 16)
   - name: cluster
     description: HA / DC / DR - node registry with real health probes, pull replication (hash-verified audit chain, sealed vault ciphertext, session metadata), role-enforced failover, automatic-failover monitor and real backups (architecture 18)
+  - name: rbac
+    description: Roles, role bindings and the acting principal - the multi-role model over the admin operations with ABAC attribute rules on vault items and targets (architecture 10)
 paths:
   /health:
     get:
@@ -174,6 +176,8 @@ paths:
       security:
         - bearerAuth: []
         - adminTokenHeader: []
+        - rbacToken: [auditor]
+        - ldapTicket: [auditor]
         - {}
       parameters:
         - {$ref: "#/components/parameters/LicenseKey"}
@@ -580,6 +584,8 @@ paths:
       security:
         - bearerAuth: []
         - adminTokenHeader: []
+        - rbacToken: [operator]
+        - ldapTicket: [operator]
         - {}
       parameters:
         - name: item_id
@@ -615,6 +621,8 @@ paths:
       security:
         - bearerAuth: []
         - adminTokenHeader: []
+        - rbacToken: [operator]
+        - ldapTicket: [operator]
         - {}
       parameters:
         - name: item_id
@@ -648,6 +656,8 @@ paths:
       security:
         - bearerAuth: []
         - adminTokenHeader: []
+        - rbacToken: [operator]
+        - ldapTicket: [operator]
         - {}
       parameters:
         - name: item_id
@@ -709,6 +719,8 @@ paths:
       security:
         - bearerAuth: []
         - adminTokenHeader: []
+        - rbacToken: [operator]
+        - ldapTicket: [operator]
         - {}
       parameters:
         - name: item_id
@@ -739,6 +751,8 @@ paths:
       security:
         - bearerAuth: []
         - adminTokenHeader: []
+        - rbacToken: [operator]
+        - ldapTicket: [operator]
         - {}
       parameters:
         - name: X-Actor
@@ -773,6 +787,8 @@ paths:
       security:
         - bearerAuth: []
         - adminTokenHeader: []
+        - rbacToken: [operator]
+        - ldapTicket: [operator]
         - {}
       parameters:
         - name: X-Actor
@@ -850,6 +866,8 @@ paths:
       security:
         - bearerAuth: []
         - adminTokenHeader: []
+        - rbacToken: [operator]
+        - ldapTicket: [operator]
         - {}
       parameters:
         - name: X-Actor
@@ -901,6 +919,8 @@ paths:
       security:
         - bearerAuth: []
         - adminTokenHeader: []
+        - rbacToken: [approver]
+        - ldapTicket: [approver]
         - {}
       parameters:
         - name: request_id
@@ -934,6 +954,8 @@ paths:
       security:
         - bearerAuth: []
         - adminTokenHeader: []
+        - rbacToken: [approver]
+        - ldapTicket: [approver]
         - {}
       parameters:
         - name: request_id
@@ -969,6 +991,8 @@ paths:
       security:
         - bearerAuth: []
         - adminTokenHeader: []
+        - rbacToken: [operator]
+        - ldapTicket: [operator]
         - {}
       parameters:
         - name: request_id
@@ -996,6 +1020,8 @@ paths:
       security:
         - bearerAuth: []
         - adminTokenHeader: []
+        - rbacToken: [operator]
+        - ldapTicket: [operator]
         - {}
       parameters:
         - name: request_id
@@ -1065,6 +1091,8 @@ paths:
       security:
         - bearerAuth: []
         - adminTokenHeader: []
+        - rbacToken: [operator]
+        - ldapTicket: [operator]
         - {}
       parameters:
         - name: X-Actor
@@ -1149,6 +1177,8 @@ paths:
       security:
         - bearerAuth: []
         - adminTokenHeader: []
+        - rbacToken: [operator]
+        - ldapTicket: [operator]
         - {}
       parameters:
         - name: session_id
@@ -1183,6 +1213,8 @@ paths:
       security:
         - bearerAuth: []
         - adminTokenHeader: []
+        - rbacToken: [operator]
+        - ldapTicket: [operator]
         - {}
       parameters:
         - name: session_id
@@ -1215,6 +1247,8 @@ paths:
       security:
         - bearerAuth: []
         - adminTokenHeader: []
+        - rbacToken: [operator]
+        - ldapTicket: [operator]
         - {}
       parameters:
         - name: session_id
@@ -1242,6 +1276,8 @@ paths:
       security:
         - bearerAuth: []
         - adminTokenHeader: []
+        - rbacToken: [operator]
+        - ldapTicket: [operator]
         - {}
       parameters:
         - name: session_id
@@ -1268,6 +1304,8 @@ paths:
       security:
         - bearerAuth: []
         - adminTokenHeader: []
+        - rbacToken: [operator]
+        - ldapTicket: [operator]
         - {}
       parameters:
         - name: session_id
@@ -1298,6 +1336,8 @@ paths:
       security:
         - bearerAuth: []
         - adminTokenHeader: []
+        - rbacToken: [operator]
+        - ldapTicket: [operator]
         - {}
       parameters:
         - name: session_id
@@ -1330,6 +1370,8 @@ paths:
       security:
         - bearerAuth: []
         - adminTokenHeader: []
+        - rbacToken: [operator]
+        - ldapTicket: [operator]
         - {}
       parameters:
         - name: session_id
@@ -1366,6 +1408,8 @@ paths:
       security:
         - bearerAuth: []
         - adminTokenHeader: []
+        - rbacToken: [approver]
+        - ldapTicket: [approver]
         - {}
       parameters:
         - name: session_id
@@ -1398,6 +1442,8 @@ paths:
       security:
         - bearerAuth: []
         - adminTokenHeader: []
+        - rbacToken: [approver]
+        - ldapTicket: [approver]
         - {}
       parameters:
         - name: session_id
@@ -1621,6 +1667,8 @@ paths:
       security:
         - bearerAuth: []
         - adminTokenHeader: []
+        - rbacToken: [operator]
+        - ldapTicket: [operator]
         - {}
       parameters:
         - name: incident_id
@@ -1703,6 +1751,8 @@ paths:
       security:
         - bearerAuth: []
         - adminTokenHeader: []
+        - rbacToken: [operator]
+        - ldapTicket: [operator]
         - {}
       requestBody:
         required: true
@@ -1729,6 +1779,8 @@ paths:
       security:
         - bearerAuth: []
         - adminTokenHeader: []
+        - rbacToken: [operator]
+        - ldapTicket: [operator]
         - {}
       parameters:
         - name: asset_id
@@ -1761,6 +1813,8 @@ paths:
       security:
         - bearerAuth: []
         - adminTokenHeader: []
+        - rbacToken: [operator]
+        - ldapTicket: [operator]
         - {}
       parameters:
         - name: asset_id
@@ -1836,6 +1890,8 @@ paths:
       security:
         - bearerAuth: []
         - adminTokenHeader: []
+        - rbacToken: [operator]
+        - ldapTicket: [operator]
         - {}
       requestBody:
         required: true
@@ -1867,6 +1923,8 @@ paths:
       security:
         - bearerAuth: []
         - adminTokenHeader: []
+        - rbacToken: [operator]
+        - ldapTicket: [operator]
         - {}
       parameters:
         - name: X-Actor
@@ -1999,6 +2057,8 @@ paths:
       security:
         - bearerAuth: []
         - adminTokenHeader: []
+        - rbacToken: [operator]
+        - ldapTicket: [operator]
         - {}
       parameters:
         - name: X-Actor
@@ -2058,6 +2118,8 @@ paths:
       security:
         - bearerAuth: []
         - adminTokenHeader: []
+        - rbacToken: [operator]
+        - ldapTicket: [operator]
         - {}
       parameters:
         - name: X-Actor
@@ -2114,6 +2176,8 @@ paths:
       security:
         - bearerAuth: []
         - adminTokenHeader: []
+        - rbacToken: [operator]
+        - ldapTicket: [operator]
         - {}
       parameters:
         - name: incident_id
@@ -2166,6 +2230,8 @@ paths:
       security:
         - bearerAuth: []
         - adminTokenHeader: []
+        - rbacToken: [operator]
+        - ldapTicket: [operator]
         - {}
       parameters:
         - name: X-Actor
@@ -2230,6 +2296,8 @@ paths:
       security:
         - bearerAuth: []
         - adminTokenHeader: []
+        - rbacToken: [approver]
+        - ldapTicket: [approver]
         - {}
       parameters:
         - name: request_id
@@ -2263,6 +2331,8 @@ paths:
       security:
         - bearerAuth: []
         - adminTokenHeader: []
+        - rbacToken: [approver]
+        - ldapTicket: [approver]
         - {}
       parameters:
         - name: request_id
@@ -2306,6 +2376,8 @@ paths:
       security:
         - bearerAuth: []
         - adminTokenHeader: []
+        - rbacToken: [operator]
+        - ldapTicket: [operator]
         - {}
       parameters:
         - name: request_id
@@ -2360,6 +2432,8 @@ paths:
       security:
         - bearerAuth: []
         - adminTokenHeader: []
+        - rbacToken: [operator]
+        - ldapTicket: [operator]
         - {}
       parameters:
         - name: request_id
@@ -2427,6 +2501,8 @@ paths:
       security:
         - bearerAuth: []
         - adminTokenHeader: []
+        - rbacToken: [operator]
+        - ldapTicket: [operator]
         - {}
       parameters:
         - name: X-Actor
@@ -2459,6 +2535,8 @@ paths:
       security:
         - bearerAuth: []
         - adminTokenHeader: []
+        - rbacToken: [operator]
+        - ldapTicket: [operator]
         - {}
       parameters:
         - name: X-Actor
@@ -2497,6 +2575,8 @@ paths:
       security:
         - bearerAuth: []
         - adminTokenHeader: []
+        - rbacToken: [operator]
+        - ldapTicket: [operator]
         - {}
       parameters:
         - name: X-Actor
@@ -2776,6 +2856,8 @@ paths:
       security:
         - bearerAuth: []
         - adminTokenHeader: []
+        - rbacToken: [approver]
+        - ldapTicket: [approver]
         - {}
       parameters:
         - name: vendor_id
@@ -2803,6 +2885,8 @@ paths:
       security:
         - bearerAuth: []
         - adminTokenHeader: []
+        - rbacToken: [approver]
+        - ldapTicket: [approver]
         - {}
       parameters:
         - name: vendor_id
@@ -2876,6 +2960,8 @@ paths:
       security:
         - bearerAuth: []
         - adminTokenHeader: []
+        - rbacToken: [operator]
+        - ldapTicket: [operator]
         - {}
       parameters:
         - name: vendor_id
@@ -3082,6 +3168,8 @@ paths:
       security:
         - bearerAuth: []
         - adminTokenHeader: []
+        - rbacToken: [operator]
+        - ldapTicket: [operator]
         - {}
       parameters:
         - name: connector_id
@@ -3116,6 +3204,8 @@ paths:
       security:
         - bearerAuth: []
         - adminTokenHeader: []
+        - rbacToken: [operator]
+        - ldapTicket: [operator]
         - {}
       parameters:
         - name: connector_id
@@ -3161,6 +3251,8 @@ paths:
       security:
         - bearerAuth: []
         - adminTokenHeader: []
+        - rbacToken: [auditor, auditor-read-only]
+        - ldapTicket: [auditor, auditor-read-only]
         - {}
       parameters:
         - name: ci_system
@@ -3224,6 +3316,8 @@ paths:
       security:
         - bearerAuth: []
         - adminTokenHeader: []
+        - rbacToken: [auditor, auditor-read-only]
+        - ldapTicket: [auditor, auditor-read-only]
         - {}
       parameters:
         - name: policy_id
@@ -3307,6 +3401,8 @@ paths:
       security:
         - bearerAuth: []
         - adminTokenHeader: []
+        - rbacToken: [auditor, auditor-read-only]
+        - ldapTicket: [auditor, auditor-read-only]
         - {}
       parameters:
         - name: status
@@ -3363,6 +3459,8 @@ paths:
       security:
         - bearerAuth: []
         - adminTokenHeader: []
+        - rbacToken: [auditor, auditor-read-only]
+        - ldapTicket: [auditor, auditor-read-only]
         - {}
       parameters:
         - name: credential_id
@@ -3385,6 +3483,8 @@ paths:
       security:
         - bearerAuth: []
         - adminTokenHeader: []
+        - rbacToken: [approver]
+        - ldapTicket: [approver]
         - {}
       parameters:
         - name: credential_id
@@ -3417,6 +3517,8 @@ paths:
       security:
         - bearerAuth: []
         - adminTokenHeader: []
+        - rbacToken: [approver]
+        - ldapTicket: [approver]
         - {}
       parameters:
         - name: credential_id
@@ -3477,6 +3579,8 @@ paths:
       security:
         - bearerAuth: []
         - adminTokenHeader: []
+        - rbacToken: [operator]
+        - ldapTicket: [operator]
         - {}
         - brokerToken: []
       parameters:
@@ -3517,6 +3621,8 @@ paths:
       security:
         - bearerAuth: []
         - adminTokenHeader: []
+        - rbacToken: [auditor, auditor-read-only]
+        - ldapTicket: [auditor, auditor-read-only]
         - {}
       parameters:
         - name: status
@@ -3576,6 +3682,8 @@ paths:
       security:
         - bearerAuth: []
         - adminTokenHeader: []
+        - rbacToken: [auditor, auditor-read-only]
+        - ldapTicket: [auditor, auditor-read-only]
         - {}
       parameters:
         - name: agent_id
@@ -3664,6 +3772,8 @@ paths:
       security:
         - bearerAuth: []
         - adminTokenHeader: []
+        - rbacToken: [auditor, auditor-read-only]
+        - ldapTicket: [auditor, auditor-read-only]
         - {}
       parameters:
         - name: agent_id
@@ -3822,6 +3932,8 @@ paths:
       security:
         - bearerAuth: []
         - adminTokenHeader: []
+        - rbacToken: [auditor, auditor-read-only]
+        - ldapTicket: [auditor, auditor-read-only]
         - {}
       parameters:
         - name: status
@@ -3848,6 +3960,8 @@ paths:
       security:
         - bearerAuth: []
         - adminTokenHeader: []
+        - rbacToken: [auditor, auditor-read-only]
+        - ldapTicket: [auditor, auditor-read-only]
         - {}
       parameters:
         - name: request_id
@@ -3919,6 +4033,8 @@ paths:
       security:
         - bearerAuth: []
         - adminTokenHeader: []
+        - rbacToken: [operator]
+        - ldapTicket: [operator]
         - {}
         - agentToken: []
       parameters:
@@ -3959,6 +4075,8 @@ paths:
       security:
         - bearerAuth: []
         - adminTokenHeader: []
+        - rbacToken: [auditor, auditor-read-only]
+        - ldapTicket: [auditor, auditor-read-only]
         - {}
       responses:
         "200":
@@ -3976,6 +4094,8 @@ paths:
       security:
         - bearerAuth: []
         - adminTokenHeader: []
+        - rbacToken: [auditor, auditor-read-only]
+        - ldapTicket: [auditor, auditor-read-only]
         - {}
       responses:
         "200":
@@ -3996,6 +4116,8 @@ paths:
       security:
         - bearerAuth: []
         - adminTokenHeader: []
+        - rbacToken: [operator]
+        - ldapTicket: [operator]
         - {}
       parameters:
         - name: X-Actor
@@ -4023,6 +4145,8 @@ paths:
       security:
         - bearerAuth: []
         - adminTokenHeader: []
+        - rbacToken: [auditor, auditor-read-only]
+        - ldapTicket: [auditor, auditor-read-only]
         - {}
       parameters:
         - name: node_id
@@ -4044,6 +4168,8 @@ paths:
       security:
         - bearerAuth: []
         - adminTokenHeader: []
+        - rbacToken: [operator]
+        - ldapTicket: [operator]
         - {}
       parameters:
         - name: node_id
@@ -4075,6 +4201,8 @@ paths:
       security:
         - bearerAuth: []
         - adminTokenHeader: []
+        - rbacToken: [operator]
+        - ldapTicket: [operator]
         - {}
       parameters:
         - name: node_id
@@ -4107,6 +4235,8 @@ paths:
       security:
         - bearerAuth: []
         - adminTokenHeader: []
+        - rbacToken: [operator]
+        - ldapTicket: [operator]
         - {}
       parameters:
         - name: node_id
@@ -4144,6 +4274,8 @@ paths:
       security:
         - bearerAuth: []
         - adminTokenHeader: []
+        - rbacToken: [operator]
+        - ldapTicket: [operator]
         - {}
       parameters:
         - name: node_id
@@ -4180,6 +4312,8 @@ paths:
       security:
         - bearerAuth: []
         - adminTokenHeader: []
+        - rbacToken: [auditor, auditor-read-only]
+        - ldapTicket: [auditor, auditor-read-only]
         - {}
       responses:
         "200":
@@ -4203,6 +4337,8 @@ paths:
       security:
         - bearerAuth: []
         - adminTokenHeader: []
+        - rbacToken: [operator]
+        - ldapTicket: [operator]
         - {}
       parameters:
         - name: X-Actor
@@ -4236,6 +4372,8 @@ paths:
       security:
         - bearerAuth: []
         - adminTokenHeader: []
+        - rbacToken: [operator]
+        - ldapTicket: [operator]
         - {}
       parameters:
         - name: X-Actor
@@ -4260,6 +4398,8 @@ paths:
       security:
         - bearerAuth: []
         - adminTokenHeader: []
+        - rbacToken: [auditor, auditor-read-only]
+        - ldapTicket: [auditor, auditor-read-only]
         - {}
       responses:
         "200":
@@ -4280,6 +4420,8 @@ paths:
       security:
         - bearerAuth: []
         - adminTokenHeader: []
+        - rbacToken: [operator]
+        - ldapTicket: [operator]
         - {}
       parameters:
         - name: X-Actor
@@ -4307,6 +4449,8 @@ paths:
       security:
         - bearerAuth: []
         - adminTokenHeader: []
+        - rbacToken: [auditor]
+        - ldapTicket: [auditor]
         - {}
       responses:
         "200":
@@ -4327,6 +4471,8 @@ paths:
       security:
         - bearerAuth: []
         - adminTokenHeader: []
+        - rbacToken: [auditor]
+        - ldapTicket: [auditor]
         - {}
       responses:
         "200":
@@ -4335,6 +4481,144 @@ paths:
             application/json:
               schema: {$ref: "#/components/schemas/ClusterSessionExport"}
         "401": {$ref: "#/components/responses/Unauthorized"}
+
+  /api/v1/roles:
+    get:
+      tags: [rbac]
+      summary: The built-in roles
+      description: >
+        The five built-in roles of the access model with the exact number of
+        admin operations each may call - the policy is computed, never a
+        stale copy. Admin-only.
+      security:
+        - bearerAuth: []
+        - adminTokenHeader: []
+        - rbacToken: [auditor, auditor-read-only]
+        - ldapTicket: [auditor, auditor-read-only]
+        - {}
+      responses:
+        "200":
+          description: Role directory
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/RoleList"}
+        "401": {$ref: "#/components/responses/Unauthorized"}
+
+  /api/v1/role-bindings:
+    get:
+      tags: [rbac]
+      summary: Who holds a role
+      description: >
+        Active bindings by default; revoked rows stay as evidence behind
+        ?include_revoked=1. The token itself is shown once at creation and
+        never again - only whether a credential exists. Admin-only.
+      security:
+        - bearerAuth: []
+        - adminTokenHeader: []
+        - rbacToken: [auditor, auditor-read-only]
+        - ldapTicket: [auditor, auditor-read-only]
+        - {}
+      parameters:
+        - name: include_revoked
+          in: query
+          schema: {type: boolean}
+      responses:
+        "200":
+          description: Bindings
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/RoleBindingList"}
+        "401": {$ref: "#/components/responses/Unauthorized"}
+    post:
+      tags: [rbac]
+      summary: Create a role binding
+      description: >
+        A `local` principal receives its API token once
+        (`vypam-rbac1.<id>.<secret>` - sha256 at rest, never recoverable);
+        an `ldap` principal is a directory username that a signed login
+        ticket will carry. Optional `scope` carries the ABAC attribute
+        rules. Admin-only.
+      security:
+        - bearerAuth: []
+        - adminTokenHeader: []
+        - {}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: "#/components/schemas/RoleBindingCreate"}
+      responses:
+        "201":
+          description: Binding created; the plaintext token is in `token` for local principals (shown once)
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [binding, message]
+                properties:
+                  binding: {$ref: "#/components/schemas/RoleBinding"}
+                  message: {type: string}
+                  token: {type: string, description: "Shown once - sha256 at rest, never recoverable."}
+                  token_notice: {type: string}
+        "400": {$ref: "#/components/responses/BadRequest"}
+        "401": {$ref: "#/components/responses/Unauthorized"}
+        "409": {$ref: "#/components/responses/Conflict"}
+
+  /api/v1/role-bindings/{binding_id}:
+    delete:
+      tags: [rbac]
+      summary: Revoke a role binding
+      description: >
+        The token stops working immediately and a directory binding stops
+        counting; the row stays as evidence. Admin-only.
+      security:
+        - bearerAuth: []
+        - adminTokenHeader: []
+        - {}
+      parameters:
+        - name: binding_id
+          in: path
+          required: true
+          schema: {type: integer}
+      responses:
+        "200":
+          description: Binding revoked
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [binding, message]
+                properties:
+                  binding: {$ref: "#/components/schemas/RoleBinding"}
+                  message: {type: string}
+        "401": {$ref: "#/components/responses/Unauthorized"}
+        "404": {$ref: "#/components/responses/NotFound"}
+        "409": {$ref: "#/components/responses/Conflict"}
+
+  /api/v1/auth/whoami:
+    get:
+      tags: [rbac]
+      summary: Who the caller is and what their role may call
+      description: >
+        Open mode reports the open/dev posture; in token mode the admin
+        token is `admin`, a role binding's token is its binding's role, and
+        a directory login ticket is that username's binding. Honest 401
+        without a credential, honest 403 for a directory identity that has
+        no binding.
+      security:
+        - bearerAuth: []
+        - adminTokenHeader: []
+        - rbacToken: []
+        - ldapTicket: []
+        - {}
+      responses:
+        "200":
+          description: The acting principal and its operations
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/WhoAmI"}
+        "401": {$ref: "#/components/responses/Unauthorized"}
+        "403": {$ref: "#/components/responses/Forbidden"}
 
 components:
   securitySchemes:
@@ -4355,6 +4639,14 @@ components:
       type: http
       scheme: bearer
       description: "An AI agent's API token as `Authorization: Bearer vypam-agt1.<id>.<secret>` (or the `X-Agent-Token` header). Issued once per agent identity, stored as a sha256 hash, and never waived in open/dev mode - the agent identity is the point, `X-Actor` is not consulted."
+    rbacToken:
+      type: http
+      scheme: bearer
+      description: "A role binding's API token as `Authorization: Bearer vypam-rbac1.<id>.<secret>` (or the `X-Admin-Token` header). Issued once per local principal, stored as a sha256 hash, and governed by its binding's role plus attribute scope. Each operation lists the roles that may call it in this scheme's scopes."
+    ldapTicket:
+      type: http
+      scheme: bearer
+      description: "A signed LDAP login ticket as `Authorization: Bearer <ticket>` (minted by POST /api/v1/auth/ldap after a real bind). The directory vouches for the username; a role binding (kind `ldap`) decides what it may do - no binding, no access."
   parameters:
     LicenseKey:
       name: license_key
@@ -4399,7 +4691,7 @@ components:
         application/json:
           schema: {$ref: "#/components/schemas/Error"}
     Forbidden:
-      description: Refused by policy - self-approval attempted (requesters cannot approve their own access), a vendor request/session outside the vendor's scope or valid window, or a pipeline credential request outside the broker policy's allowed targets.
+      description: Refused by policy - self-approval attempted (requesters cannot approve their own access), a vendor request/session outside the vendor's scope or valid window, a pipeline credential request outside the broker policy's allowed targets, or the presented credential's role or binding scope does not reach this operation (RBAC/ABAC, architecture 10).
       content:
         application/json:
           schema: {$ref: "#/components/schemas/Error"}
@@ -7552,3 +7844,83 @@ components:
         sessions:
           type: array
           items: {type: object, additionalProperties: true}
+
+    Role:
+      type: object
+      required: [id, name, description, created_at, operations]
+      properties:
+        id: {type: integer}
+        name:
+          type: string
+          enum: [admin, approver, operator, auditor, auditor-read-only]
+        description: {type: string}
+        created_at: {type: string, format: date-time}
+        operations:
+          type: integer
+          description: How many admin operations this role may call (computed from the shipped policy).
+
+    RoleList:
+      type: object
+      required: [roles]
+      properties:
+        roles: {type: array, items: {$ref: "#/components/schemas/Role"}}
+
+    RoleBindingScope:
+      type: object
+      description: >
+        ABAC attribute rules: fnmatch `targets` patterns and explicit
+        `vault_items` ids. An empty scope means the role governs everywhere.
+      properties:
+        targets:
+          type: array
+          items: {type: string}
+        vault_items:
+          type: array
+          items: {type: integer}
+
+    RoleBinding:
+      type: object
+      required: [id, principal, role, kind, has_token, created_at, created_by]
+      properties:
+        id: {type: integer}
+        principal: {type: string, description: "The identity: a local principal's name, or the directory username for kind ldap."}
+        role: {type: string}
+        kind: {type: string, enum: [local, ldap]}
+        token_prefix: {type: string, description: "The public part of the minted token (`vypam-rbac1.<id>.`) - never the secret."}
+        has_token: {type: boolean}
+        scope: {$ref: "#/components/schemas/RoleBindingScope"}
+        last_used_at: {type: string, format: date-time, nullable: true}
+        revoked_at: {type: string, format: date-time, nullable: true}
+        created_at: {type: string, format: date-time}
+        created_by: {type: string}
+
+    RoleBindingList:
+      type: object
+      required: [bindings]
+      properties:
+        bindings: {type: array, items: {$ref: "#/components/schemas/RoleBinding"}}
+
+    RoleBindingCreate:
+      type: object
+      required: [principal, role]
+      properties:
+        principal: {type: string, minLength: 1, maxLength: 128}
+        role: {type: string, enum: [admin, approver, operator, auditor, auditor-read-only]}
+        kind: {type: string, enum: [local, ldap], default: local}
+        scope: {$ref: "#/components/schemas/RoleBindingScope"}
+
+    WhoAmI:
+      type: object
+      required: [mode, principal, role, kind, operations_count]
+      properties:
+        mode: {type: string, enum: [open, token]}
+        principal: {type: string}
+        role: {type: string, enum: [admin, approver, operator, auditor, auditor-read-only]}
+        kind: {type: string, enum: [open, admin-token, local, ldap]}
+        scope: {type: object, additionalProperties: true, nullable: true}
+        operations:
+          description: "The admin operations this role may call (the string `all` in open mode)."
+          oneOf:
+            - {type: string}
+            - {type: array, items: {type: string}}
+        operations_count: {type: integer}

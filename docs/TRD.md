@@ -51,7 +51,7 @@ repo.
 | Store | SQLite (`licenses.db`, git-ignored) | append-only enforced by triggers on `audit_events` |
 | Crypto | `cryptography` lib | RSA-PSS-SHA256 (default) / Ed25519 envelopes; AES-256-GCM secrets |
 | Frontend | Static HTML + Tailwind (CDN build) + vanilla JS | 11 sidebar screens, no bundler, works from `file://` |
-| Tests | pytest | 577 backend + 46 pam_master |
+| Tests | pytest | 613 backend + 46 pam_master |
 | UI verification | Node + `playwright-core` (`shots_tool/`) | viewport 1920×1600, never `fullPage` |
 | Vendor tool | Flask + raw `sqlite3` | `pam_master` package, `python -m pam_master` |
 
@@ -510,12 +510,53 @@ Rules enforced by tests/conventions:
   the copy read-only and re-walks its chain before answering 201; a
   non-SQLite engine answers 503 honestly.
 
+### 4.21 RBAC / ABAC (§10) - Phase 6b
+
+- **Data**: `roles` (the five built-ins, seeded once at startup) +
+  `role_bindings` (who holds which role; `local` = minted API token
+  stored **sha256**, `ldap` = directory username, ABAC `scope` JSON,
+  revocation is a timestamp and the row stays as evidence) +
+  `rbac_events` (grant/revoke trail → ledger source `rbac`, the 17th;
+  the minted token never enters `detail`). Tables **44→47**.
+- **Policy in code**: `service.ADMIN_OPERATIONS` is the single source of
+  which of the 105 admin operations exist (the contract test pins it);
+  `service.ROLE_OPERATIONS` derives each role's set - admin 105 /
+  operator 45 / auditor 19 / auditor-read-only 16 / approver 10,
+  approver∩operator = ∅, reveal operator-only, the 3 evidence-export
+  GETs auditor-only.
+- **Enforcement**: every admin route funnels through
+  `_require_admin_credential` (decorator + inline calls; the operation
+  key normalizes Flask `<int:x>` to the contract's `{x}`). `admin-token`
+  (kind admin) may call everything and keeps the `X-Actor` convention;
+  a bound principal overrides `X-Actor` as the audit actor (`_actor`).
+  A denial is 403 verbatim: `Role '<role>' may not call <METHOD> <path>`.
+- **Tokens**: `vypam-rbac1.<id>.<secret>` returned once at grant time
+  (sha256 at rest, `last_used_at` on verify); revoke → every token of
+  the binding 401s immediately.
+- **LDAP**: the directory authenticates, the binding decides - a valid
+  ticket with no `kind=ldap` binding reaches no admin route (403 with
+  the same verbatim shape; migration note in
+  `DEPLOYMENT_RUNBOOK.md` §12).
+- **ABAC scope**: `{"targets": [fnmatch], "vault_items": [ids]}` -
+  strictly validated (unknown keys → 400), enforced on vault checkout /
+  reveal / rotate / revoke and session-create targets (empty = the role
+  governs everywhere; out-of-scope → 403 with `details.target`).
+- **Contract**: `rbacToken` + `ldapTicket` security schemes, role scope
+  lists on the 74 admin ops that declare them (31 admin-only get
+  `none`), +4 paths (`/roles`, `/role-bindings`,
+  `/role-bindings/{binding_id}`, `/auth/whoami`) → 135 paths / 164 ops /
+  20 tags / 105 admin / 245 schemas.
+- **Open dev mode** waives all of it honestly (`/auth/whoami` reports
+  `mode: open`); the standing gate (`__verify_agent.mjs`, 50 checks)
+  runs the live grant → 403 → allowed op → scope 403 → revoke → 401
+  flow only under `GATE_ADMIN_TOKEN`, and says so when it skips.
+
 ## 5. API conventions
 
 | Concern | Rule |
 |---|---|
 | Versioning | Everything under `/api/v1` (health/meta unversioned) |
-| Auth | `LICENSE_ADMIN_TOKEN` set → `Authorization: Bearer …` or `X-Admin-Token: …` on the 101 admin operations; unset → explicit open dev mode (`X-Auth-Mode: open` response header); pipeline `/broker` operations require the broker API token and AI-agent `/agent-access` operations the agent API token — neither is ever waived |
+| Auth | `LICENSE_ADMIN_TOKEN` set → `Authorization: Bearer …` or `X-Admin-Token: …` on the 105 admin operations; unset → explicit open dev mode (`X-Auth-Mode: open` response header); pipeline `/broker` operations require the broker API token and AI-agent `/agent-access` operations the agent API token — neither is ever waived. In token mode a bound principal (RBAC API token or LDAP ticket) may call only its role's operations and only its ABAC scope (§4.21). |
 | Actor | `X-Actor` header recorded on every audited write |
 | Errors | `{"error": {"code", "message", "details?"}}`; 400 validation, 401 auth, 403 policy refusal, 404, 409 conflict/state, 422 shape, 503 fail-closed dependency |
 | Pagination | `limit` (max 200) + `offset`, newest first |
@@ -575,7 +616,6 @@ its phase starts (plan > code > docs, in that order).
 
 | Phase / section | Data additions | API additions | Runtime behavior |
 |---|---|---|---|
-| 6b RBAC | `roles`, `role_bindings` | security schemes gain role requirements | attribute checks on the 101 admin ops + vault/target scoping |
 | 6c SSO/HSM | SSO/HSM config state | SAML/OIDC login path, PKCS#11/KMS key ops | settings schema becomes enforcement; posture counts flip honestly |
 
 Standing constraints that carry into all of these: ledger emission inside

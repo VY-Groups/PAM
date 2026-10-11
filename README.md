@@ -24,7 +24,7 @@ PAM/
 │   ├── screens/<name>/          #   one folder per screen: code.html + screen.png
 │   └── README.md                #   layout + how to add a screen (the contract)
 ├── apis/                            # HTTP contract for every backend service
-│   ├── openapi.yaml             #   OpenAPI 3.1: all 131 paths (synced by a test)
+│   ├── openapi.yaml             #   OpenAPI 3.1: all 135 paths (synced by a test)
 │   └── README.md                #   conventions + how to view
 ├── backend/
 │   ├── ipam_licensing/              # Phase 1: library + CLIs
@@ -38,7 +38,7 @@ PAM/
 │   └── phase2_license_server/   # Phase 2: Flask API (see its README.md)
 │       ├── app.py / routes.py / service.py / models.py
 │       ├── tests/test_api.py            # license API suite (59 tests)
-│       ├── tests/test_settings_and_ui.py # settings API + frontend nav (32 tests)
+│       ├── tests/test_settings_and_ui.py # settings API + frontend nav (33 tests)
 │       ├── tests/test_vault_dashboard.py # vault inventory + dashboard feed (19 tests)
 │       ├── tests/test_rotation.py        # at-rest encryption + rotation (30 tests)
 │       ├── tests/test_discovery.py       # discovery endpoints (19 tests)
@@ -57,7 +57,8 @@ PAM/
 │       ├── tests/test_broker.py       # §15 CI/CD credential broker (24 tests)
 │       ├── tests/test_agent.py        # §16 AI-agent PAM (29 tests)
 │       ├── tests/test_cluster.py      # §18 HA/DC/DR probe/replication/failover (36 tests)
-│       ├── tests/test_openapi_contract.py # apis/openapi.yaml ↔ routes (5 tests)
+│       ├── tests/test_rbac.py         # §10 RBAC/ABAC roles, bindings, scope (31 tests)
+│       ├── tests/test_openapi_contract.py # apis/openapi.yaml ↔ routes (9 tests)
 │       ├── Dockerfile + docker-compose.yml  # development/runtime testing only
 │       └── README.md                # full API reference
 ├── pam_master/                        # VY-PAM MASTER: vendor tool (never shipped)
@@ -98,7 +99,7 @@ python -m pam_master.keygen                      # RSA + Ed25519 + registry PII 
 python -m pam_master                             # http://127.0.0.1:5400
 
 # Tests (shared core + shipped API contract + vendor tool)
-python -m pytest backend -q                      # 577 tests
+python -m pytest backend -q                      # 613 tests
 python -m pytest pam_master -q                   # 46 tests (vendor tool)
 ```
 

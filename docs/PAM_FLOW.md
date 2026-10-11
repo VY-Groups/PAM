@@ -1,6 +1,6 @@
 # VY-PAM — PAM Flow (Application Flow)
 
-**Status:** as-built for Phase 6a
+**Status:** as-built for Phase 6b
 Maps navigation, user journeys, and state machines across the console.
 Screen files live in `frontend/screens/<slug>/code.html`; the canonical
 navigation is the 11-item sidebar rendered on every screen.
@@ -424,10 +424,13 @@ AgentIdentity.status: active ⇄ disabled  (disable/enable reversible)
 
 | Action | Who (enforced how) |
 |---|---|
+| Call an admin operation (token mode) | the `admin-token` (kind admin), or a bound principal whose role includes the operation — a denial is 403 verbatim (`Role 'x' may not call …`) and the binding's ABAC scope may narrow it further (targets / vault items) |
+| Hold a role | an admin via `POST /api/v1/role-bindings` (the API token is shown once, sha256 at rest); directory users need a `kind=ldap` binding — the directory authenticates, the binding decides (no binding → 403) |
 | Approve JIT | anyone but the requester; security role additionally required on `high` |
 | Approve/deny held command | another actor resolves the append-only approval row |
-| Reveal secret | authenticated admin; actor recorded; plaintext never logged |
+| Reveal secret | authenticated admin, or a bound operator (in token mode reveal is operator-only); actor recorded; plaintext never logged |
 | License import/revoke | authenticated admin; ledger `license` |
+| Evidence exports (license file, cluster vault/sessions export) | in token mode the `auditor` role (and admin) — `auditor-read-only` and below are refused |
 | Break-glass emergency access | two distinct approvers sign (requester excluded, 403); the closer must file the review note |
 | Release a pipeline credential | the owning pipeline's broker API token only — the admin token never substitutes and open/dev mode never waives it |
 | Close a pipeline credential | the owning pipeline's token, or an admin (dual-auth route; another pipeline's row is a 404) |

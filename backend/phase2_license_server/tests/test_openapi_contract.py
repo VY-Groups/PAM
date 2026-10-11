@@ -24,110 +24,10 @@ import service  # noqa: E402
 SPEC_PATH = REPO_ROOT / "apis" / "openapi.yaml"
 HTTP_METHODS = {"get", "post", "put", "patch", "delete"}
 
-# Operations that require the admin token when LICENSE_ADMIN_TOKEN is set.
-ADMIN_OPERATIONS = [
-    ("post", "/api/v1/licenses/import"),
-    ("get", "/api/v1/licenses/{license_key}/file"),
-    ("post", "/api/v1/licenses/{license_key}/revoke"),
-    ("post", "/api/v1/licenses/{license_key}/restore"),
-    ("post", "/api/v1/licenses/{license_key}/usage"),
-    ("put", "/api/v1/settings/{group}"),
-    ("post", "/api/v1/vault/items"),
-    ("post", "/api/v1/vault/items/{item_id}/checkout"),
-    ("post", "/api/v1/vault/items/{item_id}/revoke"),
-    ("post", "/api/v1/vault/items/{item_id}/rotate"),
-    ("get", "/api/v1/vault/items/{item_id}/secret"),
-    ("post", "/api/v1/rotation/run"),
-    ("post", "/api/v1/rotation/session-end"),
-    ("post", "/api/v1/jit/requests"),
-    ("post", "/api/v1/jit/requests/{request_id}/approve"),
-    ("post", "/api/v1/jit/requests/{request_id}/deny"),
-    ("post", "/api/v1/jit/requests/{request_id}/consume"),
-    ("post", "/api/v1/jit/requests/{request_id}/close"),
-    ("post", "/api/v1/sessions"),
-    ("post", "/api/v1/sessions/{session_id}/events"),
-    ("post", "/api/v1/sessions/{session_id}/controls"),
-    ("post", "/api/v1/sessions/{session_id}/pause"),
-    ("post", "/api/v1/sessions/{session_id}/lock"),
-    ("post", "/api/v1/sessions/{session_id}/resume"),
-    ("post", "/api/v1/sessions/{session_id}/terminate"),
-    ("post", "/api/v1/sessions/{session_id}/complete"),
-    ("post", "/api/v1/sessions/{session_id}/events/{seq}/approve"),
-    ("post", "/api/v1/sessions/{session_id}/events/{seq}/deny"),
-    ("post", "/api/v1/command-control/rules"),
-    ("put", "/api/v1/command-control/rules/{rule_id}"),
-    ("delete", "/api/v1/command-control/rules/{rule_id}"),
-    ("post", "/api/v1/command-control/incidents/{incident_id}/close"),
-    ("post", "/api/v1/discovery/assets"),
-    ("patch", "/api/v1/discovery/assets/{asset_id}"),
-    ("post", "/api/v1/discovery/assets/{asset_id}/onboard"),
-    ("post", "/api/v1/discovery/scans"),
-    ("post", "/api/v1/risk/evaluate"),
-    ("post", "/api/v1/risk/baselines/train"),
-    ("post", "/api/v1/bypass/ingest"),
-    ("post", "/api/v1/bypass/scans"),
-    ("post", "/api/v1/bypass/incidents/{incident_id}/close"),
-    ("post", "/api/v1/break-glass/requests"),
-    ("post", "/api/v1/break-glass/requests/{request_id}/approve"),
-    ("post", "/api/v1/break-glass/requests/{request_id}/deny"),
-    ("post", "/api/v1/break-glass/requests/{request_id}/open"),
-    ("post", "/api/v1/break-glass/requests/{request_id}/close"),
-    ("post", "/api/v1/mfa/enroll"),
-    ("post", "/api/v1/mfa/verify"),
-    ("post", "/api/v1/itsm/verify"),
-    ("post", "/api/v1/vendors"),
-    ("patch", "/api/v1/vendors/{vendor_id}"),
-    ("post", "/api/v1/vendors/{vendor_id}/mfa"),
-    ("post", "/api/v1/vendors/{vendor_id}/nda"),
-    ("post", "/api/v1/vendors/{vendor_id}/ticket"),
-    ("post", "/api/v1/vendors/{vendor_id}/approve"),
-    ("post", "/api/v1/vendors/{vendor_id}/deny"),
-    ("post", "/api/v1/vendors/{vendor_id}/revoke"),
-    ("post", "/api/v1/vendors/{vendor_id}/requests"),
-    ("post", "/api/v1/cloud/connectors"),
-    ("patch", "/api/v1/cloud/connectors/{connector_id}"),
-    ("delete", "/api/v1/cloud/connectors/{connector_id}"),
-    ("post", "/api/v1/cloud/connectors/{connector_id}/test"),
-    ("post", "/api/v1/cloud/connectors/{connector_id}/discover"),
-    ("post", "/api/v1/cloud/connectors/{connector_id}/rbac/requests"),
-    ("post", "/api/v1/broker/policies"),
-    ("get", "/api/v1/broker/policies"),
-    ("get", "/api/v1/broker/policies/{policy_id}"),
-    ("patch", "/api/v1/broker/policies/{policy_id}"),
-    ("delete", "/api/v1/broker/policies/{policy_id}"),
-    ("get", "/api/v1/broker/credentials"),
-    ("get", "/api/v1/broker/credentials/{credential_id}"),
-    ("post", "/api/v1/broker/credentials/{credential_id}/approve"),
-    ("post", "/api/v1/broker/credentials/{credential_id}/deny"),
-    ("post", "/api/v1/broker/credentials/{credential_id}/close"),
-    ("get", "/api/v1/agents"),
-    ("post", "/api/v1/agents"),
-    ("get", "/api/v1/agents/{agent_id}"),
-    ("patch", "/api/v1/agents/{agent_id}"),
-    ("delete", "/api/v1/agents/{agent_id}"),
-    ("get", "/api/v1/agents/{agent_id}/tasks"),
-    ("post", "/api/v1/agents/{agent_id}/tasks"),
-    ("patch", "/api/v1/agents/{agent_id}/tasks/{task_id}"),
-    ("delete", "/api/v1/agents/{agent_id}/tasks/{task_id}"),
-    ("get", "/api/v1/agent-access/requests"),
-    ("get", "/api/v1/agent-access/requests/{request_id}"),
-    ("post", "/api/v1/agent-access/requests/{request_id}/close"),
-    ("get", "/api/v1/cluster"),
-    ("get", "/api/v1/cluster/nodes"),
-    ("post", "/api/v1/cluster/nodes"),
-    ("get", "/api/v1/cluster/nodes/{node_id}"),
-    ("patch", "/api/v1/cluster/nodes/{node_id}"),
-    ("delete", "/api/v1/cluster/nodes/{node_id}"),
-    ("post", "/api/v1/cluster/nodes/{node_id}/probe"),
-    ("post", "/api/v1/cluster/nodes/{node_id}/sync"),
-    ("get", "/api/v1/cluster/replicas"),
-    ("post", "/api/v1/cluster/failover"),
-    ("post", "/api/v1/cluster/monitor/tick"),
-    ("get", "/api/v1/cluster/backups"),
-    ("post", "/api/v1/cluster/backups"),
-    ("get", "/api/v1/cluster/export/vault"),
-    ("get", "/api/v1/cluster/export/sessions"),
-]
+# The admin operations, as the runtime enforces them (the service is the
+# single source: the role policy and the route guards derive from this
+# list, and this test asserts the document declares exactly it).
+ADMIN_OPERATIONS = service.ADMIN_OPERATIONS
 
 
 def _make_config(tmp_path: Path) -> Config:
@@ -213,6 +113,53 @@ def test_admin_operations_declare_admin_token_security(spec):
         schemes = operation.get("security", [])
         assert any("bearerAuth" in entry for entry in schemes), f"{method} {path}"
         assert any("adminTokenHeader" in entry for entry in schemes), f"{method} {path}"
+
+
+def test_documented_admin_operation_set_matches_the_runtime(spec):
+    """The operations carrying the admin credential in the document are
+    exactly the ones the runtime guards - plus /auth/whoami, which accepts
+    the admin token as one of several self-service credentials."""
+    documented = {
+        (method, path)
+        for path, item in spec["paths"].items()
+        for method, operation in item.items()
+        if method in HTTP_METHODS
+        and any("adminTokenHeader" in entry for entry in operation.get("security", []))
+    }
+    assert documented == set(ADMIN_OPERATIONS) | {("get", "/api/v1/auth/whoami")}
+
+
+def test_admin_operations_declare_their_role_requirements(spec):
+    """Each admin operation's rbacToken/ldapTicket scopes list exactly the
+    non-admin roles the shipped policy grants it; admin-only operations
+    carry no role entry."""
+    for method, path in ADMIN_OPERATIONS:
+        operation = spec["paths"][path][method]
+        schemes = operation.get("security", [])
+        expected = sorted(service.ROLE_OPERATIONS.get((method, path), set()))
+        for scheme in ("rbacToken", "ldapTicket"):
+            roles = sorted(
+                role
+                for entry in schemes
+                if scheme in entry
+                for role in (entry[scheme] or [])
+            )
+            assert roles == expected, f"{scheme} on {method} {path}: {roles} != {expected}"
+
+
+def test_rbac_security_schemes_are_documented(spec):
+    schemes = spec["components"]["securitySchemes"]
+    assert schemes["rbacToken"]["type"] == "http"
+    assert "vypam-rbac1" in schemes["rbacToken"]["description"]
+    assert schemes["ldapTicket"]["type"] == "http"
+    assert "/api/v1/auth/ldap" in schemes["ldapTicket"]["description"]
+
+
+def test_whoami_documents_every_credential(spec):
+    operation = spec["paths"]["/api/v1/auth/whoami"]["get"]
+    schemes = operation.get("security", [])
+    for scheme in ("bearerAuth", "adminTokenHeader", "rbacToken", "ldapTicket"):
+        assert any(scheme in entry for entry in schemes), scheme
 
 
 def test_settings_group_enum_matches_service_schema(spec):

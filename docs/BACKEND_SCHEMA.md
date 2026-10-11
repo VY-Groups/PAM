@@ -1,6 +1,6 @@
 # VY-PAM — Backend Schema
 
-**Status:** as-built for Phase 6a
+**Status:** as-built for Phase 6b
 Two databases: the **shipped runtime DB** (`backend/phase2_license_server/
 licenses.db`, SQLAlchemy/Flask-SQLAlchemy) and the **vendor-tool DB**
 (`pam_master/master.db`, raw `sqlite3`). Both are SQLite, both git-ignored.
@@ -11,7 +11,7 @@ external migration tool.
 
 ---
 
-## 1. Shipped runtime - 44 tables
+## 1. Shipped runtime - 47 tables
 
 ### ERD (logical)
 
@@ -45,6 +45,9 @@ cluster_nodes ─1:n─ cluster_audit_replicas    (peer chain evidence re-hashed
 cluster_nodes ─1:n─ cluster_secret_replicas   (peer vault ciphertext stored sealed; plaintext_here flags a local key match)
 cluster_nodes ─1:n─ cluster_session_replicas  (peer session metadata as evidence, not a merge)
 cluster_backups                              (verified SQLite copies: path + sha256 + audit_seq)
+roles                                     (the five built-in roles, seeded once at startup; per-operation policy in code)
+role_bindings                             (who holds which role + ABAC scope; local tokens sha256 at rest, revocation is a timestamp - row kept as evidence)
+rbac_events                               (grant/revoke actions → ledger source `rbac`; the minted token never enters `detail`)
 audit_events                                    (hash chain over all of the above)
 ```
 
@@ -349,9 +352,10 @@ DateTime indexed
   Preserved evidence, never rewritten. Folded into the §19 ledger by
   `_map_anomaly` under the existing `risk` source (`action:
   anomaly-incident`, ref `anom:<id>`), so the anomaly rows added no new
-  ledger source (11 sources at 4j; **16** today - the §13 `vendor` source
+  ledger source (11 sources at 4j; **17** today - the §13 `vendor` source
   joined in 5a, the §14 `cloud` source in 5b, the §15 `broker` source in
-  5c, the §16 `agent` source in 5d and the §18 `cluster` source in 6a).
+  5c, the §16 `agent` source in 5d, the §18 `cluster` source in 6a and
+  the §10 `rbac` source in 6b).
   The model class is named `AnomalyEvent` deliberately: the audit drift
   guard requires every `*Event` table to join the ledger.
 
@@ -609,6 +613,50 @@ DateTime indexed.
 
 ---
 
+### 1.45 `roles` — §10 the five built-in roles (seeded once at startup)
+
+| Column | Type | Null | Default | Index/Notes |
+|---|---|---|---|---|
+| id | INTEGER PK | ✗ | | |
+| name | String(64) | ✗ | | unique indexed (`admin`, `approver`, `operator`, `auditor`, `auditor-read-only`) |
+| description | String(255) | ✗ | `''` | what the role may call, in plain words |
+| created_at | DateTime | ✗ | now | |
+
+The per-operation policy - which of the 105 admin operations each role
+may call - is code, not data: `service.ROLE_OPERATIONS` derives it from
+`service.ADMIN_OPERATIONS` (the single source the contract test pins).
+
+### 1.46 `role_bindings` — §10 who holds a role
+
+| Column | Type | Null | Default | Index/Notes |
+|---|---|---|---|---|
+| id | INTEGER PK | ✗ | | |
+| principal | String(128) | ✗ | | indexed (not column-unique: a revoked row keeps its principal as evidence; uniqueness enforced among **active** rows only) |
+| role | String(64) | ✗ | | indexed → the granted role |
+| kind | String(16) | ✗ | `local` | `local` (minted API token) or `ldap` (directory username) |
+| token_sha256 | String(64) | ✓ | NULL | sha256 of the minted token's secret part; NULL for `ldap` - the token itself is never stored |
+| token_prefix | String(40) | ✗ | `''` | the public part (`vypam-rbac1.<id>.…`) so the UI can match a credential to a row |
+| scope | JSON | ✗ | `{}` | ABAC rules: `{"targets": [fnmatch], "vault_items": [ids]}` - empty = the role governs everywhere |
+| last_used_at | DateTime | ✓ | NULL | recorded on every successful token verify |
+| revoked_at | DateTime | ✓ | NULL | revocation is a timestamp; the row stays as ledger-side evidence |
+| created_at | DateTime | ✗ | now | |
+| created_by | String(64) | ✗ | `system` | |
+
+### 1.47 `rbac_events` — §10 grant/revoke trail (ledger source `rbac`)
+
+| Column | Type | Null | Default | Index/Notes |
+|---|---|---|---|---|
+| id | INTEGER PK | ✗ | | |
+| action | String(64) | ✗ | | `rbac.binding.created` / `rbac.binding.revoked` |
+| actor | String(64) | ✗ | `system` | the admin (bound principal overrides `X-Actor`) |
+| subject | String(128) | ✗ | `''` | the bound principal |
+| detail | JSON | ✗ | `{}` | role, kind, scope - **never the minted token** |
+| created_at | DateTime | ✗ | now | indexed |
+
+Folded into the §19 ledger by `_map_rbac` under the seventeenth source
+`rbac`. The audit drift guard keeps it honest: the model is an `*Event`
+table, so it must join the chain.
+
 ## 2. Vendor tool - `pam_master/master.db` (4 tables)
 
 Raw SQL (`pam_master/db.py`), `PRAGMA foreign_keys = ON`, ISO-8601 TEXT
@@ -680,7 +728,6 @@ column sets land with the code + contract commit; counts are `—` until then.
 
 | Phase | Tables | Notes |
 |---|---|---|
-| 6b | `roles`, `role_bindings` | attribute rules as JSON policy rows |
 | 6c | SSO/HSM state columns in existing settings groups | |
 
 All planned tables follow the standing rules: additive `ensure_schema()`,

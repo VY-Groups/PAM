@@ -24,7 +24,12 @@ from models import ensure_schema
 from routes import api
 from rotation_scheduler import start as start_rotation_scheduler
 from cluster_monitor import start as start_cluster_monitor
-from service import cluster_self_role, ensure_cluster_self, ensure_command_rules
+from service import (
+    cluster_self_role,
+    ensure_cluster_self,
+    ensure_command_rules,
+    ensure_rbac_seed,
+)
 from audit import ensure_audit_chain
 
 logger = logging.getLogger(__name__)
@@ -175,6 +180,11 @@ def create_app(config: Optional[Config] = None) -> Flask:
         registered = ensure_cluster_self()
         if registered:
             logger.info("Cluster: registered this node as '%s'", registered)
+        # RBAC / ABAC (section 10): the five built-in roles, seeded once -
+        # bindings are created by an admin, never fabricated at startup.
+        roles_seeded = ensure_rbac_seed()
+        if roles_seeded:
+            logger.info("RBAC: seeded %d built-in roles", roles_seeded)
 
     # Optional real-clock rotation scheduler (ROTATION_SCHEDULER=1); off in
     # tests and dev unless explicitly enabled, never fabricated when quiet.

@@ -39,6 +39,13 @@ class Unauthorized(APIError):
         super().__init__(401, message, details)
 
 
+class Forbidden(APIError):
+    """Authenticated, but this credential's role or scope may not do this."""
+
+    def __init__(self, message: str, details: Optional[Dict[str, Any]] = None):
+        super().__init__(403, message, details)
+
+
 class Conflict(APIError):
     def __init__(self, message: str, details: Optional[Dict[str, Any]] = None):
         super().__init__(409, message, details)
