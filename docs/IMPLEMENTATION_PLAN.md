@@ -512,9 +512,13 @@ keys where configured. Posture widget then counts them honestly as active.
 
 The phases below extend the plan beyond the architecture doc's original
 §1–§21 scope. They come from the honest gap analysis kept as repo-root
-working papers (`VY-PAM_Gap_Analysis_and_Roadmap.md` — the 460-line
-version with Addenda A/B/C is authoritative; the extension-less copy is a
-superseded draft — plus its companions `VY-PAM — Session Recording
+working papers (`VY-PAM_Gap_Analysis_and_Roadmap.md` — the version with
+Addenda A/B/C is authoritative; `VY-PAM_Gap_Analysis_and_Roadmap1.md` is
+an earlier draft the owner keeps alongside it — verified line-by-line
+(whitespace/dash-insensitive) on 2026-10-11 to be a **strict subset**: it
+adds no section and no line that the authoritative version lacks, so
+nothing in it is missing from this plan — plus its companions `VY-PAM —
+Session Recording
 Storage Strategy.md` and `VY-PAM — Further Improvements Beyond the
 Blockers.md`). The working papers' verdict, quoted: VY-PAM today is *a
 very good control plane and audit layer without the data plane and
