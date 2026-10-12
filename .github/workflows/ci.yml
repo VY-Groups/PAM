@@ -1,0 +1,97 @@
+# VY-PAM continuous integration - roadmap item A6 part 1.
+#
+# Every command in this workflow was executed and verified locally on the
+# same toolchain before it was committed (no untested YAML):
+#   backend-tests : python -m pytest backend -q          (host count)
+#   docker-tests  : compose run ... pytest tests -q      (in-container count)
+#   lint          : ruff 0.17.0, pyflakes errors gate (E9,F63,F7,F82) - clean
+#   security      : bandit 1.9.4 High+Medium gate - 0 findings after the
+#                   scheme-guard hardening (gateway_daemon/hsm/integrations/
+#                   sso/service + radius usedforsecurity=False + sso XXE
+#                   pre-scan); pip-audit 2.10.1 - no known vulnerabilities;
+#                   gitleaks v8.24.2 with .gitleaks.toml - no leaks
+#   frontend      : node --check parse gate over the standing-gate scripts
+#
+# The frontend standing gate (playwright, live flows against a booted rig)
+# joins CI in the frontend-completion phase, once the committed demo-seed
+# script exists; until then it is a local standing gate only. Honest scope.
+
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  backend-tests:
+    name: Backend suite (Linux host count)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.14"
+      - name: Install declared dependencies only
+        run: pip install -r backend/phase2_license_server/requirements.txt -r backend/ipam_licensing/requirements.txt
+      - name: Full backend suite
+        run: python -m pytest backend -q
+
+  docker-tests:
+    name: In-container suite (dev image)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build the dev image and run the baked-in tests
+        run: docker compose -f backend/phase2_license_server/docker-compose.yml run --build --rm --no-deps license-server python -m pytest tests -q
+
+  lint:
+    name: Ruff (pyflakes errors gate)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.14"
+      - run: pip install ruff==0.17.0
+      - name: Undefined names, syntax errors, f-string traps (E9,F63,F7,F82)
+        run: ruff check backend --select E9,F63,F7,F82
+
+  security:
+    name: Security scanners (bandit, pip-audit, gitleaks)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # gitleaks watches the whole history, not just the tip
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.14"
+      - run: pip install bandit==1.9.4 pip-audit==2.10.1
+      - name: Bandit - High and Medium severities fail the build
+        run: bandit -q -r backend/phase2_license_server backend/ipam_licensing --exclude '*/tests/*,*/test_*' -ll
+      - name: Known-vulnerability audit of declared dependencies
+        run: pip-audit -r backend/phase2_license_server/requirements.txt
+      - name: Secret scan over full history (documented allowlist in .gitleaks.toml)
+        run: docker run --rm -v "$PWD:/repo:ro" zricethezav/gitleaks:v8.24.2 detect --source /repo --config /repo/.gitleaks.toml
+
+  frontend:
+    name: Frontend script parse gate
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+      - name: Parse-check every standing-gate script
+        run: |
+          for f in shots_tool/*.mjs; do
+            node --check "$f" || exit 1
+          done

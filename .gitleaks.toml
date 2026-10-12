@@ -1,0 +1,37 @@
+# Gitleaks configuration - used by the CI security job and locally:
+#   docker run --rm -v <repo>:/repo:ro zricethezav/gitleaks:v8.24.2 \
+#     detect --source /repo --config /repo/.gitleaks.toml
+#
+# Every allowlist entry carries its written justification: nothing is
+# silenced blindly (docs/SECURITY_COMPLIANCE.md honesty invariant).
+
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Documented false positives and historical dev artifacts"
+
+# The six license_*.json files are phase-1/2-era DEV license outputs from the
+# initial commit: signed claim sets (license_key UUID + entitlements), never
+# private key material. They were removed from the working tree when the
+# CI hardening landed; the objects stay in git history and are allowlisted
+# here so the scan keeps watching for NEW leaks.
+paths = ['''license_[0-9A-F]{8}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{12}\.json$''']
+
+regexes = [
+  # A deliberately weak password used ONLY by the password-policy test
+  # (backend/phase2_license_server/tests/test_identity.py) - the point of the
+  # fixture is that it is short.
+  '''short1234567''',
+  # A test RADIUS shared secret used only against the in-test RADIUS stub
+  # (backend/phase2_license_server/tests/test_radius.py).
+  '''s3cret-radius-beam''',
+  # gitleaks matches the keyword PRIVATE_KEY; these two hits are the tmp_path
+  # file NAME "rsa.pem" in a config-plumbing test, not key material
+  # (pam_master/tests/test_skeleton.py).
+  '''MASTER_RSA_PRIVATE_KEY_PATH''',
+  # base64 of the ASCII string "hello-world": a config-plumbing fixture that
+  # an older revision of pam_master/tests/test_skeleton.py used for
+  # MASTER_CUSTOMER_KEY_B64. Not key material.
+  '''aGVsbG8td29ybGQ=''',
+]
