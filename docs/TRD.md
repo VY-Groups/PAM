@@ -1,6 +1,6 @@
 # VY-PAM — Technical Requirements & Design Document (TRD)
 
-**Status:** as-built for Phase 7
+**Status:** as-built for Phase 8a
 **Audience:** engineers extending or operating the system
 **Companion docs:** `PRD.md`, `PAM_FLOW.md`, `BACKEND_SCHEMA.md`, `API_REFERENCE.md`
 
@@ -51,7 +51,7 @@ repo.
 | Store | SQLite (`licenses.db`, git-ignored) | append-only enforced by triggers on `audit_events` |
 | Crypto | `cryptography` lib | RSA-PSS-SHA256 (default) / Ed25519 envelopes; AES-256-GCM secrets |
 | Frontend | Static HTML + Tailwind (CDN build) + vanilla JS | 11 sidebar screens, no bundler, works from `file://` |
-| Tests | pytest | 760 backend + 46 pam_master |
+| Tests | pytest | 794 backend + 46 pam_master |
 | UI verification | Node + `playwright-core` (`shots_tool/`) | viewport 1920×1600, never `fullPage` |
 | Vendor tool | Flask + raw `sqlite3` | `pam_master` package, `python -m pam_master` |
 
@@ -232,7 +232,7 @@ Rules enforced by tests/conventions:
 - `BreakGlassEvent` actions (`requested`, `approved`, `denied`, `opened`,
   `closed`) fan into the §19 chain as the **tenth** source `break-glass`
   (eleven with 4i's `integration`, twelve with 5a's `vendor`, thirteen with
-  5b's `cloud`, fourteen with 5c's `broker`, fifteen with 5d's `agent`, sixteen with 6a's `cluster`, seventeen with 6b's `rbac`, eighteen with 6c's `sso`, nineteen with 6c's `hsm`, twenty with 7's `auth`);
+  5b's `cloud`, fourteen with 5c's `broker`, fifteen with 5d's `agent`, sixteen with 6a's `cluster`, seventeen with 6b's `rbac`, eighteen with 6c's `sso`, nineteen with 6c's `hsm`, twenty with 7's `auth`, twenty-one with 8a's `gateway`);
   `bg-` request refs, stats and the
   compliance feed stay generic. The emergency path runs the §20 MFA gate at
   open: a factor enrolled demands a `mfa_code` (401 `details.mfa`), no
@@ -697,12 +697,84 @@ Rules enforced by tests/conventions:
   `test_radius.py` **13**, `test_scim.py` **9**; both-rig E2E **129
   checks / 0 failed**; standing gate **69** (open) / **76** (token).
 
+### 4.24 Gateway data plane (guacd first) - Phase 8a
+
+- **Reuse Apache guacd (Apache-2.0), over its wire protocol.** The data
+  plane does not reimplement a desktop stack: `guacd.py` is a codec +
+  incremental parser + blocking `GuacdClient` (select → args → connect →
+  ready; sync/ack/key/mouse/disconnect) **written from the
+  guacamole-server sources**, so the broker speaks guacd's native
+  protocol. The limits are Apache's own, taken from
+  `parser-constants.h` / `protocol-constants.h`: **8192** characters per
+  instruction, **5**-digit length prefix, **128** elements per
+  instruction, **6048**-byte blob cap, protocol version string
+  `VERSION_1_5_0`, guacd default port **4822**. Element lengths are UTF-8
+  *character* counts, and the codec's vectors were checked byte for byte
+  against the Apache writers' output (`3.nop;`,
+  `3.ack,2.42,0.,2.14;`, `4.args,13.VERSION_1_5_0,8.hostname,4.port;`,
+  `7.connect,13.VERSION_1_5_0,2.h1,2.22;`, `5.ready,2.c1;`,
+  `4.sync,5.12345,1.0;`).
+- **Broker: fail-closed zone dispatch.** `GATEWAY_PROTOCOLS` =
+  `rdp`/`ssh`/`vnc`/`telnet` (default ports ssh 22 / rdp 3389 / vnc 5900 /
+  telnet 23); the zone comes from the discovered asset's zone binding. No
+  healthy node in the zone → **503** and the privileged-session create
+  rolls back; `require_zone` refuses an unmapped target with an explicit
+  503; a brokered session with no vault credential → 503. Non-gateway
+  protocols keep the 4c behavior and get an honest `reason`; gateway
+  disabled → `gateway: null`.
+- **Credential injection: one-shot, on the node token only.** The target
+  secret is fetched server-side from the vault and handed to the approved
+  node by `GET …/connect-args` under that node's own
+  `vypam-gwn1.<node_id>.<secret>` (sha256 at rest, constant-time compare)
+  **exactly once** — a second fetch is 409. The admin token is refused
+  **403 by name**: a node credential is not an admin credential and vice
+  versa. The secret never reaches a browser and never lands on the ledger
+  (the exported trail carries the fact `credential_injected`, not the
+  value), and the row's `credential_fetched_at` is the single-use marker.
+- **Outbound-only control.** Pause and terminate arrive on the daemon's
+  outbound heartbeat/work poll — there is **no inbound node port**. Pause
+  means the daemon stops reading/acking, so TCP backpressure stalls guacd;
+  a terminate directive ends the gateway session when the privileged
+  session behind it ends.
+- **Recording: envelope key per recording, gzip + AES-256-GCM per
+  segment.** A random 32-byte data key per recording, wrapped by the
+  master key (`seal_with_aad`, AAD `recording:<gws_id>`); each segment is
+  gzipped then sealed as the wire form `{"v","alg","nonce","ct"}` with AAD
+  `recording_segment:<gws_id>:<seq>` and written to
+  `<RECORDING_STORAGE_DIR>/gws-<id>/seg-<seq>.json`. The DB row keeps
+  **pointer + size + SHA-256 only**; playback verifies the per-segment
+  SHA-256 before decrypting (tamper → 500) and a destroyed key answers
+  410 with the rows kept as evidence. 8a promises the guacd-native
+  instruction stream only — ffmpeg transcoding and asciicast text
+  extraction are phase 14, not faked here.
+- **Retention with incident legal hold.** `gateway.retention_default_days`
+  (default 90) with per-protocol `retention_overrides`; a dry run or a
+  real run deletes the segment files, destroys the per-recording keys and
+  emits `retention-expired` ledger events, while any session with a
+  `command_incidents.session_id` linkage is never pruned (derived legal
+  hold) and the rows stay as evidence.
+- **Honest surfaces.** `POST /sessions` returns a `gateway` broker-verdict
+  block (the node it dispatched to, or the honest reason it did not);
+  session detail carries the enriched gateway object; progress runs
+  `pending → connecting → active → ended` (backward → 409, unknown →
+  400); the `gateway` settings group holds 12 fields and the storage root
+  stays deployment config (`RECORDING_STORAGE_DIR`), not settings policy.
+- **Contract / RBAC**: the `gateway` tag, 21 operations across 17 new
+  paths, the new `nodeToken` security scheme (11 in total) and the
+  settings `{group}` enum gaining `gateway` → **209 paths / 250 ops / 24
+  tags / 11 security schemes**, `ADMIN_OPERATIONS` **127 → 144** (+17
+  gateway admin ops; the 4 node-token ops are intentionally not admin
+  operations). RBAC: node approve → the approver set; zone bind / node
+  drain / retention run → the operator set; all gateway GETs → auditor
+  (auto). Ledger: `gateway` is the **21st** source. Suites:
+  `test_gateway.py` **34**; `test_openapi_contract.py` **9 passed**.
+
 ## 5. API conventions
 
 | Concern | Rule |
 |---|---|
 | Versioning | Everything under `/api/v1` (health/meta unversioned) |
-| Auth | `LICENSE_ADMIN_TOKEN` set → `Authorization: Bearer …` or `X-Admin-Token: …` on the 127 admin operations; unset → explicit open dev mode (`X-Auth-Mode: open` response header); pipeline `/broker` operations require the broker API token and AI-agent `/agent-access` operations the agent API token — neither is ever waived. In token mode a bound principal (RBAC API token, LDAP ticket, SSO subject, or local console user) may call only its role's operations and only its ABAC scope (§4.21). Console sessions (§4.23) are a separate credential: `vypam-ui1` bearer + HttpOnly `vypam_session` cookie with `X-CSRF-Token` double-submit on cookie-authenticated mutations. |
+| Auth | `LICENSE_ADMIN_TOKEN` set → `Authorization: Bearer …` or `X-Admin-Token: …` on the 144 admin operations; unset → explicit open dev mode (`X-Auth-Mode: open` response header); pipeline `/broker` operations require the broker API token and AI-agent `/agent-access` operations the agent API token — neither is ever waived. Gateway node routes (§4.24) authenticate only with the `nodeToken` scheme, `vypam-gwn1.<node_id>.<secret>` (sha256 at rest, never waived in open mode; the 4 node-token operations are intentionally not admin operations, and the admin token is refused on `connect-args`). In token mode a bound principal (RBAC API token, LDAP ticket, SSO subject, or local console user) may call only its role's operations and only its ABAC scope (§4.21). Console sessions (§4.23) are a separate credential: `vypam-ui1` bearer + HttpOnly `vypam_session` cookie with `X-CSRF-Token` double-submit on cookie-authenticated mutations. |
 | Actor | `X-Actor` header recorded on every audited write |
 | Errors | `{"error": {"code", "message", "details?"}}`; 400 validation, 401 auth, 403 policy refusal, 404, 409 conflict/state, 422 shape, 503 fail-closed dependency |
 | Pagination | `limit` (max 200) + `offset`, newest first |
@@ -762,7 +834,8 @@ its phase starts (plan > code > docs, in that order).
 
 | Phase / section | Data additions | API additions | Runtime behavior |
 |---|---|---|---|
-| — | none pending | — | 7 identity & login security landed (§4.23); the next phase's design is recorded here when it starts |
+| — | none pending | — | 8a guacd-first data plane landed (§4.24); the next phase's design is recorded here when it starts |
+| 8b Go SSH gateway / 8c DB wire proxy | deferred — not created in 8a | deferred — their contract surfaces are **not** in 8a's spliced contract | **deferred**: no Go toolchain on the host (Docker 29.8.2 available); recorded here when the phase actually starts |
 
 Standing constraints that carry into all of these: ledger emission inside
 the same transaction, contract lockstep in one commit, additive-only schema,

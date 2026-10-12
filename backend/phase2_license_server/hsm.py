@@ -43,6 +43,7 @@ import os
 import threading
 import time
 import urllib.error
+import urllib.parse
 import urllib.request
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -119,11 +120,21 @@ def _http_request(
     headers: Optional[Dict[str, str]] = None,
     body: Optional[bytes] = None,
 ) -> (int, bytes):
+    scheme = urllib.parse.urlsplit(url).scheme.lower()
+    if scheme not in ("http", "https"):
+        # ServiceUnavailable is this plumbing's existing failure shape - a
+        # file:/custom scheme here would read local paths as the provider's
+        # answer (bandit B310).
+        raise ServiceUnavailable(
+            f"HSM endpoint scheme {scheme!r} refused - http(s) only",
+            {"url": url.split("?")[0], "provider_reachable": False},
+        )
     request = urllib.request.Request(url, data=body, method=method)
     for name, value in (headers or {}).items():
         request.add_header(name, value)
     try:
-        with urllib.request.urlopen(request, timeout=HTTP_TIMEOUT_SECONDS) as response:
+        # scheme of url is validated http(s)-only above (bandit B310)
+        with urllib.request.urlopen(request, timeout=HTTP_TIMEOUT_SECONDS) as response:  # nosec B310
             return int(response.status), response.read()
     except urllib.error.HTTPError as exc:  # a real HTTP answer is data
         return int(exc.code), exc.read()
@@ -336,7 +347,9 @@ class AwsCloudHsmProvider(_Provider):
         for name, value in headers.items():
             request.add_header(name, value)
         try:
-            with urllib.request.urlopen(request, timeout=HTTP_TIMEOUT_SECONDS) as response:
+            # fixed https AWS endpoint (kms.<region>.amazonaws.com) - never
+            # configuration input
+            with urllib.request.urlopen(request, timeout=HTTP_TIMEOUT_SECONDS) as response:  # nosec B310
                 status, raw = int(response.status), response.read()
         except urllib.error.HTTPError as exc:
             status, raw = int(exc.code), exc.read()

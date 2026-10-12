@@ -67,6 +67,7 @@ tags:
   - name: hsm
     description: HSM/KMS master-key custody - advisory/enforced provider wrap, seal/unseal, health watchdog, key rotation (architecture 20, phase 6c)
   - name: identity
+  - name: gateway
     description: >-
       Real identity and login security - local users, console sessions, MFA
       (TOTP / e-mail OTP / WebAuthn / RADIUS / backup codes), NIST passwords,
@@ -411,7 +412,7 @@ paths:
         - name: group
           in: path
           required: true
-          schema: {type: string, enum: [sso, hsm, zsp, worm, mfa, itsm, siem, ldap, auth, smtp, sms, radius, scim, webauthn]}
+          schema: {type: string, enum: [sso, hsm, zsp, worm, mfa, itsm, siem, ldap, auth, smtp, sms, radius, scim, webauthn, gateway]}
         - name: X-Actor
           in: header
           description: Who is making the change (recorded in the audit changelog).
@@ -6607,6 +6608,676 @@ paths:
             application/json:
               schema: {$ref: "#/components/schemas/Error"}
 
+  /api/v1/zones:
+    get:
+      tags: [gateway]
+      summary: List network zones
+      description: >
+        The zones gateway nodes live in (section: a session starts on a
+        healthy node in the target's zone, or fails clearly). Each row
+        carries its node counts.
+      security:
+        - bearerAuth: []
+        - adminTokenHeader: []
+        - rbacToken: [auditor, auditor-read-only]
+        - ldapTicket: [auditor, auditor-read-only]
+        - {}
+      responses:
+        "200":
+          description: Zones with node counts
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  zones: {type: array, items: {type: object, additionalProperties: true}}
+        "401": {$ref: "#/components/responses/Unauthorized"}
+    post:
+      tags: [gateway]
+      summary: Create a zone
+      security:
+        - bearerAuth: []
+        - adminTokenHeader: []
+        - {}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name]
+              properties:
+                name: {type: string}
+                description: {type: string}
+      responses:
+        "201":
+          description: Zone created
+          content:
+            application/json:
+              schema: {type: object, additionalProperties: true}
+        "400": {$ref: "#/components/responses/BadRequest"}
+        "401": {$ref: "#/components/responses/Unauthorized"}
+        "409":
+          description: Zone name already exists
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/Error"}
+
+  /api/v1/zones/{zone_id}:
+    get:
+      tags: [gateway]
+      summary: Zone detail with its nodes and bindings
+      security:
+        - bearerAuth: []
+        - adminTokenHeader: []
+        - rbacToken: [auditor, auditor-read-only]
+        - ldapTicket: [auditor, auditor-read-only]
+        - {}
+      parameters:
+        - name: zone_id
+          in: path
+          required: true
+          schema: {type: integer}
+      responses:
+        "200":
+          description: Zone, nodes, asset bindings
+          content:
+            application/json:
+              schema: {type: object, additionalProperties: true}
+        "401": {$ref: "#/components/responses/Unauthorized"}
+        "404": {$ref: "#/components/responses/NotFound"}
+    delete:
+      tags: [gateway]
+      summary: Delete a zone (refused while nodes or bindings remain)
+      security:
+        - bearerAuth: []
+        - adminTokenHeader: []
+        - {}
+      parameters:
+        - name: zone_id
+          in: path
+          required: true
+          schema: {type: integer}
+      responses:
+        "200":
+          description: Zone deleted
+          content:
+            application/json:
+              schema: {type: object, additionalProperties: true}
+        "401": {$ref: "#/components/responses/Unauthorized"}
+        "404": {$ref: "#/components/responses/NotFound"}
+        "409":
+          description: Zone still has nodes or asset bindings
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/Error"}
+
+  /api/v1/discovery/assets/{asset_id}/zone:
+    put:
+      tags: [gateway]
+      summary: Bind a discovered asset to a zone (null unbinds)
+      description: >
+        The asset-to-zone mapping the broker uses to pick a gateway node.
+        Day-2 operations work, admin may always.
+      security:
+        - bearerAuth: []
+        - adminTokenHeader: []
+        - rbacToken: [operator]
+        - ldapTicket: [operator]
+        - {}
+      parameters:
+        - name: asset_id
+          in: path
+          required: true
+          schema: {type: integer}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                zone_id: {type: integer, nullable: true}
+      responses:
+        "200":
+          description: Binding recorded
+          content:
+            application/json:
+              schema: {type: object, additionalProperties: true}
+        "400": {$ref: "#/components/responses/BadRequest"}
+        "401": {$ref: "#/components/responses/Unauthorized"}
+        "404": {$ref: "#/components/responses/NotFound"}
+
+  /api/v1/gateway/pools:
+    get:
+      tags: [gateway]
+      summary: List gateway pools
+      security:
+        - bearerAuth: []
+        - adminTokenHeader: []
+        - rbacToken: [auditor, auditor-read-only]
+        - ldapTicket: [auditor, auditor-read-only]
+        - {}
+      responses:
+        "200":
+          description: Pools with node counts
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  pools: {type: array, items: {type: object, additionalProperties: true}}
+        "401": {$ref: "#/components/responses/Unauthorized"}
+    post:
+      tags: [gateway]
+      summary: Create a gateway pool
+      security:
+        - bearerAuth: []
+        - adminTokenHeader: []
+        - {}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name, zone_id]
+              properties:
+                name: {type: string}
+                zone_id: {type: integer}
+                lb_policy: {type: string, enum: [least-loaded, round-robin]}
+      responses:
+        "201":
+          description: Pool created
+          content:
+            application/json:
+              schema: {type: object, additionalProperties: true}
+        "400": {$ref: "#/components/responses/BadRequest"}
+        "401": {$ref: "#/components/responses/Unauthorized"}
+
+  /api/v1/gateway/pools/{pool_id}:
+    delete:
+      tags: [gateway]
+      summary: Delete a pool (refused while nodes remain)
+      security:
+        - bearerAuth: []
+        - adminTokenHeader: []
+        - {}
+      parameters:
+        - name: pool_id
+          in: path
+          required: true
+          schema: {type: integer}
+      responses:
+        "200":
+          description: Pool deleted
+          content:
+            application/json:
+              schema: {type: object, additionalProperties: true}
+        "401": {$ref: "#/components/responses/Unauthorized"}
+        "404": {$ref: "#/components/responses/NotFound"}
+        "409":
+          description: Pool still has nodes
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/Error"}
+
+  /api/v1/gateway/nodes:
+    get:
+      tags: [gateway]
+      summary: List gateway nodes with liveness and capacity
+      description: >
+        `state` is derived honestly: a pending node stays pending until a
+        distinct approver activates it, an active node whose heartbeat is
+        older than `gateway.node_heartbeat_ttl_seconds` reports `offline`.
+      security:
+        - bearerAuth: []
+        - adminTokenHeader: []
+        - rbacToken: [auditor, auditor-read-only]
+        - ldapTicket: [auditor, auditor-read-only]
+        - {}
+      responses:
+        "200":
+          description: Nodes with state, heartbeat age, capacity
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  nodes: {type: array, items: {type: object, additionalProperties: true}}
+        "401": {$ref: "#/components/responses/Unauthorized"}
+    post:
+      tags: [gateway]
+      summary: Register a gateway node (pending; token shown once)
+      description: >
+        Registering a gateway is a critical maker-checker change: this
+        creates the row as `pending` and returns the node token
+        (`vypam-gwn1.<id>.<secret>`, sha256 at rest) exactly once. A second,
+        distinct actor approves it to `active` - the requester may never
+        approve their own registration.
+      security:
+        - bearerAuth: []
+        - adminTokenHeader: []
+        - {}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name, zone_id, endpoint_host, endpoint_port]
+              properties:
+                name: {type: string}
+                zone_id: {type: integer}
+                pool_id: {type: integer, nullable: true}
+                endpoint_host: {type: string}
+                endpoint_port: {type: integer}
+      responses:
+        "201":
+          description: Node pending approval; token shown once
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  node: {type: object, additionalProperties: true}
+                  token: {type: string}
+                  shown_once: {type: boolean}
+        "400": {$ref: "#/components/responses/BadRequest"}
+        "401": {$ref: "#/components/responses/Unauthorized"}
+
+  /api/v1/gateway/nodes/{node_id}/approve:
+    post:
+      tags: [gateway]
+      summary: Approve a pending node (never the requester)
+      description: >
+        The checker half of maker-checker. The approver must be a distinct
+        actor from the one who registered the node; self-approval is 403
+        verbatim. Approval flips the node to `active` and lands on the
+        `gateway` trail.
+      security:
+        - bearerAuth: []
+        - adminTokenHeader: []
+        - rbacToken: [approver]
+        - ldapTicket: [approver]
+        - {}
+      parameters:
+        - name: node_id
+          in: path
+          required: true
+          schema: {type: integer}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [decision]
+              properties:
+                decision: {type: string, enum: [approve, deny]}
+                note: {type: string}
+      responses:
+        "200":
+          description: Node approved (or denied)
+          content:
+            application/json:
+              schema: {type: object, additionalProperties: true}
+        "400": {$ref: "#/components/responses/BadRequest"}
+        "401": {$ref: "#/components/responses/Unauthorized"}
+        "403":
+          description: The requester may never approve their own registration
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/Error"}
+        "404": {$ref: "#/components/responses/NotFound"}
+        "409":
+          description: Node is not pending
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/Error"}
+
+  /api/v1/gateway/nodes/{node_id}/drain:
+    post:
+      tags: [gateway]
+      summary: Drain a node (no new sessions; live ones finish)
+      security:
+        - bearerAuth: []
+        - adminTokenHeader: []
+        - rbacToken: [operator]
+        - ldapTicket: [operator]
+        - {}
+      parameters:
+        - name: node_id
+          in: path
+          required: true
+          schema: {type: integer}
+      responses:
+        "200":
+          description: Node draining
+          content:
+            application/json:
+              schema: {type: object, additionalProperties: true}
+        "401": {$ref: "#/components/responses/Unauthorized"}
+        "404": {$ref: "#/components/responses/NotFound"}
+
+  /api/v1/gateway/nodes/{node_id}:
+    delete:
+      tags: [gateway]
+      summary: Revoke a node (its token dies; live sessions are terminated)
+      security:
+        - bearerAuth: []
+        - adminTokenHeader: []
+        - {}
+      parameters:
+        - name: node_id
+          in: path
+          required: true
+          schema: {type: integer}
+      responses:
+        "200":
+          description: Node revoked
+          content:
+            application/json:
+              schema: {type: object, additionalProperties: true}
+        "401": {$ref: "#/components/responses/Unauthorized"}
+        "404": {$ref: "#/components/responses/NotFound"}
+
+  /api/v1/gateway/nodes/{node_id}/heartbeat:
+    post:
+      tags: [gateway]
+      summary: "Node heartbeat: liveness + capacity (node token)"
+      description: >
+        The daemon reports `capacity_active` (in-flight sessions) and its
+        version; the reply carries directives (`drain`, `terminate:
+        [ids]`) so control reaches the node without an inbound port.
+      security:
+        - nodeToken: []
+      parameters:
+        - name: node_id
+          in: path
+          required: true
+          schema: {type: integer}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [capacity_active]
+              properties:
+                capacity_active: {type: integer}
+                version: {type: string}
+      responses:
+        "200":
+          description: Heartbeat accepted + directives
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status: {type: string}
+                  directives: {type: array, items: {type: string}}
+                  terminate: {type: array, items: {type: integer}}
+        "401":
+          description: Node token invalid, revoked or the node is not active
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/Error"}
+        "404": {$ref: "#/components/responses/NotFound"}
+
+  /api/v1/gateway/nodes/{node_id}/work:
+    get:
+      tags: [gateway]
+      summary: Pending + live gateway sessions for this node (node token)
+      security:
+        - nodeToken: []
+      parameters:
+        - name: node_id
+          in: path
+          required: true
+          schema: {type: integer}
+      responses:
+        "200":
+          description: "Work queue: pending sessions + control state"
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  pending: {type: array, items: {type: object, additionalProperties: true}}
+                  live: {type: array, items: {type: object, additionalProperties: true}}
+        "401":
+          description: Node token invalid, revoked or the node is not active
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/Error"}
+        "404": {$ref: "#/components/responses/NotFound"}
+
+  /api/v1/gateway/sessions/{gateway_session_id}/connect-args:
+    get:
+      tags: [gateway]
+      summary: Guacd connection arguments with the injected credential (node token, once)
+      description: >
+        The one place the target credential travels: fetched server-side
+        from the vault, handed to the approved node over its own token,
+        and consumed once. The admin token is refused here by design - no
+        browser and no operator ever receives the secret; the session
+        records `credential_injected: true` and nothing else. A second
+        fetch is 409 (single use).
+      security:
+        - nodeToken: []
+      parameters:
+        - name: gateway_session_id
+          in: path
+          required: true
+          schema: {type: integer}
+      responses:
+        "200":
+          description: guacd args (hostname, port, protocol, username, password) + recording config
+          content:
+            application/json:
+              schema: {type: object, additionalProperties: true}
+        "401":
+          description: Node token invalid, revoked or the node is not active
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/Error"}
+        "403":
+          description: connect-args require the node token - the admin token is refused
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/Error"}
+        "404": {$ref: "#/components/responses/NotFound"}
+        "409":
+          description: Args already consumed (single use)
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/Error"}
+
+  /api/v1/gateway/sessions/{gateway_session_id}/progress:
+    post:
+      tags: [gateway]
+      summary: "Node progress: state, sealed segments, end (node token)"
+      description: >
+        The daemon reports lifecycle transitions (`connecting` → `active`
+        → `paused` → `ended`), seals each recording segment (SHA-256 +
+        size + tier - never the bytes), and reports the end. Ending
+        releases the vault checkout and triggers rotation-on-close on the
+        existing §5 pipeline.
+      security:
+        - nodeToken: []
+      parameters:
+        - name: gateway_session_id
+          in: path
+          required: true
+          schema: {type: integer}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                state: {type: string, enum: [connecting, active, paused, ended]}
+                end_reason: {type: string}
+                segments:
+                  type: array
+                  items:
+                    type: object
+                    required: [seq, sha256, size_bytes, duration_seconds]
+                    properties:
+                      seq: {type: integer}
+                      sha256: {type: string}
+                      size_bytes: {type: integer}
+                      duration_seconds: {type: number}
+                      tier: {type: string, enum: [hot, warm, cold]}
+                events:
+                  type: array
+                  items:
+                    type: object
+                    additionalProperties: true
+      responses:
+        "200":
+          description: Progress accepted + control directives
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status: {type: string}
+                  directives: {type: array, items: {type: string}}
+        "401":
+          description: Node token invalid, revoked or the node is not active
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/Error"}
+        "404": {$ref: "#/components/responses/NotFound"}
+
+  /api/v1/gateway/sessions/{gateway_session_id}/recording:
+    get:
+      tags: [gateway]
+      summary: Recording segments + key state (metadata only, never bytes)
+      description: >
+        Pointer + size + per-segment SHA-256 + tier + the per-recording key
+        state (`wrapped` / `destroyed` - crypto-shredded recordings stay
+        listed but unreadable, as evidence).
+      security:
+        - bearerAuth: []
+        - adminTokenHeader: []
+        - rbacToken: [auditor, auditor-read-only]
+        - ldapTicket: [auditor, auditor-read-only]
+        - {}
+      parameters:
+        - name: gateway_session_id
+          in: path
+          required: true
+          schema: {type: integer}
+      responses:
+        "200":
+          description: Segments + key state
+          content:
+            application/json:
+              schema: {type: object, additionalProperties: true}
+        "401": {$ref: "#/components/responses/Unauthorized"}
+        "404": {$ref: "#/components/responses/NotFound"}
+
+  /api/v1/gateway/sessions/{gateway_session_id}/recording/{seq}/data:
+    get:
+      tags: [gateway]
+      summary: Playback one segment (decrypt + decompress the native stream)
+      description: >
+        The recording's own bytes for the segment, decrypted with the
+        per-recording key and decompressed: guacd's native instruction
+        stream - the same format Guacamole's own recorder writes for RDP,
+        VNC, SSH and telnet alike (extracting readable terminal text from
+        it is the command-search/indexing work that lands in phase 14, not
+        faked here). A destroyed key answers 410 (crypto-shredded). The
+        read lands on the ledger.
+      security:
+        - bearerAuth: []
+        - adminTokenHeader: []
+        - rbacToken: [auditor, auditor-read-only]
+        - ldapTicket: [auditor, auditor-read-only]
+        - {}
+      parameters:
+        - name: gateway_session_id
+          in: path
+          required: true
+          schema: {type: integer}
+        - name: seq
+          in: path
+          required: true
+          schema: {type: integer}
+      responses:
+        "200":
+          description: The decompressed segment stream
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  seq: {type: integer}
+                  stream: {type: string}
+                  sha256: {type: string}
+        "401": {$ref: "#/components/responses/Unauthorized"}
+        "404": {$ref: "#/components/responses/NotFound"}
+        "410":
+          description: The recording key was destroyed (crypto-shredded)
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/Error"}
+
+  /api/v1/gateway/recordings/retention/run:
+    post:
+      tags: [gateway]
+      summary: Apply recording retention (delete + crypto-shred + ledger)
+      description: >
+        Prunes recordings past their retention (per-protocol override or
+        `gateway.retention_default_days`): deletes the segment files,
+        destroys the per-recording keys (crypto-shredding - unreadable
+        even from old backups) and records `retention-expired` events on
+        the ledger. Sessions under a hold are never pruned.
+      security:
+        - bearerAuth: []
+        - adminTokenHeader: []
+        - rbacToken: [operator]
+        - ldapTicket: [operator]
+        - {}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                dry_run: {type: boolean}
+      responses:
+        "200":
+          description: What was pruned (or would be, with dry_run)
+          content:
+            application/json:
+              schema: {type: object, additionalProperties: true}
+        "401": {$ref: "#/components/responses/Unauthorized"}
+
+  /api/v1/gateway/stats:
+    get:
+      tags: [gateway]
+      summary: "Gateway posture: nodes, sessions, storage bytes by tier, spool alerts"
+      security:
+        - bearerAuth: []
+        - adminTokenHeader: []
+        - rbacToken: [auditor, auditor-read-only]
+        - ldapTicket: [auditor, auditor-read-only]
+        - {}
+      responses:
+        "200":
+          description: Stats
+          content:
+            application/json:
+              schema: {type: object, additionalProperties: true}
+        "401": {$ref: "#/components/responses/Unauthorized"}
+
+
 components:
   securitySchemes:
     bearerAuth:
@@ -6626,6 +7297,16 @@ components:
       type: http
       scheme: bearer
       description: "An AI agent's API token as `Authorization: Bearer vypam-agt1.<id>.<secret>` (or the `X-Agent-Token` header). Issued once per agent identity, stored as a sha256 hash, and never waived in open/dev mode - the agent identity is the point, `X-Actor` is not consulted."
+    nodeToken:
+      type: http
+      scheme: bearer
+      description: >
+        A gateway node's token as `Authorization: Bearer vypam-gwn1.<id>.<secret>`
+        (shown once when an admin registers the node, sha256 at rest). Issued
+        per gateway node, never waived in open/dev mode: the daemon authenticates
+        with it for heartbeat, work polling, one-shot connect-args (the injected
+        credential) and progress. The admin token is refused on connect-args - a
+        node credential is not an admin credential, and vice versa.
     rbacToken:
       type: http
       scheme: bearer

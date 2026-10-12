@@ -1,6 +1,6 @@
 # VY-PAM — Backend Schema
 
-**Status:** as-built for Phase 7
+**Status:** as-built for Phase 8a
 Two databases: the **shipped runtime DB** (`backend/phase2_license_server/
 licenses.db`, SQLAlchemy/Flask-SQLAlchemy) and the **vendor-tool DB**
 (`pam_master/master.db`, raw `sqlite3`). Both are SQLite, both git-ignored.
@@ -11,7 +11,7 @@ external migration tool.
 
 ---
 
-## 1. Shipped runtime - 67 tables
+## 1. Shipped runtime - 75 tables
 
 ### ERD (logical)
 
@@ -65,6 +65,13 @@ users                                     (source=scim joiners land here from th
 emergency_grants ─1:n─ emergency_approvals (grant_id → emergency_grants; dual control, time-boxed window, single use → ledger source `auth`)
 scim_groups                               (IdP group directory; SCIM bearer is the sealed `scim.token_sha256` settings field)
 auth_events                               (identity actions → ledger source `auth`; the true reason lives here, never in the reply)
+zones ─1:n─ asset_zone_bindings           (asset_id → discovered_assets, one zone per asset; the broker resolves a target's zone from this binding)
+zones ─1:n─ gateway_pools                 (zone_id → zones; a named pool of nodes inside one zone)
+zones ─1:n─ gateway_nodes                 (zone_id → zones; `vypam-gwn1.` node token sha256 at rest → ledger source `gateway`)
+gateway_nodes ─1:n─ gateway_sessions      (privileged_session_id → privileged_sessions; records the fact - never the value - that a credential was injected)
+gateway_sessions ─1:n─ recording_segments (pointer + size + per-segment SHA-256 only; the bytes live under `RECORDING_STORAGE_DIR`)
+gateway_sessions ─1:n─ recording_keys     (one wrapped data key per recording; crypto-shred = destroy it, rows stay as evidence)
+gateway_events                            (module trail → ledger source `gateway`, the 21st)
 audit_events                                    (hash chain over all of the above)
 ```
 
@@ -276,6 +283,10 @@ BEGIN SELECT RAISE(ABORT, 'audit_events is append-only (architecture 19)'); END;
 CREATE TRIGGER audit_events_no_delete BEFORE DELETE ON audit_events
 BEGIN SELECT RAISE(ABORT, 'audit_events is append-only (architecture 19)'); END;
 ```
+
+Hash rule: `audit.append_entries` coerces `subject` to `''` **before**
+hashing, so the write-time `event_hash` equals a later rehash (a NULL
+subject stored as `''` used to mismatch on verify).
 
 ### 1.20 `bypass_signals` — §10 connection observations (verbatim evidence)
 `id` · `created_at` indexed · `observed_at` DateTime indexed (the line's own
@@ -639,7 +650,7 @@ DateTime indexed.
 | description | String(255) | ✗ | `''` | what the role may call, in plain words |
 | created_at | DateTime | ✗ | now | |
 
-The per-operation policy - which of the 127 admin operations each role
+The per-operation policy - which of the 144 admin operations each role
 may call - is code, not data: `service.ROLE_OPERATIONS` derives it from
 `service.ADMIN_OPERATIONS` (the single source the contract test pins).
 
@@ -979,6 +990,153 @@ stay invisible to the `/scim/v2/Users` surface). The SCIM bearer itself is
 the sealed `scim.token_sha256` settings field, minted once via
 `POST /settings/scim/rotate`.
 
+### 1.68 `zones` — networks the gateway nodes live in (Phase 8a)
+
+| Column | Type | Null | Default | Index/Notes |
+|---|---|---|---|---|
+| id | INTEGER PK | ✗ | | |
+| name | String(80) | ✗ | | unique, indexed |
+| description | String(255) | ✗ | `''` | |
+| created_by | String(64) | ✗ | `system` | |
+| created_at | DateTime | ✗ | now | indexed |
+
+The broker starts a session on a healthy node in the *target's* zone or
+fails clearly — never a silent fallback onto another network.
+
+### 1.69 `asset_zone_bindings` — which network a target lives in (Phase 8a)
+
+| Column | Type | Null | Default | Index/Notes |
+|---|---|---|---|---|
+| id | INTEGER PK | ✗ | | |
+| asset_id | INTEGER FK→discovered_assets | ✗ | | unique, indexed — one zone per asset |
+| zone_id | INTEGER FK→zones | ✗ | | indexed |
+| created_by | String(64) | ✗ | `system` | |
+| created_at | DateTime | ✗ | now | |
+
+The binding is how zone dispatch resolves; an unmapped target is refused
+by `require_zone` (explicit 503), never guessed.
+
+### 1.70 `gateway_pools` — named node pool inside one zone (Phase 8a)
+
+| Column | Type | Null | Default | Index/Notes |
+|---|---|---|---|---|
+| id | INTEGER PK | ✗ | | |
+| name | String(80) | ✗ | | unique, indexed |
+| zone_id | INTEGER FK→zones | ✗ | | indexed |
+| lb_policy | String(24) | ✗ | `least-loaded` | |
+| created_by | String(64) | ✗ | `system` | |
+| created_at | DateTime | ✗ | now | |
+
+Delete is refused while nodes remain.
+
+### 1.71 `gateway_nodes` — registered daemons (Phase 8a)
+
+| Column | Type | Null | Default | Index/Notes |
+|---|---|---|---|---|
+| id | INTEGER PK | ✗ | | |
+| node_ref | String(40) | ✗ | | unique, indexed |
+| name | String(80) | ✗ | | unique, indexed |
+| zone_id | INTEGER FK→zones | ✗ | | indexed |
+| pool_id | INTEGER FK→gateway_pools | ✗ | None | nullable |
+| endpoint_host | String(255) | ✗ | | the node's guacd host |
+| endpoint_port | Integer | ✗ | 4822 | guacd's default port |
+| status | String(16) | ✗ | `pending` | indexed; `pending` → approved / denied (maker-checker), then drain / revoke |
+| token_sha256 | String(64) | ✗ | None | indexed — sha256 of `vypam-gwn1.<node_id>.<secret>`, shown once at registration and never echoed (constant-time compare) |
+| token_prefix | String(24) | ✗ | None | what listings show |
+| registered_by | String(64) | ✗ | `system` | the requester — may never approve their own node |
+| approved_by / approved_at | String(64) / DateTime | ✓ | None | a distinct actor |
+| decision_note | String(255) | ✗ | `''` | |
+| capacity_max / capacity_active | Integer | ✗ | | reported by the heartbeat |
+| version | String(32) | ✗ | `''` | reported by the heartbeat |
+| last_heartbeat_at | DateTime | ✗ | None | nullable |
+| created_at | DateTime | ✗ | now | indexed |
+
+**`offline` is never stored**: it is derived at read time from
+`last_heartbeat_at` against `gateway.node_heartbeat_ttl_seconds`.
+
+### 1.72 `gateway_sessions` — the brokered data-plane half (Phase 8a)
+
+| Column | Type | Null | Default | Index/Notes |
+|---|---|---|---|---|
+| id | INTEGER PK | ✗ | | |
+| privileged_session_id | INTEGER FK→privileged_sessions | ✗ | | unique, indexed |
+| gateway_node_id | INTEGER FK→gateway_nodes | ✗ | | indexed |
+| state | String(16) | ✗ | `pending` | indexed — `pending` → `connecting` → `active` → `ended` (backward → 409, unknown → 400) |
+| target_host | String(255) | ✗ | `''` | |
+| target_port | Integer | ✗ | 0 | |
+| username | String(120) | ✗ | `''` | |
+| credential_injected | Boolean | ✗ | False | the **fact**, never the value |
+| credential_fetched_at | DateTime | ✗ | None | the one-shot marker: connect-args are handed out exactly once |
+| connection_id | String(40) | ✗ | None | nullable |
+| started_at | DateTime | ✗ | now | |
+| ended_at | DateTime | ✗ | None | nullable |
+| end_reason | String(32) | ✗ | None | nullable |
+| created_at | DateTime | ✗ | now | indexed |
+
+### 1.73 `recording_segments` — pointer + size + hash only (Phase 8a)
+
+| Column | Type | Null | Default | Index/Notes |
+|---|---|---|---|---|
+| id | INTEGER PK | ✗ | | |
+| gateway_session_id | INTEGER FK→gateway_sessions | ✗ | | indexed |
+| seq | Integer | ✗ | 0 | |
+| storage_tier | String(8) | ✗ | `hot` | |
+| path | String(512) | ✗ | | storage pointer only — `<RECORDING_STORAGE_DIR>/gws-<id>/seg-<seq>.json`; never disclosed by the API |
+| size_bytes | Integer | ✗ | 0 | |
+| sha256 | String(64) | ✗ | `''` | indexed — per-segment SHA-256, verified before decrypt |
+| duration_seconds | Float | ✗ | 0.0 | |
+| format | String(24) | ✗ | `native` | the guacd-native instruction stream |
+| created_at | DateTime | ✗ | now | indexed |
+| deleted_at | DateTime | ✗ | None | nullable — retention deletes the file, the row stays as evidence |
+
+Bytes live in storage, never in the row: segment `to_dict` is exactly
+`id, gateway_session_id, seq, storage_tier, size_bytes, sha256,
+duration_seconds, format, created_at, deleted_at`.
+
+### 1.74 `recording_keys` — envelope key per recording (Phase 8a)
+
+| Column | Type | Null | Default | Index/Notes |
+|---|---|---|---|---|
+| id | INTEGER PK | ✗ | | |
+| gateway_session_id | INTEGER FK→gateway_sessions | ✗ | | unique, indexed — one data key per recording |
+| wrapped_key | Text | ✗ | | the 32-byte key wrapped by the master key (seal_with_aad, AAD `recording:<gws_id>`) |
+| key_version | Integer | ✗ | 1 | |
+| algorithm | String(24) | ✗ | `AES-256-GCM` | |
+| created_at | DateTime | ✗ | now | |
+| destroyed_at | DateTime | ✗ | None | nullable — crypto-shredding |
+| destroy_reason | String(64) | ✗ | `''` | |
+
+Crypto-shredding destroys this row's wrapped key; the segment files
+become unreadable even from an old backup, and the rows remain listed as
+evidence.
+
+### 1.75 `gateway_events` — module action log (Phase 8a, ledger source `gateway`)
+
+| Column | Type | Null | Default | Index/Notes |
+|---|---|---|---|---|
+| id | INTEGER PK | ✗ | | |
+| action | String(48) | ✗ | | indexed — registration, approval, injection facts, segment seals, `retention-expired`, playback reads |
+| actor | String(64) | ✗ | `system` | |
+| gateway_session_id | Integer | ✗ | None | nullable, indexed |
+| node_id | Integer | ✗ | None | nullable, indexed |
+| detail | JSON | ✗ | `{}` | |
+| created_at | DateTime | ✗ | now | indexed |
+
+Folded into the §19 ledger by the `before_flush` fan-in (`_map_gateway`)
+under the **twenty-first** source `gateway`; subject `gws-<id>` /
+`node-<id>`, `event_ref` `gateway:<id>`. The audit drift guard keeps it
+honest: it is an `*Event` table, so it must join the chain.
+
+**Settings group `gateway` (12 fields)**: `enabled`, `require_zone`,
+`guacd_host`, `guacd_port`, `segment_seconds`,
+`recording_failure_policy` (`block` / `flag`),
+`spool_alert_threshold_pct` (70), `spool_full_threshold_pct` (85),
+`spool_max_bytes` (10 GiB), `retention_default_days` (90),
+`retention_overrides` (per-protocol JSON map), and
+`node_heartbeat_ttl_seconds` (90). The recording store itself is
+deployment config — env `RECORDING_STORAGE_DIR`, default
+`SERVER_DIR/recordings` — not settings policy.
+
 ## 2. Vendor tool - `pam_master/master.db` (4 tables)
 
 Raw SQL (`pam_master/db.py`), `PRAGMA foreign_keys = ON`, ISO-8601 TEXT
@@ -1050,7 +1208,7 @@ column sets land with the code + contract commit; counts are `—` until then.
 
 | Phase | Tables | Notes |
 |---|---|---|
-| — | none pending | 7 landed (`users` … `scim_groups`, §1.52–1.67); the next phase's tables are recorded here when it starts |
+| — | none pending | 8a landed (`zones` … `gateway_events`, §1.68–1.75); the next phase's tables are recorded here when it starts |
 
 All planned tables follow the standing rules: additive `ensure_schema()`,
 ledger emission in the same transaction, application-enforced references

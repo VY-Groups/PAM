@@ -101,10 +101,12 @@ def test_settings_returns_spec_defaults_and_schema(client):
     assert set(data["settings"]) == {
         "sso", "hsm", "zsp", "worm", "mfa", "itsm", "siem", "ldap",
         "auth", "smtp", "sms", "radius", "scim", "webauthn",
+        "gateway",  # phase 8a
     }
     assert set(data["schema"]) == {
         "sso", "hsm", "zsp", "worm", "mfa", "itsm", "siem", "ldap",
         "auth", "smtp", "sms", "radius", "scim", "webauthn",
+        "gateway",  # phase 8a
     }
 
     sso = data["settings"]["sso"]

@@ -1,6 +1,6 @@
 # VY-PAM — Implementation Plan (remaining architecture coverage)
 
-**Status:** maintained through Phase 7 — remaining backlog starts at 8
+**Status:** maintained through Phase 8a — remaining backlog starts at 8b
 **Authoritative spec:** `VY-PAM_Enterprise_PAM_Architecture.md`
 **Execution log:** `VY-PAM_MASTER_and_PAM_Workflow.md` (checkpoint rows — the
 resumable source of truth while working)
@@ -26,7 +26,7 @@ resumable source of truth while working)
 | §7 Risk-Based Access | 8-component engine + session gate | ✅ built | 4f |
 | §8 Privileged Sessions | recording, controls, cascade | ✅ built | 4c |
 | §9 Command Control | default-allow rules, holds, incidents | ✅ built | 4d |
-| §19 Immutable Audit | hash chain, 20 sources, verify/export | ✅ built | 4e |
+| §19 Immutable Audit | hash chain, 21 sources, verify/export | ✅ built | 4e/8a |
 | §10 PAM Bypass Detection | direct-access detection | ✅ built | **4g** |
 | §17 Break Glass | emergency protocol (dual approval → recorded session → rotation) | ✅ built | **4h** |
 | §20 Enterprise Integrations | TOTP MFA gate, ITSM verify, SIEM push, LDAP bind | ✅ built | **4i** |
@@ -40,7 +40,7 @@ resumable source of truth while working)
 | RBAC / ABAC | multi-role model (single admin today) | ✅ built | 6b |
 | SSO / HSM enforcement | settings schema → real enforcement | ✅ built | **6c** |
 | Real identity & login security | users, server-side sessions, MFA at login, actor bound to the authenticated user | ✅ built | **7** |
-| §27 Session Gateway | the data plane: protocol proxy, credential injection, recording | ⛔ pending | **8** |
+| §27 Session Gateway | the data plane: protocol proxy, credential injection, recording | ✅ **8a built** (guacd-first: zones/nodes/pools, broker, injection, encrypted segments, control, `gateway` trail); 8b Go SSH gateway + 8c DB proxy deferred (no Go toolchain) | **8a** |
 | §5 target-side rotation | push the rotated secret to the target (connector framework) | ⛔ pending | **9** |
 | Data layer & HA at scale | PostgreSQL + migrations, UTC, measured RPO/RTO | ⛔ pending | **10** |
 | Secure-by-default install | refuses insecure start, setup wizard, vendored assets, key ceremony | ⛔ pending | **11** |
@@ -652,7 +652,7 @@ the dual-control open request), Compliance gains the 20th `auth` chip
 (21 sources + All), and the RBAC kind select offers `user`; both screens
 recaptured at 1920×1600.
 
-### 8 — Session gateway & recording (§27; gaps G1, G9, G11, G12, G20; Addendum A + the recording storage paper)
+### 8 — Session gateway & recording — 8a ✅ (closed 2026-10-12); 8b/8c deferred (§27; gaps G1, G9, G11, G12, G20; Addendum A + the recording storage paper)
 The data plane — the thing that actually sits between user and target.
 - Build order per the papers: **reuse `guacd`** (Apache-2.0; RDP/SSH/
   VNC + native recording) behind our policy/JIT/vault first; then a Go
@@ -691,6 +691,48 @@ The data plane — the thing that actually sits between user and target.
   opens an RDP and an SSH session from the browser, the password is
   never seen, a blocked command stops inline, the session plays back,
   and the password rotates on close.*
+
+**8a landed (2026-10-12):** the guacd-first data plane, contract-first —
+209 paths / 250 ops / 24 tags / 11 schemes with a `gateway` tag, a
+`nodeToken` scheme and +17 admin ops (127 → 144); 8 new tables (67 → 75:
+zones, asset_zone_bindings, gateway_pools, gateway_nodes,
+gateway_sessions, recording_segments, recording_keys, gateway_events);
+settings group `gateway` (12 fields); the 21st ledger source `gateway`.
+`guacd.py` speaks the Apache wire protocol straight from
+guacamole-server sources (length-prefixed UTF-8 character elements,
+8192/5/128/6048 limits, `VERSION_1_5_0`, port 4822) and was verified
+byte-for-byte against the writers; `gateway.py` is the broker (maker-
+checker nodes with a sha256-at-rest `vypam-gwn1.` token, zone dispatch
+that fails closed 503 with the create rolled back, `require_zone`,
+one-shot connect-args that refuses the admin token by name, progress
+state machine, segment playback that verifies SHA-256 before decrypting
+and answers 410 on a destroyed key, retention that skips incident-linked
+sessions and leaves rows as evidence); `gateway_daemon.py` is the node
+process (heartbeat + work poll carry pause/terminate - no inbound port;
+segments sealed gzip → AES-256-GCM under a per-recording envelope key).
+The 8a E2E found and forced two real daemon fixes before close: the
+read-loop timeout path now seals the pending segment too (idle sessions
+roll segments instead of holding bytes forever), and every sealed segment
+is reported to the control plane immediately (`progress` after each seal,
+not only on state transitions) so mid-session `segment_count`, playback
+and crash recovery work while the session is still live - both pinned by
+the E2E (34 checks, 0 failed: a real daemon sealed, reported and played
+back a segment mid-session, then pause/terminate/ledger-verify/
+retention-shred on the same rig).
+The Live Session Hub's protocol-overlay line finally reports real
+gateway state (connected/ended/honest not-connected), Compliance gains
+the `gateway` chip, the standing gate gained the 8a hub flow, and
+`test_gateway.py` (34 tests) drives a real in-thread TCP guacd stub
+speaking the real protocol. 8b (Go SSH gateway with inline interception)
+and 8c (DB wire proxy) stay deferred - no Go toolchain on this host
+(Docker 29.8.2 available) - and ffmpeg/asciicast extraction stays phase
+14; 8a promises and serves only the guacd-native instruction stream.
+Verified on the committed tree: full backend **794** collected - full local
+suite **794 passed** in one measured run (1:03:32), the in-container phase2
+**712 passed** on Linux (post-fix rebuild, 51m23s) + licensing **82**
+green - `test_gateway.py` **34**, both-rig E2E **34 checks, 0 failed**,
+standing gate **83** checks open mode / **90** under `GATE_ADMIN_TOKEN`
+ALL PASSED, the three changed screens recaptured at 1920x1600.
 
 ### 9 — Target-side rotation & connector framework (gaps G5, G10, G19)
 Today's rotation changes only the vault copy — until this lands, "rotate

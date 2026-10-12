@@ -1,6 +1,6 @@
 # VY-PAM — Deployment & Operations Runbook
 
-**Status:** as-built for Phase 7
+**Status:** as-built for Phase 8a
 Docker exists **only** for development and runtime testing (vendor tool +
 license server). The shipped product
 installs directly on a machine — no VM, no container.
@@ -84,6 +84,7 @@ shipping instruction.
 | `PAM_NODE_NAME` / `PAM_SITE` | `pam-node-1` / `dc` | §18 self identity per node (`site` ∈ `dc`,`dr`) |
 | `CLUSTER_MONITOR` / `CLUSTER_MONITOR_INTERVAL_SECONDS` | off / 60 | opt-in auto-failover monitor thread |
 | `CLUSTER_BACKUP_DIR` | `backend/phase2_license_server/backups` | destination of verified `POST /cluster/backups` copies |
+| `RECORDING_STORAGE_DIR` | `SERVER_DIR/recordings` | gateway recording storage root (§15) — deployment config, not settings policy |
 
 `.env` next to `config.py` is loaded automatically and is git-ignored.
 
@@ -464,3 +465,61 @@ curl -s -X POST $PAM/auth/emergency/grants/<id>/approve \
   (`POST /api/v1/auth/emergency/login`) still demands the sealed
   password, is single-use, and rotates the seal after use. Every step
   lands on the ledger under source `auth`.
+
+## 15. Gateway data-plane operations (phase 8a)
+
+The `gateway` settings group (12 fields) holds policy — `enabled`,
+`require_zone`, `guacd_host`, `guacd_port`, `segment_seconds`,
+`recording_failure_policy`, the spool alert / full thresholds,
+`spool_max_bytes`, `retention_default_days`, `retention_overrides`,
+`node_heartbeat_ttl_seconds`.
+
+**Point at guacd:** `guacd_host`/`guacd_port` (default `127.0.0.1:4822`)
+is the guacd on the gateway host. Brokered protocols are
+rdp/ssh/vnc/telnet (default ports 22/3389/5900/23); the target's zone
+comes from its discovered-asset zone binding. Dispatch is **fail-closed:
+no healthy node in the target's zone ⇒ 503** and the privileged-session
+create rolls back; `require_zone` refuses unmapped targets with an
+explicit 503, and a brokered session always requires a vault credential
+(503 otherwise). With the gateway disabled, plain sessions keep their
+previous behavior and report `gateway: null`.
+
+**Register a node — maker-checker.** Registration lands `pending` and
+needs a separate approver to approve it (self-approval is 403). The node
+token `vypam-gwn1.<node_id>.<secret>` is shown **once** at registration,
+stored sha256 (constant-time compare), and never echoed again; revoke
+rotates it off and terminates the node's live gateway sessions.
+Heartbeats carry capacity/version; offline is **derived** from a stale
+heartbeat (`node_heartbeat_ttl_seconds`, default 90) — never stored —
+and drain stops dispatch to the node.
+
+**Run the node daemon** on the gateway host (stdlib only, no extra
+package):
+
+```powershell
+python gateway_daemon.py --api <server-url> `
+  --token <the vypam-gwn1.… token from registration> `
+  --storage <recording dir> --poll <seconds>
+```
+
+- The daemon heartbeats and polls for work **outbound** — pause and
+  terminate control directives arrive on that same poll, so a node needs
+  **no inbound port**. Pause stops the daemon reading/acking, so TCP
+  backpressure stalls guacd.
+- `--storage` is where the daemon seals and writes segments
+  (`<storage>/gws-<id>/seg-<seq>.json`); the server-side storage root is
+  `RECORDING_STORAGE_DIR` (§4). DB rows hold pointer + size + SHA-256
+  only — the API never discloses the path or key material.
+
+**Spool pressure:** spool usage is measured against `spool_max_bytes`
+(default 10 GiB) with an alert threshold at 70% and a full threshold at
+85%; `recording_failure_policy` decides whether a recording failure
+blocks the session or flags it and carries on.
+
+**Retention** (`retention_default_days`, default 90, plus per-protocol
+overrides) is run **manually** via the retention endpoint — dry-run
+first, then real: it deletes the segment files, destroys the recording
+keys and emits `retention-expired` ledger events. Sessions linked to a
+command incident are **never** pruned (derived legal hold), and the DB
+rows remain as evidence either way; a destroyed key turns later playback
+into an honest 410.

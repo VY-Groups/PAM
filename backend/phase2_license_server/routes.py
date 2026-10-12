@@ -13,6 +13,7 @@ from flask import Blueprint, Response, current_app, g, jsonify, redirect, reques
 
 import hsm
 import identity
+import gateway
 import mfa
 import otp
 import radius_client
@@ -296,6 +297,41 @@ def require_agent(view):
     @wraps(view)
     def wrapped(*args, **kwargs):
         g.agent_identity = service.verify_agent_token(_agent_token())
+        return view(*args, **kwargs)
+
+    return wrapped
+
+
+def _gateway_node_token() -> str:
+    """A gateway node's API token: the X-Gateway-Token header, or a
+    `vypam-gwn1.` bearer value in Authorization - a plain bearer token
+    stays the admin credential, so the two are never confused."""
+    token = (request.headers.get("X-Gateway-Token") or "").strip()
+    if token:
+        return token
+    auth_header = request.headers.get("Authorization", "")
+    if auth_header.lower().startswith("bearer "):
+        bearer = auth_header[7:].strip()
+        if bearer.startswith(gateway.GATEWAY_NODE_TOKEN_PREFIX + "."):
+            return bearer
+    return ""
+
+
+def require_gateway_node(view):
+    """Reject the request unless a valid gateway node token authenticates
+    the daemon (plan phase 8a). Never waived in open/dev mode: the node
+    identity is the point, X-Actor is not consulted, and - unlike every
+    admin credential - it is exactly what the connect-args route *requires*:
+    a node credential is not an admin credential, and vice versa."""
+
+    @wraps(view)
+    def wrapped(*args, **kwargs):
+        g.gateway_node = gateway.verify_node_token(_gateway_node_token())
+        # the path's node id must match the token's node: one node may not
+        # read another node's queue or connect args
+        path_node = kwargs.get("node_id")
+        if path_node is not None and int(path_node) != g.gateway_node.id:
+            raise NotFound("Gateway node not found")
         return view(*args, **kwargs)
 
     return wrapped
@@ -1046,9 +1082,15 @@ def list_sessions():
         limit=limit,
         offset=offset,
     )
+    rows = [item.to_dict() for item in items]
+    states = gateway.states_for_sessions([item.id for item in items])
+    for row, item in zip(rows, items):
+        # phase 8a: the compact data-plane state per row (node + zone +
+        # injection fact) so live monitoring sees the real gateway view
+        row["gateway"] = states.get(item.id)
     return jsonify(
         {
-            "items": [item.to_dict() for item in items],
+            "items": rows,
             "total": total,
             "limit": limit,
             "offset": offset,
@@ -1071,6 +1113,9 @@ def create_session():
             {
                 "session": session.to_dict(),
                 "risk": risk.to_dict(),
+                # phase 8a: this request's broker verdict - the node it was
+                # dispatched to, or the honest reason it was not
+                "gateway": getattr(session, "_gateway_info", None),
                 "message": "Session started",
             }
         ),
@@ -3719,3 +3764,180 @@ def scim_get_group(scim_id: str):
 def scim_replace_group(scim_id: str):
     _require_scim()
     return jsonify(scim.replace_group(scim_id, _json_body()))
+
+
+# ---------------------------------------------------------------------------
+# session gateway & recording (plan phase 8a - the data plane)
+# ---------------------------------------------------------------------------
+@api.get("/zones")
+@require_admin
+def list_zones():
+    """Network zones with node and asset-binding counts."""
+    return jsonify({"zones": gateway.list_zones()})
+
+
+@api.post("/zones")
+@require_admin
+def create_zone():
+    """Create a zone (a network the gateway nodes live in)."""
+    return jsonify(gateway.create_zone(_json_body(), actor=_actor())), 201
+
+
+@api.get("/zones/<int:zone_id>")
+@require_admin
+def zone_detail(zone_id: int):
+    """One zone with its nodes, pools and bound assets."""
+    return jsonify(gateway.zone_detail(zone_id))
+
+
+@api.delete("/zones/<int:zone_id>")
+@require_admin
+def delete_zone(zone_id: int):
+    """Delete a zone - refused while live nodes, bindings or pools remain
+    (revoked/denied node rows are history and do not block)."""
+    return jsonify(gateway.delete_zone(zone_id, actor=_actor()))
+
+
+@api.put("/discovery/assets/<int:asset_id>/zone")
+@require_admin
+def set_asset_zone(asset_id: int):
+    """Bind a discovered asset to a zone ({'zone_id': null} unbinds)."""
+    return jsonify(gateway.set_asset_zone(asset_id, _json_body(), actor=_actor()))
+
+
+@api.get("/gateway/pools")
+@require_admin
+def list_gateway_pools():
+    """Gateway pools with node counts."""
+    return jsonify({"pools": gateway.list_pools()})
+
+
+@api.post("/gateway/pools")
+@require_admin
+def create_gateway_pool():
+    """Create a pool of gateway nodes inside one zone."""
+    return jsonify(gateway.create_pool(_json_body(), actor=_actor())), 201
+
+
+@api.delete("/gateway/pools/<int:pool_id>")
+@require_admin
+def delete_gateway_pool(pool_id: int):
+    """Delete a pool - refused while nodes remain in it."""
+    return jsonify(gateway.delete_pool(pool_id, actor=_actor()))
+
+
+@api.get("/gateway/nodes")
+@require_admin
+def list_gateway_nodes():
+    """Nodes with derived state (offline = stale heartbeat, never stored),
+    heartbeat age and capacity."""
+    return jsonify({"nodes": gateway.list_nodes()})
+
+
+@api.post("/gateway/nodes")
+@require_admin
+def register_gateway_node():
+    """Register a node: created `pending`; the token is shown once. A
+    distinct approver activates it - the requester never may."""
+    node, token = gateway.register_node(_json_body(), actor=_actor())
+    return jsonify({"node": node, "token": token, "shown_once": True}), 201
+
+
+@api.post("/gateway/nodes/<int:node_id>/approve")
+@require_admin
+def approve_gateway_node(node_id: int):
+    """Approve or deny a pending node (maker-checker, never the requester)."""
+    return jsonify(gateway.approve_node(node_id, _json_body(), actor=_actor()))
+
+
+@api.post("/gateway/nodes/<int:node_id>/drain")
+@require_admin
+def drain_gateway_node(node_id: int):
+    """Drain a node: no new sessions; live ones finish."""
+    return jsonify(gateway.drain_node(node_id, actor=_actor()))
+
+
+@api.delete("/gateway/nodes/<int:node_id>")
+@require_admin
+def revoke_gateway_node(node_id: int):
+    """Revoke a node: its token dies; live sessions are terminated."""
+    return jsonify(gateway.revoke_node(node_id, actor=_actor()))
+
+
+@api.post("/gateway/nodes/<int:node_id>/heartbeat")
+@require_gateway_node
+def gateway_node_heartbeat(node_id: int):
+    """Node heartbeat: liveness + capacity; the reply carries directives."""
+    return jsonify(gateway.heartbeat(g.gateway_node, _json_body()))
+
+
+@api.get("/gateway/nodes/<int:node_id>/work")
+@require_gateway_node
+def gateway_node_work(node_id: int):
+    """The node's queue: pending sessions + live control state."""
+    return jsonify(gateway.node_work(g.gateway_node))
+
+
+@api.get("/gateway/sessions/<int:gateway_session_id>/connect-args")
+def gateway_connect_args(gateway_session_id: int):
+    """Guacd connection arguments with the injected credential: node token
+    only, exactly once. An admin credential is *refused by name* here - a
+    node credential is not an admin credential, and vice versa."""
+    token = _gateway_node_token()
+    if not token:
+        admin_presented = bool(request.headers.get("X-Admin-Token"))
+        auth_header = request.headers.get("Authorization", "")
+        if auth_header.lower().startswith("bearer "):
+            admin_presented = True
+        if admin_presented:
+            raise Forbidden(
+                "connect-args require the gateway node token - "
+                "the admin token is refused by design"
+            )
+        raise Unauthorized(
+            "Gateway node token required "
+            "(Authorization: Bearer vypam-gwn1.<id>.<secret>)"
+        )
+    node = gateway.verify_node_token(token)
+    return jsonify(gateway.connect_args(gateway_session_id, node))
+
+
+@api.post("/gateway/sessions/<int:gateway_session_id>/progress")
+@require_gateway_node
+def gateway_session_progress(gateway_session_id: int):
+    """Node progress: state transitions, sealed segments, the end."""
+    return jsonify(
+        gateway.progress(gateway_session_id, g.gateway_node, _json_body())
+    )
+
+
+@api.get("/gateway/sessions/<int:gateway_session_id>/recording")
+@require_admin
+def gateway_recording(gateway_session_id: int):
+    """Recording segments + key state: pointers and hashes, never bytes."""
+    return jsonify(gateway.recording_meta(gateway_session_id))
+
+
+@api.get("/gateway/sessions/<int:gateway_session_id>/recording/<int:seq>/data")
+@require_admin
+def gateway_recording_data(gateway_session_id: int, seq: int):
+    """Playback one segment: decrypt + decompress the native stream.
+    A destroyed key answers 410 (crypto-shredded)."""
+    return jsonify(
+        gateway.playback_segment(gateway_session_id, seq, actor=_actor())
+    )
+
+
+@api.post("/gateway/recordings/retention/run")
+@require_admin
+def gateway_retention_run():
+    """Apply retention: prune files, crypto-shred keys, land the ledger."""
+    return jsonify(gateway.run_retention(_json_body(required=False), actor=_actor()))
+
+
+@api.get("/gateway/stats")
+@require_admin
+def gateway_stats():
+    """Gateway posture: nodes, sessions, storage bytes by tier, spool."""
+    return jsonify(gateway.stats())
+

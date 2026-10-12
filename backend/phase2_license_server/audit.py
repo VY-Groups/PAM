@@ -46,6 +46,7 @@ from models import (
     ClusterEvent,
     CommandIncident,
     DiscoveryEvent,
+    GatewayEvent,
     HsmKeyEvent,
     IntegrationEvent,
     JitEvent,
@@ -62,7 +63,7 @@ from models import (
     VendorEvent,
 )
 
-# the twenty trails folded into the ledger (the unified feed reads these)
+# the twenty-one trails folded into the ledger (the unified feed reads these)
 AUDIT_SOURCES = (
     "license",
     "settings",
@@ -84,6 +85,7 @@ AUDIT_SOURCES = (
     "sso",
     "hsm",
     "auth",
+    "gateway",
 )
 SOURCE_RANK = {name: index for index, name in enumerate(AUDIT_SOURCES)}
 
@@ -584,6 +586,29 @@ def _map_auth_event(event: AuthEvent, db_session) -> Dict[str, Any]:
     )
 
 
+def _map_gateway(event: GatewayEvent, db_session) -> Dict[str, Any]:
+    """The data plane under the twenty-first trail `gateway` (plan phase
+    8a): node registration/approval, brokering, credential-injection
+    facts, segment seals, playback reads, retention expiries. Injected
+    credentials and recording key material never enter `detail`."""
+    subject = _value(event, "gateway_session_id")
+    if subject is not None:
+        subject = f"gws-{subject}"
+    else:
+        node_id = _value(event, "node_id")
+        subject = f"node-{node_id}" if node_id is not None else None
+    return _entry(
+        source="gateway",
+        event_ref=f"gateway:{event.id}",
+        action=_value(event, "action"),
+        actor=_value(event, "actor"),
+        subject=subject,
+        detail=_value(event, "detail") or {},
+        created_at=event.created_at,
+        sort_id=event.id,
+    )
+
+
 # every event model that must reach the ledger, in a stable backfill order
 LEDGER_MODELS = (
     LicenseEvent,
@@ -610,6 +635,8 @@ LEDGER_MODELS = (
     HsmKeyEvent,
     # 7 appends: the console-login security trail
     AuthEvent,
+    # 8a appends: the data-plane trail
+    GatewayEvent,
 )
 
 MAPPERS = {
@@ -635,6 +662,7 @@ MAPPERS = {
     SsoSession: _map_sso_session,
     HsmKeyEvent: _map_hsm,
     AuthEvent: _map_auth_event,
+    GatewayEvent: _map_gateway,
 }
 
 
@@ -660,7 +688,9 @@ def append_entries(entries: List[Dict[str, Any]], db_session) -> List[AuditEvent
             source=entry["source"],
             action=entry["action"],
             actor=entry["actor"],
-            subject=entry["subject"],
+            # a NULL subject is stored as '' by the column default; coerce
+            # before hashing so the write-time hash equals the rehash
+            subject=entry["subject"] or "",
             detail=entry["detail"],
             created_at=entry["created_at"],
             prev_hash=prev_hash,

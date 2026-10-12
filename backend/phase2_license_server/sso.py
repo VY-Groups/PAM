@@ -128,9 +128,19 @@ def _slot_values(slot: str) -> Dict[str, Any]:
 
 
 def _http_get(url: str) -> Tuple[int, bytes]:
+    scheme = urllib.parse.urlsplit(url).scheme.lower()
+    if scheme not in ("http", "https"):
+        # ServiceUnavailable is this plumbing's existing failure shape; the
+        # callers already surface it honestly. A file:/custom scheme here
+        # would read local paths as the IdP's answer (bandit B310).
+        raise ServiceUnavailable(
+            f"SSO endpoint scheme {scheme!r} refused - http(s) only",
+            {"url": url.split("?")[0], "idp_reachable": False},
+        )
     request = urllib.request.Request(url, method="GET")
     try:
-        with urllib.request.urlopen(request, timeout=HTTP_TIMEOUT_SECONDS) as response:
+        # scheme of url is validated http(s)-only above (B310)
+        with urllib.request.urlopen(request, timeout=HTTP_TIMEOUT_SECONDS) as response:  # nosec B310
             return int(response.status), response.read()
     except urllib.error.HTTPError as exc:
         return int(exc.code), exc.read()
@@ -142,12 +152,20 @@ def _http_get(url: str) -> Tuple[int, bytes]:
 
 
 def _http_post_form(url: str, fields: Dict[str, str]) -> Tuple[int, bytes]:
+    scheme = urllib.parse.urlsplit(url).scheme.lower()
+    if scheme not in ("http", "https"):
+        # Same refusal as _http_get - this plumbing's honest failure shape.
+        raise ServiceUnavailable(
+            f"SSO endpoint scheme {scheme!r} refused - http(s) only",
+            {"url": url.split("?")[0], "idp_reachable": False},
+        )
     body = urllib.parse.urlencode(fields).encode("ascii")
     request = urllib.request.Request(
         url, data=body, method="POST", headers={"Content-Type": "application/x-www-form-urlencoded"}
     )
     try:
-        with urllib.request.urlopen(request, timeout=HTTP_TIMEOUT_SECONDS) as response:
+        # scheme of url is validated http(s)-only above (B310)
+        with urllib.request.urlopen(request, timeout=HTTP_TIMEOUT_SECONDS) as response:  # nosec B310
             return int(response.status), response.read()
     except urllib.error.HTTPError as exc:
         return int(exc.code), exc.read()
@@ -349,7 +367,7 @@ def _parse_xml(raw: bytes):
     if b"<!DOCTYPE" in head or b"<!ENTITY" in raw.upper():
         raise SamlError("SAML document carries a DTD or entity declaration - refused")
     try:
-        return minidom.parseString(raw)
+        return minidom.parseString(raw)  # nosec B318 - the DTD/entity pre-scan above is the control
     except Exception as exc:  # expat raises several types
         raise SamlError(f"SAML document is not well-formed XML: {exc}") from exc
 

@@ -1,6 +1,6 @@
 # VY-PAM — Testing & QA Strategy
 
-**Status:** as-built for Phase 7
+**Status:** as-built for Phase 8a
 Every number below was collected from the real suite at this commit.
 
 ---
@@ -9,7 +9,7 @@ Every number below was collected from the real suite at this commit.
 
 | Suite | File | Tests |
 |---|---|---|
-| **Backend total** | `python -m pytest backend -q` | **760** |
+| **Backend total** | `python -m pytest backend -q` | **794** |
 | ├ licensing core | `backend/ipam_licensing/test_license_core.py` | 46 |
 | ├ licensing spec | `backend/ipam_licensing/test_license_spec.py` | 35 |
 | ├ licensing bridge | `backend/ipam_licensing/test_licensing.py` | 1 |
@@ -42,6 +42,7 @@ Every number below was collected from the real suite at this commit.
 | ├ WebAuthn (7) | `…/tests/test_webauthn.py` | 17 |
 | ├ RADIUS (7) | `…/tests/test_radius.py` | 13 |
 | ├ SCIM (7) | `…/tests/test_scim.py` | 9 |
+| ├ gateway data plane (8a) | `…/tests/test_gateway.py` | 34 |
 | └ OpenAPI contract | `…/tests/test_openapi_contract.py` | 9 |
 | **Vendor tool total** | `python -m pytest pam_master -q` | **46** |
 | ├ registry (encrypted PII) | `pam_master/tests/test_registry.py` | 15 |
@@ -50,12 +51,24 @@ Every number below was collected from the real suite at this commit.
 | └ vendor OpenAPI contract | `pam_master/tests/test_openapi_contract.py` | 6 |
 
 Contract test asserts (9): valid OpenAPI 3.1, documented ⇄ implemented
-routes both directions, security schemes on **127** admin operations, the
+routes both directions, security schemes on **144** admin operations, the
 documented admin set ⇄ runtime (`service.ADMIN_OPERATIONS` ∪ `whoami`),
-per-op role lists ⇄ `ROLE_OPERATIONS`, the `rbacToken`/`ldapTicket`
-schemes + `/auth/whoami` documenting every credential, enums ⇄ code
-constants, required `info`/tags (23), and live response shapes ⇄ schemas —
-currently **192 paths / 229 operations**.
+per-op role lists ⇄ `ROLE_OPERATIONS`, the `rbacToken`/`ldapTicket`/
+`nodeToken` schemes + `/auth/whoami` documenting every credential, enums ⇄
+code constants, required `info`/tags (24), and live response shapes ⇄
+schemas — currently **209 paths / 250 operations** (the 4 node-token ops
+are intentionally outside the admin set).
+
+The 8a gateway layer (`test_gateway.py`, 34, all passing) runs a **real
+in-thread TCP guacd stub** speaking the Apache wire protocol — handshake
+order, error-opcode honesty, garbage fail-closed, client
+ack/sync/disconnect — plus the broker fail-closed matrix, the node-token
+auth matrix, maker-checker registration, one-shot credential injection
+with the injected password proven absent from the ledger export, a
+recording round trip through the daemon's **own** seal code (gzip +
+AES-256-GCM) so playback decrypts exactly what the daemon sealed, tamper
+and lied-hash detection (500), retention dry-run / prune / incident-hold,
+and `GET /audit/verify` intact at the end.
 
 ## 2. Test design rules
 
@@ -105,7 +118,7 @@ currently **192 paths / 229 operations**.
 |---|---|
 | `__verify_live.mjs` | **9 live screens** render with real API data over HTTP **and** honest `file://` fallback; sweeps the DOM for FORBIDDEN fabricated strings (exact pairs like `'Showing 5 of 2,875'`; a bare `'Showing 5 of'` is *not* forbidden — live pagination may honestly show `Showing 5 of 5 items`) |
 | `__verify_discovery.mjs` | discovery screen flows (scan/adopt/filter against a throwaway server) |
-| `__verify_agent.mjs` | **6a+6b standing gate - 50 checks, ALL PASSED**: §16 AI-Agent Access section on the JIT screen (below the broker block, zero `id=`, live `/agents*` + `/agent-access/*`, honest zero-state `0 agents · 0 open grants · 0 agent events`, numeric tiles, one-time token reveal modal, `window.jitLive.agent`), the Compliance screen's 18 source chips (`rbac` appended last), the §18 HA / DC / DR section on Platform Settings (summary shape, role badge vs the Promote/Demote label, numeric THIS NODE/PEERS/REPLICATION/BACKUPS tiles, node + replica + backup rows, zero `id=`, `window.settingsLive.cluster`) plus a live register → probe → sync → remove flow against an unreachable peer asserting the verbatim probe/sync errors and the registry returning to its baseline, and the §10 RBAC / ABAC section on Platform Settings (summary, five seeded roles, bindings table, hidden one-time token box, zero `id=`, `window.settingsLive.rbac`) plus — under `GATE_ADMIN_TOKEN` against a token-mode rig — a live grant → 403 verbatim → allowed op → scope 403 → revoke → 401 flow; in open dev mode it says so and skips honestly |
+| `__verify_agent.mjs` | **6a+6b+6c+7+8a standing gate - 83 checks open mode / 90 checks under `GATE_ADMIN_TOKEN`, ALL PASSED**: §16 AI-Agent Access section on the JIT screen (below the broker block, zero `id=`, live `/agents*` + `/agent-access/*`, honest zero-state `0 agents · 0 open grants · 0 agent events`, numeric tiles, one-time token reveal modal, `window.jitLive.agent`), the Compliance screen's 18 source chips (`rbac` appended last), the §18 HA / DC / DR section on Platform Settings (summary shape, role badge vs the Promote/Demote label, numeric THIS NODE/PEERS/REPLICATION/BACKUPS tiles, node + replica + backup rows, zero `id=`, `window.settingsLive.cluster`) plus a live register → probe → sync → remove flow against an unreachable peer asserting the verbatim probe/sync errors and the registry returning to its baseline, and the §10 RBAC / ABAC section on Platform Settings (summary, five seeded roles, bindings table, hidden one-time token box, zero `id=`, `window.settingsLive.rbac`) plus — under `GATE_ADMIN_TOKEN` against a token-mode rig — a live grant → 403 verbatim → allowed op → scope 403 → revoke → 401 flow; in open dev mode it says so and skips honestly; the 6c SSO/HSM enforcement lines (live chips, stored groups, SSO/HSM API truth, an advisory-rig seal/unseal cycle, and - when `GATE_SSO_IDP` names a running SAML test IdP - the full login handshake, honestly skipped with a note otherwise), the phase-7 identity & login lines (the six identity settings boxes, the sealed emergency-admin card, SCIM/RADIUS honest refusals, the compliance screen's `auth` chip), and the 8a extension: the Compliance screen's 22 source chips (`gateway` appended last - chips ending `sso,hsm,auth,gateway`) and a Live Session Hub flow - the honest default line (a prior run's honest end state is accepted too; never a false live claim), then a live zone + asset + maker-checker node + heartbeat + session: the create reports the broker node and the hub reports the session honestly `pending`, the node's one-shot credential fetch (real password + 64-hex data key) flips `credential_injected` to reported true, and the node's own `progress` calls (pending -> connecting -> active) make the hub render the connected line verbatim - ending in an honest end state after cleanup (terminate, revoke, unbind, delete zone, restore settings) |
 | `__shots.mjs` / `__debug_screen.mjs` | pre-existing capture/debug helpers (kept) |
 
 Screenshots: **1920×1600 viewport, `fullPage: false` always**; tall pages use
@@ -115,7 +128,7 @@ a fullPage path.
 ## 4. Boundary regression (run before every commit)
 
 ```powershell
-python -X utf8 -m pytest backend -q          # 760
+python -X utf8 -m pytest backend -q          # 794
 python -X utf8 -m pytest pam_master -q       # 46
 python -X utf8 -m pytest backend\phase2_license_server\tests\test_openapi_contract.py -q   # 9
 # boundary smoke (Temp\opencode\smoke_restructure.py): 17/17
@@ -174,6 +187,7 @@ Each pending phase adds a test file and grows the contract — **counts are
 | 6b | `test_rbac.py` (31) | 4 rbac paths + role scope lists on the 74 role-declaring admin ops + `rbacToken`/`ldapTicket` schemes |
 | 6c | `test_sso.py` (37), `test_hsm.py` (14) | 14 SSO/HSM paths + settings enforcement + posture evidence |
 | 7 | `test_identity.py` (33), `test_mfa.py` (11), `test_otp.py` (13), `test_webauthn.py` (17), `test_radius.py` (13), `test_scim.py` (9) | 41 identity paths / 49 ops + the `identity` tag + security schemes on the 16 new admin operations |
+| 8a | `test_gateway.py` (34) | 17 gateway paths / 21 ops + the `gateway` tag + the `nodeToken` security scheme (settings `{group}` enum gains `gateway`) |
 
 Standing expectations for every future phase: the 4-way lockstep
 (routes ⇄ openapi ⇄ ADMIN ⇄ tests), mapper-coverage test keeps all event

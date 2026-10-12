@@ -1184,6 +1184,65 @@ SETTINGS_SCHEMA: Dict[str, Dict[str, Dict[str, Any]]] = {
             "help": "Comma-separated origins, e.g. https://pam.corp.example",
         },
     },
+    # session gateway & recording policy (plan phase 8a; the storage
+    # location itself is deployment config - RECORDING_STORAGE_DIR)
+    "gateway": {
+        "enabled": {
+            "type": "bool",
+            "default": False,
+            "help": "Broker gateway-capable sessions onto approved nodes in the target's zone",
+        },
+        "require_zone": {
+            "type": "bool",
+            "default": False,
+            "help": "Refuse gateway-capable sessions to targets not mapped to any zone (recommended in production)",
+        },
+        "guacd_host": {"type": "str", "max_length": 255, "default": "127.0.0.1"},
+        "guacd_port": {"type": "int", "min": 1, "max": 65535, "default": 4822},
+        "segment_seconds": {
+            "type": "int",
+            "min": 5,
+            "max": 3600,
+            "default": 60,
+            "help": "Recording segment length: gzip + AES-256-GCM sealed per segment",
+        },
+        "recording_failure_policy": {
+            "type": "enum",
+            "choices": ("block", "flag"),
+            "default": "block",
+            "help": "When recording cannot be established: block the session or start it flagged",
+        },
+        "spool_alert_threshold_pct": {"type": "int", "min": 1, "max": 100, "default": 70},
+        "spool_full_threshold_pct": {"type": "int", "min": 1, "max": 100, "default": 85},
+        "spool_max_bytes": {
+            "type": "int",
+            "min": 1048576,
+            "max": 1099511627776,
+            "default": 10737418240,
+            "help": "The recording volume's size in bytes (spool usage is measured against it)",
+        },
+        "retention_default_days": {
+            "type": "int",
+            "min": 1,
+            "max": 3650,
+            "default": 90,
+            "help": "Recordings older than this are pruned + crypto-shredded by the retention run",
+        },
+        "retention_overrides": {
+            "type": "str",
+            "max_length": 1024,
+            "allow_empty": True,
+            "default": "{}",
+            "help": 'JSON map of per-protocol retention, e.g. {"ssh": 365}',
+        },
+        "node_heartbeat_ttl_seconds": {
+            "type": "int",
+            "min": 5,
+            "max": 3600,
+            "default": 90,
+            "help": "An active node with no heartbeat for this long reports offline",
+        },
+    },
 }
 
 SETTINGS_GROUPS = tuple(SETTINGS_SCHEMA)
@@ -3352,6 +3411,32 @@ def create_session(
     db.session.add(session)
     try:
         db.session.flush()  # assign the id before the status event references it
+        # phase 8a: the gateway broker takes the session onto a healthy node
+        # in the target's zone - or refuses it clearly (503 rolls the whole
+        # start back: a session that must be recorded never starts unrecorded)
+        import gateway as gateway_module
+
+        gateway_info = gateway_module.attach_to_session(session, payload, actor=actor)
+        # carried to the route: the POST response reports this request's
+        # broker verdict (required + node + zone, or the honest reason)
+        session._gateway_info = gateway_info
+        if gateway_info is not None:
+            if gateway_info.get("required"):
+                node_info = gateway_info["node"]
+                _append_session_status(
+                    session,
+                    actor=actor,
+                    content=(
+                        f"brokered to gateway node {node_info['name']} "
+                        f"in zone {node_info['zone']}"
+                    ),
+                )
+            else:
+                _append_session_status(
+                    session,
+                    actor=actor,
+                    content=f"gateway not required ({gateway_info.get('reason')})",
+                )
         _append_session_status(session, actor=actor, content="session started")
         if own_checkout:
             # commits session + status event together with the checkout
@@ -3421,6 +3506,8 @@ def session_detail(session_id: int) -> Dict[str, Any]:
     blocked = SessionEvent.query.filter_by(
         session_id=session.id, allowed=False
     ).count()
+    import gateway as gateway_module
+
     return {
         "session": session.to_dict(),
         "events": [event.to_dict() for event in events],
@@ -3428,6 +3515,9 @@ def session_detail(session_id: int) -> Dict[str, Any]:
         "blocked_count": blocked,
         # section 12: the contextual overlay rides along with the detail view
         "watermark": session_watermark(session),
+        # phase 8a: real data-plane state (node, zone, injection fact,
+        # recording key state) - the watermark stops saying "not connected"
+        "gateway": gateway_module.enrich_session_detail({}, session)["gateway"],
     }
 
 
@@ -11170,6 +11260,26 @@ ADMIN_OPERATIONS = [
     ("get", "/api/v1/auth/deliveries"),
     ("post", "/api/v1/settings/scim/rotate"),
     ("post", "/api/v1/settings/smtp/test"),
+    # phase 8a: the gateway's admin surface. The daemon's four routes
+    # (heartbeat, work, connect-args, progress) are node-identity
+    # operations, never admin operations.
+    ("get", "/api/v1/zones"),
+    ("post", "/api/v1/zones"),
+    ("get", "/api/v1/zones/{zone_id}"),
+    ("delete", "/api/v1/zones/{zone_id}"),
+    ("put", "/api/v1/discovery/assets/{asset_id}/zone"),
+    ("get", "/api/v1/gateway/pools"),
+    ("post", "/api/v1/gateway/pools"),
+    ("delete", "/api/v1/gateway/pools/{pool_id}"),
+    ("get", "/api/v1/gateway/nodes"),
+    ("post", "/api/v1/gateway/nodes"),
+    ("post", "/api/v1/gateway/nodes/{node_id}/approve"),
+    ("post", "/api/v1/gateway/nodes/{node_id}/drain"),
+    ("delete", "/api/v1/gateway/nodes/{node_id}"),
+    ("get", "/api/v1/gateway/sessions/{gateway_session_id}/recording"),
+    ("get", "/api/v1/gateway/sessions/{gateway_session_id}/recording/{seq}/data"),
+    ("post", "/api/v1/gateway/recordings/retention/run"),
+    ("get", "/api/v1/gateway/stats"),
 ]
 
 # The approver: decision operations only - approve, deny and close across
@@ -11189,6 +11299,9 @@ _RBAC_APPROVER_OPERATIONS = frozenset(
         # phase 7: recovery and emergency are dual-control by design
         ("post", "/api/v1/auth/factor-recovery/{request_id}/approve"),
         ("post", "/api/v1/auth/emergency/grants/{grant_id}/approve"),
+        # phase 8a: registering a gateway node is maker-checker - the
+        # checker half is the approver role (never the requester)
+        ("post", "/api/v1/gateway/nodes/{node_id}/approve"),
     }
 )
 
@@ -11243,6 +11356,11 @@ _RBAC_OPERATOR_OPERATIONS = frozenset(
         ("post", "/api/v1/cluster/failover"),
         ("post", "/api/v1/cluster/monitor/tick"),
         ("post", "/api/v1/cluster/backups"),
+        # phase 8a: day-2 gateway work - zone mapping, node drain,
+        # retention runs
+        ("put", "/api/v1/discovery/assets/{asset_id}/zone"),
+        ("post", "/api/v1/gateway/nodes/{node_id}/drain"),
+        ("post", "/api/v1/gateway/recordings/retention/run"),
     }
 )
 
@@ -11867,7 +11985,8 @@ def probe_cluster_node(node_id: int, *, actor: str) -> Dict[str, Any]:
         url, headers={"Accept": "application/json", "User-Agent": "VY-PAM/1"}, method="GET"
     )
     try:
-        with urllib.request.urlopen(request, timeout=CLUSTER_PROBE_TIMEOUT) as response:
+        # node.base_url was validated at registration (https unless loopback)
+        with urllib.request.urlopen(request, timeout=CLUSTER_PROBE_TIMEOUT) as response:  # nosec B310
             status = getattr(response, "status", 200)
             body = response.read(65536).decode("utf-8", errors="replace")
         try:
@@ -11990,7 +12109,8 @@ def sync_cluster_node(
         request = urllib.request.Request(
             f"{node.base_url}{path}", headers=headers, method="GET"
         )
-        with urllib.request.urlopen(request, timeout=timeout) as response:
+        # node.base_url was validated at registration (https unless loopback)
+        with urllib.request.urlopen(request, timeout=timeout) as response:  # nosec B310
             return (
                 getattr(response, "status", 200),
                 response.read(64 * 1024 * 1024).decode("utf-8", errors="replace"),

@@ -1,6 +1,6 @@
 # VY-PAM — Security & Compliance Overview
 
-**Status:** as-built for Phase 7
+**Status:** as-built for Phase 8a
 States what the platform **actually enforces today** — implemented controls
 are described with their evidence; gaps are named plainly.
 
@@ -124,6 +124,21 @@ token or explicit open dev mode), (c) runtime↔disk (encrypted secrets),
   emergency admin has no usable password and opens only on a reason ≥ 8
   chars plus two distinct approvers (never the requester), in a
   time-boxed window; its login is single-use and rotates the seal.
+- **Gateway credential & recording custody (8a):** the user never sees
+  the injected target password — connect-args are **one-shot** and issued
+  only to the node's own `vypam-gwn1` token (the admin bearer is refused
+  403 by name, a second fetch is 409), and the ledger never contains
+  credentials or key material (proven by test). Recordings are sealed
+  per segment under a per-recording data key wrapped by the master key —
+  **crypto-shreddable**: destroying the key turns playback into a 410
+  while the rows remain as evidence; each segment's SHA-256 is verified
+  before decrypt (tamper ⇒ 500). Dispatch fails closed (no healthy node
+  in the target's zone ⇒ 503, the create rolled back), node registration
+  is maker-checker (self-approval 403), and `gateway` is the **21st**
+  ledger trail (node registration/approval, brokering,
+  credential-injection facts, segment seals, playback reads,
+  retention-expired). Retention never prunes sessions linked to command
+  incidents (derived legal hold).
 - **Open dev mode is loud, never silent:** responses carry
   `X-Auth-Mode: open`, the console profile shows `no user session` /
   `auth: -`, and the security posture checklist records it as the single
@@ -209,6 +224,7 @@ with per-event `seq` and custody watermarks.
 | TLS in transit | ⛔ at app layer | terminate at reverse proxy (see runbook) |
 | HA / DR | ✅ | multi-node registry + real `/health` probes, hash-verified pull replication (audit/vault/sessions), passive write gate, manual failover + opt-in auto-promote, verified SQLite backups — runbooks in the deployment runbook §7 |
 | Break-glass emergency workflow (§17) | ✅ | dual approval (requester excluded) → recorded session → forced rotation at close; ledger `break-glass` |
+| Gateway data plane & credential injection (8a) | ✅ | brokered rdp/ssh/vnc/telnet through maker-checked nodes over zones/pools (self-approval 403, fail-closed 503 dispatch with the create rolled back); one-shot connect-args per node token — the user never sees the injected password and the admin bearer is refused 403 by name; per-segment AES-256-GCM recordings under a master-key-wrapped envelope key (SHA-256 verified before decrypt, tamper ⇒ 500, destroyed key ⇒ 410 with rows kept); retention legal hold for incident-linked sessions; ledger `gateway` (21st source) |
 | Third-party / vendor access (§13) | ✅ | per-vendor TOTP (sealed, shown once) + NDA + real ITSM ticket → strict approval gate → scope/window-checked JIT request with forced session recording + lazy expiry; refusals recorded; ledger `vendor` |
 | SIEM streaming | ⚠️ seam only | NDJSON export (pull), no live webhook (§20) |
 | Dynamic watermark overlay (§12) | ✅ | six-line `USER/SESSION/TARGET/TIME/TICKET/SOURCE` payload assembled from the session's own rows (grant ticket + recorded source address), console overlay reacting to pause/resume/terminate, per-event custody lines; protocol-level pixel overlays labelled `not connected` pending gateway (§27) |
@@ -223,6 +239,7 @@ reported as missing — never as partial-good.
 | ~~Single admin role~~ — **✅ closed in 6b** | 6b | Five seeded roles over all admin operations (admin 127 / operator 45 / auditor 27 / auditor-read-only 24 / approver 12), sha256-at-rest tokens shown once, LDAP binding-required (the directory authenticates, the binding decides), ABAC target / vault-item scoping; `admin-token` stays the bootstrap superuser and open dev mode remains an explicit, posture-recorded violation |
 | ~~SSO/HSM schema-only~~ — **✅ closed in 6c** | 6c | SAML 2.0 + OIDC login with verified signatures, single-use flows and fail-closed MFA; JIT subjects + server-side sessions; `kind=sso` bindings on the 6b model (the IdP authenticates, the binding decides). HSM/KMS providers wrap the master key (envelope — same key, ciphertexts stay valid); `enforcement=enforced` refuses any file fallback and seals on provider failure — `sso_mfa`/`hsm_backed` posture now count real evidence, never settings booleans |
 | ~~No real identity behind logins~~ — **✅ closed in 7** | 7 | scrypt local users, fail-closed MFA at login, CSRF-bound server-side console sessions, actor bound to the authenticated principal (`X-Actor` ignored for sessions), lockout + spray detection, e-mail OTP / WebAuthn / RADIUS / SCIM lifecycle, and the sealed emergency admin with dual-approved, time-boxed, single-use open — Addendum C in full; `auth` is the 20th ledger source |
+| ~~No gateway data plane~~ — **✅ closed in 8a** | 8a | zones/pools + maker-checker node registration (Addendum A), guacd-first brokering of rdp/ssh/vnc/telnet with fail-closed dispatch (no healthy node in zone ⇒ 503, create rolled back), one-shot credential injection the user never sees (ledger holds the fact, never the secret), per-segment sealed recordings with verified playback and crypto-shreddable retention (incident-linked sessions are legal hold) — `gateway` is the 21st ledger source |
 | TLS not terminated by the app | runbook §5 (now) | Reverse-proxy TLS - documented and checklisted; app stays plain HTTP by design |
 | Geo-IP feed (`location` = `is_global`) | 4i | Device/IP context now sits in the trained §11 baselines; a real geo feed only if one is ever configured - otherwise the honest label stays |
 

@@ -1,14 +1,18 @@
-// 6a+6b+6c+7 gate: HA/DC/DR and RBAC/ABAC sections on Platform Settings,
+// 6a+6b+6c+7+8a gate: HA/DC/DR and RBAC/ABAC sections on Platform Settings,
 // cluster source chip, the 6c SSO/HSM enforcement lines (live chips,
 // stored groups, SSO/HSM API truth, an advisory-rig seal/unseal cycle, and
 // - when GATE_SSO_IDP names a running SAML test IdP - the full login
-// handshake, honestly skipped with a note otherwise), and the phase-7
+// handshake, honestly skipped with a note otherwise), the phase-7
 // identity & login security lines (the six identity settings boxes, the
 // sealed emergency-admin card, SCIM/RADIUS honest refusals, and the
-// compliance screen's auth chip). Keeps every 5d check (JIT agent
-// section) and the 6a UI assertions. Set GATE_ADMIN_TOKEN to run
-// the flows against a token-mode rig. Exit code 1 on any failed assertion.
-// Viewport 1920x1600, headless.
+// compliance screen's auth chip), the phase-8a compliance gateway chip and
+// the Live Session Hub's protocol-overlay line (honest "not connected" by
+// default; then a live zone + maker-checker node + session + one-shot
+// credential-injection flow, with the node's own progress calls moving
+// pending -> connecting -> active, that the hub must report verbatim). Keeps every
+// 5d check (JIT agent section) and the 6a UI assertions. Set
+// GATE_ADMIN_TOKEN to run the flows against a token-mode rig. Exit code 1
+// on any failed assertion. Viewport 1920x1600, headless.
 import { chromium } from 'playwright-core';
 
 const BASE = process.env.BASE || 'http://127.0.0.1:5000';
@@ -100,11 +104,225 @@ const compBits = await comp.evaluate(() => {
 });
 check(compErrors.length === 0, 'Compliance screen: no page/console errors '
   + JSON.stringify(compErrors.slice(0, 3)));
-check(compBits.chips.length === 21,
-  'Compliance screen: 21 source chips (got ' + compBits.chips.length + ')');
-check(compBits.chips.slice(-4).join(',') === 'rbac,sso,hsm,auth',
-  'Compliance screen: auth chip appended after hsm -> ' + JSON.stringify(compBits.chips.slice(-4)));
+check(compBits.chips.length === 22,
+  'Compliance screen: 22 source chips (got ' + compBits.chips.length + ')');
+check(compBits.chips.slice(-4).join(',') === 'sso,hsm,auth,gateway',
+  'Compliance screen: gateway chip appended after auth -> ' + JSON.stringify(compBits.chips.slice(-4)));
 await comp.close();
+
+// ---- 8a: Live Session Hub gateway overlay (phase 27 wiring) ---------------
+// The watermark card's protocol-overlay line finally reports real gateway
+// state: honest "not connected" by default, then a live broker flow (zone +
+// asset + maker-checker node + heartbeat + session + the one-shot credential
+// injection) that the hub must reflect verbatim, and an honest end state
+// after cleanup. Everything runs through the public API - no figure here
+// that the rig did not just produce.
+const hub = await browser.newPage({ viewport: { width: 1920, height: 1600 } });
+if (ADMIN_TOKEN) await hub.addInitScript((t) => sessionStorage.setItem('aegispam_admin_token', t), ADMIN_TOKEN);
+const hubErrors = [];
+const hubBad = [];
+hub.on('pageerror', (e) => hubErrors.push('[pageerror] ' + e.message));
+hub.on('console', (m) => {
+  if (m.type() === 'error' && !noise(m.text())) hubErrors.push('[console] ' + m.text());
+});
+hub.on('response', (r) => {
+  if (r.status() >= 400 && !/favicon/.test(r.url())) hubBad.push(r.status() + ' ' + r.url());
+});
+await hub.goto(BASE + '/screens/live_session_recording_inspection_hub/code.html', { waitUntil: 'load' });
+await new Promise((r) => setTimeout(r, 3000));
+const hubBaseline = await hub.evaluate(() => {
+  const line = document.querySelector('[data-role="wm-protocol"]');
+  return {
+    line: line ? line.textContent.trim() : '',
+    icon: (document.querySelector('[data-role="wm-protocol-icon"]') || {}).textContent || '',
+    exported: !!(window.hubLive && window.hubLive.gateway
+      && typeof window.hubLive.gateway.load === 'function'
+      && window.hubLive.gateway.state),
+  };
+});
+check(hubErrors.length === 0, 'Hub screen: no page/console errors '
+  + JSON.stringify(hubErrors.slice(0, 3)));
+check(hubBad.length === 0, 'Hub screen: no failed HTTP responses '
+  + JSON.stringify(hubBad.slice(0, 3)));
+check(hubBaseline.exported, 'Hub screen: window.hubLive.gateway exported');
+  // the invariant is "never a false live claim": a pristine rig says
+  // "not connected" (cloud_off), and a rig carrying a prior run's finished
+  // flow may honestly show that ended session - never a brokered one
+  const baselinePristine = /not connected/.test(hubBaseline.line)
+    && hubBaseline.icon.trim() === 'cloud_off';
+  const baselineLeftover = /gateway session ended/.test(hubBaseline.line);
+  check(baselinePristine || baselineLeftover,
+    'Hub screen: overlay line honest by default (pristine or prior-run end state) -> "' + hubBaseline.line + '"');
+
+const hubFlow = await hub.evaluate(async (adminToken) => {
+  const api = '/api/v1/';
+  const h = adminToken
+    ? { 'Content-Type': 'application/json', 'X-Actor': 'gate', 'X-Admin-Token': adminToken }
+    : { 'Content-Type': 'application/json', 'X-Actor': 'gate' };
+  const inline = adminToken ? { 'X-Admin-Token': adminToken } : {};
+  const call = async (method, path, body, extra) => {
+    var res = await fetch(api + path, {
+      method: method, headers: Object.assign({}, h, extra || {}),
+      body: body === undefined ? undefined : JSON.stringify(body),
+    });
+    return { status: res.status, body: await res.json().catch(function () { return {}; }) };
+  };
+  // baseline: remember the gateway setting and clear leftovers from an
+  // earlier run (a revoked node frees its name, so re-registration works)
+  const settings = (await (await fetch(api + 'settings', { headers: inline })).json());
+  const oldEnabled = !!((settings.settings || {}).gateway || {}).values
+    && !!settings.settings.gateway.values.enabled;
+  const nodesBefore = ((await (await fetch(api + 'gateway/nodes', { headers: inline })).json()).nodes || []);
+  for (const n of nodesBefore) {
+    if (n.name === 'gate-8a-node') await call('DELETE', 'gateway/nodes/' + n.id);
+  }
+  const assetsBefore = ((await (await fetch(api + 'discovery/assets?limit=200', { headers: inline })).json()).assets || []);
+  const parked = assetsBefore.find((a) => a.address === '10.99.8.42');
+  let assetId = null;
+  let itemId = null;
+  if (parked) {
+    assetId = parked.id;
+    const itemsBefore = ((await (await fetch(api + 'vault/items?q=10.99.8.42', { headers: inline })).json()).items || []);
+    const parkedItem = itemsBefore.find((i) => i.target === '10.99.8.42');
+    if (!parkedItem) return { step: 'reuse-item', parked: parked.id };
+    itemId = parkedItem.id;
+    // the parked asset may still hold the old zone binding - drop it so the
+    // leftover zone can go (an unbound asset simply 404s and is ignored)
+    await call('PUT', 'discovery/assets/' + assetId + '/zone', { zone_id: null });
+  }
+  const zonesBefore = ((await (await fetch(api + 'zones', { headers: inline })).json()).zones || []);
+  for (const z of zonesBefore) {
+    if (z.name === 'gate-8a-zone') await call('DELETE', 'zones/' + z.id);
+  }
+  const put = await call('PUT', 'settings/gateway', { enabled: true });
+  if (put.status !== 200) return { step: 'settings', status: put.status };
+  const zone = await call('POST', 'zones', { name: 'gate-8a-zone', description: 'gate 8a flow' });
+  if (zone.status !== 201) return { step: 'zone', status: zone.status, body: zone.body };
+  if (!parked) {
+    const asset = await call('POST', 'discovery/assets', {
+      address: '10.99.8.42', hostname: 'gate-8a.lab', asset_type: 'linux', principal: 'root',
+    });
+    if (asset.status !== 201) return { step: 'asset', status: asset.status, body: asset.body };
+    assetId = asset.body.asset.id;
+    itemId = asset.body.vault_item.id;
+  }
+  const bound = await call('PUT', 'discovery/assets/' + assetId + '/zone',
+    { zone_id: zone.body.id });
+  if (bound.status !== 200) return { step: 'bind', status: bound.status };
+  const node = await call('POST', 'gateway/nodes', {
+    name: 'gate-8a-node', zone_id: zone.body.id,
+    endpoint_host: '127.0.0.1', endpoint_port: 4822,
+  });
+  if (node.status !== 201) return { step: 'node', status: node.status, body: node.body };
+  const nodeId = node.body.node.id;
+  const nodeToken = node.body.token;
+  const approved = await call('POST', 'gateway/nodes/' + nodeId + '/approve',
+    { decision: 'approve', note: 'gate 8a' },
+    { 'X-Actor': 'gate-checker' });
+  if (approved.status !== 200) return { step: 'approve', status: approved.status, body: approved.body };
+  const beat = await call('POST', 'gateway/nodes/' + nodeId + '/heartbeat',
+    { capacity_active: 0, version: 'gate-8a' },
+    { 'Authorization': 'Bearer ' + nodeToken, 'X-Actor': '' });
+  if (beat.status !== 200) return { step: 'heartbeat', status: beat.status, body: beat.body };
+  const session = await call('POST', 'sessions', {
+    protocol: 'ssh', target: 'gate-8a.lab:22', item_id: itemId, record: true,
+  });
+  if (session.status !== 201) return { step: 'session', status: session.status, body: session.body };
+  const gws = session.body.gateway;
+  // steer the hub's inspection to THIS session: a warm rig still shows the
+  // previously inspected card, so click the new session's card the same way
+  // a human would (the click triggers the hub's own reload)
+  await window.hubLive.gateway.load();
+  let card = document.querySelector('[data-role="card"][data-id="' + session.body.session.id + '"]');
+  if (!card) {
+    await window.hubLive.gateway.load();
+    card = document.querySelector('[data-role="card"][data-id="' + session.body.session.id + '"]');
+  }
+  if (card) card.click();
+  await window.hubLive.gateway.load();
+  await new Promise(function (r) { setTimeout(r, 500); });
+  const brokered = Object.assign({}, window.hubLive.gateway.state);
+  // the node really fetches its one-shot credentials - the hub must then
+  // report the custody fact
+  const argsRes = await fetch(api + 'gateway/sessions/' + gws.gateway_session_id + '/connect-args',
+    { headers: { 'Authorization': 'Bearer ' + nodeToken } });
+  const argsBody = await argsRes.json().catch(function () { return {}; });
+  await window.hubLive.gateway.load();
+  await new Promise(function (r) { setTimeout(r, 500); });
+  const injected = Object.assign({}, window.hubLive.gateway.state);
+  // the node reports its own lifecycle over its own token (the same calls
+  // gateway_daemon.py makes); only then is the session live and the
+  // overlay line says so verbatim
+  const prog1 = await call('POST', 'gateway/sessions/' + gws.gateway_session_id + '/progress',
+    { state: 'connecting' }, { 'Authorization': 'Bearer ' + nodeToken, 'X-Actor': '' });
+  const prog2 = await call('POST', 'gateway/sessions/' + gws.gateway_session_id + '/progress',
+    { state: 'active' }, { 'Authorization': 'Bearer ' + nodeToken, 'X-Actor': '' });
+  await window.hubLive.gateway.load();
+  await new Promise(function (r) { setTimeout(r, 500); });
+  const connected = Object.assign({}, window.hubLive.gateway.state);
+  // cleanup: terminate, revoke the node, unbind + delete the zone, park the
+  // asset, restore the setting - the rig returns to its baseline
+  await call('POST', 'sessions/' + session.body.session.id + '/terminate',
+    { reason: 'gate 8a cleanup' });
+  const revoked = await call('DELETE', 'gateway/nodes/' + nodeId);
+  await call('PUT', 'discovery/assets/' + assetId + '/zone', { zone_id: null });
+  const zoneGone = await call('DELETE', 'zones/' + zone.body.id);
+  await call('PATCH', 'discovery/assets/' + assetId, { pam_status: 'ignored' });
+  await call('PUT', 'settings/gateway', { enabled: oldEnabled });
+  await window.hubLive.gateway.load();
+  await new Promise(function (r) { setTimeout(r, 500); });
+  const after = Object.assign({}, window.hubLive.gateway.state);
+  const line = document.querySelector('[data-role="wm-protocol"]');
+  return {
+    step: 'ok',
+    gws: gws,
+    brokered: brokered,
+    connected: connected,
+    connectArgsStatus: argsRes.status,
+    connectArgsInjected: !!(argsBody.params && argsBody.params.password),
+    dataKeyLen: argsBody.recording ? String(argsBody.recording.data_key || '').length : 0,
+    injected: injected,
+    progressStatuses: [prog1.status, prog2.status],
+    revokedStatus: revoked.status,
+    zoneGoneStatus: zoneGone.status,
+    after: after,
+    afterLine: line ? line.textContent.trim() : '',
+  };
+}, ADMIN_TOKEN);
+if (hubFlow.step !== 'ok') {
+  check(false, 'Hub 8a flow: setup failed at "' + hubFlow.step + '" -> ' + JSON.stringify(hubFlow));
+} else {
+  check(hubFlow.gws && hubFlow.gws.required === true
+    && hubFlow.gws.node && hubFlow.gws.node.name === 'gate-8a-node',
+    'Hub 8a flow: POST /sessions reports the broker verdict (node gate-8a-node) -> '
+    + JSON.stringify(hubFlow.gws && { required: hubFlow.gws.required, node: hubFlow.gws.node }));
+  check(hubFlow.brokered.loaded && hubFlow.brokered.required
+    && hubFlow.brokered.state === 'pending' && hubFlow.brokered.node === 'gate-8a-node'
+    && /gateway session pending via node gate-8a-node \(active\)/.test(hubFlow.brokered.line),
+    'Hub 8a flow: brokered session reported verbatim (pending; node active) -> "' + hubFlow.brokered.line + '"');
+  check(hubFlow.connected.loaded && hubFlow.connected.required
+    && hubFlow.connected.state === 'active' && hubFlow.connected.node === 'gate-8a-node'
+    && hubFlow.progressStatuses[0] === 200 && hubFlow.progressStatuses[1] === 200
+    && /connected \u2014 session brokered through gateway node gate-8a-node \(active\)/.test(hubFlow.connected.line),
+    'Hub 8a flow: overlay line reports the live gateway session verbatim -> "' + hubFlow.connected.line + '"');
+  check(hubFlow.brokered.credential_injected === false && hubFlow.brokered.segments === 0,
+    'Hub 8a flow: before fetch the hub says no injection, zero segments -> '
+    + JSON.stringify({ credential_injected: hubFlow.brokered.credential_injected,
+      segments: hubFlow.brokered.segments }));
+  check(hubFlow.connectArgsStatus === 200 && hubFlow.connectArgsInjected
+    && hubFlow.dataKeyLen === 64,
+    'Hub 8a flow: the node fetch returns a real injected password + 32-byte data key -> '
+    + JSON.stringify({ status: hubFlow.connectArgsStatus, injected: hubFlow.connectArgsInjected,
+      dataKeyLen: hubFlow.dataKeyLen }));
+  check(hubFlow.injected.credential_injected === true,
+    'Hub 8a flow: after the fetch the hub reports the custody fact -> "' + hubFlow.injected.line + '"');
+  check(hubFlow.revokedStatus === 200 && hubFlow.zoneGoneStatus === 200,
+    'Hub 8a flow: cleanup removes the node and the zone -> revoke='
+    + hubFlow.revokedStatus + ' zoneDelete=' + hubFlow.zoneGoneStatus);
+  check(/(not connected|gateway session ended)/.test(hubFlow.afterLine),
+    'Hub 8a flow: end state honest after cleanup -> "' + hubFlow.afterLine + '"');
+}
+await hub.close();
 
 // ---- Platform settings: HA / DC / DR section ----------------------------
 const ps = await browser.newPage({ viewport: { width: 1920, height: 1600 } });
@@ -389,6 +607,21 @@ check(/^(sealed - emergency-admin (grants nothing|awaits two approvals)|window O
   'Settings screen: emergency card state is real data -> "' + ident.emergencyState + '"');
 check(ident.openBtn && /^(no grants on record|\d+ grant\(s\) on record)$/.test(ident.emergencyGrants),
   'Settings screen: emergency grants line honest -> "' + ident.emergencyGrants + '"');
+
+// ---- 8a: session gateway settings card (same screen) ---------------------
+const gwCard = await ps.evaluate(() => {
+  const box = document.querySelector('[data-settings-group="gateway"]');
+  const meta = document.querySelector('[data-group-meta="gateway"]');
+  return {
+    present: !!box,
+    fields: box ? box.querySelectorAll('input,select').length : 0,
+    meta: meta ? meta.textContent.trim() : '',
+  };
+});
+check(gwCard.present && gwCard.fields === 12,
+  'Settings screen: gateway group card renders its 12 schema fields -> ' + gwCard.fields);
+check(gwCard.meta !== '' && gwCard.meta !== 'loading...',
+  'Settings screen: gateway card meta is real data -> "' + gwCard.meta + '"');
 
 // ---- 7: identity API truth (emergency sealed state, honest refusals) ----
 const identApi = await ps.evaluate(async (adminToken) => {

@@ -1,7 +1,7 @@
 # VY-PAM — API Reference
 
-**Status:** as-built for Phase 7
-**Contract:** `apis/openapi.yaml` (OpenAPI 3.1) - **192 paths / 229
+**Status:** as-built for Phase 8a
+**Contract:** `apis/openapi.yaml` (OpenAPI 3.1) - **209 paths / 250
 operations**, enforced in both directions by
 `backend/phase2_license_server/tests/test_openapi_contract.py`. If this page
 and the YAML ever disagree, the YAML wins.
@@ -15,13 +15,13 @@ and the YAML ever disagree, the YAML wins.
 | Base URL (dev) | `http://127.0.0.1:5000` (`LICENSE_SERVER_HOST`/`LICENSE_SERVER_PORT`) |
 | Version | `/api/v1/…` (`/health`, `/api/v1/meta` unversioned) |
 | Content type | `application/json` (license import also accepts multipart upload / raw body) |
-| Auth | When `LICENSE_ADMIN_TOKEN` is set: `Authorization: Bearer <token>` **or** `X-Admin-Token: <token>` on the **127 admin operations**. When unset: open dev mode - responses carry `X-Auth-Mode: open` (explicit, never silent). Pipeline `/broker` operations require the broker API token and AI-agent `/agent-access` operations require the agent API token - neither is ever waived, even in open dev mode. In token mode, `admin-token` (kind admin) may call everything; a bound principal (API token or LDAP ticket) may call only its role's operations and only its ABAC scope - see §2 `rbac`. Console sessions (`/api/v1/auth/…`) are a **separate** credential: `vypam-ui1` bearer + HttpOnly `vypam_session` cookie, with `X-CSRF-Token` double-submit on cookie-authenticated mutations (credential headers skip CSRF); the admin token alone holds no console session. |
+| Auth | When `LICENSE_ADMIN_TOKEN` is set: `Authorization: Bearer <token>` **or** `X-Admin-Token: <token>` on the **144 admin operations**. When unset: open dev mode - responses carry `X-Auth-Mode: open` (explicit, never silent). Pipeline `/broker` operations require the broker API token and AI-agent `/agent-access` operations require the agent API token - neither is ever waived, even in open dev mode. Gateway node routes (`…/heartbeat`, `…/work`, `…/connect-args`, `…/progress`) are a **separate** credential: the `nodeToken` security scheme, `Authorization: Bearer vypam-gwn1.<node_id>.<secret>` (shown once at registration, sha256 at rest, constant-time compare) - never waived in open dev mode, and the 4 node-token operations are intentionally **not** admin operations. In token mode, `admin-token` (kind admin) may call everything; a bound principal (API token or LDAP ticket) may call only its role's operations and only its ABAC scope - see §2 `rbac`. Console sessions (`/api/v1/auth/…`) are a **separate** credential: `vypam-ui1` bearer + HttpOnly `vypam_session` cookie, with `X-CSRF-Token` double-submit on cookie-authenticated mutations (credential headers skip CSRF); the admin token alone holds no console session. |
 | Actor | `X-Actor: <name>` recorded verbatim in the audit ledger on every audited write |
 | Errors | `{"error": "<message>", "details"?: {…}}` — 400 validation · 401 auth · 403 policy refusal (risk gate) · 404 · 409 conflict/state · 422 unprocessable shape · 503 fail-closed dependency |
 | Pagination | `limit` (≤200) + `offset`, newest first |
 | Ordering | Ledger/session streams ascending `seq`; listings newest-first |
 
-## 2. Operations by tag (23 tags)
+## 2. Operations by tag (24 tags)
 
 ### `ops` — unversioned
 | Method | Path | Summary |
@@ -45,7 +45,7 @@ and the YAML ever disagree, the YAML wins.
 ### `settings` — configuration groups
 | Method | Path | Summary |
 |---|---|---|
-| GET | `/api/v1/settings` | all 14 groups (`auth`, `webauthn`, `smtp`, `sms`, `radius`, `scim`, `sso`, `hsm`, `zsp`, `worm`, `mfa`, `itsm`, `siem`, `ldap`) |
+| GET | `/api/v1/settings` | all 15 groups (`auth`, `webauthn`, `smtp`, `sms`, `radius`, `scim`, `sso`, `hsm`, `zsp`, `worm`, `mfa`, `itsm`, `siem`, `ldap`, `gateway`) |
 | PUT | `/api/v1/settings/{group}` | upsert group; writes per-field diff event (secrets sealed, readonly `mfa.*` rejected) |
 | GET | `/api/v1/settings/audit` | changelog (group filter) |
 
@@ -351,12 +351,72 @@ Repeated failures lock the account (doubling, admin unlock) while the
 password path stays MFA-fail-closed. A RADIUS factor whose server is
 unreachable fails closed (honest 503), never a silent pass.
 
+### `gateway` — guacd-first data plane (Phase 8a, 17 paths / 21 operations)
+
+The broker starts a gateway-capable session on a healthy node in the
+**target's zone** or fails clearly - never a silent fallback onto another
+network. `GATEWAY_PROTOCOLS` is `rdp`/`ssh`/`vnc`/`telnet` (default ports
+ssh 22 / rdp 3389 / vnc 5900 / telnet 23); the zone comes from the
+discovered asset's zone binding, no healthy node in the zone → **503**
+(the privileged-session create rolls back), `require_zone` refuses an
+unmapped target with an explicit 503, and a brokered session without a
+vault credential → 503. Non-gateway protocols keep their 4c behavior and
+get an honest `reason`; gateway disabled → `gateway: null`.
+
+| Method | Path | Summary |
+|---|---|---|
+| GET | `/api/v1/zones` | list zones (each row carries its node counts) |
+| POST | `/api/v1/zones` | create a zone |
+| GET | `/api/v1/zones/{zone_id}` | zone detail with its nodes and bindings |
+| DELETE | `/api/v1/zones/{zone_id}` | delete a zone (refused while nodes or bindings remain) |
+| PUT | `/api/v1/discovery/assets/{asset_id}/zone` | bind a discovered asset to a zone (`null` unbinds) - the mapping the broker resolves |
+| GET | `/api/v1/gateway/pools` | list gateway pools |
+| POST | `/api/v1/gateway/pools` | create a gateway pool (a named pool of nodes inside one zone) |
+| DELETE | `/api/v1/gateway/pools/{pool_id}` | delete a pool (refused while nodes remain) |
+| GET | `/api/v1/gateway/nodes` | list nodes with liveness + capacity; `state` is derived honestly - an active node whose heartbeat is older than `gateway.node_heartbeat_ttl_seconds` reports `offline` |
+| POST | `/api/v1/gateway/nodes` | register a node: maker-checker - the row lands `pending` and the token `vypam-gwn1.<node_id>.<secret>` comes back **once** (sha256 at rest) |
+| POST | `/api/v1/gateway/nodes/{node_id}/approve` | the checker half (`decision` `approve`\|`deny`): the approver must be a distinct actor - self-approval 403 verbatim |
+| POST | `/api/v1/gateway/nodes/{node_id}/drain` | drain: no new sessions, live ones finish |
+| DELETE | `/api/v1/gateway/nodes/{node_id}` | revoke: the token dies and live gateway sessions (and their privileged sessions) are terminated |
+| POST | `/api/v1/gateway/nodes/{node_id}/heartbeat` | **node token**: capacity + version in, directives out |
+| GET | `/api/v1/gateway/nodes/{node_id}/work` | **node token**: pending + live gateway sessions for this node |
+| GET | `/api/v1/gateway/sessions/{gateway_session_id}/connect-args` | **node token, once**: the guacd connection arguments with the injected credential - fetched server-side from the vault, consumed on first read (second fetch **409**); the **admin token is refused 403 by name** here by design, so no browser and no operator ever receives the secret |
+| POST | `/api/v1/gateway/sessions/{gateway_session_id}/progress` | **node token**: progress state machine `pending → connecting → active → ended` (a backward transition 409, an unknown one 400), sealed-segment counts, end - ending releases the vault checkout and runs the §5 rotation-on-close |
+| GET | `/api/v1/gateway/sessions/{gateway_session_id}/recording` | segment metadata + key state only (pointer, size, per-segment SHA-256, tier; `wrapped`/`destroyed`) - never the bytes |
+| GET | `/api/v1/gateway/sessions/{gateway_session_id}/recording/{seq}/data` | playback: SHA-256 verified before decrypt, then gunzip → guacd's native instruction stream (tamper → 500; a destroyed key → 410, rows stay as evidence) |
+| POST | `/api/v1/gateway/recordings/retention/run` | retention run (dry run + real): delete segment files, destroy per-recording keys, emit `retention-expired` ledger events; sessions with an incident linkage are skipped as legal hold |
+| GET | `/api/v1/gateway/stats` | posture: nodes, sessions, storage bytes by tier, spool alerts |
+
+Node tokens authenticate **only** the four daemon routes; open dev mode
+does not waive them. The secret handed out by `connect-args` never
+reaches a browser or the ledger - the session records the fact
+(`credential_injected`) and nothing else. Directives (pause/terminate)
+ride the daemon's **outbound** heartbeat/work poll, so a node needs no
+inbound port.
+
+The `gateway` settings group carries 12 fields: `enabled`, `require_zone`,
+`guacd_host`, `guacd_port`, `segment_seconds`,
+`recording_failure_policy`, `spool_alert_threshold_pct` /
+`spool_full_threshold_pct` (70 / 85), `spool_max_bytes` (10 GiB),
+`retention_default_days` (90), `retention_overrides`,
+`node_heartbeat_ttl_seconds` (90). The recording store itself is
+deployment config (`RECORDING_STORAGE_DIR`), not settings policy.
+
+Session surfaces carry the data plane too: `POST /sessions` answers with a
+`gateway` broker-verdict block (the node it dispatched to, or the honest
+reason it did not), and `GET /sessions/{session_id}` returns the enriched
+gateway object; session list rows carry the same compact state.
+
 ### Ledger (Compliance feeds)
 | Method | Path | Summary |
 |---|---|---|
 | GET | `/api/v1/audit/stats` | digest: totals, per-source, chain state |
 | GET | `/api/v1/audit/verify` | recompute chain → `intact` or first break seq |
 | GET | `/api/v1/audit/export` | NDJSON stream in chain order (`source` filter) |
+
+The compliance feed's per-source breakdown carries **21** sources; 8a adds
+`gateway` (the 21st) - `GatewayEvent` rows folded in via `_map_gateway`,
+subject `gws-<id>` / `node-<id>`, `event_ref` `gateway:<id>`.
 
 ## 3. Semantics worth knowing
 
@@ -387,6 +447,13 @@ unreachable fails closed (honest 503), never a silent pass.
   Bearer) is the only credential — the admin token never substitutes and
   open dev mode does not waive it; `X-Actor` is ignored and the actor on
   the trail is the agent's own name.
+- **Gateway node auth** (`…/heartbeat`, `…/work`, `…/connect-args`,
+  `…/progress`): the `nodeToken` (`vypam-gwn1.<node_id>.<secret>`) is the
+  only credential — the admin token never substitutes (on `connect-args`
+  it is refused 403 **by name**: a node credential is not an admin
+  credential) and open dev mode does not waive it; `connect-args` is
+  one-shot (409 on the second fetch) and the injected password never
+  appears on the ledger.
 
 ## 4. Vendor tool API (separate contract, `pam_master`, port 5400)
 
@@ -407,10 +474,10 @@ keys only via `python -m pam_master.keygen`.
 
 ## 5. Planned endpoints (NOT in the contract — see `IMPLEMENTATION_PLAN.md`)
 
-These do **not** exist today; the contract's **192 paths / 229 operations**
+These do **not** exist today; the contract's **209 paths / 250 operations**
 are the complete current surface. Each lands in `openapi.yaml` + ADMIN
 security + tests in the same commit when its phase starts (counts `—`):
 
 | Phase | Planned additions |
 |---|---|
-| — | none pending: every phase through 7 has landed (the `identity` tag's 41 paths joined §2 in 7); the next phase's additions are recorded here when it starts |
+| — | none pending: every phase through 8a has landed (the `gateway` tag's 17 paths joined §2 in 8a); the next phase's additions are recorded here when it starts |

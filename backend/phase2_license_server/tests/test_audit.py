@@ -246,12 +246,38 @@ def test_every_module_trail_reaches_the_ledger(client, monkeypatch):
     # unsealed so the rest of the suite runs on a clean vault
     assert client.post("/api/v1/hsm/unseal", headers=ACTOR).status_code == 200
 
+    # the gateway trail (phase 8a): the settings write, a real zone and a
+    # registered node - source `gateway`, none fabricated
+    assert (
+        client.put(
+            "/api/v1/settings/gateway", json={"enabled": True}, headers=ACTOR
+        ).status_code
+        == 200
+    )
+    zone = client.post(
+        "/api/v1/zones",
+        json={"name": "audit-zone", "description": "flows through every source"},
+        headers=ACTOR,
+    )
+    assert zone.status_code == 201, zone.get_json()
+    node = client.post(
+        "/api/v1/gateway/nodes",
+        json={
+            "name": "audit-gw",
+            "zone_id": zone.get_json()["id"],
+            "endpoint_host": "127.0.0.1",
+            "endpoint_port": 4822,
+        },
+        headers=ACTOR,
+    )
+    assert node.status_code == 201, node.get_json()
+
     state = stats(client)
     assert state["total"] >= 8
-    # one real record behind each of the nineteen sources, none fabricated
+    # one real record behind each of the twenty-one sources, none fabricated
     assert all(count >= 1 for count in state["by_source"].values()), state
 
-    # the feed filter that works for the old four works for all nineteen
+    # the feed filter that works for the old four works for all twenty-one
     for source in audit.AUDIT_SOURCES:
         page = client.get("/api/v1/events",
                           query_string={"source": source}).get_json()

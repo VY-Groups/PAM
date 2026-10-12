@@ -65,11 +65,19 @@ SCHEMA_COLUMNS: Dict[str, Dict[str, str]] = {
     },
 }
 
+# Indexes released UNIQUE whose rule now lives in the application (a live-row
+# check, so revoked/denied history does not occupy a name forever). SQLite
+# can DROP INDEX, so startup relaxes them in place instead of forcing a table
+# rebuild. (gateway_nodes, phase 8a: register_node refuses a duplicate name
+# over non-terminal rows only.)
+SOFT_UNIQUE_INDEXES = (("gateway_nodes", "ix_gateway_nodes_name"),)
+
 
 def ensure_schema(engine) -> List[str]:
-    """Add any missing spec columns to an existing database.
+    """Add any missing spec columns to an existing database and relax any
+    index whose uniqueness moved into the application.
 
-    Returns the columns that were added (empty when the schema was current).
+    Returns the changes made (empty when the schema was current).
     """
     added: List[str] = []
     with engine.begin() as connection:
@@ -85,6 +93,14 @@ def ensure_schema(engine) -> List[str]:
                     f"ALTER TABLE {table} ADD COLUMN {name} {ddl}"
                 )
                 added.append(f"{table}.{name}")
+        for table, index in SOFT_UNIQUE_INDEXES:
+            live = connection.exec_driver_sql(
+                f"PRAGMA index_list({table})"
+            ).fetchall()
+            if any(row[1] == index and row[2] for row in live):
+                connection.exec_driver_sql(f"DROP INDEX {index}")
+                connection.exec_driver_sql(f"CREATE INDEX {index} ON {table} (name)")
+                added.append(f"{index} relaxed to a live-row check")
     return added
 
 
@@ -3366,5 +3382,315 @@ class LoginChallenge(db.Model):
             "kind": self.kind,
             "expires_at": self.expires_at.isoformat(),
             "consumed_at": self.consumed_at.isoformat() if self.consumed_at else None,
+            "created_at": self.created_at.isoformat(),
+        }
+
+
+# ---------------------------------------------------------------------------
+# session gateway & recording (plan phase 8a - the data plane)
+# ---------------------------------------------------------------------------
+# node lifecycle: pending -> active (maker-checker, distinct approver) ->
+# draining (no new sessions, live ones finish) | revoked | denied.
+# `offline` is never stored - it is derived from a stale heartbeat.
+GATEWAY_NODE_STATES = ("pending", "active", "draining", "revoked", "denied")
+GATEWAY_SESSION_STATES = ("pending", "connecting", "active", "paused", "ended")
+# storage tiers (paper): hot = local disk now, warm/cold = object storage /
+# archive - reported honestly as "not configured" until configured.
+GATEWAY_TIERS = ("hot", "warm", "cold")
+
+
+class Zone(db.Model):
+    """A network zone gateway nodes live in. The broker starts a session on
+    a healthy node in the *target's* zone, or fails clearly - never a
+    silent fallback onto another network."""
+
+    __tablename__ = "zones"
+
+    id = db.Column(db.Integer, primary_key=True)
+    name = db.Column(db.String(80), nullable=False, unique=True, index=True)
+    description = db.Column(db.String(255), nullable=False, default="")
+    created_by = db.Column(db.String(64), nullable=False, default="system")
+    created_at = db.Column(
+        db.DateTime, nullable=False, default=datetime.now, index=True
+    )
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "id": self.id,
+            "name": self.name,
+            "description": self.description,
+            "created_by": self.created_by,
+            "created_at": self.created_at.isoformat(),
+        }
+
+
+class AssetZoneBinding(db.Model):
+    """Asset -> zone mapping: which network a discovered target lives in,
+    so the broker knows where its gateway must be."""
+
+    __tablename__ = "asset_zone_bindings"
+
+    id = db.Column(db.Integer, primary_key=True)
+    asset_id = db.Column(
+        db.Integer, db.ForeignKey("discovered_assets.id"), nullable=False,
+        unique=True, index=True,
+    )
+    zone_id = db.Column(db.Integer, db.ForeignKey("zones.id"), nullable=False, index=True)
+    created_by = db.Column(db.String(64), nullable=False, default="system")
+    created_at = db.Column(
+        db.DateTime, nullable=False, default=datetime.now, index=True
+    )
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "id": self.id,
+            "asset_id": self.asset_id,
+            "zone_id": self.zone_id,
+            "created_by": self.created_by,
+            "created_at": self.created_at.isoformat(),
+        }
+
+
+class GatewayPool(db.Model):
+    """A named pool of gateway nodes inside one zone (least-loaded or
+    round-robin dispatch within the pool)."""
+
+    __tablename__ = "gateway_pools"
+
+    id = db.Column(db.Integer, primary_key=True)
+    name = db.Column(db.String(80), nullable=False, unique=True, index=True)
+    zone_id = db.Column(db.Integer, db.ForeignKey("zones.id"), nullable=False, index=True)
+    lb_policy = db.Column(db.String(24), nullable=False, default="least-loaded")
+    created_by = db.Column(db.String(64), nullable=False, default="system")
+    created_at = db.Column(
+        db.DateTime, nullable=False, default=datetime.now, index=True
+    )
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "id": self.id,
+            "name": self.name,
+            "zone_id": self.zone_id,
+            "lb_policy": self.lb_policy,
+            "created_by": self.created_by,
+            "created_at": self.created_at.isoformat(),
+        }
+
+
+class GatewayNode(db.Model):
+    """One registered gateway daemon. Registration is maker-checker: the
+    row is created `pending` with a token (sha256 at rest, shown once) and
+    a *distinct* approver activates it - the requester never may. Liveness
+    is a heartbeat; a stale heartbeat derives `offline`, it is never stored.
+    """
+
+    __tablename__ = "gateway_nodes"
+
+    id = db.Column(db.Integer, primary_key=True)
+    node_ref = db.Column(db.String(40), nullable=False, unique=True, index=True)
+    # soft-unique: register_node refuses a duplicate over live rows only, so
+    # a revoked/denied row's name frees for its replacement (the former DDL
+    # unique index is relaxed at startup via SOFT_UNIQUE_INDEXES)
+    name = db.Column(db.String(80), nullable=False, index=True)
+    zone_id = db.Column(db.Integer, db.ForeignKey("zones.id"), nullable=False, index=True)
+    pool_id = db.Column(db.Integer, db.ForeignKey("gateway_pools.id"), nullable=True)
+    endpoint_host = db.Column(db.String(255), nullable=False)
+    endpoint_port = db.Column(db.Integer, nullable=False, default=4822)
+    status = db.Column(db.String(16), nullable=False, default="pending", index=True)
+
+    # credential: sha256 of the issued node token, never the token itself
+    token_sha256 = db.Column(db.String(64), nullable=True, index=True)
+    token_prefix = db.Column(db.String(24), nullable=True)
+
+    registered_by = db.Column(db.String(64), nullable=False, default="system")
+    approved_by = db.Column(db.String(64), nullable=True)
+    approved_at = db.Column(db.DateTime, nullable=True)
+    decision_note = db.Column(db.String(255), nullable=False, default="")
+
+    capacity_max = db.Column(db.Integer, nullable=False, default=10)
+    capacity_active = db.Column(db.Integer, nullable=False, default=0)
+    version = db.Column(db.String(32), nullable=False, default="")
+    last_heartbeat_at = db.Column(db.DateTime, nullable=True)
+    created_at = db.Column(
+        db.DateTime, nullable=False, default=datetime.now, index=True
+    )
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "id": self.id,
+            "node_ref": self.node_ref,
+            "name": self.name,
+            "zone_id": self.zone_id,
+            "pool_id": self.pool_id,
+            "endpoint_host": self.endpoint_host,
+            "endpoint_port": self.endpoint_port,
+            "status": self.status,
+            "token_prefix": self.token_prefix,
+            "registered_by": self.registered_by,
+            "approved_by": self.approved_by,
+            "approved_at": self.approved_at.isoformat() if self.approved_at else None,
+            "decision_note": self.decision_note,
+            "capacity_max": self.capacity_max,
+            "capacity_active": self.capacity_active,
+            "version": self.version,
+            "last_heartbeat_at": (
+                self.last_heartbeat_at.isoformat() if self.last_heartbeat_at else None
+            ),
+            "created_at": self.created_at.isoformat(),
+        }
+
+
+class GatewaySession(db.Model):
+    """The brokered data-plane half of a privileged session: which node it
+    runs on, its lifecycle, and the fact (never the value) that a credential
+    was injected. `credential_fetched_at` is the single-use marker - connect
+    args are handed out exactly once, to the node's own token."""
+
+    __tablename__ = "gateway_sessions"
+
+    id = db.Column(db.Integer, primary_key=True)
+    privileged_session_id = db.Column(
+        db.Integer, db.ForeignKey("privileged_sessions.id"),
+        nullable=False, unique=True, index=True,
+    )
+    gateway_node_id = db.Column(
+        db.Integer, db.ForeignKey("gateway_nodes.id"), nullable=False, index=True
+    )
+    state = db.Column(db.String(16), nullable=False, default="pending", index=True)
+
+    target_host = db.Column(db.String(255), nullable=False, default="")
+    target_port = db.Column(db.Integer, nullable=False, default=0)
+    username = db.Column(db.String(120), nullable=False, default="")
+
+    credential_injected = db.Column(db.Boolean, nullable=False, default=False)
+    credential_fetched_at = db.Column(db.DateTime, nullable=True)
+    connection_id = db.Column(db.String(40), nullable=True)
+
+    started_at = db.Column(db.DateTime, nullable=False, default=datetime.now)
+    ended_at = db.Column(db.DateTime, nullable=True)
+    end_reason = db.Column(db.String(32), nullable=True)
+    created_at = db.Column(
+        db.DateTime, nullable=False, default=datetime.now, index=True
+    )
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "id": self.id,
+            "privileged_session_id": self.privileged_session_id,
+            "gateway_node_id": self.gateway_node_id,
+            "state": self.state,
+            "target_host": self.target_host,
+            "target_port": self.target_port,
+            "username": self.username,
+            "credential_injected": self.credential_injected,
+            "connection_id": self.connection_id,
+            "started_at": self.started_at.isoformat(),
+            "ended_at": self.ended_at.isoformat() if self.ended_at else None,
+            "end_reason": self.end_reason,
+            "created_at": self.created_at.isoformat(),
+        }
+
+
+class RecordingSegment(db.Model):
+    """One sealed slice of a recording: pointer + size + per-segment
+    SHA-256 + tier. The bytes live in storage, never here - the row stays
+    after retention deletes the file (unreadable evidence, key destroyed)."""
+
+    __tablename__ = "recording_segments"
+
+    id = db.Column(db.Integer, primary_key=True)
+    gateway_session_id = db.Column(
+        db.Integer, db.ForeignKey("gateway_sessions.id"), nullable=False, index=True
+    )
+    seq = db.Column(db.Integer, nullable=False, default=0)
+    storage_tier = db.Column(db.String(8), nullable=False, default="hot")
+    path = db.Column(db.String(512), nullable=False)
+    size_bytes = db.Column(db.Integer, nullable=False, default=0)
+    sha256 = db.Column(db.String(64), nullable=False, default="", index=True)
+    duration_seconds = db.Column(db.Float, nullable=False, default=0.0)
+    format = db.Column(db.String(24), nullable=False, default="native")
+    created_at = db.Column(
+        db.DateTime, nullable=False, default=datetime.now, index=True
+    )
+    deleted_at = db.Column(db.DateTime, nullable=True)
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "id": self.id,
+            "gateway_session_id": self.gateway_session_id,
+            "seq": self.seq,
+            "storage_tier": self.storage_tier,
+            "size_bytes": self.size_bytes,
+            "sha256": self.sha256,
+            "duration_seconds": self.duration_seconds,
+            "format": self.format,
+            "created_at": self.created_at.isoformat(),
+            "deleted_at": self.deleted_at.isoformat() if self.deleted_at else None,
+        }
+
+
+class RecordingKey(db.Model):
+    """Envelope encryption for one recording: a random data key wrapped by
+    the master key. Crypto-shredding = destroying this row's wrapped key -
+    the segment files become unreadable even from an old backup."""
+
+    __tablename__ = "recording_keys"
+
+    id = db.Column(db.Integer, primary_key=True)
+    gateway_session_id = db.Column(
+        db.Integer, db.ForeignKey("gateway_sessions.id"),
+        nullable=False, unique=True, index=True,
+    )
+    wrapped_key = db.Column(db.Text, nullable=False)
+    key_version = db.Column(db.Integer, nullable=False, default=1)
+    algorithm = db.Column(db.String(24), nullable=False, default="AES-256-GCM")
+    created_at = db.Column(
+        db.DateTime, nullable=False, default=datetime.now, index=True
+    )
+    destroyed_at = db.Column(db.DateTime, nullable=True)
+    destroy_reason = db.Column(db.String(64), nullable=False, default="")
+
+    @property
+    def destroyed(self) -> bool:
+        return self.destroyed_at is not None
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "id": self.id,
+            "gateway_session_id": self.gateway_session_id,
+            "key_version": self.key_version,
+            "algorithm": self.algorithm,
+            "state": "destroyed" if self.destroyed else "wrapped",
+            "destroyed_at": self.destroyed_at.isoformat() if self.destroyed_at else None,
+            "destroy_reason": self.destroy_reason,
+            "created_at": self.created_at.isoformat(),
+        }
+
+
+class GatewayEvent(db.Model):
+    """The gateway module's action trail, folded into the ledger as the
+    `gateway` source: registration, approval, injection facts, segment
+    seals, retention expiries, playback reads."""
+
+    __tablename__ = "gateway_events"
+
+    id = db.Column(db.Integer, primary_key=True)
+    action = db.Column(db.String(48), nullable=False, index=True)
+    actor = db.Column(db.String(64), nullable=False, default="system")
+    gateway_session_id = db.Column(db.Integer, nullable=True, index=True)
+    node_id = db.Column(db.Integer, nullable=True, index=True)
+    detail = db.Column(db.JSON, nullable=False, default=dict)
+    created_at = db.Column(
+        db.DateTime, nullable=False, default=datetime.now, index=True
+    )
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "id": self.id,
+            "action": self.action,
+            "actor": self.actor,
+            "gateway_session_id": self.gateway_session_id,
+            "node_id": self.node_id,
+            "detail": self.detail,
             "created_at": self.created_at.isoformat(),
         }

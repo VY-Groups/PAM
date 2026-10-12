@@ -422,7 +422,7 @@
 <pre data-role="wm-text" class="font-code-sm text-code-sm text-on-surface-variant bg-surface-container-low p-2 rounded-lg whitespace-pre-wrap m-0">&mdash;</pre>
 </div>
 <div class="flex items-start gap-1.5 font-code-sm text-[10px] text-outline">
-<span class="material-symbols-outlined text-[13px] shrink-0">cloud_off</span>
+<span data-role="wm-protocol-icon" class="material-symbols-outlined text-[13px] shrink-0">cloud_off</span>
 <span data-role="wm-protocol">Protocol-level overlay (RDP/VNC/browser/DB/SSH/file transfer): not connected &mdash; pixel injection awaits the gateway (section 27).</span>
 </div>
 </div>
@@ -754,6 +754,10 @@
       });
       const wmText = wmCard
         ? wmCard.querySelector('[data-role="wm-text"]') : null;
+      const wmProto = wmCard
+        ? wmCard.querySelector('[data-role="wm-protocol"]') : null;
+      const wmProtoIcon = wmCard
+        ? wmCard.querySelector('[data-role="wm-protocol-icon"]') : null;
       const termChip = findSpan('LIVE REPLAY', leftCol);
       const termUser = findSpan('root@prod-payment-gateway-01', leftCol);
       const termMeta = findSpan('pts/2', leftCol);
@@ -1320,6 +1324,54 @@
               : 'Watermark control is OFF for this session — '
                 + 'the payload below stays on file, nothing is painted.');
         }
+        renderGatewayOverlay();
+      }
+      // ---- section 27 / phase 8a: the protocol overlay line -----------------
+      // Wired live from the detail's gateway half: connected (brokered through
+      // a node), a ended/closed gateway session, or an honest "not connected"
+      // stating why this session never rode the gateway.
+      function gatewayOverlayLine(gw) {
+        if (!gw) {
+          return 'Protocol-level overlay (RDP/VNC/browser/DB/SSH/file transfer): '
+            + 'not connected — this session was not brokered through the gateway '
+            + '(gateway off, non-gateway protocol, or target not zone-mapped).';
+        }
+        const node = gw.node
+          ? gw.node.name + ' (' + gw.node.state + ')'
+          : 'no node assigned';
+        if (gw.state === 'active') {
+          return 'Protocol-level overlay: connected — session brokered through '
+            + 'gateway node ' + node + '; credential injected for the session '
+            + 'only (the user never sees it), ' + gw.recording.segments
+            + ' sealed segment(s) on disk (section 27).';
+        }
+        return 'Protocol-level overlay: gateway session ' + gw.state
+          + (gw.end_reason ? ' (' + gw.end_reason + ')' : '')
+          + ' via node ' + node + '; recording retained for playback (section 27).';
+      }
+      function renderGatewayOverlay() {
+        const loaded = !!(state.connected && state.detail);
+        const gw = loaded ? state.detail.gateway : undefined;
+        if (wmProto) {
+          wmProto.textContent = !loaded
+            ? 'Protocol-level overlay (RDP/VNC/browser/DB/SSH/file transfer): '
+              + 'not connected — pixel injection awaits the gateway (section 27).'
+            : gatewayOverlayLine(gw);
+        }
+        if (wmProtoIcon) {
+          wmProtoIcon.textContent = (loaded && gw) ? 'hub' : 'cloud_off';
+        }
+        if (window.hubLive && window.hubLive.gateway) {
+          window.hubLive.gateway.state = {
+            loaded: loaded,
+            required: !!(gw && gw.gateway_session_id != null),
+            state: gw ? gw.state : null,
+            node: gw && gw.node ? gw.node.name : null,
+            credential_injected: gw ? !!gw.credential_injected : false,
+            segments: gw && gw.recording ? gw.recording.segments : null,
+            line: wmProto ? wmProto.textContent : '',
+          };
+        }
       }
       function timelineHTML(ev) {
         const t = hhmm(ev.created_at);
@@ -1611,6 +1663,14 @@
       }
 
       // ---- boot --------------------------------------------------------------
+      // phase 8a: the gateway overlay state is exported live for the gate
+      window.hubLive = {
+        gateway: {
+          load: load,
+          state: { loaded: false, required: false, state: null, node: null,
+            credential_injected: false, segments: null, line: '' },
+        },
+      };
       // The <footer> parses after this script block, so the first paint waits
       // for DOMContentLoaded: renderAll() purges every frozen design value and
       // fillFooter() resolves its spans lazily once the footer exists.

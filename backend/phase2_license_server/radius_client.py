@@ -68,7 +68,9 @@ def _mask_password(password: str, secret: bytes, request_auth: bytes) -> bytes:
     prev = request_auth
     for offset in range(0, len(padded), 16):
         block = padded[offset : offset + 16]
-        mask = hashlib.md5(secret + prev).digest()
+        # RFC 2865 PAP masking is defined over MD5 - a protocol requirement,
+        # not a security choice (hence usedforsecurity=False; bandit B324).
+        mask = hashlib.md5(secret + prev, usedforsecurity=False).digest()
         cipher = bytes(a ^ b for a, b in zip(block, mask))
         masked += cipher
         prev = cipher
@@ -102,9 +104,12 @@ def parse_response(
         return None, f"length field {length} does not match datagram {len(data)}"
     response_auth = data[4:20]
     attributes = data[20:]
+    # RFC 2865 response authenticator is an MD5 checksum - protocol-defined
+    # (hence usedforsecurity=False; bandit B324).
     expected = hashlib.md5(
         bytes([code, _rid]) + struct.pack(">H", length) + request_auth + attributes
-        + secret.encode("utf-8")
+        + secret.encode("utf-8"),
+        usedforsecurity=False,
     ).digest()
     if response_auth != expected:
         return None, "response authenticator does not verify"

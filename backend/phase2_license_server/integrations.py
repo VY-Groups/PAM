@@ -152,6 +152,14 @@ def itsm_ticket_url(
             "(we do not guess REST surfaces)"
         )
     path = template.replace("{ticket}", urllib.parse.quote(ticket, safe=""))
+    scheme = urllib.parse.urlsplit(base_url).scheme.lower()
+    if scheme not in ("http", "https"):
+        # ValueError is what this function already raises for bad input and
+        # what verify_itsm_ticket already turns into an honest refusal - a
+        # file:/custom scheme here would read local paths as the ITSM answer.
+        raise ValueError(
+            f"itsm base_url scheme {scheme!r} refused - http(s) only"
+        )
     return base_url.rstrip("/") + "/" + path.lstrip("/")
 
 
@@ -193,7 +201,8 @@ def verify_itsm_ticket(
         method="GET",
     )
     try:
-        with urllib.request.urlopen(request, timeout=timeout) as response:
+        # scheme of url is validated http(s)-only in itsm_ticket_url (B310)
+        with urllib.request.urlopen(request, timeout=timeout) as response:  # nosec B310
             status = getattr(response, "status", 200)
             response.read(1024)  # drain a prefix; the status is the answer
     except urllib.error.HTTPError as exc:
@@ -265,6 +274,14 @@ def siem_push(
         return {"ok": False, "detail": "siem webhook is not configured"}
     if not signing_secret:
         return {"ok": False, "detail": "siem signing secret is not configured"}
+    scheme = urllib.parse.urlsplit(webhook_url).scheme.lower()
+    if scheme not in ("http", "https"):
+        # Honest refusal in this function's own shape: a file:/custom scheme
+        # would read local paths as if a SIEM had answered (bandit B310).
+        return {
+            "ok": False,
+            "detail": f"siem webhook scheme {scheme!r} refused - http(s) only",
+        }
 
     body = ndjson_batch(records)
     request = urllib.request.Request(
@@ -280,7 +297,8 @@ def siem_push(
         method="POST",
     )
     try:
-        with urllib.request.urlopen(request, timeout=timeout) as response:
+        # scheme of webhook_url is validated http(s)-only above (B310)
+        with urllib.request.urlopen(request, timeout=timeout) as response:  # nosec B310
             status = getattr(response, "status", 200)
             response.read(1024)
     except urllib.error.HTTPError as exc:
@@ -343,6 +361,15 @@ def cloud_http(
     when the answer was JSON (used by inventory); `ok` is strictly the
     2xx-ness of the transport answer, so a reachability probe never
     overclaims what it proved."""
+    scheme = urllib.parse.urlsplit(url).scheme.lower()
+    if scheme not in ("http", "https"):
+        # Never raises - so the refusal is returned in the same honest shape:
+        # a file:/custom scheme would read local paths as a cloud answer.
+        return {
+            "ok": False,
+            "detail": f"endpoint scheme {scheme!r} refused - http(s) only",
+            "elapsed_ms": 0,
+        }
     headers = {"Accept": "application/json", "User-Agent": "VY-PAM/1"}
     if token:
         headers["Authorization"] = f"Bearer {token}"
@@ -369,7 +396,8 @@ def cloud_http(
         }
 
     try:
-        with urllib.request.urlopen(request, timeout=timeout) as response:
+        # scheme of url is validated http(s)-only above (B310)
+        with urllib.request.urlopen(request, timeout=timeout) as response:  # nosec B310
             status = getattr(response, "status", 200)
             raw = response.read(CLOUD_HTTP_CAP)
     except urllib.error.HTTPError as exc:

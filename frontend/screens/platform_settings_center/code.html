@@ -656,6 +656,26 @@
 </div>
 </div>
 </section>
+<!-- SECTION 5C: Session Gateway & Recording (phase 8a - architecture section 27) -->
+<section class="bg-surface-container-lowest rounded-xl p-space-lg shadow-sm">
+<div class="flex flex-wrap items-start justify-between gap-space-sm pb-space-sm mb-space-md border-b border-surface-container">
+<div class="max-w-3xl">
+<div class="flex items-center gap-2">
+<span class="material-symbols-outlined text-primary text-[20px]">router</span>
+<h2 class="font-headline-sm text-headline-sm text-on-surface">Session Gateway &amp; Recording (phase 8a)</h2>
+</div>
+<p class="font-body-sm text-body-sm text-on-surface-variant mt-1">The guacd-first data plane: sessions on gateway-capable protocols (RDP/SSH/VNC/telnet) dispatch to a healthy, heartbeating node in the target's zone or fail closed with the create rolled back; the node fetches the vault credential once with its own token (the admin token is refused by name) so the user never sees it; recordings are sealed per segment (gzip then AES-256-GCM under a per-recording key) with SHA-256 custody - pointer, size and hash in the ledger, never bytes in the database. Every field renders live from <span class="font-code-sm text-code-sm">GET /api/v1/settings</span>; node registration is maker-checker, and the storage root itself is deployment config (<span class="font-code-sm text-code-sm">RECORDING_STORAGE_DIR</span>).</p>
+</div>
+</div>
+<div class="p-space-sm rounded-lg bg-surface-container-low border border-outline-variant/30 flex flex-col gap-space-sm">
+<div class="flex items-center justify-between gap-2">
+<h3 class="font-headline-sm text-[14px] text-on-surface font-semibold">Gateway - dispatch, recording, retention</h3>
+<span class="font-code-sm text-code-sm text-on-surface-variant" data-group-meta="gateway">loading...</span>
+</div>
+<p class="font-body-sm text-body-sm text-on-surface-variant">Zone-mandatory dispatch, the guacd endpoint, segment length, the recording failure policy (block vs flag), spool watermarks (alert/full percent of the spool cap), and retention (default days + per-protocol overrides). Node liveness follows <span class="font-code-sm text-code-sm">node_heartbeat_ttl_seconds</span>; offline is derived from a stale heartbeat and never stored.</p>
+<div class="grid grid-cols-1 md:grid-cols-2 gap-space-sm" data-settings-group="gateway"></div>
+</div>
+</section>
 <!-- SECTION 6: HA / DC / DR (architecture section 18) -->
 <section class="bg-surface-container-lowest rounded-xl p-space-lg shadow-sm" data-role="cluster-section">
 <div class="flex flex-wrap items-start justify-between gap-space-sm pb-space-sm mb-space-md border-b border-surface-container">

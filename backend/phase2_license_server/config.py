@@ -68,6 +68,9 @@ class Config:
     cluster_monitor: bool = False
     cluster_monitor_interval: int = 60
     cluster_backup_dir: Path = SERVER_DIR / "backups"
+    # Session recording segments (plan phase 8a): compressed+encrypted files
+    # live on disk here; the database holds pointers + hashes only.
+    recording_storage_dir: Path = SERVER_DIR / "recordings"
 
     @classmethod
     def from_env(cls) -> "Config":
@@ -124,5 +127,9 @@ class Config:
             cluster_backup_dir=_resolve_path(
                 os.getenv("CLUSTER_BACKUP_DIR"),
                 SERVER_DIR / "backups",
+            ),
+            recording_storage_dir=_resolve_path(
+                os.getenv("RECORDING_STORAGE_DIR"),
+                SERVER_DIR / "recordings",
             ),
         )

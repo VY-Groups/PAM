@@ -1,6 +1,6 @@
 # VY-PAM — PAM Flow (Application Flow)
 
-**Status:** as-built for Phase 7
+**Status:** as-built for Phase 8a
 Maps navigation, user journeys, and state machines across the console.
 Screen files live in `frontend/screens/<slug>/code.html`; the canonical
 navigation is the 11-item sidebar rendered on every screen.
@@ -127,7 +127,8 @@ Compliance screen
   Per-source chips (22 incl. All): all, license, settings, vault,
                         discovery, jit, session, command, risk, bypass,
                         break-glass, integration, vendor, cloud, broker,
-                        agent, cluster, rbac, sso, hsm, auth → filter trail
+                        agent, cluster, rbac, sso, hsm, auth, gateway →
+                        filter trail
   Export → NDJSON in chain order (SIEM seam)
   Record-inspect modal → one event's full payload
 ```
@@ -424,6 +425,54 @@ Identity & login security (phase 7) - Platform Settings → Identity
   Compliance gains the auth chip (21 sources + All = 22)
 ```
 
+### Session gateway & recording data plane (§27 - phase 8a)
+
+```
+Session gateway & recording (phase 8a) - the guacd-first data plane
+  Start session, brokered protocol (GATEWAY_PROTOCOLS: rdp | ssh | vnc |
+    telnet; default ports rdp 3389 / ssh 22 / vnc 5900 / telnet 23):
+    the target's zone comes from the discovered asset's zone binding →
+      pick a healthy node in that zone (active + heartbeating within
+      node_heartbeat_ttl_seconds, not draining) → none → 503 fail-closed,
+      the privileged-session create is rolled back
+    require_zone on → an unmapped target is refused with an explicit 503;
+      a brokered session without a vault credential → 503
+    gateway disabled or a non-gateway protocol → the plain 4c path with
+      an honest `reason` (gateway: null)
+  → the gateway session is created (progress `pending`) with a
+    per-recording 32-byte data key wrapped by the master key (record on)
+  node registration is maker-checker two-approver (pending → approved |
+    denied, self-approval 403); the node token `vypam-gwn1.<node_id>.
+    <secret>` is shown exactly once and stored sha256; drain stops new
+    dispatch, revoke terminates the live gateway (and privileged)
+    sessions before the token dies
+  the node daemon (stdlib only, outbound-only - no inbound node port):
+    heartbeat (capacity/version; offline derived from the stale-TTL,
+      never stored) + the work poll that also carries directives -
+      pause / terminate arrive on that outbound poll
+    one-shot connect-args fetched with the node token: a second fetch →
+      409, an admin bearer → 403 by name; the vault credential is
+      injected into the guacd handshake - the user never sees it
+    dials the target's guacd and streams with ack/sync flow control;
+      pause = the daemon stops reading/acking so TCP backpressure
+      stalls guacd
+  progress: pending → connecting → active → ended
+    (backward transition → 409, unknown state → 400); ended cascades the
+    normal session close (grant close, checkout release, rotate once)
+  recording: each segment gzip → AES-256-GCM under the recording's own
+    data key, stored under RECORDING_STORAGE_DIR/gws-<id>/seg-<seq>.json;
+    the DB row keeps pointer + size + SHA-256 only - the API never
+    discloses the path or key material
+  playback: the segment's SHA-256 is verified first, then decrypted
+    (destroyed key → 410, tampered bytes → 500)
+  retention run (dry or real): per-protocol overrides or
+    retention_default_days (default 90) → delete files + crypto-shred
+    keys + `retention-expired` ledger events; incident-linked sessions
+    are skipped (legal hold) and every row stays as evidence
+  every gateway action fans into the ledger as source `gateway`
+    (21st source); Compliance gains the gateway chip (22 incl. All)
+```
+
 ## 3. Cross-cutting interaction rules
 
 1. **Reveal-on-click only.** Secrets, audit payloads, and other sensitive
@@ -505,6 +554,20 @@ LoginChallenge.status (vypam-mfa1 / vypam-enr1):
                      pending → consumed   (single use; a spent or
                        expired challenge 401s - the wrong-code attempt
                        does not spend it)
+
+GatewayNode.state:    pending → approved | denied   (maker-checker two-
+                       approver; self-approval 403; the node token is
+                       never echoed after registration)
+                     approved → revoked   (live gateway sessions are
+                       terminated first)
+                     draining is a flag that stops new dispatch; offline
+                       is derived from the heartbeat TTL, never stored
+
+GatewaySession.progress:
+                     pending → connecting → active → ended
+                       (backward transition → 409, unknown state → 400;
+                        ended cascades grant close + checkout release +
+                        rotate once)
 ```
 
 ## 5. Roles & separation of duties
@@ -518,6 +581,8 @@ LoginChallenge.status (vypam-mfa1 / vypam-enr1):
 | Hold a console session | the user themself (server-side, `vypam-ui1` bearer + HttpOnly cookie, CSRF double-submit); `X-Actor` is **ignored** for console sessions — the actor is the authenticated principal; the admin token alone holds no console session |
 | Open the sealed emergency admin | the requester + two distinct approvers (never the requester, 403); the window is time-boxed and the login still demands the sealed password — single use, then the seal rotates |
 | Approve factor recovery (lost every factor) | two distinct approvers (never the requester) |
+| Approve a gateway node | the `approver` role (maker-checker: `pending → approved/denied`, self-approval 403); the `vypam-gwn1.` node token is shown exactly once at registration, sha256 at rest |
+| Zone bind / node drain / retention run | the `operator` role; every gateway GET is the `auditor` role's (automatic) |
 | Seal / unseal the master key | an admin; in `enforced` mode the key only ever comes from the HSM/KMS provider — no file fallback, an unreachable provider seals |
 | Approve JIT | anyone but the requester; security role additionally required on `high` |
 | Approve/deny held command | another actor resolves the append-only approval row |

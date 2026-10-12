@@ -1,6 +1,6 @@
 # VY-PAM — Product Requirements Document (PRD)
 
-**Status:** as-built for Phase 7
+**Status:** as-built for Phase 8a
 **Source of truth:** `VY-PAM_Enterprise_PAM_Architecture.md` (requirements) and
 `VY-PAM_MASTER_and_PAM_Workflow.md` (phase checkpoints)
 **Companion docs:** `TRD.md`, `PAM_FLOW.md`, `UI_UX_DESIGN_BRIEF.md`,
@@ -96,6 +96,7 @@ from the architecture doc, phase assigned in `IMPLEMENTATION_PLAN.md`:
 | RBAC / ABAC | Multi-role model over the admin operations (single admin token today) | **Shipped in 6b**: five seeded roles over all admin operations (policy in code), sha256-at-rest API tokens shown once, LDAP directory authenticates but the binding decides, ABAC target/vault-item scoping, `rbac` ledger source — `admin-token` remains the bootstrap superuser | 6b |
 | SSO / HSM enforcement | Settings **schema** exists; enforcement not implemented | **Shipped in 6c** for SSO/HSM: SAML 2.0 + OIDC login (signature-verified, fail-closed MFA assertion, JIT subjects, server-side sessions, binding kind `sso` on the 6b model) and HSM/KMS key custody (provider abstraction over the master key, `advisory`/`enforced` with seal/unseal, no file-key fallback when enforced) | 6c |
 | Real identity & login security | Users, server-side console sessions, MFA at login, actor bound to the authenticated user | **Shipped in 7**: scrypt local login, HttpOnly cookie + CSRF double-submit sessions, fail-closed `mfa_required` (enrolment ticket / MFA challenge, TOTP replay guard, backup codes), step-up, lockout + rate limits, `X-Actor` ignored for console sessions, e-mail OTP + WebAuthn + RADIUS + SCIM, sealed emergency admin (dual control) — Addendum C in full; 4i shipped the operator TOTP gate | 7 |
+| §27 Session gateway & recording | The data plane between user and target: protocol proxy with credential injection, control channel (live view/pause/terminate), session recording + playback, zones with two-approver gateway nodes | **Shipped in 8a** (guacd-first): RDP/SSH/VNC/telnet brokering through a zone-dispatched, heartbeating gateway node (fail-closed 503 with the create rolled back; `require_zone` refuses unmapped targets), the vault credential injected at the node (the user never sees it), gzip + AES-256-GCM segment recording with per-segment SHA-256 custody and playback verification (destroyed key 410, tamper 500), pause/terminate on the outbound node poll (no inbound port), retention with incident-linked legal hold and `retention-expired` events, `gateway` ledger trail — the Go SSH gateway with inline command interception (8b), the DB wire-protocol proxy (8c) and file transfer through the gateway remain (no Go toolchain on the host); ffmpeg/asciicast transcoding and command search land in phase 14 | 8a |
 
 ## 6. Functional requirements detail (selected)
 
@@ -191,11 +192,12 @@ from the architecture doc, phase assigned in `IMPLEMENTATION_PLAN.md`:
 
 ## 9. Roadmap
 
-The full phase-wise backlog (7), scope, dependencies and
+The full phase-wise backlog (8a), scope, dependencies and
 definition-of-done per phase live in **`docs/IMPLEMENTATION_PLAN.md`**;
 execution checkpoints are logged in
-`VY-PAM_MASTER_and_PAM_Workflow.md`. Next phase: **8 — Session gateway
-& recording** (Phases 4a–4k, 5a–5d, 6a/6b/6c and 7 complete).
+`VY-PAM_MASTER_and_PAM_Workflow.md`. Next phase: **8b — Go SSH
+gateway** (Phases 4a–4k, 5a–5d, 6a/6b/6c, 7 and 8a complete; 8c DB
+wire-protocol proxy deferred alongside it).
 
 ## 10. Target end-state (final output after full development)
 

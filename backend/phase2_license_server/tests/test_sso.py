@@ -854,6 +854,6 @@ def test_posture_counts_real_logins(client, idp, app):
 
 
 def test_admin_operations_grew_and_whoami_reports_it(client):
-    assert len(service_module.ADMIN_OPERATIONS) == 127
+    assert len(service_module.ADMIN_OPERATIONS) == 144  # 8a: +21 gateway ops
     who = client.get("/api/v1/auth/whoami", headers=ADMIN).get_json()
-    assert who["mode"] == "token" and who["operations_count"] == 127
+    assert who["mode"] == "token" and who["operations_count"] == 144
