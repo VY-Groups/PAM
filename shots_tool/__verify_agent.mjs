@@ -17,7 +17,10 @@ import { chromium } from 'playwright-core';
 
 const BASE = process.env.BASE || 'http://127.0.0.1:5000';
 const ADMIN_TOKEN = process.env.GATE_ADMIN_TOKEN || '';
-const browser = await chromium.launch({ channel: 'msedge', headless: true });
+// GATE_BROWSER_CHANNEL: msedge locally (preinstalled on Windows dev boxes
+// and CI windows runners); CI sets chromium where Edge is absent.
+const CHANNEL = process.env.GATE_BROWSER_CHANNEL || 'msedge';
+const browser = await chromium.launch({ channel: CHANNEL, headless: true });
 let failures = 0;
 const check = (ok, label) => {
   console.log((ok ? 'PASS ' : 'FAIL ') + label);

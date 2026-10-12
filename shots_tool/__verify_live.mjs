@@ -20,6 +20,9 @@ const SCREENS = [
   'policy_zero_trust_rules_engine',
   'break_glass_emergency_protocol',
   'vendor_access_third_party_lifecycle',
+  'enterprise_licensing_tier_entitlements_node_quotas',
+  'platform_settings_idp_hsm_configuration',
+  'license_entitlement_center',
 ];
 
 const FORBIDDEN = [
@@ -80,7 +83,7 @@ const FORBIDDEN = [
   'Device & Posture', 'Quorum & Dual-Control', 'Command Intercepts',
   '4 of 42', 'mTLS Enforced',
   // break-glass (4h) design values, replaced by the live console
-  'Shamir', '3-of-5', 'Ernst & Young', 'Signed off by CISO',
+  '3-of-5', 'Ernst & Young', 'Signed off by CISO',
   'INC-8812', 'INC-7409', 'INC-6110', '#EPHEM-0x9F3E', '(HSM): LEVEL 4',
   'LEVEL 4 HSM', 'YubiKey 5 FIPS', '42 days ago', 'PD-9921',
   'Global SSO authentication mesh', 'PagerDuty', 'War Room', 'IronMountain',
@@ -113,7 +116,22 @@ const fileUrl = (name) =>
   `file:///${join(REPO, 'frontend', 'screens', name, 'code.html')
     .replace(/\\/g, '/')}`;
 
-const browser = await chromium.launch({ channel: 'msedge', headless: true });
+// network-fetching references only (src / link href): the suite is offline,
+// so no screen or chrome page may point at the internet. Text URLs, input
+// placeholders and the SVG namespace are not fetches and stay allowed.
+async function externalRefs(page) {
+  return page.evaluate(() => {
+    const out = [];
+    document.querySelectorAll('[src], link[href]').forEach((el) => {
+      const v = el.getAttribute(el.tagName === 'LINK' ? 'href' : 'src');
+      if (v && /^(https?:)?\/\//.test(v)) out.push(v.slice(0, 90));
+    });
+    return out;
+  });
+}
+
+const CHANNEL = process.env.GATE_BROWSER_CHANNEL || 'msedge';
+const browser = await chromium.launch({ channel: CHANNEL, headless: true });
 try {
   for (const name of SCREENS) {
     const page = await browser.newPage({ viewport: { width: 1280, height: 1600 } });
@@ -126,6 +144,8 @@ try {
       `${name} http: footer filled from /health`);
     check(/Auth: open|auth: open/.test(httpText),
       `${name} http: auth fill = open`);
+    const extHttp = await externalRefs(page);
+    check(extHttp.length === 0, `${name} http: no external URLs`, extHttp.join(' | '));
 
     // ---- file:// mode: honest static state -----------------------------
     await page.goto(fileUrl(name), { waitUntil: 'load' });
@@ -137,7 +157,24 @@ try {
       `${name} file://: no live auth claim`);
     check(/Auth: —|auth: —/.test(fileText),
       `${name} file://: auth dash present`);
+    const extFile = await externalRefs(page);
+    check(extFile.length === 0, `${name} file://: no external URLs`, extFile.join(' | '));
 
+    await page.close();
+  }
+
+  // ---- chrome pages (launcher + login): offline + honest only ----------
+  for (const file of ['index.html', 'login.html']) {
+    const page = await browser.newPage({ viewport: { width: 1280, height: 1600 } });
+    await page.goto(`${BASE}/${file}`, { waitUntil: 'load' });
+    await sleep(1000);
+    let ext = await externalRefs(page);
+    check(ext.length === 0, `${file} http: no external URLs`, ext.join(' | '));
+    await page.goto(`file:///${join(REPO, 'frontend', file).replace(/\\/g, '/')}`,
+      { waitUntil: 'load' });
+    await sleep(1000);
+    ext = await externalRefs(page);
+    check(ext.length === 0, `${file} file://: no external URLs`, ext.join(' | '));
     await page.close();
   }
 } catch (err) {

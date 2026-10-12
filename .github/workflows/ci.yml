@@ -10,11 +10,15 @@
 #                   sso/service + radius usedforsecurity=False + sso XXE
 #                   pre-scan); pip-audit 2.10.1 - no known vulnerabilities;
 #                   gitleaks v8.24.2 with .gitleaks.toml - no leaks
-#   frontend      : node --check parse gate over the standing-gate scripts
-#
-# The frontend standing gate (playwright, live flows against a booted rig)
-# joins CI in the frontend-completion phase, once the committed demo-seed
-# script exists; until then it is a local standing gate only. Honest scope.
+#   frontend      : node --check parse gate over the standing-gate scripts,
+#                   then the REAL standing gate on windows-latest: boot an
+#                   ephemeral-key rig, seed it with tools/demo_seed.py, run
+#                   __verify_agent.mjs (playwright, msedge preinstalled) in
+#                   open mode and __verify_live.mjs over the wired screens,
+#                   then a token-mode rig with GATE_ADMIN_TOKEN. Every
+#                   command was executed locally on the same toolchain
+#                   first (the demo seed and both gate modes ran against
+#                   real rigs on this Windows box before the YAML shipped).
 
 name: CI
 
@@ -83,15 +87,79 @@ jobs:
         run: docker run --rm -v "$PWD:/repo:ro" zricethezav/gitleaks:v8.24.2 detect --source /repo --config /repo/.gitleaks.toml
 
   frontend:
-    name: Frontend script parse gate
-    runs-on: ubuntu-latest
+    name: Frontend standing gate (boot rig, seed, playwright)
+    runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
           node-version: "24"
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.14"
       - name: Parse-check every standing-gate script
+        shell: pwsh
         run: |
-          for f in shots_tool/*.mjs; do
-            node --check "$f" || exit 1
-          done
+          foreach ($f in Get-ChildItem shots_tool -Filter *.mjs) {
+            node --check $f.FullName
+            if ($LASTEXITCODE -ne 0) { exit 1 }
+          }
+      - name: Install declared backend dependencies only
+        run: pip install -r backend/phase2_license_server/requirements.txt -r backend/ipam_licensing/requirements.txt
+      - name: Install the gate's browser tooling (playwright-core)
+        working-directory: shots_tool
+        run: npm ci
+      - name: "Open-mode rig: boot, seed, standing gate, live-screen verify"
+        shell: pwsh
+        run: |
+          $keydir = Join-Path $env:RUNNER_TEMP "vypam-ci-keys"
+          New-Item -ItemType Directory -Force -Path $keydir | Out-Null
+          $env:LICENSE_DATABASE_URI = "sqlite:///" + ((Join-Path $env:RUNNER_TEMP "vypam_ci_open.db") -replace '\\','/')
+          $env:LICENSE_SERVER_PORT = "5000"
+          $env:PAM_NODE_NAME = "ci-rig"
+          $env:LICENSE_PRIVATE_KEY_PATH = Join-Path $keydir "ci_private.pem"
+          $env:LICENSE_PUBLIC_KEY_PATH = Join-Path $keydir "ci_public.pem"
+          $env:LICENSE_ED25519_PRIVATE_KEY_PATH = Join-Path $keydir "ci_ed25519_private.pem"
+          $env:LICENSE_ED25519_PUBLIC_KEY_PATH = Join-Path $keydir "ci_ed25519_public.pem"
+          $env:LICENSE_AUTOGENERATE_KEYS = "1"
+          $proc = Start-Process python -ArgumentList "app.py" -PassThru -WorkingDirectory backend/phase2_license_server -RedirectStandardOutput rig.log -RedirectStandardError rig.err.log
+          $health = $null
+          foreach ($i in 1..45) {
+            try { $health = Invoke-RestMethod http://127.0.0.1:5000/health -TimeoutSec 2; if ($health.status -eq "ok") { break } } catch { Start-Sleep -Seconds 2 }
+          }
+          if (-not $health -or $health.status -ne "ok") { Get-Content rig.log -ErrorAction SilentlyContinue; Get-Content rig.err.log -ErrorAction SilentlyContinue; throw "rig did not become healthy" }
+          python tools/demo_seed.py --private-key $env:LICENSE_PRIVATE_KEY_PATH
+          if ($LASTEXITCODE -ne 0) { throw "demo seed failed" }
+          $env:BASE = "http://127.0.0.1:5000"
+          node shots_tool/__verify_agent.mjs
+          if ($LASTEXITCODE -ne 0) { throw "standing gate (open mode) failed" }
+          node shots_tool/__verify_live.mjs
+          if ($LASTEXITCODE -ne 0) { throw "live-screen verify failed" }
+          Stop-Process -Id $proc.Id -Force
+      - name: "Token-mode rig: boot, seed with the admin token, standing gate"
+        shell: pwsh
+        run: |
+          $keydir = Join-Path $env:RUNNER_TEMP "vypam-ci-keys-token"
+          New-Item -ItemType Directory -Force -Path $keydir | Out-Null
+          $env:LICENSE_DATABASE_URI = "sqlite:///" + ((Join-Path $env:RUNNER_TEMP "vypam_ci_token.db") -replace '\\','/')
+          $env:LICENSE_SERVER_PORT = "5001"
+          $env:PAM_NODE_NAME = "ci-rig"
+          $env:LICENSE_ADMIN_TOKEN = "ci-gate-token-" + [guid]::NewGuid().ToString("N").Substring(0, 12)
+          $env:LICENSE_PRIVATE_KEY_PATH = Join-Path $keydir "ci_private.pem"
+          $env:LICENSE_PUBLIC_KEY_PATH = Join-Path $keydir "ci_public.pem"
+          $env:LICENSE_ED25519_PRIVATE_KEY_PATH = Join-Path $keydir "ci_ed25519_private.pem"
+          $env:LICENSE_ED25519_PUBLIC_KEY_PATH = Join-Path $keydir "ci_ed25519_public.pem"
+          $env:LICENSE_AUTOGENERATE_KEYS = "1"
+          $proc = Start-Process python -ArgumentList "app.py" -PassThru -WorkingDirectory backend/phase2_license_server -RedirectStandardOutput rig-token.log -RedirectStandardError rig-token.err.log
+          $health = $null
+          foreach ($i in 1..45) {
+            try { $health = Invoke-RestMethod http://127.0.0.1:5001/health -TimeoutSec 2; if ($health.status -eq "ok") { break } } catch { Start-Sleep -Seconds 2 }
+          }
+          if (-not $health -or $health.status -ne "ok") { Get-Content rig-token.log -ErrorAction SilentlyContinue; Get-Content rig-token.err.log -ErrorAction SilentlyContinue; throw "token rig did not become healthy" }
+          python tools/demo_seed.py --base http://127.0.0.1:5001 --admin-token $env:LICENSE_ADMIN_TOKEN --private-key $env:LICENSE_PRIVATE_KEY_PATH
+          if ($LASTEXITCODE -ne 0) { throw "demo seed (token mode) failed" }
+          $env:BASE = "http://127.0.0.1:5001"
+          $env:GATE_ADMIN_TOKEN = $env:LICENSE_ADMIN_TOKEN
+          node shots_tool/__verify_agent.mjs
+          if ($LASTEXITCODE -ne 0) { throw "standing gate (token mode) failed" }
+          Stop-Process -Id $proc.Id -Force

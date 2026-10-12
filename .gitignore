@@ -19,3 +19,4 @@ shots_tool/.tmp/
 *.db-journal
 *.db-wal
 *.db-shm
+license_ed25519_public.pem

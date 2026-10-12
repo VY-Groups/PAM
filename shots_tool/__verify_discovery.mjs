@@ -100,7 +100,8 @@ async function waitHealthy(ms = 40000) {
 let browser;
 try {
   await waitHealthy();
-  browser = await chromium.launch({ channel: 'msedge', headless: true });
+  const CHANNEL = process.env.GATE_BROWSER_CHANNEL || 'msedge';
+  browser = await chromium.launch({ channel: CHANNEL, headless: true });
   const page = await browser.newPage({ viewport: { width: 1252, height: 1600 } });
 
   // ---------------------------------------------------- initial honest state

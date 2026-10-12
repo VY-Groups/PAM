@@ -4,9 +4,9 @@
 <meta charset="utf-8"/>
 <meta content="width=device-width, initial-scale=1.0" name="viewport"/>
 <title>AegisPAM · Design Suite</title>
-<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200" rel="stylesheet"/>
-<link href="https://fonts.googleapis.com/css2?family=Geist:wght@100..900&amp;family=JetBrains+Mono:wght@100..900&amp;display=swap" rel="stylesheet"/>
-<script src="https://cdn.tailwindcss.com"></script>
+<link href="vendor/fonts/symbols-opsz.css" rel="stylesheet"/>
+<link href="vendor/fonts/text.css" rel="stylesheet"/>
+<script src="vendor/tailwind.min.js"></script>
 <script id="tailwind-config">
 tailwind.config = {
   darkMode: "class",
@@ -64,11 +64,14 @@ tailwind.config = {
     <p class="text-[15px] text-on-surface-variant max-w-3xl">
       Every screen shares one sidebar; its items open the corresponding screen directly, whether the suite is
       served by the Phase 2 license server (<span class="mono text-[13px]">python app.py</span>) or browsed as
-      files. Eleven screens talk to their live APIs: <strong class="text-on-surface">Licensing &amp; Entitlements</strong>
-      (imports, validates and revokes licenses), <strong class="text-on-surface">Platform Settings</strong>
-      (stores configuration with an audit changelog), the Command Center, Compliance, Credential Vault,
+      files. Thirteen screens talk to their live APIs: <strong class="text-on-surface">Licensing &amp; Entitlements</strong>
+      (imports, validates and revokes licenses), <strong class="text-on-surface">Enterprise Licensing</strong>
+      (tiers, node quotas and module entitlements), <strong class="text-on-surface">Platform Settings</strong>
+      (stores configuration with an audit changelog), <strong class="text-on-surface">IdP &amp; HSM Configuration</strong>
+      (SSO slots, HSM runtime state, ZSP and WORM settings), the Command Center, Compliance, Credential Vault,
       Infrastructure Discovery, JIT access, the live session hub, the zero-trust policy console,
-      Emergency Break-Glass and Vendor Access.
+      Emergency Break-Glass and Vendor Access. The console login signs in against
+      <span class="mono text-[13px]">POST /auth/login</span> and carries the session into the launcher.
     </p>
   </header>
 
@@ -82,6 +85,20 @@ tailwind.config = {
 
   <!-- ============================ grid ============================ -->
   <main class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5" id="grid">
+
+    <a class="card group flex flex-col overflow-hidden rounded-xl bg-primary-container/40 border border-primary-container shadow-sm" href="login.html">
+      <div class="aspect-[16/10] overflow-hidden border-b border-primary-container bg-primary-container/60 flex items-center justify-center">
+        <span class="material-symbols-outlined text-[52px] text-on-primary-container">shield_lock</span>
+      </div>
+      <div class="flex flex-col gap-1.5 p-4">
+        <div class="flex items-center justify-between gap-2">
+          <h2 class="text-[15px] font-semibold tracking-tight">Console Login</h2>
+          <span class="mono text-[10px] px-2 py-0.5 rounded-full font-semibold bg-primary text-on-primary">AUTH</span>
+        </div>
+        <p class="text-[13px] leading-snug text-on-surface-variant">Sign in with a local console account — the session enters the launcher and every screen carries it.</p>
+        <span class="mono text-[11px] text-primary mt-1 flex items-center gap-1"><span class="material-symbols-outlined text-[14px]">login</span>POST /auth/login</span>
+      </div>
+    </a>
 
     <a class="card group flex flex-col overflow-hidden rounded-xl bg-surface-container-lowest border border-outline-variant/40 shadow-sm" data-kind="live" href="screens/pam_command_center_threat_dashboard/code.html">
       <div class="aspect-[16/10] overflow-hidden border-b border-outline-variant/30 bg-surface-container">
@@ -237,31 +254,31 @@ tailwind.config = {
       </div>
     </a>
 
-    <a class="card group flex flex-col overflow-hidden rounded-xl bg-surface-container-lowest border border-outline-variant/40 shadow-sm" data-kind="spec" href="screens/enterprise_licensing_tier_entitlements_node_quotas/code.html">
+    <a class="card group flex flex-col overflow-hidden rounded-xl bg-surface-container-lowest border border-outline-variant/40 shadow-sm" data-kind="live" href="screens/enterprise_licensing_tier_entitlements_node_quotas/code.html">
       <div class="aspect-[16/10] overflow-hidden border-b border-outline-variant/30 bg-surface-container">
         <img alt="Licensing spec preview" class="w-full h-full object-cover object-top group-hover:scale-[1.02] transition-transform duration-200" loading="lazy" src="screens/enterprise_licensing_tier_entitlements_node_quotas/screen.png"/>
       </div>
       <div class="flex flex-col gap-1.5 p-4">
         <div class="flex items-center justify-between gap-2">
-          <h2 class="text-[15px] font-semibold tracking-tight">Licensing (spec)</h2>
-          <span class="mono text-[10px] px-2 py-0.5 rounded-full font-semibold bg-primary-container text-on-primary-container">SPEC</span>
+          <h2 class="text-[15px] font-semibold tracking-tight">Enterprise Licensing</h2>
+          <span class="mono text-[10px] px-2 py-0.5 rounded-full font-semibold bg-tertiary-fixed text-on-tertiary-fixed">LIVE API</span>
         </div>
-        <p class="text-[13px] leading-snug text-on-surface-variant">Authoritative spec screen the live licensing console was built from.</p>
-        <span class="mono text-[11px] text-outline mt-1 flex items-center gap-1"><span class="material-symbols-outlined text-[14px]">arrow_forward</span>enterprise_licensing_tier_entitlements_node_quotas</span>
+        <p class="text-[13px] leading-snug text-on-surface-variant">Live tier entitlements, node quotas, module catalog and per-pool allocation from the license API.</p>
+        <span class="mono text-[11px] text-tertiary mt-1 flex items-center gap-1"><span class="material-symbols-outlined text-[14px]">api</span>served at /licenses</span>
       </div>
     </a>
 
-    <a class="card group flex flex-col overflow-hidden rounded-xl bg-surface-container-lowest border border-outline-variant/40 shadow-sm" data-kind="spec" href="screens/platform_settings_idp_hsm_configuration/code.html">
+    <a class="card group flex flex-col overflow-hidden rounded-xl bg-surface-container-lowest border border-outline-variant/40 shadow-sm" data-kind="live" href="screens/platform_settings_idp_hsm_configuration/code.html">
       <div class="aspect-[16/10] overflow-hidden border-b border-outline-variant/30 bg-surface-container">
-        <img alt="Platform Settings spec preview" class="w-full h-full object-cover object-top group-hover:scale-[1.02] transition-transform duration-200" loading="lazy" src="screens/platform_settings_idp_hsm_configuration/screen.png"/>
+        <img alt="IdP &amp; HSM spec preview" class="w-full h-full object-cover object-top group-hover:scale-[1.02] transition-transform duration-200" loading="lazy" src="screens/platform_settings_idp_hsm_configuration/screen.png"/>
       </div>
       <div class="flex flex-col gap-1.5 p-4">
         <div class="flex items-center justify-between gap-2">
-          <h2 class="text-[15px] font-semibold tracking-tight">Platform Settings (spec)</h2>
-          <span class="mono text-[10px] px-2 py-0.5 rounded-full font-semibold bg-primary-container text-on-primary-container">SPEC</span>
+          <h2 class="text-[15px] font-semibold tracking-tight">IdP &amp; HSM Configuration</h2>
+          <span class="mono text-[10px] px-2 py-0.5 rounded-full font-semibold bg-tertiary-fixed text-on-tertiary-fixed">LIVE API</span>
         </div>
-        <p class="text-[13px] leading-snug text-on-surface-variant">Authoritative spec screen the live settings console was built from.</p>
-        <span class="mono text-[11px] text-outline mt-1 flex items-center gap-1"><span class="material-symbols-outlined text-[14px]">arrow_forward</span>platform_settings_idp_hsm_configuration</span>
+        <p class="text-[13px] leading-snug text-on-surface-variant">Live SSO slots, HSM runtime state, ZSP session defaults and the WORM ledger, with an audited settings changelog.</p>
+        <span class="mono text-[11px] text-tertiary mt-1 flex items-center gap-1"><span class="material-symbols-outlined text-[14px]">api</span>served at /settings + /hsm/status</span>
       </div>
     </a>
 
@@ -270,7 +287,7 @@ tailwind.config = {
   <!-- ============================ footer ============================ -->
   <footer class="flex items-center justify-between gap-4 flex-wrap border-t border-outline-variant/30 pt-5 text-[12px] mono text-on-surface-variant">
     <span>AegisPAM · Phase 1 crypto + Phase 2 license server + Stitch suite</span>
-    <span id="screenCount">13 screens</span>
+    <span id="screenCount">13 screens · console login</span>
   </footer>
 </div>
 

@@ -13,6 +13,11 @@ visual reference; **screens evolve here**.
 ```
 frontend/
 ├── index.html          # launcher: every screen, LIVE / SPEC badges, filters
+├── login.html          # console login: /auth/login (+ MFA step when
+│                       # challenged), session stored in sessionStorage,
+│                       # redirect to the launcher
+├── vendor/             # offline assets: tailwind.min.js + font CSS/woff2
+│                       # (no CDN, no external URLs)
 ├── screens/
 │   ├── <screen-name>/
 │   │   ├── code.html   # one self-contained screen (markup + styles + scripts)
@@ -26,6 +31,7 @@ frontend/
 | URL | Screen |
 | --- | --- |
 | `GET /index.html` | launcher |
+| `GET /login.html` | **live** console login (POST `/api/v1/auth/login`; honest MFA step on a `mfa_required` challenge, honest enrolment-required message otherwise; stores the session bearer + CSRF twin in `sessionStorage`, then redirects to the launcher) |
 | `GET /` · `GET /license` | **live** Licensing screen (talks to `/api/v1/licenses*`) |
 | `GET /settings` | **live** Platform Settings screen (talks to `/api/v1/settings*`, plus the §18 HA/DC/DR section over `/api/v1/cluster*` — registry, probe/sync, promote/demote, backups, the §10 RBAC/ABAC section over `/api/v1/roles`, `/api/v1/role-bindings*`, `/api/v1/auth/whoami` — role directory, bindings, grant form, one-time token — and the 6c SSO + HSM enforcement lines over `/api/v1/auth/sso/status` + `/api/v1/hsm/status`, and the 7 Identity & Login Security section over `/api/v1/settings/auth|webauthn|smtp|sms|radius|scim` + `/api/v1/users*` + `/api/v1/auth/deliveries` + `/api/v1/auth/emergency` + `/api/v1/settings/scim/rotate` - group cards with exact schema fields, the users table, measured OTP deliveries, and the sealed emergency-admin card with its dual-control open request) |
 | `GET /screens/pam_command_center_threat_dashboard/code.html` | **live** Command Center (talks to `/api/v1/overview` + `/api/v1/events`, plus the §10 bypass section over `/api/v1/bypass/*` — ingest/scan/incidents posted on click only) |
@@ -47,17 +53,32 @@ Live screens fetch on load and fall back to **honest placeholders** — never
 invented values. Opened as `file://` or with the API unreachable, `—` and
 "not connected" markers stay on screen; sections without a backing module say
 so instead of showing numbers; when data does load, every figure comes from the
-API response (the nine API-driven screens are scanned for legacy fake strings in
-`../shots_tool/__verify_live.mjs`, HTTP and `file://` modes; the discovery
+API response (the twelve API-driven screens are scanned for legacy fake strings in
+`../shots_tool/__verify_live.mjs`, HTTP and `file://` modes, which also
+asserts that no screen references an external URL; the discovery
 screen additionally runs a full UI end-to-end in
 `../shots_tool/__verify_discovery.mjs` — real register, scan, ignore/restore,
 adopt and filter actions against a throwaway server, and
 `../shots_tool/__shots.mjs` recaptures every `screen.png`).
 
+## Console login & demo data
+
+`login.html` is the console's front door: the shipped auth policy is
+fail-closed (`auth.mfa_required=True`), so a password-only login only works
+once a factor is enrolled or an admin has relaxed the policy. For local
+demo/CI rigs, `../tools/demo_seed.py` fills a fresh rig **through the public
+API only**: it relaxes `mfa_required` via the audited
+`PUT /api/v1/settings/auth`, creates the demo users + local RBAC bindings
+(one-shot tokens printed once), and imports an enterprise license signed
+offline with the rig's own keypair. Idempotent; `--admin-token` for a
+token-mode rig, `--private-key` when the rig trusts an ephemeral keypair
+(the CI job does exactly this). Real deployments keep MFA required.
+
 ## Adding a screen (the contract)
 
-1. Create `screens/<snake_case_name>/code.html` — self-contained; Tailwind
-   CDN + Google Fonts are the only externals, there is no build step.
+1. Create `screens/<snake_case_name>/code.html` — self-contained; the
+   vendored Tailwind + fonts under `../vendor/` are the only style sources
+   (no externals, no build step).
 2. Keep the canonical 11-item sidebar (`<nav>` with `data-path="…"` slugs and
    `../<screen>/code.html` hrefs) and exactly one `aria-current="page"`.
 3. Add a launcher card to `index.html` (both `href` and preview `img` under

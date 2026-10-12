@@ -116,7 +116,7 @@ and `GET /audit/verify` intact at the end.
 
 | Script | What it proves |
 |---|---|
-| `__verify_live.mjs` | **9 live screens** render with real API data over HTTP **and** honest `file://` fallback; sweeps the DOM for FORBIDDEN fabricated strings (exact pairs like `'Showing 5 of 2,875'`; a bare `'Showing 5 of'` is *not* forbidden — live pagination may honestly show `Showing 5 of 5 items`) |
+| `__verify_live.mjs` | **12 live screens** (11 API-driven + the launcher-adjacent wiring) render with real API data over HTTP **and** honest `file://` fallback, plus `index.html`/`login.html` chrome: **112 checks, ALL PASSED**; sweeps the DOM for FORBIDDEN fabricated strings (exact pairs like `'Showing 5 of 2,875'`; a bare `'Showing 5 of'` is *not* forbidden — live pagination may honestly show `Showing 5 of 5 items`) and asserts no screen references an external URL |
 | `__verify_discovery.mjs` | discovery screen flows (scan/adopt/filter against a throwaway server) |
 | `__verify_agent.mjs` | **6a+6b+6c+7+8a standing gate - 83 checks open mode / 90 checks under `GATE_ADMIN_TOKEN`, ALL PASSED**: §16 AI-Agent Access section on the JIT screen (below the broker block, zero `id=`, live `/agents*` + `/agent-access/*`, honest zero-state `0 agents · 0 open grants · 0 agent events`, numeric tiles, one-time token reveal modal, `window.jitLive.agent`), the Compliance screen's 18 source chips (`rbac` appended last), the §18 HA / DC / DR section on Platform Settings (summary shape, role badge vs the Promote/Demote label, numeric THIS NODE/PEERS/REPLICATION/BACKUPS tiles, node + replica + backup rows, zero `id=`, `window.settingsLive.cluster`) plus a live register → probe → sync → remove flow against an unreachable peer asserting the verbatim probe/sync errors and the registry returning to its baseline, and the §10 RBAC / ABAC section on Platform Settings (summary, five seeded roles, bindings table, hidden one-time token box, zero `id=`, `window.settingsLive.rbac`) plus — under `GATE_ADMIN_TOKEN` against a token-mode rig — a live grant → 403 verbatim → allowed op → scope 403 → revoke → 401 flow; in open dev mode it says so and skips honestly; the 6c SSO/HSM enforcement lines (live chips, stored groups, SSO/HSM API truth, an advisory-rig seal/unseal cycle, and - when `GATE_SSO_IDP` names a running SAML test IdP - the full login handshake, honestly skipped with a note otherwise), the phase-7 identity & login lines (the six identity settings boxes, the sealed emergency-admin card, SCIM/RADIUS honest refusals, the compliance screen's `auth` chip), and the 8a extension: the Compliance screen's 22 source chips (`gateway` appended last - chips ending `sso,hsm,auth,gateway`) and a Live Session Hub flow - the honest default line (a prior run's honest end state is accepted too; never a false live claim), then a live zone + asset + maker-checker node + heartbeat + session: the create reports the broker node and the hub reports the session honestly `pending`, the node's one-shot credential fetch (real password + 64-hex data key) flips `credential_injected` to reported true, and the node's own `progress` calls (pending -> connecting -> active) make the hub render the connected line verbatim - ending in an honest end state after cleanup (terminate, revoke, unbind, delete zone, restore settings) |
 | `__shots.mjs` / `__debug_screen.mjs` | pre-existing capture/debug helpers (kept) |
@@ -132,10 +132,19 @@ python -X utf8 -m pytest backend -q          # 794
 python -X utf8 -m pytest pam_master -q       # 46
 python -X utf8 -m pytest backend\phase2_license_server\tests\test_openapi_contract.py -q   # 9
 # boundary smoke (Temp\opencode\smoke_restructure.py): 17/17
+python tools/demo_seed.py                    # idempotent demo rig (public API only)
 node shots_tool/__verify_live.mjs            # ALL CHECKS PASSED
 node shots_tool/__verify_discovery.mjs       # ALL CHECKS PASSED
 node shots_tool/__verify_agent.mjs           # ALL CHECKS PASSED
 ```
+
+The three node verifiers also run in **CI** (frontend job,
+`windows-latest`): the workflow boots an ephemeral-key rig
+(`LICENSE_AUTOGENERATE_KEYS=1` with temp key paths), seeds it with
+`tools/demo_seed.py`, runs the standing gate in open mode plus
+`__verify_live.mjs`, then boots a token-mode rig and re-runs the gate under
+`GATE_ADMIN_TOKEN`. Every command in that job was executed locally on the
+same toolchain before the YAML shipped.
 
 Then, for the working tree:
 

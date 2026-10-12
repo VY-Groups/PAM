@@ -34,4 +34,10 @@ regexes = [
   # an older revision of pam_master/tests/test_skeleton.py used for
   # MASTER_CUSTOMER_KEY_B64. Not key material.
   '''aGVsbG8td29ybGQ=''',
+  # The three demo console passwords in tools/demo_seed.py are PUBLIC dev-rig
+  # values, documented in that file's docstring: they only ever exist on a
+  # local demo/CI rig that anyone on the machine can already administrate,
+  # and are never reused anywhere else. Allowlisted so the scan keeps
+  # watching for NEW secrets in the seed script.
+  '''Zephyr-Console-7391-Qx!|Harbor-Session-4826-Kv!|Lantern-Audit-5173-Nt!''',
 ]

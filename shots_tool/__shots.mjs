@@ -22,7 +22,8 @@ const folders = readdirSync(screensDir).filter((n) =>
   !SKIP.has(n) && statSync(join(screensDir, n)).isDirectory()
     && existsSync(join(screensDir, n, 'code.html')));
 
-const browser = await chromium.launch({ channel: 'msedge', headless: true });
+const CHANNEL = process.env.GATE_BROWSER_CHANNEL || 'msedge';
+const browser = await chromium.launch({ channel: CHANNEL, headless: true });
 let ok = 0;
 let fail = 0;
 for (const name of folders) {
