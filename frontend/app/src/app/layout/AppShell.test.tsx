@@ -4,6 +4,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { expectNoAxeViolations } from '../../test/axe';
 import {
   WHOAMI_OPEN_BODY,
+  commandCenterRoutes,
   healthRoute,
   stubFetch,
   whoamiRoute,
@@ -32,7 +33,7 @@ const NAV_LABELS = [
 
 describe('AppShell (F3 exit: shell renders live nav)', () => {
   it('renders one nav link per ADR-0005 route with the right hrefs', async () => {
-    stubFetch([whoamiRoute(WHOAMI_OPEN_BODY), healthRoute()]);
+    stubFetch(commandCenterRoutes());
     renderApp('/command-center');
     const nav = await screen.findByRole('navigation', { name: 'Primary navigation' });
     const links = Array.from(nav.querySelectorAll('a'));
@@ -59,14 +60,14 @@ describe('AppShell (F3 exit: shell renders live nav)', () => {
   });
 
   it('renders the honest whoami identity chip (principal + role)', async () => {
-    stubFetch([whoamiRoute(WHOAMI_OPEN_BODY), healthRoute()]);
+    stubFetch(commandCenterRoutes());
     renderApp('/');
     expect(await screen.findByText('Role: admin')).toBeInTheDocument();
     expect(screen.getByText('open')).toBeInTheDocument();
   });
 
   it('offers the break-glass shortcut and sign out', async () => {
-    stubFetch([whoamiRoute(WHOAMI_OPEN_BODY), healthRoute()]);
+    stubFetch(commandCenterRoutes());
     renderApp('/');
     expect(await screen.findByRole('link', { name: 'Break-Glass' })).toHaveAttribute(
       'href',
@@ -77,21 +78,21 @@ describe('AppShell (F3 exit: shell renders live nav)', () => {
 
   it('renders the honest F4-pending screen with its live legacy link', async () => {
     stubFetch([whoamiRoute(WHOAMI_OPEN_BODY), healthRoute()]);
-    renderApp('/command-center');
+    renderApp('/vault');
     expect(
       await screen.findByRole('heading', { name: /arrives at F4/ }),
     ).toBeInTheDocument();
     const legacy = screen.getByRole('link', { name: /Open the legacy screen/i });
     expect(legacy).toHaveAttribute(
       'href',
-      '/screens/pam_command_center_threat_dashboard/code.html',
+      '/screens/credential_vault_secrets_inventory/code.html',
     );
   });
 
   it('has no axe violations', async () => {
-    stubFetch([whoamiRoute(WHOAMI_OPEN_BODY), healthRoute()]);
+    stubFetch(commandCenterRoutes());
     const { container } = renderApp('/command-center');
-    await screen.findByRole('navigation', { name: 'Primary navigation' });
+    await screen.findByRole('heading', { name: /PAM Command Center/ });
     await expectNoAxeViolations(container);
   });
 });

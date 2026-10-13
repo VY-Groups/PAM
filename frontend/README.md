@@ -19,9 +19,8 @@ frontend/
 │                       # redirect to the launcher
 ├── vendor/             # offline assets: tailwind.min.js + font CSS/woff2
 │                       # (no CDN, no external URLs)
-├── app/                # VY-PAM React rebuild (strangler app, F1 done:
-│                       #   Vite + TS strict + Tailwind tokens + vitest;
-│                       #   see app/README.md)
+├── app/                # VY-PAM React rebuild (strangler app, F3 shell done,
+│                       #   F4 screen 1 Command Center live; see app/README.md)
 ├── screens/
 │   ├── <screen-name>/
 │   │   ├── code.html   # one self-contained screen (markup + styles + scripts)
@@ -99,7 +98,9 @@ token-mode rig, `--private-key` when the rig trusts an ephemeral keypair
 ## Future — the VY-PAM rebuild (supersedes this note)
 
 The Front-End Rebuild Plan (repo root) replaces these pages with a
-React + TypeScript app in **`app/`** (F1 scaffolded 2026-10-13); every
+React + TypeScript app in **`app/`** (F1 scaffolded 2026-10-13; F4 screen 1
+— Command Center — replaced its route the same day, legacy page still
+served until the `/app/` mount lands, ADR-0012); every
 decision is an ADR in `../docs/frontend/`. Strangler rules: legacy URLs
 stay reachable until each screen's replacement ships (F4),
 `../shots_tool/__verify_*.mjs` remains the standing gate until F5, and

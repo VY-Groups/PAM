@@ -22,9 +22,21 @@ by the plan in the repo root and the ADRs in `../../docs/frontend/`.
   `http.ts` wrapper (auth headers, timeouts, `{error, details}` shape,
   single backend-down signal) and session storage; `src/i18n/en.json` is
   the single string catalogue (ADR-0010); `src/features/auth/` is the
-  contract-shaped login (RHF + Zod, ADR-0006). Feature screens render
-  the honest F4-pending state with their live legacy links until their
-  replacement ships (plan §8).
+  contract-shaped login (RHF + Zod, ADR-0006). Pending feature screens
+  render the honest F4-pending state with their live legacy links until
+  their replacement ships (plan §8).
+- Command Center (F4 screen 1, plan §4 line 105): 
+  `src/features/command-center/` renders the posture KPI quad, health
+  strip, control-posture evidence table, activity feed and
+  bypass-detection section **from live contract data only**
+  (`getApiV1Overview`, `getHealth`, `getApiV1Events`,
+  `getApiV1BypassStats`, `getApiV1BypassIncidents` through generated
+  hooks in `queries.ts`) — honest loading / section-error (verbatim
+  server message) / empty / `not connected` / shared backend-down states,
+  i18n strings only, no hard-coded sample rows. The legacy
+  `../screens/pam_command_center_threat_dashboard/code.html` stays served
+  until the Flask app mounts `dist/` under `/app/` (ADR-0012) — the
+  strangler keeps both reachable.
 - During migration the legacy `../screens/` pages stay reachable and the
   standing gate (`../../shots_tool/__verify_*.mjs`) stays authoritative
   until F5 (ADR-0008).

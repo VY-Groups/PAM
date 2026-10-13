@@ -139,7 +139,13 @@ python -m pytest pam_master -q                   # 46 tests (vendor tool)
 - The console lives in `frontend/` — it started as a copy of the Stitch design
   reference (that folder was removed in the frontend-rebuild F0;
   `docs/frontend/ADR-0011`). Every screen carries the same sidebar with
-  real links, `frontend/index.html` is the launcher. Served by Phase 2, all
+  real links, `frontend/index.html` is the launcher. The React rebuild
+  (`frontend/app/`, plan in the repo root) is strangled in screen by
+  screen: its Command Center (F4 screen 1) already renders live posture
+  KPIs, health strip, activity feed and bypass detection from
+  `GET /api/v1/overview`, `/health`, `/api/v1/events` and
+  `/api/v1/bypass/*`; the legacy pages below stay served and reachable
+  until each replacement passes parity. Served by Phase 2, all
   eleven sidebar screens are **live**: licensing (`/`), platform settings (`/settings`,
   backed by `GET/PUT /api/v1/settings` with an audit changelog, plus the §20
   Enterprise Integrations cards over `GET /api/v1/integrations/status`), the Command

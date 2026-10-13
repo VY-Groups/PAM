@@ -5,8 +5,12 @@ import { expectNoAxeViolations } from '../../../test/axe';
 import {
   UNAUTHENTICATED_BODY,
   WHOAMI_OPEN_BODY,
+  bypassIncidentsRoute,
+  bypassStatsRoute,
+  eventsRoute,
   healthRoute,
   jsonResponse,
+  overviewRoute,
   stubFetch,
   whoamiRoute,
 } from '../../../test/fetchMock';
@@ -55,6 +59,10 @@ describe('LoginPage (F3 login flow, contract-shaped)', () => {
       },
       loginRoute(() => jsonResponse(200, MINT_200)),
       healthRoute(),
+      overviewRoute(),
+      eventsRoute(),
+      bypassStatsRoute(),
+      bypassIncidentsRoute(),
     ]);
     renderApp('/login');
     fireEvent.change(await screen.findByLabelText('Username'), {
@@ -63,7 +71,7 @@ describe('LoginPage (F3 login flow, contract-shaped)', () => {
     fireEvent.change(screen.getByLabelText('Password'), { target: { value: 'hunter2' } });
     fireEvent.click(screen.getByRole('button', { name: 'Sign in' }));
     expect(
-      await screen.findByRole('heading', { name: /arrives at F4/ }),
+      await screen.findByRole('heading', { name: /PAM Command Center/ }),
     ).toBeInTheDocument();
     expect(sessionStorage.getItem('aegispam_admin_token')).toBe('tok-1');
     expect(sessionStorage.getItem('aegispam_admin_csrf')).toBe('csrf-1');
@@ -96,6 +104,10 @@ describe('LoginPage (F3 login flow, contract-shaped)', () => {
         });
       }),
       healthRoute(),
+      overviewRoute(),
+      eventsRoute(),
+      bypassStatsRoute(),
+      bypassIncidentsRoute(),
     ]);
     renderApp('/login');
     fireEvent.change(await screen.findByLabelText('Username'), {
@@ -108,7 +120,7 @@ describe('LoginPage (F3 login flow, contract-shaped)', () => {
     fireEvent.change(code, { target: { value: '123456' } });
     fireEvent.click(screen.getByRole('button', { name: 'Verify' }));
     expect(
-      await screen.findByRole('heading', { name: /arrives at F4/ }),
+      await screen.findByRole('heading', { name: /PAM Command Center/ }),
     ).toBeInTheDocument();
 
     const loginCalls = fetchMock.mock.calls.filter((call) =>
@@ -180,10 +192,17 @@ describe('LoginPage (F3 login flow, contract-shaped)', () => {
   });
 
   it('redirects an already-authenticated visitor away from login', async () => {
-    stubFetch([whoamiRoute(WHOAMI_OPEN_BODY), healthRoute()]);
+    stubFetch([
+      whoamiRoute(WHOAMI_OPEN_BODY),
+      healthRoute(),
+      overviewRoute(),
+      eventsRoute(),
+      bypassStatsRoute(),
+      bypassIncidentsRoute(),
+    ]);
     renderApp('/login');
     expect(
-      await screen.findByRole('heading', { name: /arrives at F4/ }),
+      await screen.findByRole('heading', { name: /PAM Command Center/ }),
     ).toBeInTheDocument();
   });
 

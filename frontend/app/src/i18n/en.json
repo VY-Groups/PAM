@@ -64,5 +64,78 @@
   },
   "auth": {
     "backendDownLogin": "Cannot reach the license server: {{message}}"
+  },
+  "commandCenter": {
+    "kicker": "Cluster Ops / Realtime Telemetry",
+    "title": "PAM Command Center & Posture Overview",
+    "subtitle": "Real-time telemetry, privileged identity posture and audit truth reported by the license server.",
+    "sync": "Sync: {{time}}",
+    "health": {
+      "heading": "Health",
+      "status": "status: {{status}}",
+      "database": "database: {{state}}",
+      "auth": "auth: {{mode}}",
+      "authOpen": "auth: open dev mode",
+      "algorithms": "{{count}} algorithms",
+      "formats": "{{count}} formats",
+      "node": "node: {{name}}"
+    },
+    "kpis": {
+      "heading": "Posture KPIs",
+      "postureScore": "Control posture score",
+      "postureScoreFooter": "{{passed}} of {{total}} controls passed",
+      "violations": "Posture violations",
+      "activeLicenses": "Active licenses",
+      "activeLicensesFooter": "{{active}} of {{total}} · {{expiring}} expiring soon",
+      "vaultSecrets": "Managed vault secrets",
+      "vaultSecretsFooter": "rotation {{pct}}% · {{due}} due"
+    },
+    "controls": {
+      "heading": "Control posture",
+      "subtitle": "Per-control evidence from the server's posture evaluation.",
+      "caption": "Control posture: label, pass state and evidence",
+      "label": "Control",
+      "state": "State",
+      "evidence": "Evidence",
+      "passed": "PASS",
+      "failed": "FAIL",
+      "empty": "No controls reported."
+    },
+    "activity": {
+      "heading": "Activity feed",
+      "subtitle": "Latest entries from the immutable audit chain.",
+      "caption": "Activity feed: time, source, action, subject and actor",
+      "time": "Time",
+      "source": "Source",
+      "action": "Action",
+      "subject": "Subject",
+      "actor": "Actor",
+      "empty": "No audit events recorded yet."
+    },
+    "bypass": {
+      "heading": "Bypass detection",
+      "subtitle": "Out-of-band change signals and the incidents they raised.",
+      "signalsKpi": "Signals observed",
+      "incidentsKpi": "Open incidents",
+      "incidentsFooter": "{{closed}} closed of {{total}}",
+      "rotationsKpi": "Forced rotations",
+      "lastIngest": "Last ingest: {{time}}",
+      "lastScan": "Last scan: {{time}}",
+      "never": "never",
+      "incidentsTable": {
+        "caption": "Open bypass incidents: reference, user, target, protocol and status",
+        "ref": "Incident",
+        "user": "User",
+        "target": "Target",
+        "protocol": "Protocol",
+        "status": "Status",
+        "observed": "Observed",
+        "empty": "No open bypass incidents."
+      }
+    },
+    "states": {
+      "loading": "Loading live data…",
+      "sectionError": "Section unavailable: {{message}}"
+    }
   }
 }
