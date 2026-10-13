@@ -4,9 +4,11 @@ import { createRoot } from 'react-dom/client';
 // ADR-0007: fonts are bundled, never CDN (air-gapped customers).
 import '@fontsource-variable/geist';
 import '@fontsource/jetbrains-mono';
+import '@fontsource/material-symbols-outlined/latin-400.css';
 
 // ADR-0002: the single tokens file (generated from the as-built config).
 import './styles/tokens.css';
+import './styles/icons.css';
 
 import { App } from './App';
 

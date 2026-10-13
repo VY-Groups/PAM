@@ -1,0 +1,24 @@
+/* VY-PAM icon class - copied VERBATIM from frontend/vendor/fonts/symbols.css
+ * so the app renders Material Symbols exactly like the legacy screens
+ * (ADR-0007: self-hosted, no CDN). The @font-face comes from
+ * @fontsource/material-symbols-outlined (latin-400), imported in
+ * main.tsx and .storybook/preview.tsx.
+ * Wrapped in @layer components so Tailwind utilities (e.g. text-[18px])
+ * still override the default 24px size. */
+@layer components {
+  .material-symbols-outlined {
+    font-family: 'Material Symbols Outlined';
+    font-weight: normal;
+    font-style: normal;
+    font-size: 24px;
+    line-height: 1;
+    letter-spacing: normal;
+    text-transform: none;
+    display: inline-block;
+    white-space: nowrap;
+    word-wrap: normal;
+    direction: ltr;
+    -webkit-font-feature-settings: 'liga';
+    -webkit-font-smoothing: antialiased;
+  }
+}

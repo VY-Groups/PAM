@@ -23,3 +23,6 @@ frontend/app/dist/
 *.db-wal
 *.db-shm
 license_ed25519_public.pem
+
+*storybook.log
+storybook-static

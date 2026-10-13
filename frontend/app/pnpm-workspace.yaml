@@ -1,3 +1,5 @@
+# pnpm 12 supply-chain: packages published too recently for the default
+# minimum-release-age gate (pinned versions; CI runs with the same file).
 minimumReleaseAgeExclude:
   - '@typescript-eslint/eslint-plugin@8.71.2'
   - '@typescript-eslint/parser@8.71.2'
@@ -13,3 +15,14 @@ minimumReleaseAgeExclude:
   - '@vitest/spy@5.0.4'
   - typescript-eslint@8.71.2
   - vitest@5.0.4
+  - '@vitest/browser-playwright@5.0.4'
+  - '@vitest/browser@5.0.4'
+  - '@vitest/coverage-v8@5.0.4'
+  - '@vitest/pretty-format@5.0.4'
+  - '@vitest/ui@5.0.4'
+  - '@vitest/utils@5.0.4'
+
+# pnpm 12 blocks dependency install scripts by default; esbuild's postinstall
+# fetches/validates its native binary (Vite + Storybook use it).
+allowBuilds:
+  esbuild: true

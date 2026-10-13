@@ -20,9 +20,11 @@
 #                   first (the demo seed and both gate modes ran against
 #                   real rigs on this Windows box before the YAML shipped).
 #   frontend-rebuild : pnpm@12.11.2 (node 24) in frontend/app - install
-#                   --frozen-lockfile, eslint, tsc --noEmit, vitest run,
-#                   vite build; all five commands executed locally first
-#                   (F1, 2026-10-13).
+#                   --frozen-lockfile, prettier --check, eslint,
+#                   tsc --noEmit, playwright chromium, vitest run (jsdom +
+#                   Storybook browser project), vite build,
+#                   build-storybook; every command executed locally first
+#                   (F1+F2, 2026-10-13).
 
 name: CI
 
@@ -91,7 +93,7 @@ jobs:
         run: docker run --rm -v "$PWD:/repo:ro" zricethezav/gitleaks:v8.24.2 detect --source /repo --config /repo/.gitleaks.toml
 
   frontend-rebuild:
-    name: Frontend rebuild app (pnpm, lint+typecheck+test+build)
+    name: Frontend rebuild app (pnpm, format+lint+typecheck+test+build+storybook)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -103,18 +105,27 @@ jobs:
       - name: Install declared dependencies only (lockfile frozen)
         working-directory: frontend/app
         run: pnpm install --frozen-lockfile
+      - name: Prettier format check
+        working-directory: frontend/app
+        run: pnpm format:check
       - name: ESLint
         working-directory: frontend/app
         run: pnpm lint
       - name: TypeScript strict check
         working-directory: frontend/app
         run: pnpm typecheck
-      - name: Vitest (jsdom + Testing Library)
+      - name: Install Playwright chromium (Storybook browser test project)
+        working-directory: frontend/app
+        run: pnpm exec playwright install --with-deps chromium
+      - name: Vitest (jsdom + Storybook browser, includes axe checks)
         working-directory: frontend/app
         run: pnpm test
       - name: Production build (offline bundle)
         working-directory: frontend/app
         run: pnpm build
+      - name: Storybook static build (stories compile)
+        working-directory: frontend/app
+        run: pnpm build-storybook
 
   frontend:
     name: Frontend standing gate (boot rig, seed, playwright)

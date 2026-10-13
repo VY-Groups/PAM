@@ -1,3 +1,6 @@
+// For more info, see https://github.com/storybookjs/eslint-plugin-storybook#configuration-flat-config-format
+import storybook from 'eslint-plugin-storybook';
+
 import js from '@eslint/js';
 import globals from 'globals';
 import reactHooks from 'eslint-plugin-react-hooks';
@@ -8,7 +11,7 @@ import prettier from 'eslint-config-prettier';
 // ADR-0009: flat config, strict TS, boundaries come with F2 modules
 // (eslint-plugin-boundaries lands when src/ gains feature folders).
 export default tseslint.config(
-  { ignores: ['dist', 'node_modules'] },
+  { ignores: ['dist', 'storybook-static', 'node_modules'] },
   {
     extends: [js.configs.recommended, ...tseslint.configs.recommended],
     files: ['**/*.{ts,tsx}'],
@@ -27,4 +30,5 @@ export default tseslint.config(
     },
   },
   prettier,
+  storybook.configs['flat/recommended'],
 );
