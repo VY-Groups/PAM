@@ -1,6 +1,5 @@
 // Recapture every screen.png from the running server so previews show the
-// purged chrome + honest (empty) live state. The logo asset folder is skipped:
-// its screen.png IS the sidebar logo image, not a preview.
+// purged chrome + honest (empty) live state.
 import { chromium } from 'playwright-core';
 import { readdirSync, readFileSync, statSync, existsSync } from 'node:fs';
 import { join, dirname } from 'node:path';
@@ -9,7 +8,6 @@ import { fileURLToPath } from 'node:url';
 const SHOTS_DIR = dirname(fileURLToPath(import.meta.url));
 const REPO = dirname(SHOTS_DIR);
 const BASE = process.env.BASE || 'http://127.0.0.1:5000';
-const SKIP = new Set(['aegispam_enterprise_security_logo']);
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 function pngSize(buf) {
@@ -19,7 +17,7 @@ function pngSize(buf) {
 
 const screensDir = join(REPO, 'frontend', 'screens');
 const folders = readdirSync(screensDir).filter((n) =>
-  !SKIP.has(n) && statSync(join(screensDir, n)).isDirectory()
+  statSync(join(screensDir, n)).isDirectory()
     && existsSync(join(screensDir, n, 'code.html')));
 
 const CHANNEL = process.env.GATE_BROWSER_CHANNEL || 'msedge';

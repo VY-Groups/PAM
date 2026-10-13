@@ -4,9 +4,10 @@ The web console for VY-PAM (product requirements:
 `../VY-PAM_Enterprise_PAM_Architecture.md`).
 
 This is the **product frontend**, served by the license server at
-`http://127.0.0.1:5000`. It started as a copy of the design reference in
-`../stitch_pam_suite_dashboard_ui/` — that folder stays frozen as the
-visual reference; **screens evolve here**.
+`http://127.0.0.1:5000`. It started as a copy of the Stitch design
+reference (removed in the frontend-rebuild F0, `../docs/frontend/ADR-0011`);
+**screens evolve here**. The VY-PAM React rebuild will land alongside in
+`app/` — decisions recorded as ADRs in `../docs/frontend/`.
 
 ## Layout
 
@@ -92,9 +93,12 @@ token-mode rig, `--private-key` when the rig trusts an ephemeral keypair
    empty states must show only real, computed, or honestly-empty values
    (`—` / "module not connected") in every load mode (live, `file://`, API down).
 
-## Future
+## Future — the VY-PAM rebuild (supersedes this note)
 
-Room is reserved for a bundled app (React / Next.js — the direction in the
-architecture doc): keep `index.html` + `screens/` as the static reference and
-drop a built app alongside (e.g. `frontend/app/`), then point a launcher card
-at it. Nothing outside `frontend/` needs to move.
+The Front-End Rebuild Plan (repo root) replaces these pages with a
+React + TypeScript app in `app/`; every decision is an ADR in
+`../docs/frontend/`. Strangler rules: legacy URLs stay reachable until
+each screen's replacement ships (F4), `../shots_tool/__verify_*.mjs`
+remains the standing gate until F5, and the bundle is served under
+`/app/` until the legacy pages are gone (`ADR-0012`). Nothing outside
+`frontend/` needs to move.

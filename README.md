@@ -70,17 +70,12 @@ PAM/
 │       ├── tests/test_openapi_contract.py # apis/openapi.yaml ↔ routes (9 tests)
 │       ├── Dockerfile + docker-compose.yml  # development/runtime testing only
 │       └── README.md                # full API reference
-├── pam_master/                        # VY-PAM MASTER: vendor tool (never shipped)
-│   ├── pam_master/               #   Flask package: registry, issuance, custody
-│   ├── tests/                    #   suite (temp keys/db only) + contract tests
-│   ├── openapi.yaml              #   own OpenAPI 3 contract (synced by a test)
-│   ├── Dockerfile + docker-compose.yml  # development only
-│   └── README.md                 #   custody rules + API reference
-└── stitch_pam_suite_dashboard_ui/  # Frozen design reference (frontend/ started as a copy)
-    ├── index.html                #   launcher (reference copy)
-    ├── zero_trust_sentinel/DESIGN.md   # design tokens + system spec
-    ├── enterprise_licensing_tier_entitlements_node_quotas/  # spec screen (source of truth)
-    └── platform_settings_idp_hsm_configuration/  # settings spec (source of truth)
+└── pam_master/                        # VY-PAM MASTER: vendor tool (never shipped)
+    ├── pam_master/               #   Flask package: registry, issuance, custody
+    ├── tests/                    #   suite (temp keys/db only) + contract tests
+    ├── openapi.yaml              #   own OpenAPI 3 contract (synced by a test)
+    ├── Dockerfile + docker-compose.yml  # development only
+    └── README.md                 #   custody rules + API reference
 ```
 
 ## Quick start
@@ -141,8 +136,9 @@ python -m pytest pam_master -q                   # 46 tests (vendor tool)
   `backend/ipam_licensing` — its own contract lives in
   `pam_master/openapi.yaml` with the same two-way test, and a tracked-file
   scan guarantees no private key is ever part of the shipped repository.
-- The console lives in `frontend/` — a copy of the frozen design reference in
-  `stitch_pam_suite_dashboard_ui/`. Every screen carries the same sidebar with
+- The console lives in `frontend/` — it started as a copy of the Stitch design
+  reference (that folder was removed in the frontend-rebuild F0;
+  `docs/frontend/ADR-0011`). Every screen carries the same sidebar with
   real links, `frontend/index.html` is the launcher. Served by Phase 2, all
   eleven sidebar screens are **live**: licensing (`/`), platform settings (`/settings`,
   backed by `GET/PUT /api/v1/settings` with an audit changelog, plus the §20

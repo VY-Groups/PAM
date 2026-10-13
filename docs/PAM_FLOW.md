@@ -480,8 +480,10 @@ Session gateway & recording (phase 8a) - the guacd-first data plane
 2. **Honest fallback.** Opened via `file://` (no backend): controls render
    disabled and every value shows `—`; no fake rows ever appear.
 3. **No new IDs in frozen HTML.** Screens may add `data-role` attributes and
-   JS-created nodes; structural lookups only — the stitch reference
-   (`stitch_pam_suite_dashboard_ui/`) stays byte-frozen.
+   JS-created nodes; structural lookups only — the Stitch reference folder
+   (`stitch_pam_suite_dashboard_ui/`) was removed in the frontend-rebuild F0
+   (ADR-0011, git history keeps it); the screens themselves keep the
+   frozen-HTML discipline until each is replaced (F4).
 4. **Every number is live.** If an endpoint errors, the widget shows `—` and
    a truthful error chip — never a cached or sample value.
 

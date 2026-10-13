@@ -859,9 +859,9 @@ offline geo-IP/ASN; engineering quality: split `service.py` into
 packages, background workers (RQ/Celery — the in-process scheduler
 will not survive HA), property/fuzz/chaos/mutation tests, ADRs, API
 hardening (rate limits, idempotency keys, scoped tokens, webhooks,
-deprecation policy); one naming decision to make honestly (the UI brand
-says "AegisPAM", the product says "VY-PAM" — pick one, check
-trademarks); and the §22 feature-matrix honesty pass so no ✅
+deprecation policy); one naming decision, resolved by the frontend
+rebuild F0 (brand = VY-PAM, `docs/frontend/ADR-0011`; trademark check
+remains with the owner); and the §22 feature-matrix honesty pass so no ✅
 contradicts the built reality before any customer sees it.
 
 ### Programme checklists (from the papers — the bar before a CyberArk/Iraje PoC)

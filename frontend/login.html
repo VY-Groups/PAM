@@ -3,7 +3,7 @@
 <html lang="en"><head><meta charset="utf-8"/><meta content="width=device-width, initial-scale=1.0" name="viewport"/><meta content="web_dashboard" name="shell-type"/><link href="vendor/fonts/symbols-opsz.css" rel="stylesheet"/>
 <link href="vendor/fonts/symbols.css" rel="stylesheet"/>
 <link href="vendor/fonts/text.css" rel="stylesheet"/>
-<title>AegisPAM Console</title>
+<title>VY-PAM Console</title>
 <link href="vendor/fonts/symbols.css" rel="stylesheet"/><style>@layer base{html,body{margin:0;padding:0;}body{overscroll-behavior:none;}main>:first-child{margin-top:0!important;}main>:last-child{margin-bottom:0!important;}}::-webkit-scrollbar{display:none;}</style><script src="vendor/tailwind.min.js"></script><script id="tailwind-config">tailwind.config={darkMode:"class",theme:{extend:{"colors":{"inverse-primary":"#b4c5ff","outline":"#737686","on-secondary-fixed":"#131b2e","surface-bright":"#f8f9ff","on-surface":"#0b1c30","surface-container":"#e5eeff","surface-tint":"#0053db","surface-container-lowest":"#ffffff","on-secondary-fixed-variant":"#3f465c","on-tertiary-fixed-variant":"#005236","on-error":"#ffffff","tertiary-fixed":"#6ffbbe","error-container":"#ffdad6","surface-container-highest":"#d3e4fe","on-error-container":"#93000a","surface-variant":"#d3e4fe","tertiary-fixed-dim":"#4edea3","on-primary-fixed":"#00174b","tertiary-container":"#007d55","tertiary":"#006242","on-tertiary":"#ffffff","primary-container":"#2563eb","inverse-on-surface":"#eaf1ff","surface":"#f8f9ff","primary-fixed-dim":"#b4c5ff","surface-dim":"#cbdbf5","primary":"#004ac6","on-secondary":"#ffffff","on-background":"#0b1c30","secondary-fixed":"#dae2fd","on-surface-variant":"#434655","on-primary":"#ffffff","background":"#f8f9ff","secondary-container":"#dae2fd","secondary-fixed-dim":"#bec6e0","secondary":"#565e74","inverse-surface":"#213145","on-secondary-container":"#5c647a","on-tertiary-fixed":"#002113","on-tertiary-container":"#bdffdb","on-primary-fixed-variant":"#003ea8","surface-container-low":"#eff4ff","on-primary-container":"#eeefff","surface-container-high":"#dce9ff","primary-fixed":"#dbe1ff","error":"#ba1a1a","outline-variant":"#c3c6d7"},"borderRadius":{"DEFAULT":"0.125rem","lg":"0.25rem","xl":"0.5rem","full":"0.75rem"},"spacing":{"margin":"1rem","space-lg":"1rem","space-xs":"0.25rem","margin-lg":"2rem","space-md":"0.75rem","gutter":"1rem","space-xl":"1.5rem","gutter-lg":"1.5rem","margin-md":"1.5rem","space-sm":"0.5rem"},"fontFamily":{"headline-xl-mobile":["Geist"],"code-sm":["JetBrains Mono"],"body-md":["Geist"],"code-md":["JetBrains Mono"],"headline-sm":["Geist"],"headline-lg":["Geist"],"body-lg":["Geist"],"headline-md":["Geist"],"label-badge":["JetBrains Mono"],"headline-xl":["Geist"],"label-md":["Geist"],"body-sm":["Geist"]},"fontSize":{"headline-xl-mobile":["26px",{"lineHeight":"34px","letterSpacing":"-0.015em","fontWeight":"600"}],"code-sm":["11px",{"lineHeight":"16px","fontWeight":"500"}],"body-md":["14px",{"lineHeight":"20px","fontWeight":"400"}],"code-md":["13px",{"lineHeight":"20px","fontWeight":"500"}],"headline-sm":["16px",{"lineHeight":"24px","letterSpacing":"-0.005em","fontWeight":"600"}],"headline-lg":["24px",{"lineHeight":"32px","letterSpacing":"-0.015em","fontWeight":"600"}],"body-lg":["15px",{"lineHeight":"24px","fontWeight":"400"}],"headline-md":["20px",{"lineHeight":"28px","letterSpacing":"-0.01em","fontWeight":"600"}],"label-badge":["11px",{"lineHeight":"14px","letterSpacing":"0.02em","fontWeight":"600"}],"headline-xl":["32px",{"lineHeight":"40px","letterSpacing":"-0.02em","fontWeight":"600"}],"label-md":["12px",{"lineHeight":"16px","letterSpacing":"0.01em","fontWeight":"500"}],"body-sm":["12px",{"lineHeight":"18px","fontWeight":"400"}]}}}}</script>
 </head>
 <body class="bg-surface min-h-screen flex items-center justify-center px-space-xl font-body-md text-body-md">
@@ -11,7 +11,7 @@
 <div class="flex items-center gap-3">
 <span class="material-symbols-outlined text-primary text-[28px]">shield_lock</span>
 <div class="flex flex-col">
-<h1 class="font-headline-sm text-headline-sm text-on-surface">AegisPAM Console</h1>
+<h1 class="font-headline-sm text-headline-sm text-on-surface">VY-PAM Console</h1>
 <p class="font-body-sm text-body-sm text-on-surface-variant">Privileged access management - sign in</p>
 </div>
 </div>
@@ -33,7 +33,7 @@
 <button id="btnBack" class="w-full py-1.5 rounded-lg bg-surface-container text-on-surface font-label-md text-label-md font-semibold hover:bg-surface-container-high transition-colors">Back</button>
 </div>
 <div id="loginError" class="hidden font-body-sm text-body-sm text-error"></div>
-<p id="fileNote" class="hidden font-body-sm text-body-sm text-on-surface-variant">Login requires the AegisPAM license server - open this screen from the server, not as a file.</p>
+<p id="fileNote" class="hidden font-body-sm text-body-sm text-on-surface-variant">Login requires the VY-PAM license server - open this screen from the server, not as a file.</p>
 </div>
 <footer class="fixed bottom-0 left-0 right-0 h-10 bg-surface-container-lowest/95 backdrop-blur-sm border-t border-outline-variant/30 z-30 flex items-center justify-between px-space-xl text-on-surface-variant font-code-sm text-code-sm">
 <div class="flex items-center gap-1.5"><span class="w-2 h-2 rounded-full bg-tertiary"></span><span id="footServer" class="text-on-surface font-medium">License server: -</span></div>

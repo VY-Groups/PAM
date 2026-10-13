@@ -1,8 +1,9 @@
 # VY-PAM — UI/UX Design Brief
 
-**Status:** as-built for Phase 8a
-**Source design:** `stitch_pam_suite_dashboard_ui/` (frozen reference — never
-modified; screens live under `frontend/screens/<slug>/code.html`).
+**Status:** as-built for Phase 8a; VY-PAM branding since frontend-rebuild F0
+**Source design:** the Stitch reference (`stitch_pam_suite_dashboard_ui/`) was
+removed in frontend-rebuild F0 — git history keeps it; screens live under
+`frontend/screens/<slug>/code.html`).
 This brief documents the design system as implemented, so new screens match
 without re-deriving tokens.
 
@@ -51,8 +52,8 @@ loaded from Google Fonts; Material Symbols Outlined for icons.
 
 ```
 <aside> fixed, w-64, bg-surface-container-lowest, border-r outline-variant/30
-  ├─ h-16 brand row: logo (../aegispam_enterprise_security_logo/screen.png),
-  │   "AegisPAM" + "ZERO-TRUST CORE" code kicker, verified_user icon
+  ├─ h-16 brand row: logo (../../vendor/img/vy-pam-mark.svg — interim mark,
+  │   ADR-0011), "VY-PAM" + "ZERO-TRUST CORE" code kicker, verified_user icon
   ├─ nav (data-path slugs, Material icon + label, active =
   │   bg-primary-container text-on-primary-container)  ← 11 items
   └─ footer widget: module status (e.g. "ZSP Policy — not connected")

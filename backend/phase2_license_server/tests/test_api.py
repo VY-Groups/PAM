@@ -170,7 +170,7 @@ def test_license_screen_served_at_root_and_license(client):
         assert "workspace_premium" in html            # sidebar item present
         assert "Licensing &amp; Entitlements" in html  # sidebar label matches the spec
         assert "'api/v1/'" in html                    # wired to this server's API
-        assert "cdn.tailwindcss.com" in html          # suite design system
+        assert "vendor/tailwind.min.js" in html       # vendored design system (no CDN)
         assert "X-Admin-Token" in html                # admin auth plumbing
 
 

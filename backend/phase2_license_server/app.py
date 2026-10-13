@@ -34,9 +34,10 @@ from audit import ensure_audit_chain
 
 logger = logging.getLogger(__name__)
 
-# The product frontend (copied from the frozen design reference in
-# stitch_pam_suite_dashboard_ui/): the server serves the launcher, the two
-# live screens and every sidebar-linked screen from here.
+# The product frontend (legacy static suite; the VY-PAM React rebuild lands
+# in frontend/app/ during the strangler migration — docs/frontend/ADR-0012):
+# the server serves the launcher, the two live screens and every
+# sidebar-linked screen from here.
 UI_ROOT = REPO_ROOT / "frontend"
 LICENSE_SCREEN = UI_ROOT / "screens" / "license_entitlement_center" / "code.html"
 SETTINGS_SCREEN = UI_ROOT / "screens" / "platform_settings_center" / "code.html"
