@@ -13,6 +13,7 @@
     "verbatimModuleSyntax": true,
     "skipLibCheck": true,
     "noEmit": true,
+    "resolveJsonModule": true,
     "types": ["vite/client"]
   },
   "include": ["src", "vite.config.ts", "eslint.config.js"]

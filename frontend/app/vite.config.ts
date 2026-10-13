@@ -19,6 +19,14 @@ export default defineConfig({
     outDir: 'dist',
     sourcemap: false,
   },
+  // Dev parity with the deployed shape (ADR-0012): the app is same-origin
+  // with the license server, so `pnpm dev` proxies the API to the local rig.
+  server: {
+    proxy: {
+      '/api': 'http://127.0.0.1:5000',
+      '/health': 'http://127.0.0.1:5000',
+    },
+  },
   test: {
     projects: [
       {

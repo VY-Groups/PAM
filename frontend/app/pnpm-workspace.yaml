@@ -21,6 +21,8 @@ minimumReleaseAgeExclude:
   - '@vitest/pretty-format@5.0.4'
   - '@vitest/ui@5.0.4'
   - '@vitest/utils@5.0.4'
+  - i18next@26.4.4
+  - zod@4.6.7
 
 # pnpm 12 blocks dependency install scripts by default; esbuild's postinstall
 # fetches/validates its native binary (Vite + Storybook use it).

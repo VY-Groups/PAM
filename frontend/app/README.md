@@ -13,6 +13,18 @@ by the plan in the repo root and the ADRs in `../../docs/frontend/`.
   and the honest-state patterns (`Value` → em-dash, `NotConnected` chip).
   Each module ships a `.stories.tsx` and a `.test.tsx` whose suite ends
   with an axe-core check (`src/test/axe.ts`, ADR-0008).
+- Shell + auth + API client (F3, plan §3): `src/app/` holds the single
+  AppShell (as-built sidebar/topbar classes, ADR-0005 route table under
+  the `/app` basename), `RequireAuth`/`RequireRole` guards, honest
+  error/404/backend-down states; `src/api/` holds the orval client
+  **generated from `../../apis/openapi.yaml`** (`pnpm openapi`, never
+  hand-edited — CI regenerates and fails on drift, ADR-0004), the shared
+  `http.ts` wrapper (auth headers, timeouts, `{error, details}` shape,
+  single backend-down signal) and session storage; `src/i18n/en.json` is
+  the single string catalogue (ADR-0010); `src/features/auth/` is the
+  contract-shaped login (RHF + Zod, ADR-0006). Feature screens render
+  the honest F4-pending state with their live legacy links until their
+  replacement ships (plan §8).
 - During migration the legacy `../screens/` pages stay reachable and the
   standing gate (`../../shots_tool/__verify_*.mjs`) stays authoritative
   until F5 (ADR-0008).
@@ -22,6 +34,7 @@ by the plan in the repo root and the ADRs in `../../docs/frontend/`.
 ```
 pnpm install --frozen-lockfile     # deps from the committed lockfile
 pnpm exec playwright install chromium  # once, for the Storybook browser tests
+pnpm openapi                       # regenerate src/api/generated from the contract
 pnpm format:check                  # prettier --check
 pnpm lint                          # eslint flat config (strict TS)
 pnpm typecheck                     # tsc --noEmit

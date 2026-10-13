@@ -20,11 +20,12 @@
 #                   first (the demo seed and both gate modes ran against
 #                   real rigs on this Windows box before the YAML shipped).
 #   frontend-rebuild : pnpm@12.11.2 (node 24) in frontend/app - install
-#                   --frozen-lockfile, prettier --check, eslint,
-#                   tsc --noEmit, playwright chromium, vitest run (jsdom +
-#                   Storybook browser project), vite build,
+#                   --frozen-lockfile, orval regenerate + git diff
+#                   --exit-code (client/contract drift), prettier --check,
+#                   eslint, tsc --noEmit, playwright chromium, vitest run
+#                   (jsdom + Storybook browser project), vite build,
 #                   build-storybook; every command executed locally first
-#                   (F1+F2, 2026-10-13).
+#                   (F1+F2+F3, 2026-10-13).
 
 name: CI
 
@@ -105,6 +106,11 @@ jobs:
       - name: Install declared dependencies only (lockfile frozen)
         working-directory: frontend/app
         run: pnpm install --frozen-lockfile
+      - name: OpenAPI client drift check (regenerate from apis/openapi.yaml)
+        working-directory: frontend/app
+        run: |
+          pnpm openapi
+          git diff --exit-code -- src/api/generated
       - name: Prettier format check
         working-directory: frontend/app
         run: pnpm format:check

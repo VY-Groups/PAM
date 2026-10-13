@@ -1,0 +1,88 @@
+/**
+ * The ADR-0005 route table (plan §4): short, stable client routes with the
+ * as-built sidebar glyphs and the real legacy screen URLs (the strangler
+ * keeps legacy reachable until each F4 replacement ships).
+ * Labels are i18n keys (ADR-0010) - never embedded strings.
+ */
+export interface NavItem {
+  /** Absolute client route, basename /app (ADR-0005 / ADR-0012). */
+  path: string;
+  /** i18n key for the sidebar label. */
+  labelKey: string;
+  /** Material Symbols glyph exactly as the legacy sidebar renders it. */
+  icon: string;
+  /** Real legacy screen URL - stays reachable until F4 replaces it. */
+  legacyHref: string;
+  /** As-built: break-glass carries the error color on its icon. */
+  danger?: boolean;
+}
+
+export const NAV_ITEMS: NavItem[] = [
+  {
+    path: '/command-center',
+    labelKey: 'nav.commandCenter',
+    icon: 'grid_view',
+    legacyHref: '/screens/pam_command_center_threat_dashboard/code.html',
+  },
+  {
+    path: '/vault',
+    labelKey: 'nav.vault',
+    icon: 'vpn_key',
+    legacyHref: '/screens/credential_vault_secrets_inventory/code.html',
+  },
+  {
+    path: '/jit',
+    labelKey: 'nav.jit',
+    icon: 'hourglass_top',
+    legacyHref: '/screens/jit_access_ephemeral_approvals/code.html',
+  },
+  {
+    path: '/sessions',
+    labelKey: 'nav.sessions',
+    icon: 'terminal',
+    legacyHref: '/screens/live_session_recording_inspection_hub/code.html',
+  },
+  {
+    path: '/infrastructure',
+    labelKey: 'nav.infrastructure',
+    icon: 'dns',
+    legacyHref: '/screens/target_infrastructure_connectors/code.html',
+  },
+  {
+    path: '/policy',
+    labelKey: 'nav.policy',
+    icon: 'shield_lock',
+    legacyHref: '/screens/policy_zero_trust_rules_engine/code.html',
+  },
+  {
+    path: '/compliance',
+    labelKey: 'nav.compliance',
+    icon: 'policy',
+    legacyHref: '/screens/compliance_soc_2_audit_center/code.html',
+  },
+  {
+    path: '/licensing',
+    labelKey: 'nav.licensing',
+    icon: 'workspace_premium',
+    legacyHref: '/screens/enterprise_licensing_tier_entitlements_node_quotas/code.html',
+  },
+  {
+    path: '/break-glass',
+    labelKey: 'nav.breakGlass',
+    icon: 'emergency_home',
+    legacyHref: '/screens/break_glass_emergency_protocol/code.html',
+    danger: true,
+  },
+  {
+    path: '/vendor-access',
+    labelKey: 'nav.vendorAccess',
+    icon: 'handshake',
+    legacyHref: '/screens/vendor_access_third_party_lifecycle/code.html',
+  },
+  {
+    path: '/settings',
+    labelKey: 'nav.settings',
+    icon: 'tune',
+    legacyHref: '/screens/platform_settings_idp_hsm_configuration/code.html',
+  },
+];

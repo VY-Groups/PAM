@@ -1,0 +1,68 @@
+{
+  "app": {
+    "title": "VY-PAM Console",
+    "subtitle": "Privileged access management",
+    "kicker": "ZERO-TRUST CORE",
+    "sectionLabel": "Privileged Controls"
+  },
+  "nav": {
+    "ariaLabel": "Primary navigation",
+    "commandCenter": "Command Center",
+    "vault": "Credential Vault",
+    "jit": "JIT Access & Approvals",
+    "sessions": "Live Session Hub",
+    "infrastructure": "Target Infrastructure",
+    "policy": "Policy & Zero Trust",
+    "compliance": "Compliance & SOC2",
+    "licensing": "Licensing & Entitlements",
+    "breakGlass": "Emergency Break-Glass",
+    "vendorAccess": "Vendor Access",
+    "settings": "Settings"
+  },
+  "shell": {
+    "signOut": "Sign out",
+    "roleBadge": "Role: {{role}}",
+    "breakGlassButton": "Break-Glass",
+    "checkingSession": "Checking session…",
+    "backendDownTitle": "License server unreachable"
+  },
+  "login": {
+    "subtitle": "Privileged access management - sign in",
+    "username": "Username",
+    "password": "Password",
+    "signIn": "Sign in",
+    "mfaPrompt": "Multi-factor verification required. Enter the TOTP code from your authenticator, or a backup code.",
+    "mfaCode": "Verification code",
+    "mfaPlaceholder": "123456",
+    "verify": "Verify",
+    "back": "Back",
+    "required": "Username and password are required.",
+    "enterCode": "Enter the verification code.",
+    "refused": "Login refused ({{status}}).",
+    "enrolmentRequired": "Account not yet enrolled ({{methods}}): an enrolment ticket is required - fail-closed, no silent pass.",
+    "serverFooter": "License server: {{state}}",
+    "serverHealthy": "Healthy",
+    "serverUnreachable": "unreachable",
+    "serverNotConnected": "not connected"
+  },
+  "errors": {
+    "backendDown": "Cannot reach the license server - live data is unavailable.",
+    "backendDownDetail": "{{reason}}: {{message}}",
+    "notFoundTitle": "Page not found",
+    "notFoundBody": "This route does not exist in the console.",
+    "goHome": "Back to Command Center",
+    "unexpectedTitle": "Something went wrong",
+    "unexpectedBody": "The console hit an unexpected error and stopped rendering this view.",
+    "retry": "Try again",
+    "roleForbiddenTitle": "Section not available for your role",
+    "roleForbiddenBody": "Your role ({{role}}) may not open this section. Ask an administrator for a binding if you need it."
+  },
+  "pending": {
+    "title": "{{feature}} arrives at F4",
+    "body": "This route is part of the strangler rebuild: the shell is live, the screen migrates in phase F4 and the legacy version stays available until then.",
+    "openLegacy": "Open the legacy screen"
+  },
+  "auth": {
+    "backendDownLogin": "Cannot reach the license server: {{message}}"
+  }
+}
