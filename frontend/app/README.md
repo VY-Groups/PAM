@@ -25,7 +25,7 @@ by the plan in the repo root and the ADRs in `../../docs/frontend/`.
   contract-shaped login (RHF + Zod, ADR-0006). Pending feature screens
   render the honest F4-pending state with their live legacy links until
   their replacement ships (plan §8).
-- Command Center (F4 screen 1, plan §4 line 105): 
+- Command Center (F4 screen 1, plan §4 line 105):
   `src/features/command-center/` renders the posture KPI quad, health
   strip, control-posture evidence table, activity feed and
   bypass-detection section **from live contract data only**
@@ -37,6 +37,25 @@ by the plan in the repo root and the ADRs in `../../docs/frontend/`.
   `../screens/pam_command_center_threat_dashboard/code.html` stays served
   until the Flask app mounts `dist/` under `/app/` (ADR-0012) — the
   strangler keeps both reachable.
+- Credential Vault (F4 screen 2, plan §4 line 106):
+  `src/features/vault/` renders the vault-posture KPI quad, the
+  credential inventory with its per-row lifecycle actions (check out /
+  revoke / rotate-or-retry, disabled `Locked` while rotating), the
+  audited one-shot **secret reveal** modal and the per-credential
+  **version history** modal, plus the vault audit feed — **from live
+  contract data only** (`getApiV1VaultStats`, `getApiV1VaultItems`,
+  `getApiV1VaultEvents`, `getApiV1VaultItemsItemId`,
+  `getApiV1VaultItemsItemIdSecret`, `postApiV1VaultItemsItemId{Checkout,
+Revoke,Rotate}` through generated hooks in `queries.ts`). Actions send
+  the real session principal as the contract's `X-Actor` header and
+  invalidate the `['vault']` key prefix so rows re-render from server
+  truth; the reveal is deliberately a **mutation** (plaintext never
+  enters the query cache, cleared on modal close). Honest loading /
+  section-error (verbatim server message) / empty / `not connected` /
+  shared backend-down states, i18n strings only, no hard-coded sample
+  rows; test fixtures are verbatim rig payloads. The legacy
+  `../screens/credential_vault_secrets_inventory/code.html` stays served
+  until the Flask app mounts `dist/` under `/app/` (ADR-0012).
 - During migration the legacy `../screens/` pages stay reachable and the
   standing gate (`../../shots_tool/__verify_*.mjs`) stays authoritative
   until F5 (ADR-0008).

@@ -5,6 +5,9 @@
     "kicker": "ZERO-TRUST CORE",
     "sectionLabel": "Privileged Controls"
   },
+  "common": {
+    "close": "Close dialog"
+  },
   "nav": {
     "ariaLabel": "Primary navigation",
     "commandCenter": "Command Center",
@@ -136,6 +139,90 @@
     "states": {
       "loading": "Loading live data…",
       "sectionError": "Section unavailable: {{message}}"
+    }
+  },
+  "vault": {
+    "kicker": "Credential Vault / Zero-Trust Secrets",
+    "title": "Enterprise Credential Vault",
+    "subtitle": "Managed credentials, rotation SLA, JIT checkouts and the audit trail reported by the license server.",
+    "kpis": {
+      "heading": "Vault posture",
+      "total": "Managed credentials",
+      "totalFooter": "{{versions}} secret versions at rest",
+      "compliance": "Rotation compliance",
+      "complianceFooter": "{{due}} due · {{onDemand}} on demand",
+      "checkedOut": "Checked out now",
+      "checkedOutFooter": "{{checkouts}} checkouts today · {{rotations}} rotations today",
+      "failures": "Rotation failures",
+      "failuresFooter": "{{failed}} credential(s) need a retry"
+    },
+    "inventory": {
+      "heading": "Inventory",
+      "subtitle": "Every managed credential with its live rotation state.",
+      "caption": "Vault inventory: credential, type, target, principal, rotation, status and actions",
+      "credential": "Credential",
+      "type": "Type",
+      "target": "Target",
+      "principal": "Principal",
+      "rotation": "Rotation SLA",
+      "status": "Status",
+      "actions": "Actions",
+      "empty": "No credentials on board yet.",
+      "tier": "Tier: {{tier}}",
+      "rotationDueIn": "due in {{hours}}h",
+      "rotatedAgo": "rotated {{time}}",
+      "neverRotated": "never rotated",
+      "checkedOutBy": "checked out by {{who}}",
+      "statusLabels": {
+        "available": "Available",
+        "checked_out": "Checked out",
+        "rotating": "Rotating",
+        "rotation_due": "Rotation due",
+        "failed": "Failed"
+      },
+      "actionsUi": {
+        "checkout": "Check out",
+        "revoke": "Revoke",
+        "rotate": "Rotate now",
+        "retry": "Retry rotation",
+        "locked": "Locked",
+        "reveal": "Reveal",
+        "history": "History",
+        "named": "{{action}}: {{name}}"
+      }
+    },
+    "events": {
+      "heading": "Vault audit trail",
+      "subtitle": "Onboarding, checkouts, revocations and rotations, newest first.",
+      "caption": "Vault audit trail: time, action, credential, actor and version",
+      "time": "Time",
+      "action": "Action",
+      "credential": "Credential",
+      "actor": "Actor",
+      "version": "Version",
+      "empty": "No vault events recorded yet."
+    },
+    "reveal": {
+      "title": "Reveal secret",
+      "prompt": "Reveal the current secret version for {{name}}? The reveal is recorded in the audit trail.",
+      "confirm": "Reveal secret",
+      "entropy": "entropy ~{{bits}} bits",
+      "version": "v{{version}} · {{alg}} · {{source}}",
+      "storedAt": "stored {{time}}",
+      "hide": "Hide",
+      "clear": "Secret cleared."
+    },
+    "history": {
+      "title": "History: {{name}}",
+      "version": "Secret version {{version}}",
+      "empty": "No events recorded for this credential.",
+      "caption": "Version history for {{name}}: time, action, actor and version"
+    },
+    "states": {
+      "loading": "Loading live data…",
+      "sectionError": "Section unavailable: {{message}}",
+      "actionDone": "Done: {{message}}",
+      "actionFailed": "Action failed: {{message}}"
     }
   }
 }

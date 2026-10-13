@@ -7,6 +7,7 @@ import {
   commandCenterRoutes,
   healthRoute,
   stubFetch,
+  vaultRoutes,
   whoamiRoute,
 } from '../../test/fetchMock';
 import { renderApp } from '../../test/renderApp';
@@ -53,7 +54,7 @@ describe('AppShell (F3 exit: shell renders live nav)', () => {
   });
 
   it('marks the active route with aria-current=page (NavLink)', async () => {
-    stubFetch([whoamiRoute(WHOAMI_OPEN_BODY), healthRoute()]);
+    stubFetch(vaultRoutes());
     renderApp('/vault');
     const active = await screen.findByRole('link', { name: 'Credential Vault' });
     await waitFor(() => expect(active).toHaveAttribute('aria-current', 'page'));
@@ -78,14 +79,14 @@ describe('AppShell (F3 exit: shell renders live nav)', () => {
 
   it('renders the honest F4-pending screen with its live legacy link', async () => {
     stubFetch([whoamiRoute(WHOAMI_OPEN_BODY), healthRoute()]);
-    renderApp('/vault');
+    renderApp('/jit');
     expect(
       await screen.findByRole('heading', { name: /arrives at F4/ }),
     ).toBeInTheDocument();
     const legacy = screen.getByRole('link', { name: /Open the legacy screen/i });
     expect(legacy).toHaveAttribute(
       'href',
-      '/screens/credential_vault_secrets_inventory/code.html',
+      '/screens/jit_access_ephemeral_approvals/code.html',
     );
   });
 

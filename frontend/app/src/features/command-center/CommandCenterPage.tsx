@@ -22,7 +22,7 @@ import type {
   OverviewPostureControlsItem,
   UnifiedEvent,
 } from '../../api/generated/models';
-import { formatTime } from './format';
+import { formatTime } from '../../lib/format';
 import {
   useActivityFeed,
   useBypassStats,

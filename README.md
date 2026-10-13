@@ -144,7 +144,10 @@ python -m pytest pam_master -q                   # 46 tests (vendor tool)
   screen: its Command Center (F4 screen 1) already renders live posture
   KPIs, health strip, activity feed and bypass detection from
   `GET /api/v1/overview`, `/health`, `/api/v1/events` and
-  `/api/v1/bypass/*`; the legacy pages below stay served and reachable
+  `/api/v1/bypass/*`, and the Credential Vault (F4 screen 2) renders the
+  live inventory, rotation posture, checkout/revoke/rotate actions, the
+  audited one-shot secret reveal and per-credential version history from
+  `GET /api/v1/vault/*`; the legacy pages below stay served and reachable
   until each replacement passes parity. Served by Phase 2, all
   eleven sidebar screens are **live**: licensing (`/`), platform settings (`/settings`,
   backed by `GET/PUT /api/v1/settings` with an audit changelog, plus the §20

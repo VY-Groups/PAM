@@ -9,4 +9,8 @@ export const queryKeys = {
   events: (limit: number) => ['events', 'all', limit] as const,
   bypassStats: ['bypass', 'stats'] as const,
   bypassIncidents: (limit: number) => ['bypass', 'incidents', 'open', limit] as const,
+  vaultStats: ['vault', 'stats'] as const,
+  vaultItems: (limit: number) => ['vault', 'items', limit] as const,
+  vaultItem: (id: number | null) => ['vault', 'item', id] as const,
+  vaultEvents: (limit: number) => ['vault', 'events', limit] as const,
 } as const;

@@ -1,8 +1,11 @@
 /**
- * Timestamp formatting for the Command Center (per-screen DoD: honest data
- * only). ISO strings from the API render as the operator's local time; an
- * absent or unparseable timestamp renders null, which the design-system
- * `Value` turns into the honest em-dash (never a fabricated clock).
+ * Shared formatting helpers (plan section 3 `lib/format, dates`).
+ *
+ * ISO strings from the API render as the operator's local time; an absent
+ * or unparseable timestamp renders null, which the design-system `Value`
+ * turns into the honest em-dash (never a fabricated clock). Feature
+ * modules import from `lib/` - a feature never imports another feature
+ * (plan layer rules), so the Command Center copy moved here.
  */
 
 /** ISO timestamp -> compact local time; empty/unparseable values -> null. */
