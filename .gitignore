@@ -13,6 +13,9 @@ license_ed25519_private.pem
 node_modules/
 shots_tool/.tmp/
 
+# Frontend rebuild app (Vite build output; deps are pnpm-managed).
+frontend/app/dist/
+
 # VY-PAM MASTER: dev-docker key directory + sqlite sidecars from interrupted
 # runs (the real database files are already covered by *.db above).
 .keys/

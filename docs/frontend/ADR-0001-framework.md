@@ -1,6 +1,9 @@
 # ADR-0001 — Framework: React 18 + TypeScript (strict) + Vite
 
 **Status:** Accepted 2026-10-13 (locked by Yash Kumar Dubey, rebuild plan §11)
+**Amended 2026-10-13:** React **19.3** (current stable) instead of 18 — user
+re-confirmed the §2 wording "React 18 (or the current stable)" against the
+registry (React 18 is two majors behind; all current tooling targets 19).
 **Plan ref:** Front-End Rebuild Plan §2, §3
 
 ## Decision

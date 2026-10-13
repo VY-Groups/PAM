@@ -19,6 +19,10 @@
 #                   command was executed locally on the same toolchain
 #                   first (the demo seed and both gate modes ran against
 #                   real rigs on this Windows box before the YAML shipped).
+#   frontend-rebuild : pnpm@12.11.2 (node 24) in frontend/app - install
+#                   --frozen-lockfile, eslint, tsc --noEmit, vitest run,
+#                   vite build; all five commands executed locally first
+#                   (F1, 2026-10-13).
 
 name: CI
 
@@ -85,6 +89,32 @@ jobs:
         run: pip-audit -r backend/phase2_license_server/requirements.txt
       - name: Secret scan over full history (documented allowlist in .gitleaks.toml)
         run: docker run --rm -v "$PWD:/repo:ro" zricethezav/gitleaks:v8.24.2 detect --source /repo --config /repo/.gitleaks.toml
+
+  frontend-rebuild:
+    name: Frontend rebuild app (pnpm, lint+typecheck+test+build)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+      - name: Install pnpm 12.11.2 (same command proven locally on F1 day)
+        run: npm install -g pnpm@12.11.2 && pnpm --version
+      - name: Install declared dependencies only (lockfile frozen)
+        working-directory: frontend/app
+        run: pnpm install --frozen-lockfile
+      - name: ESLint
+        working-directory: frontend/app
+        run: pnpm lint
+      - name: TypeScript strict check
+        working-directory: frontend/app
+        run: pnpm typecheck
+      - name: Vitest (jsdom + Testing Library)
+        working-directory: frontend/app
+        run: pnpm test
+      - name: Production build (offline bundle)
+        working-directory: frontend/app
+        run: pnpm build
 
   frontend:
     name: Frontend standing gate (boot rig, seed, playwright)
