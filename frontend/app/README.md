@@ -56,6 +56,33 @@ Revoke,Rotate}` through generated hooks in `queries.ts`). Actions send
   rows; test fixtures are verbatim rig payloads. The legacy
   `../screens/credential_vault_secrets_inventory/code.html` stays served
   until the Flask app mounts `dist/` under `/app/` (ADR-0012).
+- JIT Access (F4 screen 3, plan §4 line 107):
+  `src/features/jit/` renders the queue-posture KPI quad, the filterable
+  request queue, the **file-a-request** modal (RHF + Zod, ADR-0006), the
+  request **detail modal** (risk factors, the audit trail, quorum read
+  from the server's `requested` event - never re-derived client-side -
+  and the approve / deny / grant / close actions), the **Pipeline
+  Credential Broker** section (identity register with its one-time token
+  panel, revoke, credential approve / deny / close; `release` is
+  deliberately absent - the contract authenticates it with the
+  pipeline's own token) and the **AI-Agent Access** section (identities
+  with enable / disable / revoke, task declare, one-time register token;
+  `open` is deliberately absent - agent-token authenticated) — **from
+  live contract data only** (`getApiV1Jit*`, `postApiV1JitRequests*`,
+  `getApiV1Broker*` / `postApiV1Broker*` / `deleteApiV1BrokerPolicies*`,
+  `getApiV1Agents*` / `postApiV1Agents*` / `patch|deleteApiV1Agents*`
+  through generated hooks in `queries.ts`). Actions send the real session
+  principal as `X-Actor` and invalidate the `['jit']` key prefix; grants
+  bound to an agent close through the agent-access endpoint so the §16
+  trail event is written, and an approved agent's grant is opened by the
+  agent's own token, not by the console. Honest loading / section-error
+  (verbatim server message) / empty / `not connected` / shared
+  backend-down states, i18n strings only, no hard-coded sample rows;
+  test fixtures are verbatim rig captures generated from
+  `Temp/opencode/fixtures/*.json` (generator not committed; rig-issued
+  secrets never enter the repo - synthetic token fixtures only). The
+  legacy `../screens/jit_access_ephemeral_approvals/code.html` stays
+  served until the Flask app mounts `dist/` under `/app/` (ADR-0012).
 - During migration the legacy `../screens/` pages stay reachable and the
   standing gate (`../../shots_tool/__verify_*.mjs`) stays authoritative
   until F5 (ADR-0008).

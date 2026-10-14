@@ -147,7 +147,11 @@ python -m pytest pam_master -q                   # 46 tests (vendor tool)
   `/api/v1/bypass/*`, and the Credential Vault (F4 screen 2) renders the
   live inventory, rotation posture, checkout/revoke/rotate actions, the
   audited one-shot secret reveal and per-credential version history from
-  `GET /api/v1/vault/*`; the legacy pages below stay served and reachable
+  `GET /api/v1/vault/*`, and JIT Access (F4 screen 3) renders the request
+  queue with server-truth quorum approvals, ephemeral grants, the pipeline
+  credential broker and AI-agent access from `GET/POST /api/v1/jit/*`,
+  `/api/v1/broker/*` and `/api/v1/agents*` + `/api/v1/agent-access/*`;
+  the legacy pages below stay served and reachable
   until each replacement passes parity. Served by Phase 2, all
   eleven sidebar screens are **live**: licensing (`/`), platform settings (`/settings`,
   backed by `GET/PUT /api/v1/settings` with an audit changelog, plus the §20

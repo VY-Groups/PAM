@@ -1,5 +1,48 @@
 import { vi } from 'vitest';
 
+// F4 screen 3 fixtures: verbatim rig captures (generated from
+// Temp/opencode/fixtures/*.json - see the header in jitFixtures.ts).
+// Imported here for the route helpers' default bodies below, and
+// re-exported for tests (`export *` alone would not bring the names
+// into scope inside this module).
+import {
+  AA_REQUESTS_BODY,
+  AA_STATS_BODY,
+  AGENT_ACCESS_CLOSE_RESPONSE,
+  AGENT_DETAIL_BODY,
+  AGENT_DETAIL_PROBE_BODY,
+  AGENT_DISABLE_RESPONSE,
+  AGENT_REGISTER_RESPONSE,
+  AGENT_REVOKE_RESPONSE,
+  AGENT_TASK_RESPONSE,
+  AGENTS_BODY,
+  BROKER_CREDENTIALS_BODY,
+  BROKER_CRED_APPROVE_RESPONSE,
+  BROKER_CRED_CLOSE_RESPONSE,
+  BROKER_CRED_DENY_RESPONSE,
+  BROKER_POLICIES_BODY,
+  BROKER_POLICY_REGISTER_RESPONSE,
+  BROKER_POLICY_REVOKE_RESPONSE,
+  BROKER_STATS_BODY,
+  JIT_APPROVE_RESPONSE,
+  JIT_CLOSE_RESPONSE,
+  JIT_DENY_RESPONSE,
+  JIT_DETAIL_ACTIVE_BODY,
+  JIT_DETAIL_AGENT_ACTIVE_BODY,
+  JIT_DETAIL_AGENT_APPROVED_BODY,
+  JIT_DETAIL_AGENT_CLOSED_BODY,
+  JIT_DETAIL_APPROVED_BODY,
+  JIT_DETAIL_CLOSED_BODY,
+  JIT_DETAIL_DENIED_BODY,
+  JIT_DETAIL_PENDING_ALT_BODY,
+  JIT_DETAIL_PENDING_BODY,
+  JIT_FILED_RESPONSE,
+  JIT_GRANT_RESPONSE,
+  JIT_QUEUE_BODY,
+  JIT_STATS_BODY,
+} from './jitFixtures';
+export * from './jitFixtures';
+
 /** Build a fetch-shaped Response with the backend's JSON body. */
 export function jsonResponse(status: number, body: unknown): Response {
   return new Response(JSON.stringify(body), {
@@ -385,6 +428,255 @@ export function vaultRoutes() {
     vaultStatsRoute(),
     vaultItemsRoute(),
     vaultEventsRoute(),
+  ];
+}
+
+// ---------------------------------------------------------------------------
+// F4 screen 3 - JIT Access & Approvals. Routes mirror the query/mutation URLs
+// in features/jit/queries.ts; fixtures are the generated verbatim captures.
+// ---------------------------------------------------------------------------
+
+/**
+ * A verbatim rig capture of a WRITE response: the HTTP status and the JSON
+ * body actually served (the fixtures keep `{status, body}` exactly as the
+ * rig answered; route helpers unwrap them so mocks never double-wrap).
+ */
+export interface CapturedResponse {
+  status: number;
+  body: unknown;
+}
+
+/** GET /api/v1/jit/stats - queue totals per status and risk band. */
+export function jitStatsRoute(body: unknown = JIT_STATS_BODY, status = 200) {
+  return {
+    match: (url: string) => url.includes('/jit/stats'),
+    respond: () => jsonResponse(status, body),
+  };
+}
+
+/**
+ * GET /api/v1/jit/requests?... - the queue. The query marker separates it
+ * from POST /jit/requests (file a request), which carries no query string.
+ */
+export function jitQueueRoute(body: unknown = JIT_QUEUE_BODY, status = 200) {
+  return {
+    match: (url: string) => url.includes('/jit/requests?'),
+    respond: () => jsonResponse(status, body),
+  };
+}
+
+/** GET /api/v1/jit/requests/{id} - one detail body per request id. */
+export function jitDetailRoute(id: number, body: unknown, status = 200) {
+  return {
+    match: (url: string) => new RegExp(`/jit/requests/${id}(\\?|$)`).test(url),
+    respond: () => jsonResponse(status, body),
+  };
+}
+
+/** POST /api/v1/jit/requests - file a request (201, echoed request row). */
+export function jitFileRequestRoute(capture: CapturedResponse = JIT_FILED_RESPONSE) {
+  return {
+    match: (url: string) => url.endsWith('/jit/requests'),
+    respond: () => jsonResponse(capture.status, capture.body),
+  };
+}
+
+/**
+ * POST /api/v1/jit/requests/{id}/{approve|deny|consume|close} - the four
+ * console-side JIT mutations (each answers its own captured response).
+ */
+export function jitActionRoute(
+  action: 'approve' | 'deny' | 'consume' | 'close',
+  capture: CapturedResponse,
+) {
+  return {
+    match: (url: string) => url.includes('/jit/requests/') && url.endsWith(`/${action}`),
+    respond: () => jsonResponse(capture.status, capture.body),
+  };
+}
+
+/** GET /api/v1/agent-access/stats - identity/request/task aggregates. */
+export function agentAccessStatsRoute(body: unknown = AA_STATS_BODY, status = 200) {
+  return {
+    match: (url: string) => url.includes('/agent-access/stats'),
+    respond: () => jsonResponse(status, body),
+  };
+}
+
+/** GET /api/v1/agent-access/requests?... - the agent access queue. */
+export function agentAccessRequestsRoute(body: unknown = AA_REQUESTS_BODY, status = 200) {
+  return {
+    match: (url: string) => url.includes('/agent-access/requests?'),
+    respond: () => jsonResponse(status, body),
+  };
+}
+
+/** POST /api/v1/agent-access/requests/{id}/close - console-side grant close. */
+export function agentAccessCloseRoute(
+  capture: CapturedResponse = AGENT_ACCESS_CLOSE_RESPONSE,
+) {
+  return {
+    match: (url: string) =>
+      url.includes('/agent-access/requests/') && url.endsWith('/close'),
+    respond: () => jsonResponse(capture.status, capture.body),
+  };
+}
+
+/** GET /api/v1/broker/stats - policy/credential aggregates. */
+export function brokerStatsRoute(body: unknown = BROKER_STATS_BODY, status = 200) {
+  return {
+    match: (url: string) => url.includes('/broker/stats'),
+    respond: () => jsonResponse(status, body),
+  };
+}
+
+/** GET /api/v1/broker/policies?... - pipeline identities, newest first. */
+export function brokerPoliciesRoute(body: unknown = BROKER_POLICIES_BODY, status = 200) {
+  return {
+    match: (url: string) => url.includes('/broker/policies?'),
+    respond: () => jsonResponse(status, body),
+  };
+}
+
+/** POST /api/v1/broker/policies - register an identity (token shown once). */
+export function brokerPolicyRegisterRoute(
+  capture: CapturedResponse = BROKER_POLICY_REGISTER_RESPONSE,
+) {
+  return {
+    match: (url: string) => url.endsWith('/broker/policies'),
+    respond: () => jsonResponse(capture.status, capture.body),
+  };
+}
+
+/** DELETE /api/v1/broker/policies/{id} - revoke an identity. */
+export function brokerPolicyRevokeRoute(
+  id: number,
+  capture: CapturedResponse = BROKER_POLICY_REVOKE_RESPONSE,
+) {
+  return {
+    match: (url: string) => new RegExp(`/broker/policies/${id}(\\?|$)`).test(url),
+    respond: () => jsonResponse(capture.status, capture.body),
+  };
+}
+
+/** GET /api/v1/broker/credentials?... - the pipeline credential queue. */
+export function brokerCredentialsRoute(
+  body: unknown = BROKER_CREDENTIALS_BODY,
+  status = 200,
+) {
+  return {
+    match: (url: string) => url.includes('/broker/credentials?'),
+    respond: () => jsonResponse(status, body),
+  };
+}
+
+/** POST /api/v1/broker/credentials/{id}/{approve|deny|close} - admin actions. */
+export function brokerCredActionRoute(
+  action: 'approve' | 'deny' | 'close',
+  capture: CapturedResponse,
+) {
+  return {
+    match: (url: string) =>
+      url.includes('/broker/credentials/') && url.endsWith(`/${action}`),
+    respond: () => jsonResponse(capture.status, capture.body),
+  };
+}
+
+/** GET /api/v1/agents?... - agent identities, newest first. */
+export function agentsRoute(body: unknown = AGENTS_BODY, status = 200) {
+  return {
+    match: (url: string) => url.includes('/agents?'),
+    respond: () => jsonResponse(status, body),
+  };
+}
+
+/**
+ * GET/PATCH/DELETE /api/v1/agents/{id} - one route per identity: the method
+ * picks the response (detail body, status-flip echo, revoke echo).
+ */
+export function agentDetailRoute(
+  id: number,
+  detail: unknown,
+  mutations?: { patch?: CapturedResponse; del?: CapturedResponse },
+) {
+  return {
+    match: (url: string) => new RegExp(`/agents/${id}(\\?|$)`).test(url),
+    respond: (init?: RequestInit) => {
+      const method = init?.method ?? 'GET';
+      if (method === 'PATCH' && mutations?.patch !== undefined) {
+        return jsonResponse(mutations.patch.status, mutations.patch.body);
+      }
+      if (method === 'DELETE' && mutations?.del !== undefined) {
+        return jsonResponse(mutations.del.status, mutations.del.body);
+      }
+      return jsonResponse(200, detail);
+    },
+  };
+}
+
+/** POST /api/v1/agents - register an identity (agent token shown once). */
+export function agentRegisterRoute(capture: CapturedResponse = AGENT_REGISTER_RESPONSE) {
+  return {
+    match: (url: string) => url.endsWith('/agents'),
+    respond: () => jsonResponse(capture.status, capture.body),
+  };
+}
+
+/** POST /api/v1/agents/{id}/tasks - declare a task's allow-list. */
+export function agentTaskDeclareRoute(
+  id: number,
+  capture: CapturedResponse = AGENT_TASK_RESPONSE,
+) {
+  return {
+    match: (url: string) => url.endsWith(`/agents/${id}/tasks`),
+    respond: () => jsonResponse(capture.status, capture.body),
+  };
+}
+
+/** The full JIT Access page route set (F4 screen 3, /jit). */
+export function jitRoutes() {
+  return [
+    whoamiRoute(WHOAMI_OPEN_BODY),
+    healthRoute(),
+    jitStatsRoute(),
+    jitQueueRoute(),
+    jitDetailRoute(1, JIT_DETAIL_DENIED_BODY),
+    jitDetailRoute(2, JIT_DETAIL_CLOSED_BODY),
+    jitDetailRoute(3, JIT_DETAIL_AGENT_CLOSED_BODY),
+    jitDetailRoute(6, JIT_DETAIL_PENDING_BODY),
+    jitDetailRoute(7, JIT_DETAIL_APPROVED_BODY),
+    jitDetailRoute(8, JIT_DETAIL_ACTIVE_BODY),
+    jitDetailRoute(10, JIT_DETAIL_AGENT_APPROVED_BODY),
+    jitDetailRoute(12, JIT_DETAIL_PENDING_ALT_BODY),
+    jitDetailRoute(13, JIT_DETAIL_AGENT_ACTIVE_BODY),
+    jitFileRequestRoute(),
+    jitActionRoute('approve', JIT_APPROVE_RESPONSE),
+    jitActionRoute('deny', JIT_DENY_RESPONSE),
+    jitActionRoute('consume', JIT_GRANT_RESPONSE),
+    jitActionRoute('close', JIT_CLOSE_RESPONSE),
+    agentAccessCloseRoute(),
+    agentAccessRequestsRoute(),
+    agentAccessStatsRoute(),
+    brokerStatsRoute(),
+    brokerPoliciesRoute(),
+    brokerPolicyRegisterRoute(),
+    brokerPolicyRevokeRoute(3),
+    brokerCredentialsRoute(),
+    brokerCredActionRoute('approve', BROKER_CRED_APPROVE_RESPONSE),
+    brokerCredActionRoute('deny', BROKER_CRED_DENY_RESPONSE),
+    brokerCredActionRoute('close', BROKER_CRED_CLOSE_RESPONSE),
+    agentsRoute(),
+    agentDetailRoute(1, AGENT_DETAIL_BODY, {
+      patch: AGENT_DISABLE_RESPONSE,
+      del: AGENT_REVOKE_RESPONSE,
+    }),
+    agentDetailRoute(2, AGENT_DETAIL_PROBE_BODY, {
+      patch: AGENT_DISABLE_RESPONSE,
+      del: AGENT_REVOKE_RESPONSE,
+    }),
+    agentRegisterRoute(),
+    agentTaskDeclareRoute(1),
+    vaultItemsRoute(),
   ];
 }
 

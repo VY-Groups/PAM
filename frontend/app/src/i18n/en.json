@@ -224,5 +224,295 @@
       "actionDone": "Done: {{message}}",
       "actionFailed": "Action failed: {{message}}"
     }
+  },
+  "jit": {
+    "kicker": "JIT Access / Ephemeral Elevation",
+    "title": "Just-In-Time Access & Approvals",
+    "subtitle": "Requests, quorum approvals, ephemeral grants, the pipeline credential broker and AI-agent access - reported live by the license server.",
+    "kpis": {
+      "heading": "Queue posture",
+      "total": "Requests on record",
+      "totalFooter": "{{closed}} closed · {{denied}} denied",
+      "pending": "Awaiting approvals",
+      "pendingFooter": "{{blocked}} blocked by policy",
+      "active": "Active grants",
+      "activeFooter": "expiry evaluated on every read",
+      "atRisk": "High-risk requests",
+      "atRiskFooter": "{{high}} high · {{critical}} critical"
+    },
+    "queue": {
+      "heading": "Request queue",
+      "subtitle": "Newest first; quorum and state come from the server's audit trail.",
+      "fileRequest": "File a request",
+      "caption": "JIT requests: reference, requester, ticket, risk, window, status and actions",
+      "empty": "No requests match this filter.",
+      "idPrefix": "#JIT-{{id}}",
+      "agentBinding": "agent {{agent}} · task {{task}}",
+      "riskScore": "score {{score}}",
+      "windowMinutes": "{{minutes}} min",
+      "windowLeft": "{{minutes}} min left",
+      "quorumRecorded": "manager {{manager}} · security {{security}}",
+      "filters": {
+        "status": "Status",
+        "allStatuses": "All statuses",
+        "requester": "Requester",
+        "requesterPlaceholder": "Requester contains…",
+        "apply": "Apply filter",
+        "order": "Newest first"
+      },
+      "columns": {
+        "request": "Request",
+        "requester": "Requester",
+        "ticket": "Ticket / reason",
+        "risk": "Risk",
+        "window": "Window",
+        "status": "Status / quorum",
+        "actions": "Actions"
+      },
+      "actionsUi": {
+        "review": "Review",
+        "grant": "Grant",
+        "close": "Close",
+        "detail": "Detail",
+        "named": "{{action}}: request {{id}}"
+      }
+    },
+    "detail": {
+      "title": "Request #JIT-{{id}}",
+      "requester": "Requester",
+      "reason": "Reason",
+      "target": "Target credential",
+      "itemId": "vault item #{{id}}",
+      "window": "Elevation window",
+      "sessionRef": "Session reference",
+      "expiresAt": "Expires",
+      "risk": "Risk evaluation",
+      "factorPoints": "+{{points}} pts",
+      "quorum": "Approval quorum",
+      "quorumState": "{{recorded}} of {{required}} required approval(s) recorded",
+      "quorumNone": "No sign-off required for this risk band.",
+      "roleAwaiting": "awaiting",
+      "blockedNotice": "Risk is critical: policy blocks this request - deny it instead.",
+      "selfApproval": "You are the requester: the server refuses self-approval.",
+      "denyReason": "Denial reason (recorded in the trail)",
+      "agentOpensGrant": "The agent opens this grant with its own API token - the console cannot open it.",
+      "events": "Audit trail",
+      "eventsEmpty": "No events recorded for this request.",
+      "eventActor": "by {{actor}}",
+      "role": {
+        "manager": "Manager",
+        "security": "Security"
+      },
+      "actionsUi": {
+        "approveNamed": "Approve as {{role}}: request {{id}}",
+        "approveRole": "Approve as {{role}}",
+        "deny": "Deny request",
+        "approveGrant": "Grant request {{id}}",
+        "grant": "Grant ephemeral access",
+        "closeNamed": "Close grant {{id}}",
+        "close": "Close grant"
+      }
+    },
+    "file": {
+      "title": "File an access request",
+      "target": "Target credential",
+      "ticket": "Ticket reference",
+      "ticketPlaceholder": "INC-4821",
+      "reason": "Reason (8-255 characters)",
+      "minutes": "Minutes (1-480)",
+      "invalid": "Check the highlighted fields - limits mirror the contract.",
+      "submit": "File request",
+      "noTargets": "No vault credentials - onboard one in the Credential Vault first.",
+      "invalidTarget": "Choose a target credential.",
+      "filed": "{{message}} - risk {{risk}} (score {{score}})"
+    },
+    "reason": {
+      "label": "Reason (recorded in the trail)"
+    },
+    "broker": {
+      "heading": "Pipeline Credential Broker",
+      "subtitle": "No static secrets in CI: a pipeline authenticates with its broker token (shown once, stored as a sha256 hash) and requests vault credentials through this queue.",
+      "policiesHeading": "Pipeline identities",
+      "register": "Register pipeline",
+      "credentialsHeading": "Credential requests",
+      "registerTitle": "Register a pipeline identity",
+      "revokeTitle": "Revoke {{name}}?",
+      "revokeConfirm": "Revoke identity",
+      "denyTitle": "Deny credential request #{{id}}",
+      "denyConfirm": "Deny request",
+      "autoApproval": "auto (policy-granted)",
+      "manualApproval": "manual approval",
+      "ttlCap": "TTL cap {{minutes}} min",
+      "anyTargets": "any target",
+      "useCount": "{{count}} uses",
+      "credPrefix": "#CRED-{{id}}",
+      "pipelineId": "policy #{{policyId}} · vault item #{{itemId}}",
+      "secretReleased": "secret released once (value never shown here)",
+      "tokenOnce": "Pipeline API token - shown once",
+      "tokenOnceHint": "Copy it now: the server keeps only a sha256 hash and cannot show it again.",
+      "policiesCaption": "Pipeline identities: identity, CI system, approval policy, scope, last use, state and actions",
+      "policiesEmpty": "No pipeline identities registered yet.",
+      "credentialsCaption": "Credential requests: reference, reason, window, state and actions",
+      "credentialsEmpty": "No credential requests yet - a pipeline posts one with its API token.",
+      "registerConfirm": "Register identity",
+      "kpis": {
+        "policies": "Pipeline identities",
+        "policiesFooter": "{{active}} active · {{revoked}} revoked",
+        "pending": "Awaiting admin approval",
+        "pendingFooter": "{{open}} open credential(s)",
+        "open": "Open grants",
+        "openFooter": "{{released}} released by pipeline",
+        "events": "Broker events",
+        "eventsFooter": "policy and credential trail"
+      },
+      "columns": {
+        "identity": "Pipeline identity",
+        "ci": "CI system",
+        "approval": "Approval policy",
+        "scope": "Scope / TTL cap",
+        "lastUsed": "Last used",
+        "state": "State",
+        "actions": "Actions",
+        "credential": "Credential",
+        "reason": "Ticket / reason",
+        "window": "Window"
+      },
+      "actionsUi": {
+        "revoke": "Revoke",
+        "revokeNamed": "Revoke pipeline {{name}}",
+        "approve": "Approve",
+        "approveNamed": "Approve credential request {{id}}",
+        "deny": "Deny",
+        "denyNamed": "Deny credential request {{id}}",
+        "close": "Close",
+        "closeNamed": "Close credential request {{id}}"
+      },
+      "status": {
+        "active": "Active",
+        "expired": "Expired",
+        "revoked": "Revoked"
+      },
+      "credStatus": {
+        "pending": "Pending",
+        "approved": "Approved",
+        "released": "Released",
+        "denied": "Denied",
+        "closed": "Closed",
+        "expired": "Expired"
+      },
+      "form": {
+        "name": "Identity name",
+        "ciSystem": "CI system",
+        "approvalMode": "Approval mode",
+        "ttl": "TTL cap (minutes)",
+        "contact": "Contact",
+        "targets": "Allowed targets (comma-separated)",
+        "targetsPlaceholder": "bastion-01.lab, db-prod-1.lab",
+        "invalid": "Check the highlighted fields - limits mirror the contract."
+      }
+    },
+    "agents": {
+      "heading": "AI-Agent Access",
+      "subtitle": "An agent never holds a standing credential: its token (shown once, stored hashed) files requests against declared task allow-lists.",
+      "identitiesHeading": "Agent identities",
+      "register": "Register agent",
+      "requestsHeading": "Access requests",
+      "registerTitle": "Register an agent identity",
+      "detailTitle": "Agent #{{id}}",
+      "revokeTitle": "Revoke {{name}}?",
+      "revokeConfirm": "Revoke agent",
+      "tokenOnce": "Agent API token - shown once",
+      "tokenOnceHint": "Copy it now: the server keeps only a sha256 hash and cannot show it again.",
+      "registerConfirm": "Register agent",
+      "noTask": "no task binding",
+      "identitiesCaption": "Agent identities: identity, window cap, last use, state and actions",
+      "identitiesEmpty": "No agent identities registered yet.",
+      "requestsCaption": "Agent access requests: reference, agent/task, reason, risk, state and actions",
+      "requestsEmpty": "No access requests yet - an agent posts one with its API token.",
+      "kpis": {
+        "identities": "Agent identities",
+        "identitiesFooter": "{{active}} active · {{revoked}} revoked",
+        "open": "Open grants",
+        "openFooter": "{{tasks}} task scopes",
+        "pending": "Awaiting approvals",
+        "pendingFooter": "of {{total}} request(s) on record",
+        "events": "Agent events",
+        "eventsFooter": "every agent action lands on the trail"
+      },
+      "columns": {
+        "identity": "Agent identity",
+        "window": "Window cap",
+        "lastUsed": "Last used",
+        "state": "State / token hash",
+        "actions": "Actions",
+        "request": "Request",
+        "agentTask": "Agent / task",
+        "reason": "Ticket / reason"
+      },
+      "actionsUi": {
+        "manage": "Tasks",
+        "manageNamed": "Tasks and detail: {{name}}",
+        "disable": "Disable",
+        "enable": "Enable",
+        "toggleNamed": "{{action}}: {{name}}",
+        "revoke": "Revoke",
+        "revokeNamed": "Revoke agent {{name}}"
+      },
+      "status": {
+        "active": "Active",
+        "disabled": "Disabled",
+        "revoked": "Revoked"
+      },
+      "form": {
+        "name": "Agent name",
+        "contact": "Contact",
+        "ttl": "Window cap (minutes)",
+        "invalid": "Check the highlighted fields - limits mirror the contract."
+      },
+      "detail": {
+        "contact": "Contact",
+        "window": "Window cap",
+        "createdBy": "Registered by",
+        "lastUsed": "Last used",
+        "openGrants": "Open grants",
+        "openGrantsValue": "{{count}} open",
+        "tasks": "Declared task scopes",
+        "tasksEmpty": "No tasks declared - add one below.",
+        "events": "Agent trail",
+        "eventsEmpty": "No agent events recorded yet."
+      },
+      "taskForm": {
+        "heading": "Declare a task scope",
+        "name": "Task name",
+        "commands": "Allowed commands (one literal per line, 1-32)",
+        "commandsPlaceholder": "apt-get update\nsystemctl restart",
+        "targets": "Allowed targets (comma-separated)",
+        "targetsPlaceholder": "bastion-01.lab",
+        "maxMinutes": "Max minutes (1-480)",
+        "invalid": "Check the highlighted fields - limits mirror the contract.",
+        "submit": "Declare task"
+      }
+    },
+    "status": {
+      "pending": "Pending",
+      "approved": "Approved",
+      "active": "Active",
+      "closed": "Closed",
+      "expired": "Expired",
+      "denied": "Denied",
+      "blocked": "Blocked"
+    },
+    "risk": {
+      "low": "Low",
+      "medium": "Medium",
+      "high": "High",
+      "critical": "Critical"
+    },
+    "states": {
+      "loading": "Loading live data…",
+      "sectionError": "Section unavailable: {{message}}",
+      "actionDone": "Done: {{message}}",
+      "actionFailed": "Action failed: {{message}}"
+    }
   }
 }
