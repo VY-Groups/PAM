@@ -140,6 +140,36 @@ Revoke,Rotate}` through generated hooks in `queries.ts`). Actions send
   loaded rule count. The contract needed no fix this screen. The legacy
   `../screens/policy_zero_trust_rules_engine/code.html` stays served
   until the Flask app mounts `dist/` under `/app/` (ADR-0012).
+- Compliance & SOC2 (F4 screen 6, plan §4 line 111):
+  `src/features/compliance/` renders the digest KPI quad over
+  `GET /api/v1/audit/stats` (records with the oldest→newest window,
+  chain position with the head-hash footer, sources reporting out of
+  the 21 zero-filled keys, append-only triggers installed), the
+  hash-chain digest card (full head SHA-256, seq chip, window, the
+  `by_source` chip cloud) with the on-demand **verify walk**
+  (`GET /audit/verify` on click only — idle until run; the intact
+  verdict and a broken chain both render the server's own numbers,
+  `broken_at` and reason verbatim), the measured **connector chips**
+  from `GET /api/v1/integrations/status` (MFA / ITSM / SIEM / LDAP
+  with the contract's own detail strings and the SIEM `last_push`
+  line, `never` before the first batch), and the **unified trail** over
+  `GET /api/v1/events?source=&limit=` (twelve source-filter chips with
+  `aria-pressed`, rows carrying `#seq`, the source chip,
+  action/subject/actor, relative time and the event hash, honest empty
+  line; the contract's `all` state is the absent parameter). The CSV
+  **export** pulls the whole ledger from `GET /audit/export`
+  (`application/x-ndjson` — `http.ts` now keeps non-JSON 2xx bodies
+  verbatim instead of dropping them, aligning the shared wrapper with
+  the generated `string` type; test added) and reports the real record
+  count. This screen has zero writes (the ledger is append-only server
+  side, no `X-Actor`) and no form, so ADR-0006 has nothing to gate.
+  Honest states follow DoD 2 (section error verbatim including the
+  stats-backed digest, `not connected` chips, BackendDownNotice,
+  em-dash KPIs). Fixtures in `src/test/complianceFixtures.ts` are
+  verbatim rig captures with two clearly-labelled synthetic schema
+  states (broken chain, empty trail). The legacy
+  `../screens/compliance_soc_2_audit_center/code.html` stays served
+  until the Flask app mounts `dist/` under `/app/` (ADR-0012).
 - During migration the legacy `../screens/` pages stay reachable and the
   standing gate (`../../shots_tool/__verify_*.mjs`) stays authoritative
   until F5 (ADR-0008).

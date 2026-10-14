@@ -162,7 +162,12 @@ python -m pytest pam_master -q                   # 46 tests (vendor tool)
   decision simulator, the §7 risk scorer and the §11 UEBA baselines
   from `GET/POST /api/v1/command-control/*`,
   `POST /sessions/{id}/events/{seq}/{approve|deny}` and
-  `GET/POST /api/v1/risk/*`;
+  `GET/POST /api/v1/risk/*`,
+  and Compliance & SOC2 (F4 screen 6) renders the hash-chain ledger
+  digest, the on-demand verify walk, the measured connector chips, the
+  source-filtered unified trail and the full-ledger CSV export from
+  `GET /api/v1/audit/stats|verify|export`, `GET /api/v1/events` and
+  `GET /api/v1/integrations/status`;
   the legacy pages below stay served and reachable
   until each replacement passes parity. Served by Phase 2, all
   eleven sidebar screens are **live**: licensing (`/`), platform settings (`/settings`,

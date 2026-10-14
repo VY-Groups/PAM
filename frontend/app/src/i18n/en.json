@@ -952,5 +952,74 @@
       "chainNotBlocked": "not blocked",
       "chainCounts": "· sessions ended {{ended}} · rotations {{rotations}}"
     }
+  },
+  "compliance": {
+    "kicker": "AUDIT EVIDENCE",
+    "title": "Compliance & Continuous Audit Center",
+    "subtitle": "The append-only hash-chain ledger, its on-demand verification walk and the unified trail - every value below is read from the license server.",
+    "chainLine": "chain head:",
+    "chainLineValue": "seq {{seq}} · {{hash}}",
+    "actions": {
+      "verify": "Verify hash chain",
+      "verifying": "Walking the chain…",
+      "export": "Download audit trail (CSV)",
+      "exporting": "Preparing export…"
+    },
+    "toast": {
+      "exported": "Exported {{count}} records as CSV",
+      "exportMalformed": "Export failed - the server's NDJSON body was malformed"
+    },
+    "kpis": {
+      "records": "LEDGER RECORDS",
+      "recordsFooter": "{{oldest}} → {{newest}}",
+      "recordsFooterNone": "no records yet",
+      "depth": "CHAIN POSITION",
+      "depthFooter": "head {{hash}}",
+      "depthFooterNone": "empty chain",
+      "sources": "SOURCES REPORTING",
+      "sourcesFooter": "of {{total}} ledger sources carry records",
+      "triggers": "APPEND-ONLY TRIGGERS",
+      "triggersInstalled": "installed",
+      "triggersMissing": "MISSING",
+      "triggersFooter": "append-only SQLite enforcement"
+    },
+    "digest": {
+      "title": "Hash-chain digest",
+      "subtitle": "Every record stores the previous record's SHA-256 - a chain walk, not a Merkle proof.",
+      "chainHead": "Chain head (SHA-256)",
+      "seq": "seq {{seq}}",
+      "window": "window: {{oldest}} → {{newest}}",
+      "windowNone": "no records yet",
+      "sourcesLabel": "Ledger records by source"
+    },
+    "verify": {
+      "idle": "Not verified this session - run the walk to re-hash every record.",
+      "running": "Walking the hash chain…",
+      "ok": "Hash chain intact: {{checked}}/{{total}} records verified, head {{hash}}",
+      "broken": "CHAIN BROKEN at seq {{brokenAt}}: {{reason}}",
+      "failed": "Verify failed - {{message}}"
+    },
+    "connectors": {
+      "title": "Connector compliance chips",
+      "subtitle": "Measured connector state - not connected / not configured are facts here, never placeholders.",
+      "configured": "configured",
+      "notConnected": "not connected",
+      "notConfigured": "not configured",
+      "mfaEnrolled": "enrolled for {{who}}",
+      "pushNever": "last push: never",
+      "pushLine": "last push {{status}} at {{at}} · {{ok}} ok / {{failed}} failed · {{records}} records"
+    },
+    "trail": {
+      "title": "Unified audit trail",
+      "subtitle": "Every ledger record, newest first, with its chain position and event hash - the same rows a SIEM would ingest.",
+      "count": "showing {{shown}} of {{total}} records",
+      "filterLabel": "Filter the trail by source",
+      "filterAll": "all",
+      "empty": "No entries yet - the selected audit trail is empty."
+    },
+    "states": {
+      "loading": "Loading the ledger…",
+      "sectionError": "Section unavailable: {{message}}"
+    }
   }
 }

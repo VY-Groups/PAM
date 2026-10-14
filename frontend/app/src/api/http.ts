@@ -153,7 +153,11 @@ async function httpFetch<T>(url: string, init?: RequestInit): Promise<T> {
       try {
         data = JSON.parse(text);
       } catch {
-        data = undefined;
+        // Non-JSON bodies pass through verbatim: the contract serves
+        // `application/x-ndjson` (audit export) and the generated client
+        // types that arm as a string - dropping it here would silently
+        // discard the ledger the caller asked for.
+        data = text;
       }
     }
   }

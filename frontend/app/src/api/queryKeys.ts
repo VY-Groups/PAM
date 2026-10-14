@@ -50,4 +50,13 @@ export const queryKeys = {
   riskEvaluations: (limit: number) => ['policy', 'risk', 'evaluations', limit] as const,
   riskBaselines: ['policy', 'risk', 'baselines'] as const,
   riskAnomalies: (limit: number) => ['policy', 'risk', 'anomalies', limit] as const,
+  // Compliance & SOC2 (F4 screen 6): one `['compliance', ...]` root so a single
+  // prefix invalidation refreshes the ledger digest, the hash-chain walk, the
+  // unified trail and the connector chips together - they are views of the
+  // same append-only ledger. The verify walk is an on-demand mutation, not a
+  // cached read (it re-walks the whole chain server side).
+  complianceStats: ['compliance', 'audit', 'stats'] as const,
+  complianceEvents: (source: string, limit: number) =>
+    ['compliance', 'events', source, limit] as const,
+  complianceIntegrations: ['compliance', 'integrations'] as const,
 } as const;

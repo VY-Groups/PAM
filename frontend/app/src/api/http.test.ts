@@ -76,6 +76,17 @@ describe('http wrapper (ADR-0004 shared behaviour)', () => {
     await assertion;
   });
 
+  it('keeps a non-JSON 2xx body verbatim (contract x-ndjson export)', async () => {
+    const ndjson = '{"seq":1,"source":"auth"}\n{"seq":2,"source":"vault"}\n';
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => new Response(ndjson, { status: 200 })),
+    );
+    const res = await httpFetch<{ status: number; data: string }>('/api/v1/audit/export');
+    expect(res.status).toBe(200);
+    expect(res.data).toBe(ndjson);
+  });
+
   it('expectOk passes a success envelope through untouched', async () => {
     const ok = { status: 200 as const, data: { hello: 'world' }, headers: new Headers() };
     expect(expectOk(ok)).toBe(ok);

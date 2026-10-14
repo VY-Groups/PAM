@@ -94,6 +94,18 @@ import {
 } from './policyFixtures';
 export * from './policyFixtures';
 
+// F4 screen 6 fixtures: verbatim rig captures for Compliance & SOC2
+// (see the header in complianceFixtures.ts).
+import {
+  AUDIT_EXPORT_TEXT,
+  AUDIT_STATS_RESPONSE,
+  AUDIT_VERIFY_RESPONSE,
+  EVENTS_ALL_RESPONSE,
+  EVENTS_VAULT_RESPONSE,
+  INTEGRATIONS_STATUS_RESPONSE,
+} from './complianceFixtures';
+export * from './complianceFixtures';
+
 /** Build a fetch-shaped Response with the backend's JSON body. */
 export function jsonResponse(status: number, body: unknown): Response {
   return new Response(JSON.stringify(body), {
@@ -1011,6 +1023,90 @@ export function policyRoutes() {
     riskTrainRoute(),
     heldCommandResolutionRoute('approve', APPROVE_RESPONSE),
     heldCommandResolutionRoute('deny', DENY_RESPONSE),
+  ];
+}
+
+/** GET /api/v1/audit/stats - the ledger digest aggregates. */
+export function auditStatsRoute(capture: CapturedResponse = AUDIT_STATS_RESPONSE) {
+  return {
+    match: (url: string) => /\/audit\/stats(\?|$)/.test(url),
+    respond: () => jsonResponse(capture.status, capture.body),
+  };
+}
+
+/** GET /api/v1/audit/verify - the on-demand hash-chain walk. */
+export function auditVerifyRoute(capture: CapturedResponse = AUDIT_VERIFY_RESPONSE) {
+  return {
+    match: (url: string) => /\/audit\/verify(\?|$)/.test(url),
+    respond: () => jsonResponse(capture.status, capture.body),
+  };
+}
+
+/**
+ * GET /api/v1/audit/export - the whole ledger as `application/x-ndjson`
+ * text (a non-JSON body, so it answers a raw Response).
+ */
+export function auditExportRoute(text: string = AUDIT_EXPORT_TEXT, status = 200) {
+  return {
+    match: (url: string) => /\/audit\/export(\?|$)/.test(url),
+    respond: () =>
+      new Response(text, {
+        status,
+        headers: { 'Content-Type': 'application/x-ndjson' },
+      }),
+  };
+}
+
+/**
+ * GET /api/v1/events for the compliance trail - answers the capture for
+ * the requested `source` (default `all`). An unknown source answers an
+ * honest 404 instead of silently falling back, so a missing fixture
+ * fails the test loudly rather than passing on the wrong body.
+ */
+export function complianceEventsRoute(
+  bySource: Record<string, CapturedResponse> = {
+    all: EVENTS_ALL_RESPONSE,
+    vault: EVENTS_VAULT_RESPONSE,
+  },
+) {
+  let source = 'all';
+  return {
+    match: (url: string) => {
+      if (!url.includes('/api/v1/events')) return false;
+      const found = /[?&]source=([^&]+)/.exec(url);
+      source = found ? decodeURIComponent(found[1]) : 'all';
+      return true;
+    },
+    respond: () => {
+      const capture = bySource[source];
+      if (!capture) {
+        return jsonResponse(404, { error: `no events fixture for source "${source}"` });
+      }
+      return jsonResponse(capture.status, capture.body);
+    },
+  };
+}
+
+/** GET /api/v1/integrations/status - the honest connector chips. */
+export function integrationsStatusRoute(
+  capture: CapturedResponse = INTEGRATIONS_STATUS_RESPONSE,
+) {
+  return {
+    match: (url: string) => /\/integrations\/status(\?|$)/.test(url),
+    respond: () => jsonResponse(capture.status, capture.body),
+  };
+}
+
+/** The full Compliance & SOC2 route set (F4 screen 6, /compliance). */
+export function complianceRoutes() {
+  return [
+    whoamiRoute(WHOAMI_OPEN_BODY),
+    healthRoute(),
+    auditStatsRoute(),
+    auditVerifyRoute(),
+    auditExportRoute(),
+    complianceEventsRoute(),
+    integrationsStatusRoute(),
   ];
 }
 
