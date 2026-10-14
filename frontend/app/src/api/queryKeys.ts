@@ -29,4 +29,13 @@ export const queryKeys = {
   agentAccessRequests: (limit: number) =>
     ['jit', 'agent-access', 'requests', limit] as const,
   agentAccessStats: ['jit', 'agent-access', 'stats'] as const,
+  // Live Session Hub (F4 screen 4): one `['sessions', ...]` root so a single
+  // prefix invalidation refreshes stats, the list, the detail, its recording
+  // and the linked-grant governance facts together - they are views of the
+  // same session row.
+  sessionStats: ['sessions', 'stats'] as const,
+  sessions: (limit: number) => ['sessions', 'list', limit] as const,
+  sessionDetail: (id: number | null) => ['sessions', 'detail', id] as const,
+  sessionEvents: (id: number | null) => ['sessions', 'events', id] as const,
+  sessionGrant: (id: number | null) => ['sessions', 'grant', id] as const,
 } as const;

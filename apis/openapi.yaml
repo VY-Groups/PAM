@@ -8504,6 +8504,38 @@ components:
         limit: {type: integer}
         offset: {type: integer}
 
+    SessionGateway:
+      type: [object, "null"]
+      description: >-
+        Phase 8a data-plane half: how this privileged session rode the
+        gateway - the assigned node, the credential-injection fact and the
+        sealed recording segments - or null when it never did (gateway off,
+        non-gateway protocol, or target not zone-mapped). The console's
+        protocol-overlay line renders this verbatim; `node.state` may be the
+        derived `offline` (a stale heartbeat, never written to the row) and
+        `recording.key_state` reports the wrapped-key custody state.
+      required: [gateway_session_id, state, node, credential_injected, recording]
+      properties:
+        gateway_session_id: {type: integer}
+        state: {type: string, enum: [pending, connecting, active, ended]}
+        node:
+          type: [object, "null"]
+          required: [id, name, state]
+          properties:
+            id: {type: integer}
+            name: {type: string}
+            state: {type: string}
+        target_host: {type: string}
+        target_port: {type: integer}
+        credential_injected: {type: boolean}
+        recording:
+          type: object
+          required: [segments]
+          properties:
+            segments: {type: integer}
+            key_state: {type: [string, "null"]}
+        end_reason: {type: [string, "null"]}
+
     SessionDetail:
       type: object
       required: [session, events, event_count, blocked_count]
@@ -8517,6 +8549,8 @@ components:
         blocked_count: {type: integer}
         watermark:
           $ref: "#/components/schemas/SessionWatermark"
+        gateway:
+          $ref: "#/components/schemas/SessionGateway"
 
     SessionWatermark:
       type: object
@@ -8573,6 +8607,10 @@ components:
         risk:
           {$ref: "#/components/schemas/RiskEvaluation"}
         message: {type: string}
+        gateway:
+          description: Present on session start only - this request's broker verdict.
+          allOf:
+            - $ref: "#/components/schemas/SessionGateway"
 
     SessionEventResponse:
       type: object

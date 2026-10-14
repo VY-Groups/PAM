@@ -43,6 +43,33 @@ import {
 } from './jitFixtures';
 export * from './jitFixtures';
 
+// F4 screen 4 fixtures: verbatim rig captures for the Live Session Hub
+// (see the header in sessionFixtures.ts).
+import {
+  SESSION_CONTROLS_RESPONSE,
+  SESSION_DETAIL_ENDED_GATEWAY_RESPONSE,
+  SESSION_DETAIL_GATEWAY_ACTIVE_RESPONSE,
+  SESSION_DETAIL_JIT_RESPONSE,
+  SESSION_DETAIL_LIVE_RESPONSE,
+  SESSION_DETAIL_PAUSED_RESPONSE,
+  SESSION_EVENTS_ENDED_RESPONSE,
+  SESSION_EVENTS_GATEWAY_ACTIVE_RESPONSE,
+  SESSION_EVENTS_JIT_RESPONSE,
+  SESSION_EVENTS_LIVE_RESPONSE,
+  SESSION_EVENTS_PAUSED_RESPONSE,
+  SESSION_IDS,
+  SESSION_LINKED_GRANT_RESPONSE,
+  SESSION_LOCK_RESPONSE,
+  SESSION_PAUSE_RESPONSE,
+  SESSION_RESUME_RESPONSE,
+  SESSION_START_RESPONSE,
+  SESSION_TERMINATE_RESPONSE,
+  SESSIONS_LIST_RESPONSE,
+  SESSIONS_STATS_RESPONSE,
+  VAULT_ITEMS_RESPONSE,
+} from './sessionFixtures';
+export * from './sessionFixtures';
+
 /** Build a fetch-shaped Response with the backend's JSON body. */
 export function jsonResponse(status: number, body: unknown): Response {
   return new Response(JSON.stringify(body), {
@@ -677,6 +704,111 @@ export function jitRoutes() {
     agentRegisterRoute(),
     agentTaskDeclareRoute(1),
     vaultItemsRoute(),
+  ];
+}
+
+/** GET /api/v1/sessions/stats - real monitoring aggregates. */
+export function sessionStatsRoute(capture: CapturedResponse = SESSIONS_STATS_RESPONSE) {
+  return {
+    match: (url: string) => url.includes('/sessions/stats'),
+    respond: () => jsonResponse(capture.status, capture.body),
+  };
+}
+
+/**
+ * GET /api/v1/sessions?... - the session list. The query marker
+ * separates it from POST /sessions (start a session).
+ */
+export function sessionListRoute(capture: CapturedResponse = SESSIONS_LIST_RESPONSE) {
+  return {
+    match: (url: string) => url.includes('/sessions?'),
+    respond: () => jsonResponse(capture.status, capture.body),
+  };
+}
+
+/** GET /api/v1/sessions/{id} - one detail body per session id. */
+export function sessionDetailRoute(id: number, capture: CapturedResponse) {
+  return {
+    match: (url: string) => new RegExp(`/sessions/${id}(\\?|$)`).test(url),
+    respond: () => jsonResponse(capture.status, capture.body),
+  };
+}
+
+/** GET /api/v1/sessions/{id}/events... - one recording per session id. */
+export function sessionEventsRoute(id: number, capture: CapturedResponse) {
+  return {
+    match: (url: string) => url.includes(`/sessions/${id}/events`),
+    respond: () => jsonResponse(capture.status, capture.body),
+  };
+}
+
+/** POST /api/v1/sessions - start a session (201, risk + broker verdict). */
+export function sessionStartRoute(capture: CapturedResponse = SESSION_START_RESPONSE) {
+  return {
+    match: (url: string) => url.endsWith('/sessions'),
+    respond: () => jsonResponse(capture.status, capture.body),
+  };
+}
+
+/**
+ * POST /api/v1/sessions/{id}/{pause|lock|resume} - the supervisor
+ * lifecycle actions (each answers its own captured response).
+ */
+export function sessionLifecycleRoute(
+  kind: 'pause' | 'lock' | 'resume',
+  capture: CapturedResponse,
+) {
+  return {
+    match: (url: string) => url.includes('/sessions/') && url.endsWith(`/${kind}`),
+    respond: () => jsonResponse(capture.status, capture.body),
+  };
+}
+
+/** POST /api/v1/sessions/{id}/terminate - kill switch + cascade outcome. */
+export function sessionTerminateRoute(
+  capture: CapturedResponse = SESSION_TERMINATE_RESPONSE,
+) {
+  return {
+    match: (url: string) => url.endsWith('/terminate'),
+    respond: () => jsonResponse(capture.status, capture.body),
+  };
+}
+
+/** POST /api/v1/sessions/{id}/controls - flip control flags (audited). */
+export function sessionControlsRoute(
+  capture: CapturedResponse = SESSION_CONTROLS_RESPONSE,
+) {
+  return {
+    match: (url: string) => url.endsWith('/controls'),
+    respond: () => jsonResponse(capture.status, capture.body),
+  };
+}
+
+/** The full Live Session Hub route set (F4 screen 4, /sessions). */
+export function sessionsRoutes() {
+  return [
+    whoamiRoute(WHOAMI_OPEN_BODY),
+    healthRoute(),
+    sessionStatsRoute(),
+    sessionListRoute(),
+    sessionDetailRoute(SESSION_IDS.live, SESSION_DETAIL_LIVE_RESPONSE),
+    sessionEventsRoute(SESSION_IDS.live, SESSION_EVENTS_LIVE_RESPONSE),
+    sessionDetailRoute(SESSION_IDS.paused, SESSION_DETAIL_PAUSED_RESPONSE),
+    sessionEventsRoute(SESSION_IDS.paused, SESSION_EVENTS_PAUSED_RESPONSE),
+    sessionDetailRoute(SESSION_IDS.jit, SESSION_DETAIL_JIT_RESPONSE),
+    sessionEventsRoute(SESSION_IDS.jit, SESSION_EVENTS_JIT_RESPONSE),
+    sessionDetailRoute(SESSION_IDS.endedGateway, SESSION_DETAIL_ENDED_GATEWAY_RESPONSE),
+    sessionEventsRoute(SESSION_IDS.endedGateway, SESSION_EVENTS_ENDED_RESPONSE),
+    sessionDetailRoute(SESSION_IDS.gatewayActive, SESSION_DETAIL_GATEWAY_ACTIVE_RESPONSE),
+    sessionEventsRoute(SESSION_IDS.gatewayActive, SESSION_EVENTS_GATEWAY_ACTIVE_RESPONSE),
+    sessionLifecycleRoute('pause', SESSION_PAUSE_RESPONSE),
+    sessionLifecycleRoute('resume', SESSION_RESUME_RESPONSE),
+    sessionLifecycleRoute('lock', SESSION_LOCK_RESPONSE),
+    sessionTerminateRoute(),
+    sessionControlsRoute(),
+    sessionStartRoute(),
+    jitDetailRoute(SESSION_IDS.linkedGrant, SESSION_LINKED_GRANT_RESPONSE.body),
+    vaultItemsRoute(VAULT_ITEMS_RESPONSE.body, VAULT_ITEMS_RESPONSE.status),
   ];
 }
 

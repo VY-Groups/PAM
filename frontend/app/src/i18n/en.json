@@ -514,5 +514,161 @@
       "actionDone": "Done: {{message}}",
       "actionFailed": "Action failed: {{message}}"
     }
+  },
+  "sessions": {
+    "kicker": "Live Session Hub / Recording & Inspection",
+    "title": "Live Sessions & Recording Inspection",
+    "subtitle": "Event stream, supervisor controls and the watermark overlay - reported live by the license server.",
+    "kpis": {
+      "heading": "Session posture",
+      "live": "Live now",
+      "liveFooter": "{{paused}} paused · {{locked}} locked",
+      "ended": "Ended sessions",
+      "endedFooter": "of {{total}} on record",
+      "blocked": "Events blocked",
+      "blockedFooter": "{{withheld}} withheld by policy",
+      "events": "Recorded events",
+      "eventsFooter": "append-only recording rows"
+    },
+    "tabs": {
+      "label": "Session list",
+      "liveWithCount": "Live streams ({{count}})",
+      "endedWithCount": "Ended ({{count}})"
+    },
+    "list": {
+      "start": "Start session",
+      "emptyLive": "No live sessions - start one to see it here.",
+      "emptyEnded": "No ended sessions yet.",
+      "inspect": "Inspect {{ref}}",
+      "jitPrefix": "JIT #{{id}}",
+      "vault": "vault credential",
+      "bare": "bare session"
+    },
+    "detail": {
+      "heading": "Selected session",
+      "monitor": "LIVE MONITOR",
+      "playback": "PLAYBACK",
+      "recordingOn": "RECORDING EVENTS",
+      "recordingOff": "RECORDING OFF",
+      "eventCount": "{{count}} EVENTS",
+      "blockedCount": "{{count}} BLOCKED",
+      "replay": "{{duration}} · {{count}} events",
+      "ttlEnded": "ended {{state}} · {{duration}}",
+      "ttlElapsed": "elapsed {{duration}}",
+      "pause": "Pause",
+      "resume": "Resume",
+      "lock": "Lock",
+      "terminate": "Terminate",
+      "pauseDisabled": "Only a live session can pause.",
+      "resumeDisabled": "Nothing to resume in the current state.",
+      "lockDisabled": "Already locked.",
+      "endedDisabled": "This session has ended.",
+      "done": "Done: {{message}}",
+      "failed": "Action failed: {{message}}",
+      "none": "No session selected. Start one, or pick a card above.",
+      "notInList": "This session is no longer in the server's list."
+    },
+    "start": {
+      "title": "Start a session",
+      "cancel": "Cancel",
+      "protocol": "Protocol",
+      "target": "Target (host:port)",
+      "targetPlaceholder": "e.g. bastion-01.lab:22",
+      "credential": "Vault credential",
+      "noCredential": "No credential (bare session)",
+      "controls": "Control flags",
+      "submit": "Start",
+      "submitting": "Starting…",
+      "invalid": "Check the highlighted fields - limits mirror the contract.",
+      "started": "{{message}}",
+      "startedWithRisk": "{{message}} - risk {{risk}} (score {{score}})",
+      "failed": "Start failed: {{message}}"
+    },
+    "terminate": {
+      "title": "Terminate {{ref}}?",
+      "body": "Terminate ends the session now; if it held a vault checkout the credential is rotated and the checkout released (the rotation runs server-side).",
+      "bodyLinked": "Terminate ends the session now, closes its linked JIT grant, and - if it held a vault checkout - rotates the credential and releases the checkout.",
+      "session": "Session",
+      "target": "Target",
+      "actor": "Actor",
+      "started": "Started",
+      "reason": "Reason (recorded)",
+      "reasonPlaceholder": "e.g. terminated from the session hub",
+      "submit": "Terminate session",
+      "submitting": "Terminating…",
+      "failed": "Terminate failed: {{message}}",
+      "cascadeRotated": "checkout released · credential rotated to version {{version}}",
+      "cascadeReleased": "checkout released",
+      "cascadeError": "rotation error: {{error}}"
+    },
+    "stream": {
+      "heading": "Event stream",
+      "summary": "{{count}} recorded events · {{blocked}} blocked · {{withheld}} withheld by policy",
+      "empty": "No events recorded yet for {{ref}}. Commands and channel events appear here as they arrive.",
+      "custody": "custody: {{watermark}}",
+      "blocked": "{{type}} refused ({{reason}})",
+      "blockedSub": "kept as evidence",
+      "blockedBadge": "BLOCKED",
+      "withheld": "[{{time}}] input content withheld by policy",
+      "keystroke": "[{{time}}] {{content}}",
+      "row": "[{{time}}] {{type}}: {{content}}"
+    },
+    "watermark": {
+      "heading": "Watermark & protocol overlay",
+      "user": "User",
+      "session": "Session",
+      "target": "Target",
+      "time": "Time",
+      "ticket": "Ticket",
+      "source": "Source",
+      "off": "Watermark control is OFF for this session — the payload below stays on file, nothing is painted.",
+      "overlayAwaiting": "Protocol-level overlay (RDP/VNC/browser/DB/SSH/file transfer): not connected — pixel injection awaits the gateway (section 27).",
+      "overlayNone": "Protocol-level overlay (RDP/VNC/browser/DB/SSH/file transfer): not connected — this session was not brokered through the gateway (gateway off, non-gateway protocol, or target not zone-mapped).",
+      "overlayConnected": "Protocol-level overlay: connected — session brokered through gateway node {{node}}; {{injection}}, {{segments}} sealed segment(s) on disk (section 27).",
+      "overlayEnded": "Protocol-level overlay: gateway session {{state}}{{endReason}} via node {{node}}; recording retained for playback (section 27).",
+      "injected": "credential injected for the session only (the user never sees it)",
+      "notInjected": "credential not injected",
+      "noNode": "no node assigned"
+    },
+    "governance": {
+      "heading": "Governance",
+      "source": "Access source",
+      "jit": "JIT request #{{id}}",
+      "direct": "direct (no grant)",
+      "quorum": "Quorum",
+      "quorumState": "{{recorded}} of {{required}} required approval(s) recorded",
+      "quorumUnknown": "{{recorded}} approval(s) recorded (server did not state a quorum)",
+      "started": "Started",
+      "expires": "Grant expires"
+    },
+    "controls": {
+      "heading": "Session control flags",
+      "subtitle": "Server-enforced; every change is appended to the recording as a status event.",
+      "flags": {
+        "record": "Record session",
+        "keystroke_log": "Keystroke logging",
+        "watermark": "Watermark overlay",
+        "clipboard_allowed": "Clipboard",
+        "upload_allowed": "Upload",
+        "download_allowed": "Download",
+        "screenshot_allowed": "Screenshot"
+      },
+      "on": "ON",
+      "off": "OFF",
+      "ended": "This session has ended; the flags are frozen.",
+      "toggleAria": "Toggle {{name}}"
+    },
+    "violations": {
+      "heading": "Control violations",
+      "some": "Control violations are retained as evidence; counts settle when the session ends.",
+      "none": "No control violations recorded on this session.",
+      "recorded": "Events in this recording",
+      "blockedLabel": "Blocked by controls",
+      "withheldLabel": "Withheld by policy"
+    },
+    "states": {
+      "loading": "Loading live data…",
+      "sectionError": "Section unavailable: {{message}}"
+    }
   }
 }

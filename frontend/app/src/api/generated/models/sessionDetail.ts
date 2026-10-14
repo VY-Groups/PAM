@@ -22,6 +22,7 @@
  */
 import type { Session } from './session';
 import type { SessionEvent } from './sessionEvent';
+import type { SessionGateway } from './sessionGateway';
 import type { SessionWatermark } from './sessionWatermark';
 
 export interface SessionDetail {
@@ -31,4 +32,5 @@ export interface SessionDetail {
   event_count: number;
   blocked_count: number;
   watermark?: SessionWatermark;
+  gateway?: SessionGateway | null;
 }

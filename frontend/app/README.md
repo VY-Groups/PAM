@@ -83,6 +83,38 @@ Revoke,Rotate}` through generated hooks in `queries.ts`). Actions send
   secrets never enter the repo - synthetic token fixtures only). The
   legacy `../screens/jit_access_ephemeral_approvals/code.html` stays
   served until the Flask app mounts `dist/` under `/app/` (ADR-0012).
+- Live Session Hub (F4 screen 4, plan §4 line 108):
+  `src/features/sessions/` renders the session-posture KPI quad over
+  `GET /api/v1/sessions/stats`, the Live / Ended session tabs (client
+  split of the limit=200 list, honest per-tab empty states, selection
+  derived during render so the detail pane always mirrors a server row),
+  the selected session's **event stream** (the legacy hub's duplicate
+  terminal-mirror and timeline merged into one sequence-ordered tape:
+  command prompts from the real actor/host, blocked actions kept as
+  visible red evidence with the server's reason, withheld input said
+  out loud, custody watermark sub-lines), the supervisor **toolbar**
+  (pause / resume / lock / terminate gated by session state with honest
+  disabled reasons and the server's verbatim message; the terminate
+  outcome reports the real release-and-rotate cascade from
+  `SessionEndResponse.cascade`), the seven interactive **control
+  flags** (`POST /sessions/{id}/controls`, every change re-read from
+  server truth - no optimistic state), the **watermark card** with the
+  server-assembled payload and the section-27/8a protocol-overlay line
+  in all four gateway branches (awaiting / not brokered / connected
+  with the injection fact and sealed segments / ended with reason and
+  node), the **governance panel** (JIT-linked vs direct, quorum from
+  the server's audit trail - recorded approvals vs the `requested`
+  event's `required_approvals`, never client-derived), and the
+  **start** / **terminate** dialogs (RHF + Zod, ADR-0006; vault
+  credential picker from `/vault/items`; submit disabled in-flight;
+  success shows the server's message and risk band). The contract
+  gained the nullable `SessionGateway` schema documenting the shipped
+  gateway half (`apis/openapi.yaml`, client regenerated - zero backend
+  behavior change). Live pixel playback stays out of scope (plan:
+  "live player later") and the `complete` action plus per-event
+  approve/deny have no legacy UI - API-only stays API. The legacy
+  `../screens/live_session_recording_inspection_hub/code.html` stays
+  served until the Flask app mounts `dist/` under `/app/` (ADR-0012).
 - During migration the legacy `../screens/` pages stay reachable and the
   standing gate (`../../shots_tool/__verify_*.mjs`) stays authoritative
   until F5 (ADR-0008).

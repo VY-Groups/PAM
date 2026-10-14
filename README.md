@@ -150,7 +150,13 @@ python -m pytest pam_master -q                   # 46 tests (vendor tool)
   `GET /api/v1/vault/*`, and JIT Access (F4 screen 3) renders the request
   queue with server-truth quorum approvals, ephemeral grants, the pipeline
   credential broker and AI-agent access from `GET/POST /api/v1/jit/*`,
-  `/api/v1/broker/*` and `/api/v1/agents*` + `/api/v1/agent-access/*`;
+  `/api/v1/broker/*` and `/api/v1/agents*` + `/api/v1/agent-access/*`,
+  and the Live Session Hub (F4 screen 4) renders the session posture,
+  live/ended streams with the merged event tape (blocked evidence and
+  withheld input kept visible), supervisor pause/lock/resume/terminate,
+  the interactive control flags, the watermark and protocol-overlay
+  lines, and the governance quorum from `GET/POST /api/v1/sessions/*`
+  plus the linked `GET /api/v1/jit/requests/{id}`;
   the legacy pages below stay served and reachable
   until each replacement passes parity. Served by Phase 2, all
   eleven sidebar screens are **live**: licensing (`/`), platform settings (`/settings`,

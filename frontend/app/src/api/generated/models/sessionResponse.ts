@@ -22,9 +22,12 @@
  */
 import type { RiskEvaluation } from './riskEvaluation';
 import type { Session } from './session';
+import type { SessionGateway } from './sessionGateway';
 
 export interface SessionResponse {
   session: Session;
   risk?: RiskEvaluation;
   message: string;
+  /** Present on session start only - this request's broker verdict. */
+  gateway?: (SessionGateway | null);
 }
