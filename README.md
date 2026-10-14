@@ -167,7 +167,14 @@ python -m pytest pam_master -q                   # 46 tests (vendor tool)
   digest, the on-demand verify walk, the measured connector chips, the
   source-filtered unified trail and the full-ledger CSV export from
   `GET /api/v1/audit/stats|verify|export`, `GET /api/v1/events` and
-  `GET /api/v1/integrations/status`;
+  `GET /api/v1/integrations/status`,
+  and Target Infrastructure (F4 screen 7) renders the real scan
+  trigger and history, the discovered-target inventory with its
+  Ignore/Restore/adopt actions, the privileged accounts, the cloud
+  connector fleet with live probe and inventory import, and the
+  discovery event tape from `GET /api/v1/discovery/*`,
+  `GET /api/v1/cloud/stats|connectors`, `POST /api/v1/cloud/connectors/{id}/test|discover`
+  and `GET /api/v1/events?source=discovery`;
   the legacy pages below stay served and reachable
   until each replacement passes parity. Served by Phase 2, all
   eleven sidebar screens are **live**: licensing (`/`), platform settings (`/settings`,

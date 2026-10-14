@@ -1021,5 +1021,127 @@
       "loading": "Loading the ledger…",
       "sectionError": "Section unavailable: {{message}}"
     }
+  },
+  "infrastructure": {
+    "kicker": "F4 · Target Infrastructure",
+    "title": "Target Infrastructure & Discovery",
+    "subtitle": "Scans, targets and cloud connectors from the contract's own discovery endpoints - every row is a real probe, patch or import, never a mock.",
+    "line": "inventory:",
+    "lineValue": "{{total}} targets · {{types}} types · {{accounts}} privileged accounts",
+    "states": {
+      "loading": "Loading the inventory…",
+      "sectionError": "Section unavailable: {{message}}",
+      "actionDone": "Request accepted"
+    },
+    "kpis": {
+      "assets": "DISCOVERED ASSETS",
+      "assetsFooter": "{{managed}} managed · {{ignored}} ignored · {{unmanaged}} unmanaged",
+      "assetsFooterNone": "no inventory yet",
+      "accounts": "PRIVILEGED ACCOUNTS",
+      "accountsFooter": "ingested with their targets at onboarding",
+      "scans": "SCANS RUN",
+      "scansFooter": "last {{scope}} · {{status}}",
+      "scansFooterNone": "no scans yet",
+      "connectors": "CLOUD CONNECTORS",
+      "connectorsFooter": "{{connected}} connected · {{error}} error · {{configured}} configured · {{unprobed}} unprobed",
+      "connectorsFooterNone": "no connectors registered"
+    },
+    "actions": {
+      "scan": "Run Discovery Scan",
+      "onboard": "Onboard Target Host",
+      "addConnector": "Add Cloud Connector",
+      "probe": "Probe",
+      "discover": "Discover",
+      "remove": "Remove",
+      "ignore": "Ignore",
+      "restore": "Restore",
+      "adopt": "Onboard to Vault Now"
+    },
+    "scans": {
+      "title": "Automated network discovery",
+      "subtitle": "A real TCP-connect probe of the scope you supply - the server runs it synchronously and records it in the ledger.",
+      "count": "showing {{shown}} of {{total}} scans",
+      "empty": "No scans yet - nothing has been probed.",
+      "defaultPorts": "management-plane default set",
+      "counters": "{{probed}} probed · {{open}} open · {{services}} services",
+      "triggeredBy": "triggered by {{who}}",
+      "running": "still running"
+    },
+    "assets": {
+      "title": "Discovered targets",
+      "subtitle": "Inventory from scans and manual onboarding; PAM status, risk and vault linkage are the server's own classification.",
+      "filterPam": "Filter targets by PAM status",
+      "filterType": "Filter targets by type",
+      "filterAll": "all",
+      "searchPlaceholder": "search address or hostname",
+      "count": "showing {{shown}} of {{total}} targets",
+      "empty": "No targets match this filter - the discovery inventory is empty here.",
+      "vaultCount": "{{count}} vault credential(s)",
+      "lastSeen": "last seen {{at}}"
+    },
+    "accounts": {
+      "title": "Privileged accounts",
+      "count": "showing {{shown}} of {{total}} accounts",
+      "empty": "No privileged accounts yet - onboarding a target creates its first one."
+    },
+    "connectors": {
+      "title": "Cloud PAM connectors",
+      "subtitle": "Fleet connectors with live probe and inventory import; every write carries the signed-in principal as X-Actor.",
+      "filterProvider": "Filter connectors by provider",
+      "filterStatus": "Filter connectors by status",
+      "filterAllProviders": "all providers",
+      "filterAnyStatus": "any status",
+      "count": "showing {{shown}} of {{total}} connectors",
+      "empty": "No cloud connectors registered - add one to probe it and import its inventory.",
+      "accountRef": "account",
+      "endpoint": "endpoint",
+      "registeredBy": "registered by {{who}} · {{at}}",
+      "lastProbe": "last probe: {{detail}} ({{at}})",
+      "neverProbed": "never probed",
+      "discoveredCounts": "{{added}} new · {{updated}} updated"
+    },
+    "dialogs": {
+      "cancel": "Cancel",
+      "invalid": "Fix the highlighted fields - the form mirrors the contract's limits.",
+      "scanTitle": "Run Discovery Scan",
+      "scanSubmit": "Run scan",
+      "scanning": "Scanning…",
+      "scope": "Scope",
+      "ports": "Ports (optional)",
+      "portsHint": "22, 443, 3389",
+      "onboardTitle": "Onboard Target Host",
+      "onboardSubmit": "Onboard",
+      "onboarding": "Onboarding…",
+      "address": "Address",
+      "hostname": "Hostname (optional)",
+      "type": "Asset type",
+      "principal": "Privileged account",
+      "tier": "Access tier",
+      "authMethod": "Auth method",
+      "rotation": "Rotation hours (optional)",
+      "rotationHint": "24",
+      "notes": "Notes (optional)",
+      "adoptTitle": "Onboard to Vault: {{address}}",
+      "adoptTitleFallback": "Onboard to Vault",
+      "adoptSubmit": "Adopt target",
+      "adopting": "Adopting…",
+      "connectorTitle": "Add Cloud Connector",
+      "connectorSubmit": "Register",
+      "registering": "Registering…",
+      "name": "Name",
+      "provider": "Provider",
+      "accountRef": "Account reference (optional)",
+      "endpoint": "Endpoint (optional)",
+      "removeTitle": "Remove cloud connector",
+      "removeBody": "Remove {{name}}? Its probe history and inventory records stay in the audit ledger.",
+      "removeSubmit": "Remove",
+      "removing": "Removing…"
+    },
+    "events": {
+      "title": "Discovery event stream",
+      "subtitle": "The discovery slice of the unified audit tape, newest first.",
+      "count": "showing {{shown}} of {{total}} events",
+      "empty": "No discovery events yet."
+    }
   }
 }

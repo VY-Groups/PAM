@@ -59,4 +59,19 @@ export const queryKeys = {
   complianceEvents: (source: string, limit: number) =>
     ['compliance', 'events', source, limit] as const,
   complianceIntegrations: ['compliance', 'integrations'] as const,
+  // Target Infrastructure (F4 screen 7): one `['infrastructure', ...]` root so
+  // a single prefix invalidation refreshes the discovery aggregates, the
+  // filtered target list, the accounts, the scans, the connector fleet and the
+  // discovery event stream together - onboarding an asset moves all of them.
+  // Filtered lists key on their server-side filter params, mirroring the
+  // contract's own query contract.
+  infraStats: ['infrastructure', 'discovery', 'stats'] as const,
+  infraAssets: (pam: string, type: string, q: string) =>
+    ['infrastructure', 'assets', pam, type, q] as const,
+  infraAccounts: (limit: number) => ['infrastructure', 'accounts', limit] as const,
+  infraScans: (limit: number) => ['infrastructure', 'scans', limit] as const,
+  infraCloudStats: ['infrastructure', 'cloud', 'stats'] as const,
+  infraConnectors: (provider: string, status: string) =>
+    ['infrastructure', 'connectors', provider, status] as const,
+  infraEvents: (limit: number) => ['infrastructure', 'events', limit] as const,
 } as const;

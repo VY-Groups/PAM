@@ -170,6 +170,51 @@ Revoke,Rotate}` through generated hooks in `queries.ts`). Actions send
   states (broken chain, empty trail). The legacy
   `../screens/compliance_soc_2_audit_center/code.html` stays served
   until the Flask app mounts `dist/` under `/app/` (ADR-0012).
+- Target Infrastructure (F4 screen 7, plan §4 line 109):
+  `src/features/infrastructure/` renders the discovery KPI quad over
+  `GET /api/v1/discovery/stats` + `GET /api/v1/cloud/stats` (targets
+  with the PAM-status split, privileged accounts, scans run with the
+  last-scan footer, connectors with the status split and error
+  accent), the **real scan trigger** (`POST /discovery/scans` — a
+  synchronous TCP-connect probe of the operator's scope; the dialog
+  cannot invent a default scope, and an empty ports CSV keeps the
+  contract parameter absent so the server uses its management-plane
+  default set) with the captured **scan history** (scope, method and
+  status chips, ports or the honest default-set line, probed/open/
+  services counters, trigger provenance, started→finished, errors
+  verbatim), the **target inventory** whose PAM-status chips, type
+  chips and search drive real contract parameters (`pam_status`,
+  `type`, `q` — refetched server truth, never a client re-filter),
+  with asset cards (type/risk/status/source chips, ports with
+  proto+service labels, vault-count linkage, the advisory
+  `recommended_policy` line) offering **Ignore/Restore**
+  (`PATCH pam_status` flips) and **Onboard to Vault Now**
+  (`POST /discovery/assets/{id}/onboard`) — every result renders the
+  server's own message — plus the **privileged-accounts panel** over
+  `GET /discovery/accounts`; the **cloud connector fleet** (provider/
+  status chips as contract filters, account/endpoint/registered-by
+  lines, the captured last-probe detail verbatim) with **Probe**
+  (`POST .../test`), **Discover** (`POST .../discover` — the server's
+  409 credential refusal renders verbatim) and **Remove** behind a
+  confirmation modal (`DELETE .../{id}`), all carrying the signed-in
+  principal as `X-Actor` per contract, while the discovery writes
+  carry none (the contract documents only `rbac:operator`); the
+  **discovery event tape** over `GET /api/v1/events?source=discovery`.
+  ADR-0006 gates all four forms (scan, onboard, adopt, connector):
+  contract limits mirrored in Zod with the 400 still authoritative,
+  including the endpoint https/loopback rule as a UX guard. Honest
+  states follow DoD 2 (section error verbatim including a dedicated
+  stats-failure alert over the KPIs, `not connected` chips,
+  BackendDownNotice, em-dash KPIs, honest empty lines). Fixtures in
+  `src/test/infrastructureFixtures.ts` are verbatim rig captures (a
+  real loopback probe, real register/ignore/restore/adopt and
+  connector create/probe/409-refusal/deletion round-trips, all against
+  synthetic `vypam-` strings) plus two clearly-labelled synthetics
+  (empty list, unmanaged-state replay for the adopt path). The legacy
+  `../screens/target_infrastructure_connectors/code.html` stays served
+  until the Flask app mounts `dist/` under `/app/` (ADR-0012); its
+  "Connector Mesh Health" and connector Inventory/RBAC tabs are out of
+  plan scope (the gateway mesh has its own contract surface).
 - During migration the legacy `../screens/` pages stay reachable and the
   standing gate (`../../shots_tool/__verify_*.mjs`) stays authoritative
   until F5 (ADR-0008).

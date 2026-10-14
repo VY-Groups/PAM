@@ -106,6 +106,28 @@ import {
 } from './complianceFixtures';
 export * from './complianceFixtures';
 
+// F4 screen 7 fixtures: verbatim rig captures for Target Infrastructure
+// (see the header in infrastructureFixtures.ts).
+import {
+  ACCOUNTS_LIST_RESPONSE,
+  ASSETS_LIST_RESPONSE,
+  ASSET_ADOPT_RESPONSE,
+  ASSET_CREATE_RESPONSE,
+  ASSET_IGNORE_RESPONSE,
+  ASSET_RESTORE_RESPONSE,
+  CLOUD_STATS_RESPONSE,
+  CONNECTOR_CREATE_RESPONSE,
+  CONNECTOR_DELETE_RESPONSE,
+  CONNECTORS_LIST_RESPONSE,
+  DISCOVER_REFUSED_RESPONSE,
+  DISCOVERY_EVENTS_RESPONSE,
+  DISCOVERY_STATS_RESPONSE,
+  PROBE_RESPONSE,
+  SCAN_CREATE_RESPONSE,
+  SCANS_LIST_RESPONSE,
+} from './infrastructureFixtures';
+export * from './infrastructureFixtures';
+
 /** Build a fetch-shaped Response with the backend's JSON body. */
 export function jsonResponse(status: number, body: unknown): Response {
   return new Response(JSON.stringify(body), {
@@ -1107,6 +1129,239 @@ export function complianceRoutes() {
     auditExportRoute(),
     complianceEventsRoute(),
     integrationsStatusRoute(),
+  ];
+}
+
+/* ------------------------------------------------------ F4 screen 7 routes */
+
+/**
+ * GET /api/v1/discovery/stats - the discovery aggregates. The GET list
+ * routes match a query string (the hooks always send `limit=`), which
+ * keeps them apart from the bare-POST writes on the same paths.
+ */
+export function discoveryStatsRoute(capture: CapturedResponse = DISCOVERY_STATS_RESPONSE) {
+  return {
+    match: (url: string) => /\/discovery\/stats(\?|$)/.test(url),
+    respond: () => jsonResponse(capture.status, capture.body),
+  };
+}
+
+/**
+ * GET /api/v1/discovery/assets - the target list with the contract's
+ * own filters applied exactly like the rig applies them: `pam_status`
+ * and `type` by equality, `q` as a substring over address/hostname,
+ * `total` echoing the filtered length. The URL is parsed in `match`
+ * (the same closure trick complianceEventsRoute uses).
+ */
+export function discoveredAssetsRoute(capture: CapturedResponse = ASSETS_LIST_RESPONSE) {
+  type AssetRow = {
+    address: string;
+    hostname?: string;
+    asset_type: string;
+    pam_status: string;
+  };
+  let params = new URLSearchParams();
+  return {
+    match: (url: string) => {
+      if (!/\/discovery\/assets\?/.test(url)) return false;
+      params = new URL(url, 'http://test.local').searchParams;
+      return true;
+    },
+    respond: () => {
+      const body = capture.body as {
+        assets: AssetRow[];
+        total: number;
+        limit: number;
+        offset: number;
+      };
+      const pam = params.get('pam_status');
+      const type = params.get('type');
+      const q = (params.get('q') ?? '').toLowerCase();
+      let rows = body.assets;
+      if (pam) rows = rows.filter((a) => a.pam_status === pam);
+      if (type) rows = rows.filter((a) => a.asset_type === type);
+      if (q !== '') {
+        rows = rows.filter(
+          (a) =>
+            a.address.toLowerCase().includes(q) ||
+            (a.hostname ?? '').toLowerCase().includes(q),
+        );
+      }
+      return jsonResponse(capture.status, {
+        assets: rows,
+        total: rows.length,
+        limit: body.limit,
+        offset: body.offset,
+      });
+    },
+  };
+}
+
+/** GET /api/v1/discovery/accounts - the privileged-account inventory. */
+export function discoveryAccountsRoute(capture: CapturedResponse = ACCOUNTS_LIST_RESPONSE) {
+  return {
+    match: (url: string) => /\/discovery\/accounts\?/.test(url),
+    respond: () => jsonResponse(capture.status, capture.body),
+  };
+}
+
+/** GET /api/v1/discovery/scans - the scan history. */
+export function discoveryScansRoute(capture: CapturedResponse = SCANS_LIST_RESPONSE) {
+  return {
+    match: (url: string) => /\/discovery\/scans\?/.test(url),
+    respond: () => jsonResponse(capture.status, capture.body),
+  };
+}
+
+/** POST /api/v1/discovery/scans - run a real scan (captured result). */
+export function runScanRoute(capture: CapturedResponse = SCAN_CREATE_RESPONSE) {
+  return {
+    match: (url: string) => /\/discovery\/scans(\?|$)/.test(url),
+    respond: () => jsonResponse(capture.status, capture.body),
+  };
+}
+
+/** POST /api/v1/discovery/assets - register a target (bare path = POST). */
+export function onboardAssetRoute(capture: CapturedResponse = ASSET_CREATE_RESPONSE) {
+  return {
+    match: (url: string) => /\/discovery\/assets(\?|$)/.test(url),
+    respond: () => jsonResponse(capture.status, capture.body),
+  };
+}
+
+/** PATCH /api/v1/discovery/assets/{id} - operator overrides. */
+export function assetPatchRoute(
+  assetId: number,
+  capture: CapturedResponse = ASSET_IGNORE_RESPONSE,
+) {
+  return {
+    match: (url: string) => new RegExp(`/discovery/assets/${assetId}(\\?|$)`).test(url),
+    respond: () => jsonResponse(capture.status, capture.body),
+  };
+}
+
+/** POST /api/v1/discovery/assets/{id}/onboard - adopt into the vault. */
+export function adoptAssetRoute(
+  assetId: number,
+  capture: CapturedResponse = ASSET_ADOPT_RESPONSE,
+) {
+  return {
+    match: (url: string) => url.includes(`/discovery/assets/${assetId}/onboard`),
+    respond: () => jsonResponse(capture.status, capture.body),
+  };
+}
+
+/** GET /api/v1/cloud/stats - the connector fleet aggregates. */
+export function cloudStatsRoute(capture: CapturedResponse = CLOUD_STATS_RESPONSE) {
+  return {
+    match: (url: string) => /\/cloud\/stats(\?|$)/.test(url),
+    respond: () => jsonResponse(capture.status, capture.body),
+  };
+}
+
+/** GET /api/v1/cloud/connectors - the fleet with the contract's filters. */
+export function connectorsListRoute(capture: CapturedResponse = CONNECTORS_LIST_RESPONSE) {
+  type ConnectorRow = { provider: string; status: string };
+  let params = new URLSearchParams();
+  return {
+    match: (url: string) => {
+      if (!/\/cloud\/connectors\?/.test(url)) return false;
+      params = new URL(url, 'http://test.local').searchParams;
+      return true;
+    },
+    respond: () => {
+      const body = capture.body as {
+        connectors: ConnectorRow[];
+        total: number;
+        limit: number;
+        offset: number;
+      };
+      const provider = params.get('provider');
+      const status = params.get('status');
+      let rows = body.connectors;
+      if (provider) rows = rows.filter((c) => c.provider === provider);
+      if (status) rows = rows.filter((c) => c.status === status);
+      return jsonResponse(capture.status, {
+        ...body,
+        connectors: rows,
+        total: rows.length,
+      });
+    },
+  };
+}
+
+/** POST /api/v1/cloud/connectors - register a fleet connector. */
+export function connectorCreateRoute(
+  capture: CapturedResponse = CONNECTOR_CREATE_RESPONSE,
+) {
+  return {
+    match: (url: string) => /\/cloud\/connectors(\?|$)/.test(url),
+    respond: () => jsonResponse(capture.status, capture.body),
+  };
+}
+
+/** POST /api/v1/cloud/connectors/{id}/test - the live probe. */
+export function connectorProbeRoute(capture: CapturedResponse = PROBE_RESPONSE) {
+  return {
+    match: (url: string) => /\/cloud\/connectors\/\d+\/test(\?|$)/.test(url),
+    respond: () => jsonResponse(capture.status, capture.body),
+  };
+}
+
+/** POST /api/v1/cloud/connectors/{id}/discover - inventory import. */
+export function connectorDiscoverRoute(
+  capture: CapturedResponse = DISCOVER_REFUSED_RESPONSE,
+) {
+  return {
+    match: (url: string) => /\/cloud\/connectors\/\d+\/discover(\?|$)/.test(url),
+    respond: () => jsonResponse(capture.status, capture.body),
+  };
+}
+
+/** DELETE /api/v1/cloud/connectors/{id} - remove a connector. */
+export function connectorRemoveRoute(
+  capture: CapturedResponse = CONNECTOR_DELETE_RESPONSE,
+) {
+  return {
+    match: (url: string) => /\/cloud\/connectors\/\d+(\?|$)/.test(url),
+    respond: () => jsonResponse(capture.status, capture.body),
+  };
+}
+
+/** GET /api/v1/events?source=discovery - the discovery event tape. */
+export function discoveryEventsRoute(
+  capture: CapturedResponse = DISCOVERY_EVENTS_RESPONSE,
+) {
+  return {
+    match: (url: string) =>
+      url.includes('/api/v1/events') && url.includes('source=discovery'),
+    respond: () => jsonResponse(capture.status, capture.body),
+  };
+}
+
+/** The full Target Infrastructure route set (F4 screen 7, /infrastructure). */
+export function infrastructureRoutes() {
+  return [
+    whoamiRoute(WHOAMI_OPEN_BODY),
+    healthRoute(),
+    discoveryStatsRoute(),
+    // Order matters on shared stems: the query-string GETs first, then
+    // the bare-path POSTs, then the id-scoped writes.
+    discoveredAssetsRoute(),
+    discoveryAccountsRoute(),
+    discoveryScansRoute(),
+    connectorsListRoute(),
+    cloudStatsRoute(),
+    discoveryEventsRoute(),
+    runScanRoute(),
+    onboardAssetRoute(),
+    adoptAssetRoute(3),
+    assetPatchRoute(2),
+    assetPatchRoute(1, ASSET_RESTORE_RESPONSE),
+    connectorCreateRoute(),
+    connectorProbeRoute(),
+    connectorDiscoverRoute(),
+    connectorRemoveRoute(),
   ];
 }
 

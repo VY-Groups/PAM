@@ -79,14 +79,14 @@ describe('AppShell (F3 exit: shell renders live nav)', () => {
 
   it('renders the honest F4-pending screen with its live legacy link', async () => {
     stubFetch([whoamiRoute(WHOAMI_OPEN_BODY), healthRoute()]);
-    renderApp('/infrastructure');
+    renderApp('/vendor-access');
     expect(
       await screen.findByRole('heading', { name: /arrives at F4/ }),
     ).toBeInTheDocument();
     const legacy = screen.getByRole('link', { name: /Open the legacy screen/i });
     expect(legacy).toHaveAttribute(
       'href',
-      '/screens/target_infrastructure_connectors/code.html',
+      '/screens/vendor_access_third_party_lifecycle/code.html',
     );
   });
 
