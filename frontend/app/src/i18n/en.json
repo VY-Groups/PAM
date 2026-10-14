@@ -670,5 +670,287 @@
       "loading": "Loading live data…",
       "sectionError": "Section unavailable: {{message}}"
     }
+  },
+  "policy": {
+    "kicker": "POLICY ENGINE CORE",
+    "policyLine": "POLICY:",
+    "policyLineValue": "{{rules}} rules · {{hash}}",
+    "title": "Zero-Trust Access Policies & Rule Engine",
+    "subtitle": "Define deterministic granular session controls, command-level blacklists, multi-party quorum triggers, and context-aware JIT elevation constraints.",
+    "actions": {
+      "dryRun": "Dry Run Simulation",
+      "export": "Export Policy (JSON)",
+      "create": "Create New Policy Rule"
+    },
+    "kpis": {
+      "activePolicies": "Active Policies",
+      "policiesFooter": "{{enabled}} of {{total}} rules enabled",
+      "policiesFooterNone": "— of — rules enabled",
+      "blocksToday": "Command Blocks Today",
+      "blocksFooter": "High-risk command attempts stopped",
+      "approvals": "Command Approvals",
+      "approvalsFooter": "Approved · {{pending}} awaiting decision",
+      "approvalsFooterNone": "Approved · — awaiting decision",
+      "engineHash": "Engine Hash & Sync",
+      "syncLine": "Updated {{rel}} by {{by}}",
+      "syncLineNone": "Updated —",
+      "byAction": "sha256(policy) • block {{block}} · approval {{approval}} · allow {{allow}}",
+      "byActionNone": "sha256(policy) • — rules in force"
+    },
+    "tabs": {
+      "label": "Policy list",
+      "rulesWithCount": "Policy Rules ({{count}})",
+      "approvalsWithCount": "Approvals ({{count}})",
+      "incidentsWithCount": "SOC Incidents ({{count}})"
+    },
+    "filter": {
+      "rulesCount": "{{shown}} of {{total}} rules",
+      "rulesCountNone": "— of — rules",
+      "matchNote": "match: case-insensitive substring · default allow",
+      "order": "evaluation priority: block → approval → allow",
+      "approvalsCountOne": "{{n}} held command awaiting a decision",
+      "approvalsCountMany": "{{n}} held commands awaiting a decision",
+      "approvalsCountNone": "— held commands awaiting a decision",
+      "resolveNote": "resolve: approve releases · deny records the refusal",
+      "incidentsCount": "{{n}} escalation incidents",
+      "incidentsCountNone": "— escalation incidents",
+      "evidenceNote": "evidence preserved with the blocked command"
+    },
+    "states": {
+      "loading": "Loading live policy from the license server…",
+      "sectionError": "Section unavailable: {{message}}",
+      "rulesEmpty": "No rules match - the policy is empty.",
+      "approvalsEmpty": "No commands are awaiting approval.",
+      "incidentsEmpty": "No escalation incidents on record."
+    },
+    "toast": {
+      "ruleCreated": "Rule #{{id}} created",
+      "ruleUpdated": "Rule #{{id}} updated",
+      "ruleDeleted": "Rule #{{id}} deleted - recorded events keep their rule_id",
+      "approved": "Command approved - resolution recorded (append-only)",
+      "denied": "Command denied - resolution recorded (append-only)",
+      "exported": "Policy exported ({{count}} rules)"
+    },
+    "decision": {
+      "block": "BLOCKED",
+      "approval": "HELD FOR APPROVAL",
+      "allow": "ALLOWED",
+      "terminate": " + TERMINATE SESSION"
+    },
+    "effects": {
+      "block": "command refused, kept as evidence",
+      "approval": "held until an approver decides",
+      "allow": "command passes"
+    },
+    "simulator": {
+      "title": "Live Rule Simulator",
+      "engine": "engine {{hash}}",
+      "hint": "Type a command line (and, for scoped rules, a session target) and evaluate it against the live policy - the same engine that judges recorded session commands.",
+      "target": "Target Resource",
+      "targetPh": "e.g. prod-db-01:5432 (scoped rules)",
+      "payload": "Test Command Payload",
+      "dryRunNote": "dry-run · no state changes",
+      "payloadPh": "e.g. ls -la /var/log",
+      "run": "Evaluate Decision Pipeline",
+      "invalid": "Type a command line to evaluate",
+      "notConnected": "Not connected to the license server",
+      "evaluateFailed": "Evaluate failed: {{message}}",
+      "idle": "NOT YET EVALUATED",
+      "idleRule": "rule —",
+      "idleBody": "Evaluate a payload to see the live policy decision.",
+      "ruleLine": "rule #{{id}} {{pattern}}",
+      "defaultLine": "no rule matched (default allow)",
+      "inScope": "on match within target scope {{glob}}",
+      "anyTarget": "for any target",
+      "defaultBody": "No rule matched this command - the engine defaults to allow (it flags known-dangerous commands, it is not a whitelist).",
+      "rowCommand": "Command",
+      "rowTarget": "Session target",
+      "rowDecision": "Decision",
+      "rowEscalation": "Escalation",
+      "decisionDefault": "{{decision}} (default)",
+      "escalates": "ends the session, raises an incident",
+      "noEscalation": "none"
+    },
+    "posture": {
+      "title": "Policy Rules Enabled",
+      "commands": "Commands recorded",
+      "orderLabel": "Match order",
+      "orderValue": "block → approval → allow"
+    },
+    "teaser": {
+      "title": "Policy Incident Trail",
+      "meta": "{{incidents}} on record · {{commands}} commands recorded",
+      "incidentOne": "{{n}} incident",
+      "incidentsMany": "{{n}} incidents",
+      "metaNone": "— incidents on record · — commands recorded",
+      "jump": "Show incident trail"
+    },
+    "rules": {
+      "idChip": "Rule #{{id}}",
+      "enforced": "ENFORCED",
+      "disabled": "DISABLED",
+      "matchChip": "{{action}} · {{matches}} matches",
+      "targetScope": "target: {{glob}}",
+      "anyTarget": "any target",
+      "terminates": "terminates session",
+      "effectTitle": "Action On Trigger",
+      "matchTitle": "Match Pattern",
+      "matchHint": "substring, case-insensitive",
+      "updatedBy": "Updated {{rel}} by {{by}}",
+      "edit": "Edit",
+      "delete": "Delete"
+    },
+    "approvals": {
+      "seqChip": "Seq #{{seq}}",
+      "heldChip": "HELD FOR APPROVAL",
+      "heldMeta": "held {{rel}} by {{actor}}",
+      "heldState": "command held with allowed=false",
+      "approve": "Approve",
+      "deny": "Deny"
+    },
+    "incidents": {
+      "open": "OPEN",
+      "closed": "CLOSED",
+      "escalatedChip": "escalated · session ended",
+      "reviewedChip": "reviewed",
+      "evidenceTitle": "Evidence",
+      "evidenceSession": "session #{{session}} seq {{seq}}",
+      "ruleSnapshot": "Rule Snapshot",
+      "raisedMeta": "raised {{rel}} by {{actor}}",
+      "closedMeta": "closed {{rel}} by {{by}}",
+      "close": "Close incident",
+      "reviewed": "Reviewed"
+    },
+    "dialogs": {
+      "createTitle": "Create Policy Rule",
+      "editTitle": "Edit Policy Rule",
+      "name": "Name",
+      "pattern": "Pattern (case-insensitive substring)",
+      "action": "Action",
+      "target": "Target scope (glob, empty = any target)",
+      "description": "Description",
+      "terminate": "terminate session on block",
+      "enabled": "enabled",
+      "cancel": "Cancel",
+      "create": "Create rule",
+      "save": "Save changes",
+      "invalid": "Check the highlighted fields - limits mirror the contract."
+    },
+    "risk": {
+      "kicker": "RISK ENGINE · ARCH7",
+      "recordedLine": "EVALUATIONS RECORDED:",
+      "title": "Risk-Based Access Engine",
+      "subtitle": "Every access request is scored over eight components - user, device, asset, time, location, behavior, ticket and command - each read from a measured input (the subject's own 24h history, the discovered inventory, the live command policy, the local clock, the source address, the ticket's shape). The sum picks the band, and the band gates session starts.",
+      "kpis": {
+        "evaluations": "Evaluations",
+        "evaluationsSuffix": "recorded",
+        "lastAt": "last {{rel}}",
+        "avgScore": "Average Score",
+        "avgSuffix": "real mean over all evaluations",
+        "refused": "Refused Starts",
+        "refusedSuffix": "session starts · evaluation kept as evidence",
+        "spread": "Critical / High",
+        "spreadValue": "{{critical}} critical / {{high}} high",
+        "spreadNone": "— critical / — high",
+        "spreadSuffix": "bands on record"
+      },
+      "scoreTitle": "Score one access request",
+      "scoreAdvises": "advises only",
+      "fields": {
+        "subject": "Subject (required)",
+        "target": "Target",
+        "device": "Device",
+        "sourceIp": "Source IP",
+        "ticket": "Ticket",
+        "command": "Proposed command"
+      },
+      "placeholders": {
+        "subject": "alice / svc-batch-7",
+        "target": "10.77.0.9:5432",
+        "device": "asset tag or hostname",
+        "sourceIp": "8.8.8.8 / 10.1.2.3",
+        "ticket": "INC-4021",
+        "command": "systemctl restart nginx"
+      },
+      "score": "Score Request",
+      "invalid": "Check the highlighted fields - limits mirror the contract.",
+      "result": {
+        "title": "Evaluation",
+        "score": "score",
+        "decision": "decision",
+        "outcome": "outcome",
+        "idle": "Score a request - the eight components and this evaluation are recorded on the risk trail.",
+        "recorded": "Recorded on the risk trail of the audit ledger."
+      },
+      "breakdownTitle": "Score breakdown",
+      "breakdownHint": "score = sum of parts",
+      "table": {
+        "component": "Component",
+        "points": "Points",
+        "input": "Measured input"
+      },
+      "components": {
+        "user": "User history",
+        "device": "Device",
+        "asset": "Asset",
+        "time": "Time",
+        "location": "Location",
+        "behavior": "Behavior",
+        "ticket": "Ticket",
+        "command": "Command"
+      },
+      "caps": {
+        "user": "max 10",
+        "device": "max 15",
+        "asset": "max 30",
+        "time": "max 10",
+        "location": "max 5",
+        "behavior": "max 15 + 5/deviation",
+        "ticket": "max 5",
+        "command": "max 10"
+      },
+      "legend": {
+        "title": "Band legend · spec",
+        "hint": "behavior grows with deviations; score clamps at 100",
+        "low": "low 0-25",
+        "lowEffect": "allow - session proceeds as requested",
+        "medium": "medium 26-50",
+        "mediumEffect": "mfa - step-up factor prescribed",
+        "high": "high 51-75",
+        "highEffect": "approval - active JIT grant or refused",
+        "critical": "critical 76-100",
+        "criticalEffect": "block - session start refused outright",
+        "caps": "caps: user 10 · device 15 · asset 30 · time 10 · location 5 · behavior 15 · ticket 5 · command 10"
+      },
+      "recentTitle": "Recent evaluations",
+      "recentHint": "newest first",
+      "recentEmpty": "No evaluations recorded yet - score a request above.",
+      "enforcementTitle": "Session-start enforcement",
+      "enforcementBody": "Session starts run this same scorer with the operator's device and target: a CRITICAL band refuses the start outright, HIGH proceeds only under an active JIT grant (signed off by someone other than the requester), MEDIUM prescribes MFA, LOW allows. Console evaluations only advise - every evaluation, allowed or refused, is written to the risk trail of the immutable audit ledger."
+    },
+    "anomalies": {
+      "kicker": "ANOMALIES · ARCH11",
+      "baselinesLine": "BASELINES TRAINED:",
+      "incidentsLine": "INCIDENTS:",
+      "title": "Anomalies",
+      "subtitle": "Baselines are learned from this platform's own history - recorded evaluations, sessions, commands and incidents over a rolling window, never synthetic users - and describe how each principal actually works: their hours, devices, source IPs, targets, command verbs and privilege verbs. Every request from a trained principal is diffed against that profile; the deviations are named on the behavior component (5 points each). A CRITICAL deviation refuses the session start, ends the principal's standing sessions through the release-and-rotate cascade, rotates the credential the request sought through the real rotation pipeline, and records the incident below and on the risk trail of the audit ledger.",
+      "train": "Train baselines",
+      "trainHint": "learns from real history",
+      "training": "Training baselines from real history…",
+      "trainedN": "trained {{n}}",
+      "baselinesTitle": "Trained baselines",
+      "baselinesHint": "rolling window · real rows only",
+      "baselinesEmpty": "No baselines trained yet - train from the real history above.",
+      "baselineMeta": "{{samples}} samples · {{perDay}} sess/day",
+      "baselineDetail": "hours {{hours}} · devices {{devices}} · ips {{ips}} · targets {{targets}} · verbs {{verbs}} · trained {{trained}}",
+      "priv": "priv ",
+      "anomaliesTitle": "Anomaly incidents",
+      "anomaliesHint": "newest first",
+      "anomaliesEmpty": "No anomaly incidents recorded.",
+      "reasonChip": "+ {{reason}}",
+      "chainBlocked": "blocked",
+      "chainNotBlocked": "not blocked",
+      "chainCounts": "· sessions ended {{ended}} · rotations {{rotations}}"
+    }
   }
 }

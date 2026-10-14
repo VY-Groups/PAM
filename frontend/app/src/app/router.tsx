@@ -10,15 +10,16 @@ import { CommandCenterPage } from '../features/command-center/CommandCenterPage'
 import { VaultPage } from '../features/vault/VaultPage';
 import { JitPage } from '../features/jit/JitPage';
 import { SessionsPage } from '../features/sessions/SessionsPage';
+import { PolicyPage } from '../features/policy/PolicyPage';
 import { LoginPage } from '../features/auth/pages/LoginPage';
 
 /**
  * The ADR-0005 route table under the `/app` basename (ADR-0012). Every
  * feature route renders the honest F4-pending state with its live legacy
  * link until its screen migrates (plan §8 strangler); Command Center,
- * Credential Vault, JIT Access and the Live Session Hub are the first
- * four F4 replacements (live data), the shell, guards and 404 are real
- * from F3 on.
+ * Credential Vault, JIT Access, the Live Session Hub and Policy & Zero
+ * Trust are the first five F4 replacements (live data), the shell,
+ * guards and 404 are real from F3 on.
  */
 export const routes: RouteObject[] = [
   { path: '/login', element: <LoginPage /> },
@@ -34,12 +35,14 @@ export const routes: RouteObject[] = [
       { path: '/vault', element: <VaultPage /> },
       { path: '/jit', element: <JitPage /> },
       { path: '/sessions', element: <SessionsPage /> },
+      { path: '/policy', element: <PolicyPage /> },
       ...NAV_ITEMS.filter(
         (item) =>
           item.path !== '/command-center' &&
           item.path !== '/vault' &&
           item.path !== '/jit' &&
-          item.path !== '/sessions',
+          item.path !== '/sessions' &&
+          item.path !== '/policy',
       ).map((item) => ({
         path: item.path,
         element: <PendingScreen titleKey={item.labelKey} legacyHref={item.legacyHref} />,

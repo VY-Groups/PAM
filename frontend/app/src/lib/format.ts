@@ -40,3 +40,24 @@ export function formatDuration(seconds: number | null | undefined): string | nul
   if (m > 0) return `${m}m ${String(s).padStart(2, '0')}s`;
   return `${s}s`;
 }
+
+/**
+ * Relative age in the legacy console's wording ("just now", "5m ago",
+ * "3h ago", "2d ago") for "updated / trained / held ... ago" captions;
+ * absent or unparseable timestamps -> null (the honest em-dash, never a
+ * guessed clock). `nowMs` is injectable so tests stay deterministic.
+ */
+export function formatRelative(
+  iso: string | null | undefined,
+  nowMs: number = Date.now(),
+): string | null {
+  if (!iso) return null;
+  const then = new Date(iso).getTime();
+  if (Number.isNaN(then)) return null;
+  const mins = Math.max(0, Math.round((nowMs - then) / 60000));
+  if (mins < 1) return 'just now';
+  if (mins < 60) return `${mins}m ago`;
+  const hrs = Math.round(mins / 60);
+  if (hrs < 24) return `${hrs}h ago`;
+  return `${Math.round(hrs / 24)}d ago`;
+}

@@ -156,7 +156,13 @@ python -m pytest pam_master -q                   # 46 tests (vendor tool)
   withheld input kept visible), supervisor pause/lock/resume/terminate,
   the interactive control flags, the watermark and protocol-overlay
   lines, and the governance quorum from `GET/POST /api/v1/sessions/*`
-  plus the linked `GET /api/v1/jit/requests/{id}`;
+  plus the linked `GET /api/v1/jit/requests/{id}`,
+  and Policy & Zero Trust (F4 screen 5) renders the live rule catalog,
+  held-command approvals, SOC incident trail, the click-only dry-run
+  decision simulator, the §7 risk scorer and the §11 UEBA baselines
+  from `GET/POST /api/v1/command-control/*`,
+  `POST /sessions/{id}/events/{seq}/{approve|deny}` and
+  `GET/POST /api/v1/risk/*`;
   the legacy pages below stay served and reachable
   until each replacement passes parity. Served by Phase 2, all
   eleven sidebar screens are **live**: licensing (`/`), platform settings (`/settings`,

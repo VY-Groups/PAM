@@ -70,6 +70,30 @@ import {
 } from './sessionFixtures';
 export * from './sessionFixtures';
 
+// F4 screen 5 fixtures: verbatim rig captures for Policy & Zero Trust
+// (see the header in policyFixtures.ts).
+import {
+  ANOMALIES_RESPONSE,
+  APPROVALS_PENDING_RESPONSE,
+  APPROVE_RESPONSE,
+  BASELINES_RESPONSE,
+  COMMAND_RULES_RESPONSE,
+  COMMAND_STATS_RESPONSE,
+  DENY_RESPONSE,
+  EVALUATE_DEFAULT_RESPONSE,
+  INCIDENT_CLOSE_RESPONSE,
+  INCIDENTS_OPEN_RESPONSE,
+  POLICY_IDS,
+  RISK_EVALUATIONS_RESPONSE,
+  RISK_EVALUATE_RESPONSE,
+  RISK_STATS_RESPONSE,
+  RISK_TRAIN_RESPONSE,
+  RULE_CREATE_RESPONSE,
+  RULE_DELETE_RESPONSE,
+  RULE_UPDATE_RESPONSE,
+} from './policyFixtures';
+export * from './policyFixtures';
+
 /** Build a fetch-shaped Response with the backend's JSON body. */
 export function jsonResponse(status: number, body: unknown): Response {
   return new Response(JSON.stringify(body), {
@@ -809,6 +833,184 @@ export function sessionsRoutes() {
     sessionStartRoute(),
     jitDetailRoute(SESSION_IDS.linkedGrant, SESSION_LINKED_GRANT_RESPONSE.body),
     vaultItemsRoute(VAULT_ITEMS_RESPONSE.body, VAULT_ITEMS_RESPONSE.status),
+  ];
+}
+
+// ---------------------------------------------------------------------------
+// F4 screen 5 - Policy & Zero Trust. Routes mirror features/policy/queries.ts;
+// fixtures are the generated verbatim rig captures (policyFixtures.ts).
+// ---------------------------------------------------------------------------
+
+/** GET /api/v1/command-control/stats - the live policy aggregates. */
+export function policyStatsRoute(capture: CapturedResponse = COMMAND_STATS_RESPONSE) {
+  return {
+    match: (url: string) => url.includes('/command-control/stats'),
+    respond: () => jsonResponse(capture.status, capture.body),
+  };
+}
+
+/**
+ * GET/POST /api/v1/command-control/rules - the list (GET) and rule
+ * creation (POST) share the path, so the method picks the response.
+ */
+export function policyRulesRoute(
+  capture: CapturedResponse = COMMAND_RULES_RESPONSE,
+  create: CapturedResponse = RULE_CREATE_RESPONSE,
+) {
+  return {
+    match: (url: string) => /\/command-control\/rules(\?|$)/.test(url),
+    respond: (init?: RequestInit) => {
+      if ((init?.method ?? 'GET') === 'POST')
+        return jsonResponse(create.status, create.body);
+      return jsonResponse(capture.status, capture.body);
+    },
+  };
+}
+
+/** PUT/DELETE /api/v1/command-control/rules/{id} - edit / remove a rule. */
+export function policyRuleDetailRoute(
+  id: number,
+  mutations?: { put?: CapturedResponse; del?: CapturedResponse },
+) {
+  return {
+    match: (url: string) => new RegExp(`/command-control/rules/${id}(\\?|$)`).test(url),
+    respond: (init?: RequestInit) => {
+      const method = init?.method ?? 'GET';
+      if (method === 'PUT' && mutations?.put !== undefined) {
+        return jsonResponse(mutations.put.status, mutations.put.body);
+      }
+      if (method === 'DELETE' && mutations?.del !== undefined) {
+        return jsonResponse(mutations.del.status, mutations.del.body);
+      }
+      return jsonResponse(405, { error: `No mock for ${method} on command rule ${id}` });
+    },
+  };
+}
+
+/** GET /api/v1/command-control/approvals - held commands awaiting a decision. */
+export function policyApprovalsRoute(
+  capture: CapturedResponse = APPROVALS_PENDING_RESPONSE,
+) {
+  return {
+    match: (url: string) => url.includes('/command-control/approvals'),
+    respond: () => jsonResponse(capture.status, capture.body),
+  };
+}
+
+/** GET /api/v1/command-control/incidents?... - escalation incidents, newest first. */
+export function policyIncidentsRoute(capture: CapturedResponse = INCIDENTS_OPEN_RESPONSE) {
+  return {
+    match: (url: string) => /\/command-control\/incidents(\?|$)/.test(url),
+    respond: () => jsonResponse(capture.status, capture.body),
+  };
+}
+
+/** POST /api/v1/command-control/incidents/{id}/close - close after review. */
+export function policyIncidentCloseRoute(
+  capture: CapturedResponse = INCIDENT_CLOSE_RESPONSE,
+) {
+  return {
+    match: (url: string) =>
+      url.includes('/command-control/incidents/') && url.endsWith('/close'),
+    respond: () => jsonResponse(capture.status, capture.body),
+  };
+}
+
+/** POST /api/v1/command-control/evaluate - the real dry-run decision. */
+export function policyEvaluateRoute(capture: CapturedResponse = EVALUATE_DEFAULT_RESPONSE) {
+  return {
+    match: (url: string) => url.endsWith('/command-control/evaluate'),
+    respond: () => jsonResponse(capture.status, capture.body),
+  };
+}
+
+/** GET /api/v1/risk/stats - evaluation aggregates (bands, decisions, refusals). */
+export function riskStatsRoute(capture: CapturedResponse = RISK_STATS_RESPONSE) {
+  return {
+    match: (url: string) => url.includes('/risk/stats'),
+    respond: () => jsonResponse(capture.status, capture.body),
+  };
+}
+
+/** GET /api/v1/risk/evaluations?... - recorded evaluations, newest first. */
+export function riskEvaluationsRoute(
+  capture: CapturedResponse = RISK_EVALUATIONS_RESPONSE,
+) {
+  return {
+    match: (url: string) => /\/risk\/evaluations(\?|$)/.test(url),
+    respond: () => jsonResponse(capture.status, capture.body),
+  };
+}
+
+/** GET /api/v1/risk/baselines - trained UEBA behavior baselines. */
+export function riskBaselinesRoute(capture: CapturedResponse = BASELINES_RESPONSE) {
+  return {
+    match: (url: string) => /\/risk\/baselines(\?|$)/.test(url),
+    respond: () => jsonResponse(capture.status, capture.body),
+  };
+}
+
+/** GET /api/v1/risk/anomalies?... - UEBA incidents, newest first. */
+export function riskAnomaliesRoute(capture: CapturedResponse = ANOMALIES_RESPONSE) {
+  return {
+    match: (url: string) => /\/risk\/anomalies(\?|$)/.test(url),
+    respond: () => jsonResponse(capture.status, capture.body),
+  };
+}
+
+/** POST /api/v1/risk/evaluate - score one access request (advises only). */
+export function riskEvaluateRoute(capture: CapturedResponse = RISK_EVALUATE_RESPONSE) {
+  return {
+    match: (url: string) => url.endsWith('/risk/evaluate'),
+    respond: () => jsonResponse(capture.status, capture.body),
+  };
+}
+
+/** POST /api/v1/risk/baselines/train - learn from the real history. */
+export function riskTrainRoute(capture: CapturedResponse = RISK_TRAIN_RESPONSE) {
+  return {
+    match: (url: string) => url.endsWith('/risk/baselines/train'),
+    respond: () => jsonResponse(capture.status, capture.body),
+  };
+}
+
+/**
+ * POST /api/v1/sessions/{id}/events/{seq}/{approve|deny} - resolve a held
+ * command (the append-only resolution row answers its captured response).
+ */
+export function heldCommandResolutionRoute(
+  decision: 'approve' | 'deny',
+  capture: CapturedResponse,
+) {
+  return {
+    match: (url: string) => url.includes('/events/') && url.endsWith(`/${decision}`),
+    respond: () => jsonResponse(capture.status, capture.body),
+  };
+}
+
+/** The full Policy & Zero Trust route set (F4 screen 5, /policy). */
+export function policyRoutes() {
+  return [
+    whoamiRoute(WHOAMI_OPEN_BODY),
+    healthRoute(),
+    policyStatsRoute(),
+    policyRulesRoute(),
+    policyRuleDetailRoute(POLICY_IDS.idA, {
+      put: RULE_UPDATE_RESPONSE,
+      del: RULE_DELETE_RESPONSE,
+    }),
+    policyApprovalsRoute(),
+    policyIncidentsRoute(),
+    policyIncidentCloseRoute(),
+    policyEvaluateRoute(),
+    riskStatsRoute(),
+    riskEvaluationsRoute(),
+    riskBaselinesRoute(),
+    riskAnomaliesRoute(),
+    riskEvaluateRoute(),
+    riskTrainRoute(),
+    heldCommandResolutionRoute('approve', APPROVE_RESPONSE),
+    heldCommandResolutionRoute('deny', DENY_RESPONSE),
   ];
 }
 

@@ -38,4 +38,16 @@ export const queryKeys = {
   sessionDetail: (id: number | null) => ['sessions', 'detail', id] as const,
   sessionEvents: (id: number | null) => ['sessions', 'events', id] as const,
   sessionGrant: (id: number | null) => ['sessions', 'grant', id] as const,
+  // Policy & Zero Trust (F4 screen 5): one `['policy', ...]` root so a single
+  // prefix invalidation refreshes the command-control posture, the rule
+  // catalog, the approval queue, the incidents and every risk/UEBA view
+  // together - they are views of the same policy engine.
+  policyStats: ['policy', 'stats'] as const,
+  policyRules: ['policy', 'rules'] as const,
+  policyApprovals: ['policy', 'approvals'] as const,
+  policyIncidents: (limit: number) => ['policy', 'incidents', limit] as const,
+  riskStats: ['policy', 'risk', 'stats'] as const,
+  riskEvaluations: (limit: number) => ['policy', 'risk', 'evaluations', limit] as const,
+  riskBaselines: ['policy', 'risk', 'baselines'] as const,
+  riskAnomalies: (limit: number) => ['policy', 'risk', 'anomalies', limit] as const,
 } as const;

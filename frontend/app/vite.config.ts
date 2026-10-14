@@ -35,6 +35,12 @@ export default defineConfig({
           environment: 'jsdom',
           setupFiles: './src/test/setup.ts',
           css: false,
+          // Full-suite runs contend with per-file jsdom setup on this
+          // constrained machine (the suite's own hint: ~6 s of env creation
+          // per file); the default 5 s hang guard started flaking the JIT
+          // screen's first test once screen 5 joined the suite. Content
+          // assertions are unchanged - only the guard window.
+          testTimeout: 10_000,
         },
       },
       {

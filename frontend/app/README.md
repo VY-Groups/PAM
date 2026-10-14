@@ -115,6 +115,31 @@ Revoke,Rotate}` through generated hooks in `queries.ts`). Actions send
   approve/deny have no legacy UI - API-only stays API. The legacy
   `../screens/live_session_recording_inspection_hub/code.html` stays
   served until the Flask app mounts `dist/` under `/app/` (ADR-0012).
+- Policy & Zero Trust (F4 screen 5, plan §4 line 110):
+  `src/features/policy/` renders the policy KPI quad over
+  `GET /api/v1/command-control/stats`, the three-tab catalog (rules /
+  held-command approvals / SOC incidents) with the evaluation-order
+  filter lines, rule cards over `GET /command-control/rules` and the
+  create/edit dialog (RHF + Zod, ADR-0006; full contract payload, the
+  terminate-requires-block rule mirrored in the UX with the server's 400
+  still authoritative; DELETE carries no `X-Actor` per contract),
+  approve/deny on the held commands and incident close with the
+  signed-in principal as `X-Actor` (append-only resolution rows), the
+  click-only **decision simulator** (`POST /command-control/evaluate` —
+  GET never evaluates; default-allow and block+terminate branches
+  rendered verbatim from the engine's own rule match), the §7 **risk
+  engine** section (score form posting `/risk/evaluate` on click with
+  the advisory-only contract note, the eight-component breakdown table
+  with verbatim measured inputs, the spec band legend, the
+  recent-evaluations trail) and the §11 **UEBA section** (trained
+  baselines with per-dimension detail, honest empty anomalies, Train
+  showing the server's own message). Every number is a live contract
+  count (no hard-coded sample data), the honest states follow DoD 2
+  (section error verbatim, `not connected` chips, BackendDownNotice,
+  per-list empty messages), and the policy JSON export reports the real
+  loaded rule count. The contract needed no fix this screen. The legacy
+  `../screens/policy_zero_trust_rules_engine/code.html` stays served
+  until the Flask app mounts `dist/` under `/app/` (ADR-0012).
 - During migration the legacy `../screens/` pages stay reachable and the
   standing gate (`../../shots_tool/__verify_*.mjs`) stays authoritative
   until F5 (ADR-0008).

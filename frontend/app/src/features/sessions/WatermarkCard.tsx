@@ -79,11 +79,7 @@ type Translate = (key: string, options?: Record<string, unknown>) => string;
  * wording): awaiting load, not brokered, connected through a node with the
  * injection fact the server reports, or an ended gateway session.
  */
-function overlayLine(
-  gateway: SessionGateway,
-  loaded: boolean,
-  t: Translate,
-): string {
+function overlayLine(gateway: SessionGateway, loaded: boolean, t: Translate): string {
   if (!loaded) return t('sessions.watermark.overlayAwaiting');
   if (gateway === null || gateway === undefined) {
     return t('sessions.watermark.overlayNone');
