@@ -247,7 +247,9 @@ export function CompliancePage() {
         </p>
       </div>
 
-      <BackendDownNotice body={t('errors.backendDown')} error={backendDownError} />
+      {backendDownError !== undefined ? (
+        <BackendDownNotice body={t('errors.backendDown')} error={backendDownError} />
+      ) : null}
 
       {kpis}
 

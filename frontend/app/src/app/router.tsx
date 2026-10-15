@@ -13,6 +13,7 @@ import { SessionsPage } from '../features/sessions/SessionsPage';
 import { PolicyPage } from '../features/policy/PolicyPage';
 import { CompliancePage } from '../features/compliance/CompliancePage';
 import { InfrastructurePage } from '../features/infrastructure/InfrastructurePage';
+import { VendorPage } from '../features/vendor/VendorPage';
 import { LoginPage } from '../features/auth/pages/LoginPage';
 
 /**
@@ -20,9 +21,9 @@ import { LoginPage } from '../features/auth/pages/LoginPage';
  * feature route renders the honest F4-pending state with its live legacy
  * link until its screen migrates (plan §8 strangler); Command Center,
  * Credential Vault, JIT Access, the Live Session Hub, Policy & Zero
- * Trust, Compliance & SOC2 and Target Infrastructure are the first
- * seven F4 replacements (live data), the shell, guards and 404 are real
- * from F3 on.
+ * Trust, Compliance & SOC2, Target Infrastructure and Vendor Access are
+ * the first eight F4 replacements (live data), the shell, guards and
+ * 404 are real from F3 on.
  */
 export const routes: RouteObject[] = [
   { path: '/login', element: <LoginPage /> },
@@ -41,6 +42,7 @@ export const routes: RouteObject[] = [
       { path: '/policy', element: <PolicyPage /> },
       { path: '/compliance', element: <CompliancePage /> },
       { path: '/infrastructure', element: <InfrastructurePage /> },
+      { path: '/vendor-access', element: <VendorPage /> },
       ...NAV_ITEMS.filter(
         (item) =>
           item.path !== '/command-center' &&
@@ -49,7 +51,8 @@ export const routes: RouteObject[] = [
           item.path !== '/sessions' &&
           item.path !== '/policy' &&
           item.path !== '/compliance' &&
-          item.path !== '/infrastructure',
+          item.path !== '/infrastructure' &&
+          item.path !== '/vendor-access',
       ).map((item) => ({
         path: item.path,
         element: <PendingScreen titleKey={item.labelKey} legacyHref={item.legacyHref} />,

@@ -174,7 +174,13 @@ python -m pytest pam_master -q                   # 46 tests (vendor tool)
   connector fleet with live probe and inventory import, and the
   discovery event tape from `GET /api/v1/discovery/*`,
   `GET /api/v1/cloud/stats|connectors`, `POST /api/v1/cloud/connectors/{id}/test|discover`
-  and `GET /api/v1/events?source=discovery`;
+  and `GET /api/v1/events?source=discovery`,
+  and Vendor Access (F4 screen 8) renders the third-party vendor registry:
+  the four-step lifecycle chain, the invite with its one-time MFA seed
+  card, state-gated approve/deny/revoke actions, scoped JIT requests and
+  every captured 401/403/409 refusal verbatim, from `GET /api/v1/vendors`,
+  `GET /api/v1/vendors/{id}`, `GET /api/v1/vault/items` and the
+  `POST /api/v1/vendors` + `POST /api/v1/vendors/{id}/*` lifecycle writes;
   the legacy pages below stay served and reachable
   until each replacement passes parity. Served by Phase 2, all
   eleven sidebar screens are **live**: licensing (`/`), platform settings (`/settings`,

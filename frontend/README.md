@@ -20,7 +20,7 @@ frontend/
 ├── vendor/             # offline assets: tailwind.min.js + font CSS/woff2
 │                       # (no CDN, no external URLs)
 ├── app/                # VY-PAM React rebuild (strangler app, F3 shell done,
-│                       #   F4 screens 1-7 Command Center + Vault + JIT Access + Live Session Hub + Policy & Zero Trust + Compliance & SOC2 + Target Infrastructure live; see app/README.md)
+│                       #   F4 screens 1-8 Command Center + Vault + JIT Access + Live Session Hub + Policy & Zero Trust + Compliance & SOC2 + Target Infrastructure + Vendor Access live; see app/README.md)
 ├── screens/
 │   ├── <screen-name>/
 │   │   ├── code.html   # one self-contained screen (markup + styles + scripts)
@@ -41,6 +41,7 @@ frontend/
 | `GET /screens/credential_vault_secrets_inventory/code.html` | **live** Credential Vault (talks to `/api/v1/vault/*`) |
 | `GET /screens/compliance_soc_2_audit_center/code.html` | **live** Compliance (talks to `/api/v1/overview`, `/api/v1/events` - a 22-chip trail filter (All + 21 sources incl. the 8a `gateway` trail), one fetch per source on click - and the immutable `/api/v1/audit/*` ledger, plus the §20 SIEM push chip over `/api/v1/integrations/status`) |
 | `GET /screens/target_infrastructure_connectors/code.html` | **live** Target Infrastructure (talks to `/api/v1/discovery/*` + the §14 cloud connectors over `/api/v1/cloud/*` — honest connector states, probe/inventory/RBAC actions posted on click only, `file://` fallback shows dashes) |
+| `GET /screens/vendor_access_third_party_lifecycle/code.html` | **live** Vendor Access (talks to `/api/v1/vendors/*` + `/api/v1/vault/items` — chain steps, the invite with its one-time MFA seed card, state-gated lifecycle actions, scoped JIT requests posted on click only, `file://` fallback shows dashes) |
 | `GET /screens/jit_access_ephemeral_approvals/code.html` | **live** JIT access (talks to `/api/v1/jit/*`, plus the §15 Pipeline Credential Broker over `/api/v1/broker/*` and the §16 AI-Agent Access section over `/api/v1/agents*` + `/api/v1/agent-access/*`) |
 | `GET /screens/live_session_recording_inspection_hub/code.html` | **live** Live Session hub (talks to `/api/v1/sessions/*`; 8a: the watermark card's protocol-overlay line is wired to the detail's gateway half - connected/ended/ honest not-connected naming the reason - exported as `window.hubLive.gateway` for the gate) |
 | `GET /screens/policy_zero_trust_rules_engine/code.html` | **live** Zero-trust policy console (talks to `/api/v1/command-control/*` + `/api/v1/risk/*` — the §7 eight-component scorer, posted on click only, with the §11 UEBA layer: the Anomalies subsection - trained baselines, per-reason deviation chips and the incident chain, fed by `/api/v1/risk/baselines` + `/risk/anomalies`) |

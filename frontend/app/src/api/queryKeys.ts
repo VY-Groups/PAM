@@ -74,4 +74,14 @@ export const queryKeys = {
   infraConnectors: (provider: string, status: string) =>
     ['infrastructure', 'connectors', provider, status] as const,
   infraEvents: (limit: number) => ['infrastructure', 'events', limit] as const,
+  // Vendor Access (F4 screen 8): one `['vendor', ...]` root so a single prefix
+  // invalidation refreshes the registry, the selected dashboard, the scoped
+  // request picker and the ITSM hint together - they are views of the same
+  // third-party lifecycle. The registry keys on its server-side filter params
+  // (status / q), mirroring the contract's own query contract; the KPI view
+  // reads the unfiltered registry so its counts stay registry-wide.
+  vendorList: (status: string, q: string) => ['vendor', 'list', status, q] as const,
+  vendorDetail: (id: number | null) => ['vendor', 'detail', id] as const,
+  vendorItems: ['vendor', 'items'] as const,
+  vendorIntegrations: ['vendor', 'integrations'] as const,
 } as const;

@@ -133,7 +133,9 @@ export function InfrastructurePage() {
         </div>
       </div>
 
-      <BackendDownNotice body={t('errors.backendDown')} error={backendDownError} />
+      {backendDownError !== undefined ? (
+        <BackendDownNotice body={t('errors.backendDown')} error={backendDownError} />
+      ) : null}
 
       {statsError ? (
         <p role="alert" className="font-body-sm text-body-sm text-error">

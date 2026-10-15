@@ -128,6 +128,22 @@ import {
 } from './infrastructureFixtures';
 export * from './infrastructureFixtures';
 
+// F4 screen 8 fixtures: verbatim rig captures for Vendor Access
+// (see the header in vendorFixtures.ts).
+import {
+  VENDOR_APPROVE_RESPONSE,
+  VENDOR_DENY_RESPONSE,
+  INVITE_RESPONSE,
+  MFA_OK_RESPONSE,
+  NDA_RESPONSE,
+  REVOKE_RESPONSE,
+  REQUEST_FILED_RESPONSE,
+  TICKET_OK_RESPONSE,
+  VENDORS_LIST_RESPONSE,
+  VENDOR_DETAIL_RESPONSE,
+} from './vendorFixtures';
+export * from './vendorFixtures';
+
 /** Build a fetch-shaped Response with the backend's JSON body. */
 export function jsonResponse(status: number, body: unknown): Response {
   return new Response(JSON.stringify(body), {
@@ -1362,6 +1378,120 @@ export function infrastructureRoutes() {
     connectorProbeRoute(),
     connectorDiscoverRoute(),
     connectorRemoveRoute(),
+  ];
+}
+
+/* ------------------------------------------------------ F4 screen 8 routes */
+
+/**
+ * GET /api/v1/vendors - the registry with the contract's own filters
+ * applied exactly like the rig applies them: `status` by equality, `q`
+ * as a substring over name/contact. The URL is parsed in `match` (the
+ * same closure trick discoveryAssetsRoute uses), and the query string
+ * keeps the list apart from the bare-path POST invite on the same stem.
+ */
+export function vendorsListRoute(capture: CapturedResponse = VENDORS_LIST_RESPONSE) {
+  type VendorRow = { name: string; contact?: string; status: string };
+  let params = new URLSearchParams();
+  return {
+    match: (url: string) => {
+      if (!/\/vendors\?/.test(url)) return false;
+      params = new URL(url, 'http://test.local').searchParams;
+      return true;
+    },
+    respond: () => {
+      if (capture.status >= 400) return jsonResponse(capture.status, capture.body);
+      const body = capture.body as {
+        vendors: VendorRow[];
+        total: number;
+        limit: number;
+        offset: number;
+      };
+      const status = params.get('status');
+      const q = (params.get('q') ?? '').toLowerCase();
+      let rows = body.vendors;
+      if (status) rows = rows.filter((v) => v.status === status);
+      if (q !== '') {
+        rows = rows.filter(
+          (v) =>
+            v.name.toLowerCase().includes(q) || (v.contact ?? '').toLowerCase().includes(q),
+        );
+      }
+      return jsonResponse(capture.status, {
+        ...body,
+        vendors: rows,
+        total: rows.length,
+      });
+    },
+  };
+}
+
+/** GET /api/v1/vendors/{id} - one vendor's dashboard payload. */
+export function vendorDetailRoute(
+  vendorId: number,
+  capture: CapturedResponse = VENDOR_DETAIL_RESPONSE,
+) {
+  return {
+    match: (url: string) => new RegExp(`/vendors/${vendorId}(\\?|$)`).test(url),
+    respond: () => jsonResponse(capture.status, capture.body),
+  };
+}
+
+/**
+ * POST /api/v1/vendors - invite (or reinvite: the contract starts a
+ * fresh cycle on the same row for terminal names). Anchored on the
+ * bare path so a query-string list GET never matches.
+ */
+export function inviteVendorRoute(capture: CapturedResponse = INVITE_RESPONSE) {
+  return {
+    match: (url: string) => /\/vendors$/.test(url),
+    respond: () => jsonResponse(capture.status, capture.body),
+  };
+}
+
+/** POST /api/v1/vendors/{id}/{step} - the four chain steps, deny, revoke. */
+export function vendorStepRoute(
+  vendorId: number,
+  step: 'mfa' | 'nda' | 'ticket' | 'approve' | 'deny' | 'revoke',
+  capture: CapturedResponse,
+) {
+  return {
+    match: (url: string) => url.includes(`/vendors/${vendorId}/${step}`),
+    respond: () => jsonResponse(capture.status, capture.body),
+  };
+}
+
+/** POST /api/v1/vendors/{id}/requests - file a real scoped request. */
+export function vendorRequestRoute(
+  vendorId: number,
+  capture: CapturedResponse = REQUEST_FILED_RESPONSE,
+) {
+  return {
+    match: (url: string) => url.includes(`/vendors/${vendorId}/requests`),
+    respond: () => jsonResponse(capture.status, capture.body),
+  };
+}
+
+/** The full Vendor Access route set (F4 screen 8, /vendor-access). */
+export function vendorRoutes() {
+  return [
+    whoamiRoute(WHOAMI_OPEN_BODY),
+    healthRoute(),
+    // Order matters on shared stems: the query-string GET first, then
+    // the id-scoped dashboard, then the bare-path POST invite, then the
+    // step writes.
+    vendorsListRoute(),
+    vendorDetailRoute(1),
+    integrationsStatusRoute(),
+    vaultItemsRoute(),
+    inviteVendorRoute(),
+    vendorStepRoute(1, 'mfa', MFA_OK_RESPONSE),
+    vendorStepRoute(1, 'nda', NDA_RESPONSE),
+    vendorStepRoute(1, 'ticket', TICKET_OK_RESPONSE),
+    vendorStepRoute(1, 'approve', VENDOR_APPROVE_RESPONSE),
+    vendorStepRoute(1, 'deny', VENDOR_DENY_RESPONSE),
+    vendorStepRoute(1, 'revoke', REVOKE_RESPONSE),
+    vendorRequestRoute(1),
   ];
 }
 

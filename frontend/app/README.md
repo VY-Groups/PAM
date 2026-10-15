@@ -215,6 +215,50 @@ Revoke,Rotate}` through generated hooks in `queries.ts`). Actions send
   until the Flask app mounts `dist/` under `/app/` (ADR-0012); its
   "Connector Mesh Health" and connector Inventory/RBAC tabs are out of
   plan scope (the gateway mesh has its own contract surface).
+- Vendor Access (F4 screen 8, plan §4 line 114):
+  `src/features/vendor/` renders the registry KPI quad over
+  `GET /api/v1/vendors` (accounts = the server's total, while
+  invited/approved/closed count the loaded page and say so), the
+  **vendor registry** whose status chips and search send real contract
+  parameters (`status`, `q` — refetched server truth over name *and*
+  contact, never a client re-filter), each row carrying the four
+  lifecycle-step chips, activity/allowed-targets/expiry lines and the
+  server's denied reason, with **Open** and **Reinvite** actions; the
+  **selected-vendor dashboard** over `GET /api/v1/vendors/{id}` shows
+  the chain steps with verbatim server timestamps, the captured ITSM
+  check line (`INC-23892 · HTTP 200`), the NDA reference, the approval
+  provenance, the access scope (allowed/denied target chips, window,
+  recording, expiry), the real scoped grant (`item 1 · risk low · 30
+  min`) and the 20-event lifecycle trail with verbatim detail
+  previews; **actions are gated on the account's state** — an invited
+  account gets Verify MFA / Record NDA / Verify ITSM Ticket / Approve /
+  Deny, an approved one gets Revoke / File Access Request, and a denied
+  or revoked one gets none; the **invite** (`POST /api/v1/vendors`)
+  mirrors the contract's name/contact/target-lines/window-pair rules in
+  Zod (ADR-0006, the 400 still authoritative) and renders the
+  **one-time MFA seed card** — secret and otpauth URI shown once, Hide
+  drops it for good; the **scoped request** picks a real item from
+  `GET /api/v1/vault/items` and keeps an empty minutes field
+  contract-absent; every lifecycle write carries the signed-in
+  principal as `X-Actor` per contract, and every captured refusal
+  renders verbatim: the 401 bad-TOTP, the 409 ITSM-unconfigured (with
+  the honest `not connected - set itsm.base_url` hint from
+  `GET /api/v1/integrations/status`), the 409 missing-chain-steps, the
+  403 access refusal with the server's own reason line, and the
+  invite-name conflict. Honest states follow DoD 2 (section-error
+  verbatim after the retry budget, honest empty lines, em-dash KPIs,
+  and the shared BackendDownNotice gated on the transport error — its
+  unconditional rendering on screens 3/5/7 was a real bug this screen's
+  section-error test surfaced; all four pages now gate it). Fixtures in
+  `src/test/vendorFixtures.ts` are verbatim rig captures of the whole
+  lifecycle (invite → MFA → NDA → ticket → approve → request → revoke,
+  plus the invited/denied detail states and every write refusal) with
+  the one-time TOTP seeds sanitized to synthetic base32 — real one-time
+  secrets never enter the repo. The legacy
+  `../screens/vendor_access_third_party_lifecycle/code.html` stays
+  served until the Flask app mounts `dist/` under `/app/` (ADR-0012);
+  `PATCH /api/v1/vendors/{id}` stays unimplemented (no legacy surface
+  needs it).
 - During migration the legacy `../screens/` pages stay reachable and the
   standing gate (`../../shots_tool/__verify_*.mjs`) stays authoritative
   until F5 (ADR-0008).
