@@ -20,7 +20,7 @@ frontend/
 ├── vendor/             # offline assets: tailwind.min.js + font CSS/woff2
 │                       # (no CDN, no external URLs)
 ├── app/                # VY-PAM React rebuild (strangler app, F3 shell done,
-│                       #   F4 screens 1-8 Command Center + Vault + JIT Access + Live Session Hub + Policy & Zero Trust + Compliance & SOC2 + Target Infrastructure + Vendor Access live; see app/README.md)
+│                       #   F4 screens 1-9 Command Center + Vault + JIT Access + Live Session Hub + Policy & Zero Trust + Compliance & SOC2 + Target Infrastructure + Vendor Access + Emergency Break-Glass live; see app/README.md)
 ├── screens/
 │   ├── <screen-name>/
 │   │   ├── code.html   # one self-contained screen (markup + styles + scripts)

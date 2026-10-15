@@ -259,6 +259,52 @@ Revoke,Rotate}` through generated hooks in `queries.ts`). Actions send
   served until the Flask app mounts `dist/` under `/app/` (ADR-0012);
   `PATCH /api/v1/vendors/{id}` stays unimplemented (no legacy surface
   needs it).
+- **Screen 9 — Emergency Break-Glass** (`/break-glass`, plan line 113
+  "Filing, dual approval, recorded session"):
+  `src/features/break-glass/` renders the request KPI quad over
+  `GET /api/v1/break-glass/stats` (total on record, awaiting approval
+  with the outstanding-signatures footer, open emergencies with the
+  error accent, last unseal as the raw captured ISO), the legacy
+  critical banner and header chip carrying the **live factor line**
+  from `GET /api/v1/integrations/status` (`not configured - the mfa
+  band stays advisory` on the capture rig) and the singular/plural
+  open-emergency chip, the **dual-approval registry** over
+  `GET /api/v1/break-glass/requests` (limit 200; the status chips send
+  the contract's `status` parameter and refetch server truth, never a
+  client re-filter; DataTable with the legacy columns Request/Target/
+  Requested/Approvals/Status/Session/Actions; actions gated on the
+  request's state — pending gets Approve/Deny posted directly with `{}`
+  exactly like the legacy console, approved gets Open (unseal), used
+  gets Close + review, terminals get none, and every row Inspects), the
+  read-only **selected-request record** over
+  `GET /api/v1/break-glass/requests/{id}` (verbatim reason,
+  severity/status/mfa chips, both signatures with their notes, the
+  denial block, the recorded-session card with `recording: forced`, the
+  closed block with its review note — rotation is shown only from the
+  close response's own `rotation` field, never fabricated), the **file
+  dialog** (Zod mirrors the contract's target/reason limits and keeps
+  the legacy EMERGENCY-AUTHORIZE typing guard client-only — never
+  posted), the **release dialog** (legacy parity for the enrolled-factor
+  path; the capture rig reports none, so the unseal posts directly and
+  no code is ever faked), and the **close dialog** that always demands
+  the contract-required review note; every lifecycle write carries the
+  acting identity as `X-Actor` (the editable legacy input, seeded with
+  the signed-in principal — the server's own rules judge it), and every
+  captured refusal renders verbatim: the 403 `Requesters cannot approve
+  their own emergency request`, the 400 duplicate signer, the 400
+  no-vault-credential. Honest states follow DoD 2 (section-error
+  verbatim, em-dash KPIs, the honest no-selection placeholder, the
+  shared BackendDownNotice gated on the transport error). Fixtures in
+  `src/test/breakGlassFixtures.ts` are verbatim rig captures of the
+  whole lifecycle (filed → 1/2 → 2/2 → opened to the used state with
+  its live session → closed with the review note and the server's
+  rotation answer) plus every refusal arm and the empty-registry
+  baselines; no secret ever transited (the rig's global factor is not
+  configured and enrolling one is irreversible app-wide, so the
+  positive MFA-release path is documented in the fixtures header, not
+  claimed). The legacy
+  `../screens/break_glass_emergency_protocol/code.html` stays served
+  until the Flask app mounts `dist/` under `/app/` (ADR-0012).
 - During migration the legacy `../screens/` pages stay reachable and the
   standing gate (`../../shots_tool/__verify_*.mjs`) stays authoritative
   until F5 (ADR-0008).

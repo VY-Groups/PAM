@@ -180,7 +180,17 @@ python -m pytest pam_master -q                   # 46 tests (vendor tool)
   card, state-gated approve/deny/revoke actions, scoped JIT requests and
   every captured 401/403/409 refusal verbatim, from `GET /api/v1/vendors`,
   `GET /api/v1/vendors/{id}`, `GET /api/v1/vault/items` and the
-  `POST /api/v1/vendors` + `POST /api/v1/vendors/{id}/*` lifecycle writes;
+  `POST /api/v1/vendors` + `POST /api/v1/vendors/{id}/*` lifecycle writes,
+  and Emergency Break-Glass (F4 screen 9) renders the emergency protocol:
+  the request/awaiting/open/last-unseal KPI quad and the dual-approval
+  registry (approve/deny with the acting identity recorded verbatim as
+  `X-Actor`, the requester-signs-own 403 and duplicate-signer 400
+  rendered verbatim), the direct unseal on the honest not-enrolled path,
+  the recorded session, and close behind its contract-required review
+  note with the server's rotation answer, from
+  `GET /api/v1/break-glass/stats|requests[/{id}]`,
+  `GET /api/v1/integrations/status` and the
+  `POST /api/v1/break-glass/requests` + `POST .../{id}/approve|deny|open|close` writes;
   the legacy pages below stay served and reachable
   until each replacement passes parity. Served by Phase 2, all
   eleven sidebar screens are **live**: licensing (`/`), platform settings (`/settings`,

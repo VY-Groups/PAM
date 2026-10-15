@@ -79,14 +79,14 @@ describe('AppShell (F3 exit: shell renders live nav)', () => {
 
   it('renders the honest F4-pending screen with its live legacy link', async () => {
     stubFetch([whoamiRoute(WHOAMI_OPEN_BODY), healthRoute()]);
-    renderApp('/break-glass');
+    renderApp('/licensing');
     expect(
       await screen.findByRole('heading', { name: /arrives at F4/ }),
     ).toBeInTheDocument();
     const legacy = screen.getByRole('link', { name: /Open the legacy screen/i });
     expect(legacy).toHaveAttribute(
       'href',
-      '/screens/break_glass_emergency_protocol/code.html',
+      '/screens/enterprise_licensing_tier_entitlements_node_quotas/code.html',
     );
   });
 

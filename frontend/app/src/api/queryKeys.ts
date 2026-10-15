@@ -84,4 +84,13 @@ export const queryKeys = {
   vendorDetail: (id: number | null) => ['vendor', 'detail', id] as const,
   vendorItems: ['vendor', 'items'] as const,
   vendorIntegrations: ['vendor', 'integrations'] as const,
+  // Break-Glass (F4 screen 9): one `['breakGlass', ...]` root so a single
+  // prefix invalidation refreshes the aggregates, the filtered request
+  // list, the selected request's detail and the factor-state read
+  // together - they are views of the same emergency lifecycle. The list
+  // keys on its server-side status filter, mirroring the contract.
+  breakGlassStats: ['breakGlass', 'stats'] as const,
+  breakGlassList: (status: string) => ['breakGlass', 'list', status] as const,
+  breakGlassDetail: (id: number | null) => ['breakGlass', 'detail', id] as const,
+  breakGlassIntegrations: ['breakGlass', 'integrations'] as const,
 } as const;

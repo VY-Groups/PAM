@@ -144,6 +144,23 @@ import {
 } from './vendorFixtures';
 export * from './vendorFixtures';
 
+// F4 screen 9 fixtures: verbatim rig captures for Break-Glass
+// (see the header in breakGlassFixtures.ts). The lifecycle write
+// captures (approve/deny/open/close) and the refusal bodies are
+// re-exported for the screen's tests; the route helpers below import
+// only the read-side defaults.
+import {
+  BG_DETAIL_APPROVED_RESPONSE,
+  BG_DETAIL_CLOSED_RESPONSE,
+  BG_DETAIL_DENIED_RESPONSE,
+  BG_DETAIL_PENDING_RESPONSE,
+  BG_DETAIL_USED_RESPONSE,
+  BG_FILE_RESPONSE,
+  BG_LIST_RESPONSE,
+  BG_STATS_RESPONSE,
+} from './breakGlassFixtures';
+export * from './breakGlassFixtures';
+
 /** Build a fetch-shaped Response with the backend's JSON body. */
 export function jsonResponse(status: number, body: unknown): Response {
   return new Response(JSON.stringify(body), {
@@ -1492,6 +1509,99 @@ export function vendorRoutes() {
     vendorStepRoute(1, 'deny', VENDOR_DENY_RESPONSE),
     vendorStepRoute(1, 'revoke', REVOKE_RESPONSE),
     vendorRequestRoute(1),
+  ];
+}
+
+/* ------------------------------------------------------------------ */
+/* F4 screen 9: Break-Glass route helpers (contract shapes verbatim). */
+/* ------------------------------------------------------------------ */
+
+/** `GET /api/v1/break-glass/stats` - the real aggregates. */
+export function breakGlassStatsRoute(capture: CapturedResponse = BG_STATS_RESPONSE) {
+  return {
+    match: (url: string) => url.includes('/break-glass/stats'),
+    respond: () => jsonResponse(capture.status, capture.body),
+  };
+}
+
+/**
+ * `GET /api/v1/break-glass/requests` - the registry; the lifecycle
+ * filter is driven server-side by the `status` query parameter (the
+ * chips send it for real), mirroring the contract's enum.
+ */
+export function breakGlassListRoute(capture: CapturedResponse = BG_LIST_RESPONSE) {
+  type BreakGlassRow = { status: string };
+  let params = new URLSearchParams();
+  return {
+    match: (url: string) => {
+      if (!/\/break-glass\/requests\?/.test(url)) return false;
+      params = new URL(url, 'http://test.local').searchParams;
+      return true;
+    },
+    respond: () => {
+      if (capture.status >= 400) return jsonResponse(capture.status, capture.body);
+      const body = capture.body as {
+        requests: BreakGlassRow[];
+        total: number;
+        limit: number;
+        offset: number;
+      };
+      const status = params.get('status');
+      let rows = body.requests;
+      if (status) rows = rows.filter((r) => r.status === status);
+      return jsonResponse(capture.status, {
+        ...body,
+        requests: rows,
+        total: rows.length,
+      });
+    },
+  };
+}
+
+/** `GET /api/v1/break-glass/requests/{id}` - one request's full record. */
+export function breakGlassDetailRoute(requestId: number, capture: CapturedResponse) {
+  return {
+    match: (url: string) =>
+      new RegExp(`/break-glass/requests/${requestId}(\\?|$)`).test(url),
+    respond: () => jsonResponse(capture.status, capture.body),
+  };
+}
+
+/** `POST /api/v1/break-glass/requests` - file one emergency (201). */
+export function breakGlassFileRoute(capture: CapturedResponse = BG_FILE_RESPONSE) {
+  return {
+    match: (url: string) => /\/break-glass\/requests$/.test(url),
+    respond: () => jsonResponse(capture.status, capture.body),
+  };
+}
+
+/** `POST /api/v1/break-glass/requests/{id}/{step}` - the four lifecycle writes. */
+export function breakGlassWriteRoute(
+  requestId: number,
+  step: 'approve' | 'deny' | 'open' | 'close',
+  capture: CapturedResponse,
+) {
+  return {
+    match: (url: string) => url.includes(`/break-glass/requests/${requestId}/${step}`),
+    respond: () => jsonResponse(capture.status, capture.body),
+  };
+}
+
+/** The full Break-Glass route set (F4 screen 9, /break-glass). */
+export function breakGlassRoutes() {
+  return [
+    whoamiRoute(WHOAMI_OPEN_BODY),
+    healthRoute(),
+    // The factor state (mfa.configured=false on this rig) drives the
+    // banner line, the process rail and the direct-open path.
+    integrationsStatusRoute(),
+    breakGlassStatsRoute(),
+    breakGlassListRoute(),
+    breakGlassDetailRoute(1, BG_DETAIL_CLOSED_RESPONSE),
+    breakGlassDetailRoute(2, BG_DETAIL_DENIED_RESPONSE),
+    breakGlassDetailRoute(3, BG_DETAIL_APPROVED_RESPONSE),
+    breakGlassDetailRoute(4, BG_DETAIL_PENDING_RESPONSE),
+    breakGlassDetailRoute(5, BG_DETAIL_USED_RESPONSE),
   ];
 }
 
