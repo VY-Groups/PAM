@@ -5,5 +5,5 @@ cryptography>=42.0
 python-dotenv>=1.0.0
 
 # Development / test
-pytest>=8.0
+pytest>=9.1.1
 PyYAML>=6.0        # apis/openapi.yaml contract test
