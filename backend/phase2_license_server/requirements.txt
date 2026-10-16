@@ -2,7 +2,7 @@
 Flask>=3.0,<4
 Flask-SQLAlchemy>=3.1,<4
 cryptography>=42.0
-python-dotenv>=1.0.0
+python-dotenv>=1.2.4
 
 # Development / test
 pytest>=8.0
