@@ -220,7 +220,7 @@ Revoke,Rotate}` through generated hooks in `queries.ts`). Actions send
   `GET /api/v1/vendors` (accounts = the server's total, while
   invited/approved/closed count the loaded page and say so), the
   **vendor registry** whose status chips and search send real contract
-  parameters (`status`, `q` — refetched server truth over name *and*
+  parameters (`status`, `q` — refetched server truth over name _and_
   contact, never a client re-filter), each row carrying the four
   lifecycle-step chips, activity/allowed-targets/expiry lines and the
   server's denied reason, with **Open** and **Reinvite** actions; the
@@ -229,7 +229,7 @@ Revoke,Rotate}` through generated hooks in `queries.ts`). Actions send
   check line (`INC-23892 · HTTP 200`), the NDA reference, the approval
   provenance, the access scope (allowed/denied target chips, window,
   recording, expiry), the real scoped grant (`item 1 · risk low · 30
-  min`) and the 20-event lifecycle trail with verbatim detail
+min`) and the 20-event lifecycle trail with verbatim detail
   previews; **actions are gated on the account's state** — an invited
   account gets Verify MFA / Record NDA / Verify ITSM Ticket / Approve /
   Deny, an approved one gets Revoke / File Access Request, and a denied
@@ -267,7 +267,7 @@ Revoke,Rotate}` through generated hooks in `queries.ts`). Actions send
   error accent, last unseal as the raw captured ISO), the legacy
   critical banner and header chip carrying the **live factor line**
   from `GET /api/v1/integrations/status` (`not configured - the mfa
-  band stays advisory` on the capture rig) and the singular/plural
+band stays advisory` on the capture rig) and the singular/plural
   open-emergency chip, the **dual-approval registry** over
   `GET /api/v1/break-glass/requests` (limit 200; the status chips send
   the contract's `status` parameter and refetch server truth, never a
@@ -291,7 +291,7 @@ Revoke,Rotate}` through generated hooks in `queries.ts`). Actions send
   acting identity as `X-Actor` (the editable legacy input, seeded with
   the signed-in principal — the server's own rules judge it), and every
   captured refusal renders verbatim: the 403 `Requesters cannot approve
-  their own emergency request`, the 400 duplicate signer, the 400
+their own emergency request`, the 400 duplicate signer, the 400
   no-vault-credential. Honest states follow DoD 2 (section-error
   verbatim, em-dash KPIs, the honest no-selection placeholder, the
   shared BackendDownNotice gated on the transport error). Fixtures in
