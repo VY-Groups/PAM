@@ -63,7 +63,7 @@
     "orval": "8.41.0",
     "playwright": "latest",
     "prettier": "3.9.10",
-    "storybook": "^10.6.1",
+    "storybook": "^10.6.2",
     "tailwindcss": "4.3.3",
     "typescript": "6.0.3",
     "typescript-eslint": "8.71.2",
