@@ -1,0 +1,26 @@
+# Dependabot — plan §9 "Automate checks" (added 2026-10-16, batch C of the
+# workspace audit). Weekly, low-noise: version updates only for the declared
+# dependency sets; CI (ci.yml) is the merge gate (backend suite, scanners,
+# frontend battery, standing gate).
+version: 2
+updates:
+  - package-ecosystem: pip
+    directory: /backend/phase2_license_server
+    schedule:
+      interval: weekly
+  - package-ecosystem: pip
+    directory: /backend/ipam_licensing
+    schedule:
+      interval: weekly
+  - package-ecosystem: npm
+    directory: /frontend/app
+    schedule:
+      interval: weekly
+  - package-ecosystem: npm
+    directory: /shots_tool
+    schedule:
+      interval: weekly
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly

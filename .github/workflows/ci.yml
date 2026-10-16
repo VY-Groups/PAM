@@ -20,12 +20,14 @@
 #                   first (the demo seed and both gate modes ran against
 #                   real rigs on this Windows box before the YAML shipped).
 #   frontend-rebuild : pnpm@12.11.2 (node 24) in frontend/app - install
-#                   --frozen-lockfile, orval regenerate + git diff
+#                   --frozen-lockfile, pnpm audit (no known vulnerabilities,
+#                   added 2026-10-16 batch C), orval regenerate + git diff
 #                   --exit-code (client/contract drift), prettier --check,
 #                   eslint, tsc --noEmit, playwright chromium, vitest run
 #                   (jsdom + Storybook browser project), vite build,
 #                   build-storybook; every command executed locally first
-#                   (F1+F2+F3, 2026-10-13).
+#                   (F1+F2+F3, 2026-10-13; audit step verified locally
+#                   2026-10-16).
 
 name: CI
 
@@ -106,6 +108,9 @@ jobs:
       - name: Install declared dependencies only (lockfile frozen)
         working-directory: frontend/app
         run: pnpm install --frozen-lockfile
+      - name: Known-vulnerability audit of declared frontend dependencies
+        working-directory: frontend/app
+        run: pnpm audit
       - name: OpenAPI client drift check (regenerate from apis/openapi.yaml)
         working-directory: frontend/app
         run: |
