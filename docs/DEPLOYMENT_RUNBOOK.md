@@ -58,6 +58,10 @@ build context. The same image runs the suite in its Linux runtime:
 # one-time trust-root keys (refuses to overwrite — by design)
 cd pam_master
 python -m pam_master.keygen             # writes license_private_key.pem etc. at repo root
+# note: the repo tracks license_public_key.pem (the verification half that
+# ships to clients). keygen never touches it, and the server refuses a
+# mismatched pair by design — after regenerating, delete the old public
+# file; the first server boot re-derives it from the new private key.
 
 # run (default http://127.0.0.1:5400)
 $env:MASTER_BIND="127.0.0.1"; $env:MASTER_SERVER_PORT="5400"

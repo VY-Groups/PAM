@@ -2,7 +2,13 @@
 #
 # Every command in this workflow was executed and verified locally on the
 # same toolchain before it was committed (no untested YAML):
-#   backend-tests : python -m pytest backend -q          (host count)
+#   backend-tests : python -m pam_master.keygen + drop the stale tracked
+#                   public half (the repo tracks only the public key; a
+#                   fresh private key must pair with a re-derived public,
+#                   and the suite signs with the product's real key),
+#                   then python -m pytest backend -q (host count;
+#                   proven 2026-10-16 in a committed-tree-only container
+#                   mirror: 794 passed)
 #   docker-tests  : compose run ... pytest tests -q      (in-container count)
 #   lint          : ruff 0.17.0, pyflakes errors gate (E9,F63,F7,F82) - clean
 #   security      : bandit 1.9.4 High+Medium gate - 0 findings after the
@@ -54,6 +60,29 @@ jobs:
           python-version: "3.14"
       - name: Install declared dependencies only
         run: pip install -r backend/phase2_license_server/requirements.txt -r backend/ipam_licensing/requirements.txt
+      # Root cause of the first 16 red runs (2026-10-12..16), in two
+      # acts - each reproduced in a committed-tree-only container mirror
+      # of this job before this YAML was written:
+      #   1. the repo rightly tracks no PRIVATE key material, and every
+      #      test config points at the repo-root custody key with
+      #      autogenerate_keys=False on purpose (the suite signs with
+      #      the product's real key) -> a fresh checkout died with 678x
+      #      keys.KeyConfigError "Private key not found" (run #14 log:
+      #      7 failed / 109 passed / 678 errors).
+      #   2. the LICENSE_AUTOGENERATE_KEYS=1 hypothesis (the gate job's
+      #      pattern) never reaches the test configs - tested, retracted.
+      #   3. pam_master.keygen creates the private half but never
+      #      touches the TRACKED public half (by design - it ships to
+      #      clients), and the pair-consistency check refuses a
+      #      mismatched pair, so the stale public half goes; first boot
+      #      re-derives it from the new private key (keys.py
+      #      _check_public_key writes the public when it is missing).
+      # Mirror result with these exact steps: 794 passed.
+      - name: Generate the signing keys once (the repo tracks only the public half)
+        working-directory: pam_master
+        run: python -m pam_master.keygen
+      - name: Drop the stale committed public half (re-derived at first boot)
+        run: rm license_public_key.pem
       - name: Full backend suite
         run: python -m pytest backend -q
 
