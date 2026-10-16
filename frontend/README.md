@@ -57,8 +57,9 @@ Live screens fetch on load and fall back to **honest placeholders** — never
 invented values. Opened as `file://` or with the API unreachable, `—` and
 "not connected" markers stay on screen; sections without a backing module say
 so instead of showing numbers; when data does load, every figure comes from the
-API response (the twelve API-driven screens are scanned for legacy fake strings in
-`../shots_tool/__verify_live.mjs`, HTTP and `file://` modes, which also
+API response (twelve of the thirteen API-driven screens are scanned for legacy fake strings in
+`../shots_tool/__verify_live.mjs` — the thirteenth, `platform_settings_center`, is covered by
+`../shots_tool/__verify_agent.mjs` — HTTP and `file://` modes, which also
 asserts that no screen references an external URL; the discovery
 screen additionally runs a full UI end-to-end in
 `../shots_tool/__verify_discovery.mjs` — real register, scan, ignore/restore,
@@ -104,7 +105,9 @@ React + TypeScript app in **`app/`** (F1 scaffolded 2026-10-13; F4 screen 1
 Credential Vault, JIT Access and the Live Session Hub — followed on
 2026-10-14, screen 5 — Policy & Zero Trust — on 2026-10-15, screen 6
 — Compliance & SOC2 — also on 2026-10-15, and screen 7 — Target
-Infrastructure — later the same day, all legacy pages still served
+Infrastructure — later the same day, screens 8 — Vendor Access — and 9
+— Emergency Break-Glass — on 2026-10-16 (screen 10, Licensing, is next),
+all legacy pages still served
 until the `/app/` mount lands, ADR-0012); every
 decision is an ADR in `../docs/frontend/`. Strangler rules: legacy URLs
 stay reachable until each screen's replacement ships (F4),

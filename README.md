@@ -20,7 +20,7 @@ PAM/
 ├── license_ed25519_public.pem       # Ed25519 verification key  (ships to clients)
 ├── license_<UUID>.json / .lic       # licenses issued so far (envelope / token)
 ├── frontend/                        # Web console (product UI, served by Phase 2)
-│   ├── index.html               #   launcher: every screen, LIVE/SPEC badges
+│   ├── index.html               #   launcher: every screen card (all thirteen live)
 │   ├── screens/<name>/          #   one folder per screen: code.html + screen.png
 │   └── README.md                #   layout + how to add a screen (the contract)
 ├── apis/                            # HTTP contract for every backend service
@@ -243,8 +243,11 @@ python -m pytest pam_master -q                   # 46 tests (vendor tool)
   ticket check, an approval that names any missing step, scope- and
   window-checked JIT requests, deny/revoke with the grant-close cascade,
   and the dashboard's access/denied lists, valid window and recording flag).
-  The two remaining cards are `spec` design-reference pages under
-  `/screens/`.
+  The launcher shows thirteen live screen cards (both former spec
+  screens — `enterprise_licensing_tier_entitlements_node_quotas` and
+  `platform_settings_idp_hsm_configuration` — went live at the
+  frontend-completion boundary); the zero-trust sentinel remains a
+  design reference linked to its `screens/zero_trust_sentinel/DESIGN.md`.
 
 ## What a license carries
 

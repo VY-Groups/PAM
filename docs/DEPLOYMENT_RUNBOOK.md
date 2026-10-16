@@ -11,8 +11,9 @@ installs directly on a machine — no VM, no container.
 
 - Python **3.10+** (tested on the versions running this repo's suite), `pip`
 - Node.js **18+** — *screenshots/verification tooling only* (not runtime)
-- Outbound network only for first-run font/CDN assets (Tailwind CDN, Google
-  Fonts); air-gapped deployments should vendor those two assets locally
+- No outbound network required — the console ships fully vendored (Tailwind
+  runtime, fonts and icons under `frontend/vendor/`); air-gapped installs
+  need nothing extra
 - Disk: the DB is one SQLite file; keys are a handful of PEM/`*.key` files
 
 ## 2. Install — shipped product (VY-PAM)
@@ -84,7 +85,7 @@ shipping instruction.
 | `PAM_NODE_NAME` / `PAM_SITE` | `pam-node-1` / `dc` | §18 self identity per node (`site` ∈ `dc`,`dr`) |
 | `CLUSTER_MONITOR` / `CLUSTER_MONITOR_INTERVAL_SECONDS` | off / 60 | opt-in auto-failover monitor thread |
 | `CLUSTER_BACKUP_DIR` | `backend/phase2_license_server/backups` | destination of verified `POST /cluster/backups` copies |
-| `RECORDING_STORAGE_DIR` | `SERVER_DIR/recordings` | gateway recording storage root (§15) — deployment config, not settings policy |
+| `RECORDING_STORAGE_DIR` | `SERVER_DIR/recordings` | gateway recording storage root (§27) — deployment config, not settings policy |
 
 `.env` next to `config.py` is loaded automatically and is git-ignored.
 
@@ -119,7 +120,7 @@ across the restored history).
 → start. Schema changes are additive and applied at boot by
 `ensure_schema()`; the one-time chain backfill and rule seeding never repeat.
 Run the boundary suites before exposing it: `python -m pytest backend -q`
-(expect **760**) and `python -m pytest pam_master -q` (**46**).
+(expect **794**) and `python -m pytest pam_master -q` (**46**).
 
 ## 7. HA / DC / DR runbooks (§18)
 
@@ -217,7 +218,7 @@ are evidence, never merged — the spare still serves only its own ledger.
 | `cluster/replicas` shows `unverified` | peer chain broke (tampering or version skew) | treat as evidence, not mirror: verify the peer before trusting it |
 | Scan 409 | a scan is already running | single-flight by design; wait or check `/discovery/scans` |
 | Console shows `—` everywhere | API unreachable or `file://` | correct: honest fallback; fix base URL / serve via HTTP |
-| Fonts/icons missing offline | CDN blocked | vendor Tailwind CDN + Google Fonts locally |
+| Fonts/icons missing offline | n/a — assets are vendored (`frontend/vendor/`), no CDN | ship `frontend/vendor/` with the console; no outbound font/CDN fetch exists |
 
 ## 10. Uninstall
 

@@ -79,7 +79,7 @@ token or explicit open dev mode), (c) runtime↔disk (encrypted secrets),
 
 ## 4. Authentication & accountability
 
-- **127 admin operations** carry security schemes in `openapi.yaml`
+- **144 admin operations** carry security schemes in `openapi.yaml`
   (contract-tested) — they require `Bearer`/`X-Admin-Token` whenever
   `LICENSE_ADMIN_TOKEN` is set.
 - **Least-privilege roles (6b):** in token mode the `admin-token` may call
@@ -187,7 +187,7 @@ token or explicit open dev mode), (c) runtime↔disk (encrypted secrets),
 | Ordered | `seq` unique, ascending | `test_audit.py` chain walk |
 | Chained | `prev_hash` → `event_hash = sha256(canonical record)`, genesis `0`×64 | verify endpoint recompute |
 | Append-only | SQLite triggers abort `UPDATE`/`DELETE` with `'audit_events is append-only (architecture 19)'` | trigger tests |
-| Complete coverage | 17 sources (`license settings vault discovery jit session command risk bypass break-glass integration vendor cloud broker agent cluster rbac`); mapper-coverage test fails if any event model lacks a mapper | `MAPPERS` ⇄ models ⇄ `by_source` assertions |
+| Complete coverage | 21 sources (`license settings vault discovery jit session command risk bypass break-glass integration vendor cloud broker agent cluster rbac sso hsm auth gateway`); mapper-coverage test fails if any event model lacks a mapper | `MAPPERS` ⇄ models ⇄ `by_source` assertions |
 | Detect, don't repair | tampering is **reported** (`first break` index), never silently fixed | forged-insert test |
 | Portable evidence | `/audit/verify`, `/audit/export` NDJSON in chain order | contract + audit tests |
 
@@ -209,7 +209,7 @@ with per-event `seq` and custody watermarks.
 
 | Control theme | Status | Where |
 |---|---|---|
-| Logical access — least privilege on admin APIs | ✅ (token mode) | 127 secured operations, contract-tested |
+| Logical access — least privilege on admin APIs | ✅ (token mode) | 144 secured operations, contract-tested |
 | Logical access — dev-mode transparency | ✅ explicit | `X-Auth-Mode: open`, posture violation logged |
 | Encryption of secrets at rest | ✅ | AES-256-GCM vault versions |
 | Change management — config change log | ✅ | `settings_events` per-field diffs |
@@ -226,7 +226,7 @@ with per-event `seq` and custody watermarks.
 | Break-glass emergency workflow (§17) | ✅ | dual approval (requester excluded) → recorded session → forced rotation at close; ledger `break-glass` |
 | Gateway data plane & credential injection (8a) | ✅ | brokered rdp/ssh/vnc/telnet through maker-checked nodes over zones/pools (self-approval 403, fail-closed 503 dispatch with the create rolled back); one-shot connect-args per node token — the user never sees the injected password and the admin bearer is refused 403 by name; per-segment AES-256-GCM recordings under a master-key-wrapped envelope key (SHA-256 verified before decrypt, tamper ⇒ 500, destroyed key ⇒ 410 with rows kept); retention legal hold for incident-linked sessions; ledger `gateway` (21st source) |
 | Third-party / vendor access (§13) | ✅ | per-vendor TOTP (sealed, shown once) + NDA + real ITSM ticket → strict approval gate → scope/window-checked JIT request with forced session recording + lazy expiry; refusals recorded; ledger `vendor` |
-| SIEM streaming | ⚠️ seam only | NDJSON export (pull), no live webhook (§20) |
+| SIEM streaming | ✅ push + pull | live webhook push on state change (`siem.webhook_url`, §20 — shipped in 4i) plus the NDJSON export (pull) |
 | Dynamic watermark overlay (§12) | ✅ | six-line `USER/SESSION/TARGET/TIME/TICKET/SOURCE` payload assembled from the session's own rows (grant ticket + recorded source address), console overlay reacting to pause/resume/terminate, per-event custody lines; protocol-level pixel overlays labelled `not connected` pending gateway (§27) |
 
 ## 8. Gap closure plan (target posture — see `IMPLEMENTATION_PLAN.md`)
@@ -236,7 +236,7 @@ reported as missing — never as partial-good.
 
 | Gap today | Closes in | Target state |
 |---|---|---|
-| ~~Single admin role~~ — **✅ closed in 6b** | 6b | Five seeded roles over all admin operations (admin 127 / operator 45 / auditor 27 / auditor-read-only 24 / approver 12), sha256-at-rest tokens shown once, LDAP binding-required (the directory authenticates, the binding decides), ABAC target / vault-item scoping; `admin-token` stays the bootstrap superuser and open dev mode remains an explicit, posture-recorded violation |
+| ~~Single admin role~~ — **✅ closed in 6b** | 6b | Five seeded roles over all admin operations (admin 144 / operator 48 / auditor 34 / auditor-read-only 31 / approver 13), sha256-at-rest tokens shown once, LDAP binding-required (the directory authenticates, the binding decides), ABAC target / vault-item scoping; `admin-token` stays the bootstrap superuser and open dev mode remains an explicit, posture-recorded violation |
 | ~~SSO/HSM schema-only~~ — **✅ closed in 6c** | 6c | SAML 2.0 + OIDC login with verified signatures, single-use flows and fail-closed MFA; JIT subjects + server-side sessions; `kind=sso` bindings on the 6b model (the IdP authenticates, the binding decides). HSM/KMS providers wrap the master key (envelope — same key, ciphertexts stay valid); `enforcement=enforced` refuses any file fallback and seals on provider failure — `sso_mfa`/`hsm_backed` posture now count real evidence, never settings booleans |
 | ~~No real identity behind logins~~ — **✅ closed in 7** | 7 | scrypt local users, fail-closed MFA at login, CSRF-bound server-side console sessions, actor bound to the authenticated principal (`X-Actor` ignored for sessions), lockout + spray detection, e-mail OTP / WebAuthn / RADIUS / SCIM lifecycle, and the sealed emergency admin with dual-approved, time-boxed, single-use open — Addendum C in full; `auth` is the 20th ledger source |
 | ~~No gateway data plane~~ — **✅ closed in 8a** | 8a | zones/pools + maker-checker node registration (Addendum A), guacd-first brokering of rdp/ssh/vnc/telnet with fail-closed dispatch (no healthy node in zone ⇒ 503, create rolled back), one-shot credential injection the user never sees (ledger holds the fact, never the secret), per-segment sealed recordings with verified playback and crypto-shreddable retention (incident-linked sessions are legal hold) — `gateway` is the 21st ledger source |

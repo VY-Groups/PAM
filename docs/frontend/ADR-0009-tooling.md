@@ -9,8 +9,10 @@
   pnpm 12.11.2 via `npm i -g pnpm`; CI installs the pinned version).
   npm fallback is documented if CI ever blocks pnpm, but the lockfile
   format stays pnpm.
-- ESLint (flat config) + Prettier; `eslint-plugin-boundaries` (or
-  dependency-cruiser) enforces the layer rules of plan §3 in CI.
+- ESLint (flat config) + Prettier; the layer rules of plan §3 are held by
+  convention + review (*amended 2026-10-16*: `eslint-plugin-boundaries` /
+  dependency-cruiser were never adopted — no automated boundary lint
+  exists; imports are policed by review + the design-system test suite).
 - TypeScript `strict: true`, no implicit any; lint rules ban
   `dangerouslySetInnerHTML` and hard-coded sample numbers (plan §5).
 - **Pinned TypeScript 6.0.3** (not 7.x): `typescript-eslint@8.71.2` peer-caps

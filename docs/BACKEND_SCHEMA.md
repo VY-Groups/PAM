@@ -119,7 +119,7 @@ use real FKs (`PRAGMA foreign_keys = ON`).
 `detail` JSON · `created_at` DateTime.
 
 ### 1.3 `platform_settings` — group store (one row per group)
-`id` PK · `group_name` String(32) **unique** indexed (`sso|hsm|zsp|worm|mfa|itsm|siem|ldap`) ·
+`id` PK · `group_name` String(32) **unique** indexed (`auth|webauthn|smtp|sms|radius|scim|sso|hsm|zsp|worm|mfa|itsm|siem|ldap|gateway` — 15 groups since 8a) ·
 `value` JSON · `updated_at` · `updated_by` String(64) default `admin`.
 
 ### 1.4 `settings_events` — change log with diffs
@@ -266,7 +266,7 @@ default `advisory` · `components` JSON — the 8-element
 | id | PK | ✗ | |
 | seq | Integer | ✗ | **unique**, indexed — chain position |
 | event_ref | String(64) | ✗ | **unique** indexed (`ev-…`) |
-| source | String(16) | ✗ | indexed — `license, settings, vault, discovery, jit, session, command, risk, bypass, break-glass, integration` |
+| source | String(16) | ✗ | indexed — `license, settings, vault, discovery, jit, session, command, risk, bypass, break-glass, integration, vendor, cloud, broker, agent, cluster, rbac, sso, hsm, auth, gateway` (21 sources) |
 | action | String(32) | ✗ | |
 | actor | String(64) | ✗ | `system` default |
 | subject | String(160) | ✗ | |
@@ -380,10 +380,11 @@ DateTime indexed
   Preserved evidence, never rewritten. Folded into the §19 ledger by
   `_map_anomaly` under the existing `risk` source (`action:
   anomaly-incident`, ref `anom:<id>`), so the anomaly rows added no new
-  ledger source (11 sources at 4j; **17** today - the §13 `vendor` source
+  ledger source (11 sources at 4j; **21** today - the §13 `vendor` source
   joined in 5a, the §14 `cloud` source in 5b, the §15 `broker` source in
-  5c, the §16 `agent` source in 5d, the §18 `cluster` source in 6a and
-  the §10 `rbac` source in 6b).
+  5c, the §16 `agent` source in 5d, the §18 `cluster` source in 6a, the
+  §10 `rbac` source in 6b, `sso` + `hsm` in 6c, `auth` in phase 7 and the
+  §27 `gateway` source in 8a).
   The model class is named `AnomalyEvent` deliberately: the audit drift
   guard requires every `*Event` table to join the ledger.
 

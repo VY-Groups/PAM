@@ -12,7 +12,9 @@
   `gateways`). Long export slugs are retired with their screens.
 - During the strangler migration the router runs with
   `basename: "/app"` while Flask serves the bundle under `/app/`
-  (ADR-0012); legacy URLs stay untouched. At F5 the basename collapses
+  (ADR-0012 — *not yet mounted: today Flask serves only the legacy
+  suite, the mount is pending F5*, amended 2026-10-16); legacy URLs stay
+  untouched. At F5 the basename collapses
   to `/` in one config line.
 - Deep links and refresh must work (checklist K); unknown client routes
   render a real 404 page; unknown assets return a real 404 (never
@@ -21,4 +23,6 @@
 ## Consequences
 
 - Gate/verify scripts assert legacy URLs until each screen's F4 PR;
-  new Playwright e2e covers `/app/*` from F3 on.
+  per-screen Playwright e2e defers to the F6 harness (*amended
+  2026-10-16*: no e2e suite exists yet; Vitest + axe + the standing
+  `__verify_*.mjs` gates cover F3–F5).

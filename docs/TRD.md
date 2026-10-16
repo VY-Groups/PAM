@@ -94,13 +94,15 @@ Rules enforced by tests/conventions:
   `quotas`, `modules` JSON); the entitlement screen renders it directly.
 
 ### 4.2 Settings (§2)
-- Eight groups: `sso`, `hsm`, `zsp`, `worm` — `sso`/`hsm` are **enforced
+- Fifteen groups: `sso`, `hsm`, `zsp`, `worm` — `sso`/`hsm` are **enforced
   since 6c** (the SAML/OIDC login path and the HSM/KMS key custody,
   §4.22); `zsp`/`worm` remain schema-only (dashboard posture counts
   them honestly) — plus the §20 connector
   groups `mfa`, `itsm`, `siem`, `ldap` whose secrets seal AES-256-GCM
   (never echoed, `<set>`/`<cleared>` in the changelog) and whose
-  `mfa.factor_*` rows are readonly (minted via `POST /mfa/enroll`).
+  `mfa.factor_*` rows are readonly (minted via `POST /mfa/enroll`), the
+  phase-7 identity groups `auth`, `webauthn`, `smtp`, `sms`, `radius`,
+  `scim`, and the 8a `gateway` group.
 - Every `PUT /settings/{group}` writes a `settings_events` row containing the
   per-field before/after diff → changelog on the Settings screen.
 
@@ -776,7 +778,7 @@ Rules enforced by tests/conventions:
 | Versioning | Everything under `/api/v1` (health/meta unversioned) |
 | Auth | `LICENSE_ADMIN_TOKEN` set → `Authorization: Bearer …` or `X-Admin-Token: …` on the 144 admin operations; unset → explicit open dev mode (`X-Auth-Mode: open` response header); pipeline `/broker` operations require the broker API token and AI-agent `/agent-access` operations the agent API token — neither is ever waived. Gateway node routes (§4.24) authenticate only with the `nodeToken` scheme, `vypam-gwn1.<node_id>.<secret>` (sha256 at rest, never waived in open mode; the 4 node-token operations are intentionally not admin operations, and the admin token is refused on `connect-args`). In token mode a bound principal (RBAC API token, LDAP ticket, SSO subject, or local console user) may call only its role's operations and only its ABAC scope (§4.21). Console sessions (§4.23) are a separate credential: `vypam-ui1` bearer + HttpOnly `vypam_session` cookie with `X-CSRF-Token` double-submit on cookie-authenticated mutations. |
 | Actor | `X-Actor` header recorded on every audited write |
-| Errors | `{"error": {"code", "message", "details?"}}`; 400 validation, 401 auth, 403 policy refusal, 404, 409 conflict/state, 422 shape, 503 fail-closed dependency |
+| Errors | `{"error": "<message>", "details": {…}}` — flat message + details object (the shipped truth; never a nested code/message envelope); 400 validation, 401 auth, 403 policy refusal, 404, 409 conflict/state, 422 shape, 503 fail-closed dependency |
 | Pagination | `limit` (max 200) + `offset`, newest first |
 | Contract | `apis/openapi.yaml` is the source of truth; `test_openapi_contract.py` fails if routes ⇄ document ⇄ `ADMIN_OPERATIONS` ⇄ tests disagree |
 

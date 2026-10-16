@@ -14,7 +14,9 @@
   The plan author explicitly had not seen the repo and asked to verify.
 - **Serving:**
   - During migration: Flask serves `frontend/app/dist` under **`/app/`**
-    with SPA fallback for valid client routes; unknown asset paths → real
+    with SPA fallback for valid client routes (*not yet mounted — pending;
+    today Flask serves only the legacy suite*, amended 2026-10-16);
+    unknown asset paths → real
     404; `/api/*` keeps JSON `{error, details}` errors; legacy URLs
     (`/index.html`, `/login.html`, `/screens/*`, `/`, `/license`,
     `/settings`) are untouched.

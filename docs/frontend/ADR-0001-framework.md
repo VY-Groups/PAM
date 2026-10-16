@@ -1,4 +1,4 @@
-# ADR-0001 — Framework: React 18 + TypeScript (strict) + Vite
+# ADR-0001 — Framework: React 19.3 + TypeScript (strict) + Vite
 
 **Status:** Accepted 2026-10-13 (locked by Yash Kumar Dubey, rebuild plan §11)
 **Amended 2026-10-13:** React **19.3** (current stable) instead of 18 — user
@@ -8,7 +8,7 @@ registry (React 18 is two majors behind; all current tooling targets 19).
 
 ## Decision
 
-The new VY-PAM console is a React 18 application written in strict
+The new VY-PAM console is a React 19.3 application written in strict
 TypeScript and built with Vite. Source lives in `frontend/app/`
 (see ADR-0012 for the location rationale).
 

@@ -29,7 +29,9 @@ without re-deriving tokens.
 | `tertiary` | `#006242` (+ containers) | healthy/positive states |
 
 **Type** — Geist (UI) + JetBrains Mono (code/badges), both `100..900`,
-loaded from Google Fonts; Material Symbols Outlined for icons.
+bundled via `@fontsource` (Geist Variable + JetBrains Mono — no CDN; the
+F0 offline work vendored them, nothing loads from Google Fonts);
+Material Symbols Outlined for icons (also bundled).
 
 | Role | Family | Size/Line |
 |---|---|---|

@@ -25,7 +25,7 @@ Sidebar order (slugs = `data-path`, labels = nav text, icons = Material Symbols)
 | 10 | `vendor-access-third-party-lifecycle` | Vendor Access | `handshake` | ✅ `/vendors/*` |
 | 11 | `platform-settings-center` | Settings | `tune` | ✅ `/settings/*`, `/cluster/*`, `/auth/emergency`, `/scim/v2/*` |
 
-Plus the **launcher** (`frontend/launcher.html`) — a link hub, and the static
+Plus the **launcher** (`frontend/index.html`) — a link hub, and the static
 spec screens (`enterprise_licensing_…`, `platform_settings_idp_hsm_…`) used as
 design references, not navigation.
 
@@ -159,7 +159,7 @@ Command Center → bypass section → paste an auth-log bundle → Ingest
       failures recorded) · block source "not connected" (no connector yet)
   → analyst closes with a note (who + when)     GET /bypass/incidents…
   → every ingest/scan/detect/close fans into the ledger (source `bypass`)
-  → Compliance screen: `bypass` chip in the 19-source filter
+  → Compliance screen: `bypass` chip in the 21-source filter
 ```
 
 ### 2.9 Break-glass emergency (§17)
@@ -181,7 +181,7 @@ Break-Glass screen → Initiate emergency (target + reason + severity +
         trigger `break-glass`), cascade recorded on the request
   → every request/approve/deny/open/close fans into the ledger
       (source `break-glass`, ref `bg-…`)
-  → Compliance screen: `break-glass` chip in the 19-source filter
+  → Compliance screen: `break-glass` chip in the 21-source filter
 ```
 
 ### 2.10 Enterprise integrations (§20)
@@ -422,7 +422,8 @@ Identity & login security (phase 7) - Platform Settings → Identity
     reason >= 8 chars + two distinct approvers (never the requester) →
     time-boxed window; login still demands the sealed password, single-
     use, rotates the seal after use
-  Compliance gains the auth chip (21 sources + All = 22)
+  Compliance gains the auth chip (then 20 sources + All = 21; 22 chips
+  today after 8a's gateway)
 ```
 
 ### Session gateway & recording data plane (§27 - phase 8a)
@@ -599,12 +600,12 @@ GatewaySession.progress:
 | Close an agent grant | the owning agent's token, or an admin (dual-auth route) |
 | Register / revoke an agent identity | authenticated admin; the API token is shown exactly once and is never recoverable |
 
-## 6. Future flows (planned — see `IMPLEMENTATION_PLAN.md`)
+## 6. AI-agent access flow (§16 — built in 5d, quoted for reference)
 
-Flows below are **not implemented yet**; they show the target journeys the
-console will gain, quoted from the architecture doc.
-
-### 6.1 AI-agent access (§16 → phase 5d)
+The §16 journey below is **built**: 5d shipped broker/agent identities,
+one-time API tokens, task-scoped grants and the agent trail; the console
+flow lives on the JIT screen and the standing gate exercises it live.
+The quoted target journey from the architecture doc:
 ```
 Agent → request task access
   → identity verification → risk evaluation → JIT token

@@ -119,7 +119,7 @@ only). If `LICENSE_ADMIN_TOKEN` is unset the server runs in open mode.
 `GET /settings` serves the **Platform Settings** screen
 (`frontend/screens/platform_settings_center/`), built from the spec screen
 `platform_settings_idp_hsm_configuration/` and wired to the settings API below:
-it loads the eight configuration groups plus their schema, renders editable
+it loads the fifteen configuration groups plus their schema, renders editable
 controls (readonly factor fields disabled with a badge, secrets as
 sealed `not set` boxes), tracks dirty fields, saves through the admin token,
 shows the live configuration changelog and the §20 **Enterprise Integrations**
@@ -141,9 +141,9 @@ bundle, run the correlation scan, review/close incidents; the Compliance
 screen also reads
 `GET /api/v1/audit/stats` for the immutable digest, runs `GET /api/v1/audit/verify`
 on its **Verify Hash Chain** button, exports `GET /api/v1/audit/export`, and its
-per-trail filter fetches one of the seventeen sources — license, settings, vault,
+per-trail filter fetches one of the twenty-one sources — license, settings, vault,
 discovery, jit, session, command, risk, bypass, break-glass, integration,
-vendor, cloud, broker, agent, cluster, rbac — on
+vendor, cloud, broker, agent, cluster, rbac, sso, hsm, auth, gateway — on
 click, and its header chip reads the §20 SIEM push state), the **Credential Vault**
 (`GET/POST /api/v1/vault/*` — onboarding via **Onboard New Credential**, rotation
 SLA, type/status filters, JIT checkouts and an audit trail), the
@@ -249,7 +249,7 @@ cross-checked against these routes by `tests/test_openapi_contract.py`.
 | POST | `/licenses/<key>/usage` | admin | Record runtime consumption (returns the recomputed summary) |
 | POST | `/licenses/<key>/check` | – | Feature / module / quota-limit checks |
 | POST | `/licenses/validate` | – | Full check: structure → signature → revocation → expiry |
-| GET | `/settings` | – | Stored configuration + editable schema (8 groups: `sso`, `hsm`, `zsp`, `worm`, `mfa`, `itsm`, `siem`, `ldap`; per-field `readonly`/`secret` flags included) |
+| GET | `/settings` | – | Stored configuration + editable schema (15 groups: `auth`, `webauthn`, `smtp`, `sms`, `radius`, `scim`, `sso`, `hsm`, `zsp`, `worm`, `mfa`, `itsm`, `siem`, `ldap`, `gateway`; per-field `readonly`/`secret` flags included) |
 | POST | `/mfa/enroll` | admin | Mint an RFC-6238 TOTP factor (secret shown **once** + `otpauth://` URI; re-enroll rotates and resets `last_verified_at`) |
 | POST | `/mfa/verify` | admin | Check a code against the factor (`no-factor` → 409, missing code → 400, invalid → 401 with `details.field=code`; the failed attempt lands on the `integration` trail, the code itself never does; no lockout exists) |
 | POST | `/itsm/verify` | admin | Verify an ITSM ticket over REST (not configured → 409; configured → 200 with the honest `verified`/`http_status`/`detail` — upstream 404, refused connection or a missing path template stay `verified: false`, never a fabricated pass; missing/oversized ticket → 400) |
@@ -258,7 +258,7 @@ cross-checked against these routes by `tests/test_openapi_contract.py`.
 | GET | `/settings/audit?limit=` | – | Configuration changelog, newest first |
 | PUT | `/settings/<group>` | admin | Merge-update one group, returns the per-field change diff (secrets seal AES-256-GCM → changelog `<set>`/`<cleared>`; readonly `mfa.*` factor fields → 400 with `details.fields` + the `POST /mfa/enroll` hint; URL fields must be `https` unless the target is this machine (loopback) or the field is flagged `allow_http` — `itsm.base_url`/`siem.webhook_url` accept plain http for internal instances — bad shape → 400 with `details.field`/`details.scheme`) |
 | GET | `/overview` | – | Dashboard aggregate: health, license posture, vault stats, settings, counters, computed control posture, recent activity |
-| GET | `/events?limit=&source=` | - | Unified audit feed across all nineteen trails (license, settings, vault, discovery, jit, session, command, risk, bypass, break-glass, integration, vendor, cloud, broker, agent, cluster, rbac, sso, hsm), newest first |
+| GET | `/events?limit=&source=` | - | Unified audit feed across all twenty-one trails (license, settings, vault, discovery, jit, session, command, risk, bypass, break-glass, integration, vendor, cloud, broker, agent, cluster, rbac, sso, hsm, auth, gateway), newest first |
 | GET | `/vault/stats` | – | Inventory aggregates: totals by type/status, rotation compliance, `secrets` coverage (`managed`/`unmanaged`/`versions`), checkouts, today's events |
 | GET | `/vault/items?…` | – | List inventory (`q`, `type`, `status`, `limit`, `offset`) |
 | POST | `/vault/items` | admin | Onboard a credential (201, strictly validated; optional `secret`, else a real type-appropriate value is generated — sealed with AES-256-GCM either way) |
@@ -408,9 +408,18 @@ cross-checked against these routes by `tests/test_openapi_contract.py`.
 | POST | `/hsm/seal` | admin | Seal: stop using the master key until unsealed (reason recorded) |
 | POST | `/hsm/unseal` | admin | Unseal: file key in advisory; provider unwrap in enforced (no token → stays sealed, honest 503) |
 | POST | `/hsm/keys/rotate` | admin | Re-wrap the master key under the provider (envelope: same key, ciphertexts stay valid; wrap file = ciphertext only) |
-| GET | `/audit/stats` | - | Immutable ledger aggregates (§19): `total`, per-source counts for all nineteen trails, `last_seq`, `head_hash`, oldest/newest, `trigger_protection` |
+| GET | `/audit/stats` | - | Immutable ledger aggregates (§19): `total`, per-source counts for all twenty-one trails, `last_seq`, `head_hash`, oldest/newest, `trigger_protection` |
 | GET | `/audit/verify` | – | Walk the whole chain: recomputes every record's hash and reports `intact`, `checked`, `head_hash` plus the first `broken_at`/`reason` (sequence gap, content change, re-link) |
 | GET | `/audit/export` | – | The full ledger in chain order as NDJSON (`application/x-ndjson`, `vy-pam-audit.ndjson`) — one record per line for SIEM ingest |
+
+> **Table scope (amended 2026-10-16):** the rows above document the
+> surface through 6c. The 6b RBAC routes (`/roles`, `/role-bindings`),
+> the phase-7 identity routes (`/auth/login`, `/auth/whoami`, `/users`,
+> the MFA-login / WebAuthn / RADIUS / OTP / SCIM / emergency families
+> under `/auth/*`, `/users` and `/scim/v2/*`) and the 8a gateway routes
+> (`/gateway/*`, `/zones`) are served and fully documented in
+> `apis/openapi.yaml` — the authoritative 209-path contract, enforced
+> both ways by `tests/test_openapi_contract.py`.
 
 Admin auth: `Authorization: Bearer <token>` or `X-Admin-Token: <token>`.
 
@@ -515,8 +524,10 @@ curl -s -X PUT http://127.0.0.1:5000/api/v1/settings/zsp \
 curl -s "http://127.0.0.1:5000/api/v1/settings/audit?limit=20"
 ```
 
-- Eight groups: `sso` (10 fields), `hsm` (10), `zsp` (4), `worm` (6), plus the
-  §20 connector groups `mfa` (4), `itsm` (6), `siem` (4), `ldap` (6). The schema
+- Fifteen groups: the §2-era `sso` (10 fields), `hsm` (10), `zsp` (4), `worm` (6);
+  the §20 connector groups `mfa` (4), `itsm` (6), `siem` (4), `ldap` (6); the
+  phase-7 identity groups `auth`, `webauthn`, `smtp`, `sms`, `radius`, `scim`;
+  and the 8a `gateway` group. The schema
   lives in `service.py` (`SETTINGS_SCHEMA`); defaults mirror the values the
   spec screen displays (2-of-3 quorum, 120-minute TTL extension, 2,555-day
   retention, the spec's bucket and cluster host).
@@ -546,9 +557,10 @@ curl -s "http://127.0.0.1:5000/api/v1/settings/audit?limit=20"
 # dashboard aggregate powering the Command Center / Compliance screens
 curl -s http://127.0.0.1:5000/api/v1/overview
 
-# unified audit feed (all nineteen trails: license, settings, vault, discovery,
+# unified audit feed (all twenty-one trails: license, settings, vault, discovery,
 # jit, session, command, risk, bypass, break-glass, integration, vendor, cloud,
-# broker, agent, cluster, rbac, sso, hsm - newest first, each row chain-linked
+# broker, agent, cluster, rbac, sso, hsm, auth, gateway - newest first, each
+# row chain-linked
 # with seq + hash)
 curl -s "http://127.0.0.1:5000/api/v1/events?limit=10"
 

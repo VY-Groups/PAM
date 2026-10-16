@@ -37,7 +37,7 @@ resumable source of truth while working)
 | §15 DevSecOps PAM | CI/CD JIT credential broker | ✅ built | **5c** |
 | §16 AI-Agent PAM | agent identity + task-scoped access | ✅ built | **5d** |
 | §18 HA / DC / DR | multi-node, replication, failover | ✅ built | **6a** |
-| RBAC / ABAC | multi-role model (single admin today) | ✅ built | 6b |
+| RBAC / ABAC | multi-role model (five seeded roles over all admin operations) | ✅ built | 6b |
 | SSO / HSM enforcement | settings schema → real enforcement | ✅ built | **6c** |
 | Real identity & login security | users, server-side sessions, MFA at login, actor bound to the authenticated user | ✅ built | **7** |
 | §27 Session Gateway | the data plane: protocol proxy, credential injection, recording | ✅ **8a built** (guacd-first: zones/nodes/pools, broker, injection, encrypted segments, control, `gateway` trail); 8b Go SSH gateway + 8c DB proxy deferred (no Go toolchain) | **8a** |
@@ -575,9 +575,11 @@ lockstep, additive schema, honesty invariant, no fabricated counts —
 future counts stay `—`). Effort figures quoted from the papers are the
 analyst's rough estimates for one strong developer, **not commitments**.
 Severity and status notes reflect the papers' gap register (G1–G23);
-two register rows are already stale in our favour — G2 (HA/DR) shipped
-in 6a at single-binary scope and G4 (roles) shipped in 6b — the
-remaining aspects of each are named inside the matching phase below.
+four register rows are now stale in our favour — G2 (HA/DR) shipped in
+6a at single-binary scope, G4 (roles) in 6b, G3 (identity/MFA/sessions)
+in 7, and G17's offline-assets half by the vendored-asset work + the
+frontend rebuild — the remaining aspects of each are named inside the
+matching phase below.
 
 ### 7 — Real identity & login security ✅ (closed 2026-10-11)
 Real identity, not header conventions. Local `users` login over scrypt
@@ -926,12 +928,12 @@ real numbers collected at that time, `—` until then**:
 2. **Console:** all 11 sidebar screens live (including Break-Glass), zero
    `data-kind="static"` surfaces, zero FORBIDDEN strings, `file://` fallback
    intact.
-3. **Evidence:** one append-only ledger covering every module source (17
+3. **Evidence:** one append-only ledger covering every module source (21
    sources), chain verified in CI, NDJSON + webhook export flowing to a real
    SIEM when configured.
-4. **Contracts:** `apis/openapi.yaml` (path count `-`, today 192) and the
+4. **Contracts:** `apis/openapi.yaml` (path count `-`, today 209) and the
    vendor tool contract both enforced both-ways; zero dark endpoints.
-5. **Quality gates:** backend suite (today **760**) grows per phase with real
+5. **Quality gates:** backend suite (today **794**) grows per phase with real
    counts recorded in the READMEs; pam_master stays green (**46**); smoke,
    both UI verifiers, leak check all green at every boundary.
 6. **Operations:** single-node install stays Docker-free; §18 adds replicated
