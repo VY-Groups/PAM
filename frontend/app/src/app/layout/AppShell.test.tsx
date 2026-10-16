@@ -79,14 +79,16 @@ describe('AppShell (F3 exit: shell renders live nav)', () => {
 
   it('renders the honest F4-pending screen with its live legacy link', async () => {
     stubFetch([whoamiRoute(WHOAMI_OPEN_BODY), healthRoute()]);
-    renderApp('/licensing');
+    // /licensing is a real F4 replacement now (screen 10); Settings is
+    // still pending, so the strangler contract is asserted there.
+    renderApp('/settings');
     expect(
       await screen.findByRole('heading', { name: /arrives at F4/ }),
     ).toBeInTheDocument();
     const legacy = screen.getByRole('link', { name: /Open the legacy screen/i });
     expect(legacy).toHaveAttribute(
       'href',
-      '/screens/enterprise_licensing_tier_entitlements_node_quotas/code.html',
+      '/screens/platform_settings_idp_hsm_configuration/code.html',
     );
   });
 

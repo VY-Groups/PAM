@@ -305,6 +305,53 @@ their own emergency request`, the 400 duplicate signer, the 400
   claimed). The legacy
   `../screens/break_glass_emergency_protocol/code.html` stays served
   until the Flask app mounts `dist/` under `/app/` (ADR-0012).
+- **Screen 10 — Enterprise Licensing** (`/licensing`, replaces the nav
+  target `enterprise_licensing_tier_entitlements_node_quotas` per the
+  recorded decision; `license_entitlement_center` stays a separate live
+  surface): `src/features/licensing/` renders the KPI quad over
+  `GET /api/v1/overview`'s captured `licenses` block (total/active/
+  expiring-soon/revoked with the by-tier chips; loading and failure both
+  read the honest em-dash, never a zeroed quad), the contract catalog
+  rail over `GET /api/v1/meta` (tiers, license types, algorithms,
+  formats, the 8-module count) with the live offline air-gap ingestion
+  process, the **license registry** over `GET /api/v1/licenses`
+  (limit 200; the status chips, tier/type selects and free-text search
+  send the contract's `status`/`tier`/`license_type`/`q` parameters and
+  refetch server truth — semantics pinned by live rig probes: `status`
+  matches record OR effective status, `q` is a case-insensitive
+  substring over key/ID/issued-to/tier and NOT classification; DataTable
+  with the legacy columns and every row Inspects), the read-only
+  **license inspector** over `GET /api/v1/licenses/{key}` (identity and
+  raw-vs-effective status verbatim, the 8-module entitlement grid with
+  the server's per-module entitled state, the quota meters reading the
+  captured consumed/quota/headroom/utilization with over-quota rows
+  flagged not clamped, the four pool rows by environment with their
+  enforcement levels, the payload-signature block algorithm/format/
+  fingerprint, and the activity timeline from the record's own events),
+  the **import dialog** (ADR-0006 Zod guards only that the paste is a
+  JSON envelope with `license_data`+`signature` — signature
+  verification, the duplicate 409 and every other refusal are the
+  server's judgement, rendered verbatim), the **validate dialog**
+  (offline-parity verdict from the pasted envelope or raw JWT, rendered
+  structurally: valid/signature/registered/revoked/expired/match plus
+  the entitled count), the **signed-file viewer** (json envelope and
+  the raw `text/plain` jwt verbatim, dispatched by format), and the
+  **revoke/restore lifecycle** (the destructive confirm records the
+  reason; the server's own `License revoked`/`License restored` message
+  lands on the status line and one `['licensing', ...]` key root
+  refreshes every view). Honest states follow DoD 2 (section-error
+  verbatim, em-dash KPIs, the honest no-selection placeholder, the
+  shared BackendDownNotice + NotConnected rail on transport errors).
+  Fixtures in `src/test/licensingFixtures.ts` are verbatim rig captures:
+  the read side of both captured licenses plus a real write lifecycle
+  minted through the product's own `LicenseGenerator` with the rig's
+  bind-mounted signing key (import 201 → duplicate 409 → validate for
+  each license → revoke → restore → revoke terminal; both raw jwt file
+  answers; rig hygiene: the scratch license ends revoked, the demo
+  license untouched). The legacy
+  `../screens/enterprise_licensing_tier_entitlements_node_quotas/code.html`
+  stays served until the Flask app mounts `dist/` under `/app/`
+  (ADR-0012).
 - During migration the legacy `../screens/` pages stay reachable and the
   standing gate (`../../shots_tool/__verify_*.mjs`) stays authoritative
   until F5 (ADR-0008).

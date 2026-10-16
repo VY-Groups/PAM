@@ -93,4 +93,17 @@ export const queryKeys = {
   breakGlassList: (status: string) => ['breakGlass', 'list', status] as const,
   breakGlassDetail: (id: number | null) => ['breakGlass', 'detail', id] as const,
   breakGlassIntegrations: ['breakGlass', 'integrations'] as const,
+  // Enterprise Licensing (F4 screen 10): one ['licensing', ...] root so a
+  // single prefix invalidation refreshes the overview aggregates, the meta
+  // catalog, the filtered registry, the selected license's detail and its
+  // signed file together - they are views of the same license rows. The
+  // list keys on its server-side filter params (status/tier/license_type/q),
+  // mirroring the contract's own query contract.
+  licensingOverview: ['licensing', 'overview'] as const,
+  licensingMeta: ['licensing', 'meta'] as const,
+  licensingList: (status: string, tier: string, licenseType: string, q: string) =>
+    ['licensing', 'list', status, tier, licenseType, q] as const,
+  licensingDetail: (key: string | null) => ['licensing', 'detail', key] as const,
+  licensingFile: (key: string | null, format: string) =>
+    ['licensing', 'file', key, format] as const,
 } as const;

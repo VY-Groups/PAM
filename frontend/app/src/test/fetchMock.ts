@@ -161,6 +161,30 @@ import {
 } from './breakGlassFixtures';
 export * from './breakGlassFixtures';
 
+// F4 screen 10 fixtures: verbatim rig captures for Enterprise Licensing
+// (see the header in licensingFixtures.ts). The write-lifecycle captures
+// (import 201, the duplicate-import 409, validate, revoke, restore) and
+// the raw JWT file answer are re-exported for the screen's tests; the
+// route helpers below import only the read-side defaults.
+import {
+  LIC_DETAIL_ACTIVE_RESPONSE,
+  LIC_DETAIL_REVOKED_RESPONSE,
+  LIC_FILE_JWT_ACTIVE_TEXT,
+  LIC_FILE_JWT_TEXT,
+  LIC_FILE_JSON_RESPONSE,
+  LIC_FILE_SCRATCH_JSON_RESPONSE,
+  LIC_IMPORT_RESPONSE,
+  LIC_KEYS,
+  LIC_LIST_RESPONSE,
+  LIC_META_RESPONSE,
+  LIC_OVERVIEW_RESPONSE,
+  LIC_RESTORE_RESPONSE,
+  LIC_REVOKE_RESPONSE,
+  LIC_VALIDATE_ACTIVE_RESPONSE,
+  LIC_VALIDATE_RESPONSE,
+} from './licensingFixtures';
+export * from './licensingFixtures';
+
 /** Build a fetch-shaped Response with the backend's JSON body. */
 export function jsonResponse(status: number, body: unknown): Response {
   return new Response(JSON.stringify(body), {
@@ -1602,6 +1626,241 @@ export function breakGlassRoutes() {
     breakGlassDetailRoute(3, BG_DETAIL_APPROVED_RESPONSE),
     breakGlassDetailRoute(4, BG_DETAIL_PENDING_RESPONSE),
     breakGlassDetailRoute(5, BG_DETAIL_USED_RESPONSE),
+  ];
+}
+
+/* ------------------------------------------------------------------ */
+/* F4 screen 10: Enterprise Licensing route helpers (verbatim captures).*/
+/* ------------------------------------------------------------------ */
+
+/** `GET /api/v1/meta` - the platform catalog behind the rail. */
+export function licenseMetaRoute(capture: CapturedResponse = LIC_META_RESPONSE) {
+  return {
+    match: (url: string) => url.includes('/api/v1/meta'),
+    respond: () => jsonResponse(capture.status, capture.body),
+  };
+}
+
+/** `GET /api/v1/overview` - the aggregates behind the KPI quad. */
+export function licenseOverviewRoute(capture: CapturedResponse = LIC_OVERVIEW_RESPONSE) {
+  return {
+    match: (url: string) => url.includes('/api/v1/overview'),
+    respond: () => jsonResponse(capture.status, capture.body),
+  };
+}
+
+/**
+ * `GET /api/v1/licenses?...` - the registry, with the contract's own
+ * server-side filter semantics mirrored from live rig probes (2026-10-16):
+ * `status` matches the record status OR the effective status (the live
+ * `status=active` probe returns the demo row whose effective status is
+ * the captured `valid`, and `status=expired` returns 0 rows because no
+ * captured row carries expired in either field), `tier` and
+ * `license_type` are equality, and `q` is a case-insensitive substring
+ * over key, license ID, issued-to and tier (the rig's `q=Air-Gapped`
+ * probe against the classification returns 0 - classification is NOT
+ * searched). The chips and selects therefore drive real parameters and
+ * the mock re-queries exactly like the server does.
+ */
+export function licensesListRoute(capture: CapturedResponse = LIC_LIST_RESPONSE) {
+  type LicenseRow = {
+    license_key: string;
+    license_id?: string | null;
+    issued_to?: string | null;
+    tier?: string | null;
+    license_type?: string;
+    status: string;
+    effective_status: string;
+  };
+  let params = new URLSearchParams();
+  return {
+    match: (url: string) => {
+      if (!/\/api\/v1\/licenses\?/.test(url)) return false;
+      params = new URL(url, 'http://test.local').searchParams;
+      return true;
+    },
+    respond: () => {
+      if (capture.status >= 400) return jsonResponse(capture.status, capture.body);
+      const body = capture.body as {
+        licenses: LicenseRow[];
+        total: number;
+        limit: number;
+        offset: number;
+      };
+      const status = params.get('status');
+      const tier = params.get('tier');
+      const licenseType = params.get('license_type');
+      const q = params.get('q');
+      let rows = body.licenses;
+      if (status) {
+        rows = rows.filter(
+          (row) => row.status === status || row.effective_status === status,
+        );
+      }
+      if (tier) rows = rows.filter((row) => row.tier === tier);
+      if (licenseType) {
+        rows = rows.filter((row) => row.license_type === licenseType);
+      }
+      if (q) {
+        const needle = q.toLowerCase();
+        rows = rows.filter((row) =>
+          [row.license_key, row.license_id ?? '', row.issued_to ?? '', row.tier ?? ''].some(
+            (field) => field.toLowerCase().includes(needle),
+          ),
+        );
+      }
+      return jsonResponse(capture.status, {
+        ...body,
+        licenses: rows,
+        total: rows.length,
+      });
+    },
+  };
+}
+
+/**
+ * `GET /api/v1/licenses/{key}` - one license's record + event trail.
+ * The UUID-shaped key keeps this route disjoint from `/import`,
+ * `/validate` and the `/{key}/file|revoke|restore` suffixes.
+ */
+export function licenseDetailRoute(licenseKey: string, capture: CapturedResponse) {
+  return {
+    match: (url: string) => new RegExp(`/api/v1/licenses/${licenseKey}(\\?.*)?$`).test(url),
+    respond: () => jsonResponse(capture.status, capture.body),
+  };
+}
+
+/**
+ * `GET /api/v1/licenses/{key}/file` - the signed file in both wire
+ * formats: `format=json` answers the envelope JSON, `format=jwt`
+ * answers the compact token as raw `text/plain` (the contract's own
+ * content type).
+ */
+export function licenseFileRoute(
+  licenseKey: string,
+  jsonCapture: CapturedResponse = LIC_FILE_JSON_RESPONSE,
+  jwtText: string = LIC_FILE_JWT_TEXT,
+) {
+  let format = 'json';
+  return {
+    match: (url: string) => {
+      if (!new RegExp(`/api/v1/licenses/${licenseKey}/file`).test(url)) {
+        return false;
+      }
+      format = new URL(url, 'http://test.local').searchParams.get('format') ?? 'json';
+      return true;
+    },
+    respond: () =>
+      format === 'jwt'
+        ? new Response(jwtText, {
+            status: 200,
+            headers: { 'Content-Type': 'text/plain; charset=utf-8' },
+          })
+        : jsonResponse(jsonCapture.status, jsonCapture.body),
+  };
+}
+
+/** `POST /api/v1/licenses/import` - air-gap ingestion (201, or the 409 refusal). */
+export function licenseImportRoute(capture: CapturedResponse = LIC_IMPORT_RESPONSE) {
+  return {
+    match: (url: string) => /\/api\/v1\/licenses\/import$/.test(url),
+    respond: () => jsonResponse(capture.status, capture.body),
+  };
+}
+
+/**
+ * The license key inside a posted validate payload: the envelope arm
+ * (`license_data.license_key`), the wrapper arm (`license.license_key`)
+ * or the compact JWT string (its payload IS the license_data claims).
+ * Malformed payloads return undefined -> the route answers an honest
+ * 404 (the house rule: a missing capture fails loudly, never on the
+ * wrong body).
+ */
+function validatePayloadKey(raw: string): string | undefined {
+  try {
+    const parsed: unknown = JSON.parse(raw);
+    if (typeof parsed === 'string') {
+      const parts = parsed.split('.');
+      if (parts.length !== 3) return undefined;
+      const b64 = parts[1].replace(/-/g, '+').replace(/_/g, '/');
+      const padded = b64 + '='.repeat((4 - (b64.length % 4)) % 4);
+      const claims = JSON.parse(atob(padded)) as {
+        license_key?: string;
+        license_data?: { license_key?: string };
+      };
+      return claims.license_key ?? claims.license_data?.license_key;
+    }
+    if (typeof parsed === 'object' && parsed !== null) {
+      const env = parsed as {
+        license_data?: { license_key?: string };
+        license?: { license_key?: string };
+      };
+      return env.license_data?.license_key ?? env.license?.license_key;
+    }
+  } catch {
+    return undefined;
+  }
+  return undefined;
+}
+
+/**
+ * `POST /api/v1/licenses/validate` - the offline-parity verdict,
+ * dispatched by the posted payload's own license key to that license's
+ * captured verdict (the demo envelope and the scratch envelope were
+ * both really validated on the rig). A payload with no captured verdict
+ * answers 404 instead of borrowing another license's answer.
+ */
+export function licenseValidateRoute(
+  byKey: Record<string, CapturedResponse> = {
+    [LIC_KEYS.active]: LIC_VALIDATE_ACTIVE_RESPONSE,
+    [LIC_KEYS.revoked]: LIC_VALIDATE_RESPONSE,
+  },
+) {
+  return {
+    match: (url: string) => /\/api\/v1\/licenses\/validate$/.test(url),
+    respond: (init?: RequestInit) => {
+      const key =
+        typeof init?.body === 'string' ? validatePayloadKey(init.body) : undefined;
+      const capture = key !== undefined ? byKey[key] : undefined;
+      return capture
+        ? jsonResponse(capture.status, capture.body)
+        : jsonResponse(404, { error: 'No captured verdict for this payload' });
+    },
+  };
+}
+
+/** `POST /api/v1/licenses/{key}/revoke` / `.../restore` - lifecycle writes. */
+export function licenseLifecycleRoute(
+  action: 'revoke' | 'restore',
+  capture: CapturedResponse = action === 'revoke'
+    ? LIC_REVOKE_RESPONSE
+    : LIC_RESTORE_RESPONSE,
+) {
+  return {
+    match: (url: string) => new RegExp(`/licenses/[^/]+/${action}$`).test(url),
+    respond: () => jsonResponse(capture.status, capture.body),
+  };
+}
+
+/** The full Enterprise Licensing route set (F4 screen 10, /licensing). */
+export function licenseRoutes() {
+  return [
+    whoamiRoute(WHOAMI_OPEN_BODY),
+    healthRoute(),
+    licenseMetaRoute(),
+    licenseOverviewRoute(),
+    // The file routes precede the detail routes: both address the same
+    // key, and `/file?format=` is the more specific pattern. Each key
+    // answers its OWN captured file (json envelope + raw jwt token).
+    licenseFileRoute(LIC_KEYS.active, LIC_FILE_JSON_RESPONSE, LIC_FILE_JWT_ACTIVE_TEXT),
+    licenseFileRoute(LIC_KEYS.revoked, LIC_FILE_SCRATCH_JSON_RESPONSE, LIC_FILE_JWT_TEXT),
+    licenseDetailRoute(LIC_KEYS.active, LIC_DETAIL_ACTIVE_RESPONSE),
+    licenseDetailRoute(LIC_KEYS.revoked, LIC_DETAIL_REVOKED_RESPONSE),
+    licensesListRoute(),
+    licenseImportRoute(),
+    licenseValidateRoute(),
+    licenseLifecycleRoute('revoke'),
+    licenseLifecycleRoute('restore'),
   ];
 }
 

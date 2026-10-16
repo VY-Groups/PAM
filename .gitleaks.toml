@@ -19,6 +19,23 @@ description = "Documented false positives and historical dev artifacts"
 paths = ['''license_[0-9A-F]{8}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{12}\.json$''']
 
 regexes = [
+  # The two screen-10 test fixtures (frontend/app/src/test/licensingFixtures.ts)
+  # carry these license_key values: the license_key is the product's PUBLIC
+  # identifier (published in every /api/v1/licenses response; 62070B33… already
+  # lives in the tracked complianceFixtures.ts) - license security is the RSA
+  # signature over the claim set, never the key's secrecy. Same class as the
+  # license_*.json allowlist above: signed claim sets, never private key
+  # material. The two exact identifiers only - any other UUID-shaped secret
+  # still fails the scan.
+  '''31ED5F43-6D34-4553-88FA-1D0E6113C6DD|62070B33-4ACD-417B-A4FC-BE00A59498C7''',
+  # The two raw jwt file answers in the same fixtures are SIGNED LICENSE TOKENS
+  # (RS256 header, payload = the license_data claims starting with
+  # classification): distribution artifacts by design - the whole air-gap
+  # ingestion flow hands this token to the customer out-of-band. The matching
+  # PUBLIC verification key is tracked in the repo; the private signing key
+  # never enters it. Scoped to the license-token payload prefix so any other
+  # RS256 JWT still fails the scan.
+  '''eyJhbGciOiJQUzI1NiIsInR5cCI6IkpXVCJ9\.eyJjbGFzc2lmaWNhdGlvbiI6''',
   # A deliberately weak password used ONLY by the password-policy test
   # (backend/phase2_license_server/tests/test_identity.py) - the point of the
   # fixture is that it is short.

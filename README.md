@@ -190,7 +190,17 @@ python -m pytest pam_master -q                   # 46 tests (vendor tool)
   note with the server's rotation answer, from
   `GET /api/v1/break-glass/stats|requests[/{id}]`,
   `GET /api/v1/integrations/status` and the
-  `POST /api/v1/break-glass/requests` + `POST .../{id}/approve|deny|open|close` writes;
+  `POST /api/v1/break-glass/requests` + `POST .../{id}/approve|deny|open|close` writes,
+  and Enterprise Licensing (F4 screen 10) renders the tier, entitlement
+  and node-quota console: the KPI quad over `GET /api/v1/overview`'s
+  licenses block, the contract catalog over `GET /api/v1/meta`, the
+  registry with the contract's own `status`/`tier`/`license_type`/`q`
+  server-side filters, the inspector over
+  `GET /api/v1/licenses/{key}` (entitlement grid, quota meters, pool
+  breakdown by environment, payload signature, activity) and the
+  air-gap lifecycle (`POST /api/v1/licenses/import`,
+  `POST /api/v1/licenses/validate`, `POST .../{key}/revoke|restore`,
+  `GET .../{key}/file` in json and raw jwt);
   the legacy pages below stay served and reachable
   until each replacement passes parity. Served by Phase 2, all
   eleven sidebar screens are **live**: licensing (`/`), platform settings (`/settings`,
