@@ -787,6 +787,181 @@ writeApiSurfaceDoc();
 writeNetworkPostureDoc();
 writeWorkflowsDoc();
 
+/* ------------------------------------------ architecture explorer (HTML) */
+
+/**
+ * The interactive single-file explorer (ADR-0014): the page CHROME is
+ * the hand-edited template below, every FACT inside it is emitted from
+ * the same extraction as the five docs. The committed output lands in
+ * docs/architecture/, so the existing CI `git diff --exit-code` step
+ * over ':(top)docs/architecture' drift-gates it without a workflow
+ * change. The prototype this replaces embedded its numbers as literals -
+ * this can never go stale silently.
+ */
+const EXPLORER_TEMPLATE = path.join(APP, 'scripts', 'architecture-explorer.template.html');
+
+// Editorial layout of the package panels: frame x/y/w, grid columns and
+// colors are the page's chrome; box HEIGHT derives from the module grid
+// at emission time (26px header + rows), so a grown package can never
+// be clipped by a fixed rectangle.
+const EXPLORER_LAYOUT = new Map([
+  ['phase2_license_server', { x: 10, y: 10, w: 490, c: 5, col: 'var(--ac)' }],
+  ['pam_master', { x: 515, y: 10, w: 235, c: 4, col: 'var(--ok)' }],
+  ['ipam_licensing', { x: 515, y: null, w: 235, c: 2, col: 'var(--g)' }], // y: below pam_master
+]);
+const EXPLORER_PACKAGE_ORDER = ['phase2_license_server', 'pam_master', 'ipam_licensing'];
+const EXPLORER_ROW_H = 70;
+
+// Editorial domain grouping (labelled editorial on the page). A tag the
+// contract no longer has fails this build loudly, never renders a hole.
+const EXPLORER_DOMAINS = [
+  [
+    'Access',
+    'vault,jit,sessions,command-control,break-glass,vendors,broker,agent,rotation',
+  ],
+  ['Identity & trust', 'identity,rbac,sso,hsm,integrations'],
+  ['Platform', 'cluster,gateway,discovery,cloud,settings,ops'],
+  ['Risk & evidence', 'risk,bypass'],
+  ['Licensing', 'licenses,validation'],
+];
+
+function explorerData() {
+  const tagNames = new Set(api.tags.map((t) => t.name));
+  for (const [, tags] of EXPLORER_DOMAINS) {
+    for (const name of tags.split(',')) {
+      if (!tagNames.has(name))
+        throw new Error(`explorer: domain references unknown tag ${name}`);
+    }
+  }
+
+  // First-tag index - the same grouping rule as api-surface.md.
+  const tagOfOp = new Map();
+  for (const tag of api.tags) {
+    for (const op of tag.operations) tagOfOp.set(`${op.method} ${op.path}`, tag.name);
+  }
+
+  // ADR-0014 wired rule: the Network posture's reads are OVERVIEW-ONLY.
+  const passive = extractNetworkWiring().map((c) => c.endpoint);
+  const passiveSet = new Set(passive);
+
+  const coveredBy = new Map(); // tag -> { covered: Set, driven: Set }
+  const routeTags = new Map(); // route path -> Set(tag)
+  for (const route of frontend) {
+    if (route.state !== 'live') continue; // pending: legacy page, no client
+    const tags = new Set();
+    for (const endpoint of route.endpoints) {
+      const tag = tagOfOp.get(endpoint);
+      if (!tag) throw new Error(`explorer: ${route.path} endpoint ${endpoint} has no tag`);
+      tags.add(tag);
+      let rec = coveredBy.get(tag);
+      if (!rec) {
+        rec = { covered: new Set(), driven: new Set() };
+        coveredBy.set(tag, rec);
+      }
+      rec.covered.add(endpoint);
+      if (!passiveSet.has(endpoint)) rec.driven.add(endpoint);
+    }
+    routeTags.set(route.path, tags);
+  }
+
+  const tags = api.tags.map((tag) => {
+    const rec = coveredBy.get(tag.name);
+    const w = !rec ? 0 : rec.driven.size > 0 ? 2 : 1;
+    return {
+      n: tag.name,
+      o: tag.operations.length,
+      w,
+      s: tag.operations.slice(0, 3).map((op) => `${op.method} ${op.path}`),
+    };
+  });
+
+  const routes = frontend.map((route) => ({
+    n:
+      route.state === 'pending'
+        ? `${route.path.slice(1)} (legacy page)`
+        : route.path.slice(1),
+    live: route.state === 'live',
+    t: api.tags.filter((t) => routeTags.get(route.path)?.has(t.name)).map((t) => t.name),
+  }));
+
+  const byName = new Map(backendOut.map((p) => [p.name, p]));
+  const packages = EXPLORER_PACKAGE_ORDER.map((name) => {
+    const pkg = byName.get(name);
+    if (!pkg) throw new Error(`explorer: package ${name} no longer exists`);
+    const layout = EXPLORER_LAYOUT.get(name);
+    if (!layout) throw new Error(`explorer: no layout for package ${name}`);
+    const indexOf = new Map(pkg.files.map((f, i) => [f.path, i]));
+    const edges = [];
+    pkg.files.forEach((f, i) => {
+      for (const target of f.imports) {
+        const rel = target.startsWith(`${pkg.root}/`)
+          ? target.slice(pkg.root.length + 1)
+          : null;
+        const j = rel === null ? undefined : indexOf.get(rel);
+        if (j === undefined)
+          throw new Error(`explorer: unresolved edge ${name}: ${f.path} -> ${target}`);
+        edges.push([i, j]);
+      }
+    });
+    const rows = Math.ceil(pkg.files.length / layout.c);
+    return {
+      n: pkg.name,
+      root: pkg.root,
+      m: pkg.files.map((f) => ({ n: f.path.replace(/\.py$/, ''), l: f.lines })),
+      e: edges,
+      b: {
+        x: layout.x,
+        y: layout.y,
+        w: layout.w,
+        h: 26 + rows * EXPLORER_ROW_H,
+        c: layout.c,
+        col: layout.col,
+      },
+    };
+  });
+  // Boxes with a derived y (null in the layout) hang below pam_master.
+  const pam = packages[EXPLORER_PACKAGE_ORDER.indexOf('pam_master')];
+  for (const pkg of packages) {
+    if (pkg.b.y === null) pkg.b.y = pam.b.y + pam.b.h + 15;
+  }
+
+  const workflows = extractWorkflowFlows().map((flow) => ({
+    id: flow.id,
+    title: i18nGet(flow.titleKey),
+    subtitle: i18nGet(flow.subtitleKey),
+    steps: flow.steps.map((step) => ({
+      op: step.operation,
+      label: i18nGet(step.labelKey),
+      note: step.noteKey ? i18nGet(step.noteKey) : null,
+    })),
+  }));
+
+  return {
+    paths: api.pathCount,
+    domains: EXPLORER_DOMAINS,
+    passive,
+    tags,
+    routes,
+    packages,
+    workflows,
+  };
+}
+
+function writeExplorerDoc() {
+  const template = fs.readFileSync(EXPLORER_TEMPLATE, 'utf8');
+  if (!template.includes('const DATA = __DATA__;')) {
+    throw new Error('explorer template: data placeholder missing');
+  }
+  // `<` escaped so no emitted string can close the script element early.
+  const json = JSON.stringify(explorerData()).replace(/</g, '\\u003c');
+  const html = template.replace('const DATA = __DATA__;', `const DATA = ${json};`);
+  if (html.includes('__DATA__'))
+    throw new Error('explorer template: placeholder not consumed');
+  writeDoc('architecture-explorer.html', html);
+}
+
+writeExplorerDoc();
+
 if (unresolved.length > 0) {
   console.log(
     `topology: non-fetch imports of the generated client (types, reported only):`,

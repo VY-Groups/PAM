@@ -1,0 +1,1118 @@
+<!doctype html>
+<!--
+AUTO-GENERATED OUTPUT when rendered: this file is the hand-edited CHROME
+template of docs/architecture/architecture-explorer.html (ADR-0014).
+pnpm topology reads it and replaces the single data placeholder with one
+deterministic JSON blob derived from the same six sources as every
+artifact of this set (the token must appear in THIS comment nowhere, or
+the generator's replacement would consume the wrong occurrence);
+the committed output is drift-gated in CI. Edit THIS file for layout or
+copy; never edit the generated output.
+-->
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1, viewport-fit=cover"
+    />
+    <title>VY-PAM Architecture Explorer</title>
+    <style>
+      :root {
+        --bg: #f8f9ff;
+        --pn: #fff;
+        --tx: #0b1c30;
+        --mu: #434655;
+        --ln: #c3c6d7;
+        --ac: #2563eb;
+        --on: #fff;
+        --wn: #b45309;
+        --ok: #047857;
+        --g: #8b92a8;
+        box-sizing: border-box;
+        padding-top: env(safe-area-inset-top, 0px);
+        padding-bottom: env(safe-area-inset-bottom, 0px);
+      }
+      @media (prefers-color-scheme: dark) {
+        :root:not([data-theme='light']) {
+          color-scheme: dark;
+          --bg: #0b1220;
+          --pn: #121a2b;
+          --tx: #e6ecff;
+          --mu: #a7b1cc;
+          --ln: #2a3550;
+          --ac: #6ea0ff;
+          --on: #04122e;
+          --wn: #f0a64a;
+          --ok: #4cd1a0;
+          --g: #6a7592;
+        }
+      }
+      :root[data-theme='dark'] {
+        color-scheme: dark;
+        --bg: #0b1220;
+        --pn: #121a2b;
+        --tx: #e6ecff;
+        --mu: #a7b1cc;
+        --ln: #2a3550;
+        --ac: #6ea0ff;
+        --on: #04122e;
+        --wn: #f0a64a;
+        --ok: #4cd1a0;
+        --g: #6a7592;
+      }
+      html {
+        scroll-padding-top: env(safe-area-inset-top, 0px);
+      }
+      [hidden] {
+        display: none !important;
+      }
+      body {
+        margin: 0;
+        background: var(--bg);
+        color: var(--tx);
+        font:
+          14px/1.45 system-ui,
+          -apple-system,
+          'Segoe UI',
+          Roboto,
+          sans-serif;
+      }
+      header,
+      main,
+      footer {
+        max-width: 1180px;
+        margin: 0 auto;
+        padding: 0 16px;
+      }
+      h1 {
+        font-size: 20px;
+        margin: 16px 0 2px;
+      }
+      h2 {
+        font-size: 16px;
+        margin: 0 0 6px;
+      }
+      h3 {
+        font-size: 12px;
+        text-transform: uppercase;
+        letter-spacing: 0.06em;
+        color: var(--mu);
+        margin: 14px 0 4px;
+      }
+      .mu {
+        color: var(--mu);
+      }
+      .sub {
+        margin: 0 0 10px;
+        color: var(--mu);
+      }
+      .chips {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 6px;
+        margin: 6px 0;
+      }
+      .chip,
+      .btn,
+      .tab {
+        font: inherit;
+        color: var(--tx);
+        background: var(--pn);
+        border: 1px solid var(--ln);
+        border-radius: 8px;
+        padding: 5px 10px;
+        cursor: pointer;
+      }
+      .stat {
+        border: 1px solid var(--ln);
+        background: var(--pn);
+        border-radius: 8px;
+        padding: 3px 9px;
+        font-size: 12px;
+      }
+      .stat b {
+        font-size: 14px;
+      }
+      .tab[aria-pressed='true'],
+      .chip.on {
+        background: var(--ac);
+        border-color: var(--ac);
+        color: var(--on);
+      }
+      :focus-visible {
+        outline: 2px solid var(--ac);
+        outline-offset: 2px;
+      }
+      main {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) 330px;
+        gap: 16px;
+        padding-bottom: 16px;
+      }
+      @media (max-width: 860px) {
+        main {
+          grid-template-columns: minmax(0, 1fr);
+        }
+      }
+      #stage,
+      aside {
+        background: var(--pn);
+        border: 1px solid var(--ln);
+        border-radius: 12px;
+        padding: 10px;
+      }
+      #stage {
+        overflow-x: auto;
+      }
+      svg {
+        display: block;
+        width: 100%;
+        min-width: 600px;
+        height: auto;
+      }
+      svg text {
+        fill: var(--tx);
+        font:
+          11px system-ui,
+          sans-serif;
+      }
+      svg .mu {
+        fill: var(--mu);
+      }
+      svg g[tabindex] {
+        cursor: pointer;
+      }
+      code {
+        font:
+          12px ui-monospace,
+          Menlo,
+          Consolas,
+          monospace;
+        word-break: break-all;
+      }
+      ul {
+        margin: 4px 0;
+        padding-left: 18px;
+      }
+      .lane {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        position: relative;
+        border: 1px solid var(--ln);
+        border-radius: 8px;
+        padding: 8px 12px;
+        margin: 8px 0;
+      }
+      #dot {
+        position: absolute;
+        top: 50%;
+        left: 6%;
+        width: 10px;
+        height: 10px;
+        margin-top: -5px;
+        border-radius: 50%;
+        background: var(--ac);
+      }
+      #dot.go {
+        animation: mv 0.9s ease-in-out;
+      }
+      @keyframes mv {
+        from {
+          left: 6%;
+        }
+        to {
+          left: 90%;
+        }
+      }
+      @media (prefers-reduced-motion: reduce) {
+        #dot.go {
+          animation: none;
+        }
+      }
+      #steps {
+        padding-left: 20px;
+      }
+      #steps li {
+        padding: 6px 8px;
+        border-radius: 8px;
+        margin: 4px 0;
+        border: 1px solid transparent;
+      }
+      #steps li.on {
+        border-color: var(--ac);
+        background: color-mix(in srgb, var(--ac) 12%, transparent);
+      }
+      footer {
+        padding-bottom: 24px;
+        color: var(--mu);
+        font-size: 12px;
+      }
+      #q {
+        font: inherit;
+        color: var(--tx);
+        background: var(--pn);
+        border: 1px solid var(--ln);
+        border-radius: 8px;
+        padding: 5px 10px;
+        min-width: 240px;
+      }
+    </style>
+  </head>
+  <body>
+    <header>
+      <h1>VY-PAM Architecture Explorer</h1>
+      <p class="sub">
+        An interactive map built from the generated topology files. Select a node to explore
+        it.
+      </p>
+      <div class="chips" id="stats"></div>
+      <div class="chips" id="tabs" role="group" aria-label="Views"></div>
+      <div class="chips">
+        <input
+          id="q"
+          type="search"
+          placeholder="Find a route, tag, module or step"
+          aria-label="Search the diagram"
+        /><button class="btn" id="th" aria-label="Toggle light or dark theme">
+          ◐ Theme
+        </button>
+      </div>
+      <div class="chips" id="hits"></div>
+    </header>
+    <main>
+      <section id="stage" aria-label="Diagram">
+        <svg id="svg" role="group" aria-label="Architecture diagram"></svg>
+        <div id="wf" hidden></div>
+      </section>
+      <aside id="panel" aria-live="polite"></aside>
+    </main>
+    <footer>
+      Snapshot of api-surface.md, backend-map.md, frontend-map.md, network-posture.md and
+      workflows.md (generated by pnpm topology). It is not live node data. For live values,
+      extend the /topology route in the console, which already reads /health, /cluster and
+      /integrations/status from the running node.
+    </footer>
+    <script>
+      const $ = (s) => document.querySelector(s),
+        NS = 'http://www.w3.org/2000/svg';
+      const el = (t, a, p) => {
+        const e = document.createElementNS(NS, t);
+        for (const k in a) e.setAttribute(k, a[k]);
+        if (p) p.appendChild(e);
+        return e;
+      };
+      const fmt = (n) => n.toLocaleString('en-US');
+      let sel = null,
+        ms = null,
+        gE,
+        RN = [],
+        TN = [],
+        MN = [],
+        wi = 0,
+        si = -1,
+        timer = 0,
+        imp = false;
+
+      /* ---- generated data (ADR-0014): the ONLY facts this page stores ----
+   TG tags {n,o,w,s}   w: 0 not in route map / 1 overview-only / 2 wired
+   R routes {n,t,live} t: API tags this live screen's calls resolve to
+   PK packages {n,root,m,e,b}  m modules, e edges, b box (grid-derived)
+   WF workflows {id,title,subtitle,steps[{op,label,note}]}
+   passive: network-posture endpoints (source of the w=1 state)        */
+      const DATA = {"paths":209,"domains":[["Access","vault,jit,sessions,command-control,break-glass,vendors,broker,agent,rotation"],["Identity & trust","identity,rbac,sso,hsm,integrations"],["Platform","cluster,gateway,discovery,cloud,settings,ops"],["Risk & evidence","risk,bypass"],["Licensing","licenses,validation"]],"passive":["GET /health","GET /api/v1/cluster","GET /api/v1/integrations/status"],"tags":[{"n":"ops","o":7,"w":2,"s":["GET /health","GET /api/v1/meta","GET /api/v1/overview"]},{"n":"licenses","o":7,"w":2,"s":["GET /api/v1/licenses","POST /api/v1/licenses/import","GET /api/v1/licenses/{license_key}"]},{"n":"validation","o":2,"w":2,"s":["POST /api/v1/licenses/validate","POST /api/v1/licenses/{license_key}/check"]},{"n":"settings","o":5,"w":0,"s":["GET /api/v1/settings","GET /api/v1/settings/audit","PUT /api/v1/settings/{group}"]},{"n":"vault","o":9,"w":2,"s":["GET /api/v1/vault/stats","GET /api/v1/vault/items","POST /api/v1/vault/items"]},{"n":"rotation","o":2,"w":0,"s":["POST /api/v1/rotation/run","POST /api/v1/rotation/session-end"]},{"n":"jit","o":8,"w":2,"s":["GET /api/v1/jit/stats","GET /api/v1/jit/requests","POST /api/v1/jit/requests"]},{"n":"sessions","o":12,"w":2,"s":["GET /api/v1/sessions/stats","GET /api/v1/sessions","POST /api/v1/sessions"]},{"n":"command-control","o":12,"w":2,"s":["POST /api/v1/sessions/{session_id}/events/{seq}/approve","POST /api/v1/sessions/{session_id}/events/{seq}/deny","GET /api/v1/command-control/stats"]},{"n":"discovery","o":8,"w":2,"s":["GET /api/v1/discovery/stats","GET /api/v1/discovery/assets","POST /api/v1/discovery/assets"]},{"n":"risk","o":6,"w":2,"s":["POST /api/v1/risk/evaluate","GET /api/v1/risk/evaluations","GET /api/v1/risk/stats"]},{"n":"bypass","o":7,"w":2,"s":["POST /api/v1/bypass/ingest","GET /api/v1/bypass/signals","POST /api/v1/bypass/scans"]},{"n":"break-glass","o":8,"w":2,"s":["POST /api/v1/break-glass/requests","GET /api/v1/break-glass/requests","GET /api/v1/break-glass/requests/{request_id}"]},{"n":"integrations","o":5,"w":1,"s":["GET /api/v1/integrations/status","POST /api/v1/mfa/enroll","POST /api/v1/mfa/verify"]},{"n":"vendors","o":11,"w":2,"s":["GET /api/v1/vendors","POST /api/v1/vendors","GET /api/v1/vendors/{vendor_id}"]},{"n":"cloud","o":9,"w":2,"s":["GET /api/v1/cloud/connectors","POST /api/v1/cloud/connectors","GET /api/v1/cloud/connectors/{connector_id}"]},{"n":"broker","o":13,"w":2,"s":["GET /api/v1/broker/policies","POST /api/v1/broker/policies","GET /api/v1/broker/policies/{policy_id}"]},{"n":"agent","o":15,"w":2,"s":["GET /api/v1/agents","POST /api/v1/agents","GET /api/v1/agents/{agent_id}"]},{"n":"cluster","o":15,"w":1,"s":["GET /api/v1/cluster","GET /api/v1/cluster/nodes","POST /api/v1/cluster/nodes"]},{"n":"rbac","o":5,"w":0,"s":["GET /api/v1/roles","GET /api/v1/role-bindings","POST /api/v1/role-bindings"]},{"n":"sso","o":10,"w":0,"s":["GET /api/v1/auth/sso/status","GET /api/v1/auth/sso/metadata","GET /api/v1/auth/sso/saml/{slot}/metadata"]},{"n":"hsm","o":4,"w":0,"s":["GET /api/v1/hsm/status","POST /api/v1/hsm/seal","POST /api/v1/hsm/unseal"]},{"n":"identity","o":49,"w":0,"s":["POST /api/v1/auth/login","POST /api/v1/auth/logout","GET /api/v1/auth/sessions"]},{"n":"gateway","o":21,"w":0,"s":["GET /api/v1/zones","POST /api/v1/zones","GET /api/v1/zones/{zone_id}"]}],"routes":[{"n":"command-center","live":true,"t":["ops","bypass"]},{"n":"vault","live":true,"t":["vault"]},{"n":"jit","live":true,"t":["vault","jit","broker","agent"]},{"n":"sessions","live":true,"t":["vault","jit","sessions"]},{"n":"infrastructure","live":true,"t":["ops","discovery","cloud"]},{"n":"policy","live":true,"t":["command-control","risk"]},{"n":"compliance","live":true,"t":["ops","integrations"]},{"n":"licensing","live":true,"t":["ops","licenses","validation"]},{"n":"break-glass","live":true,"t":["break-glass","integrations"]},{"n":"vendor-access","live":true,"t":["vault","integrations","vendors"]},{"n":"settings (legacy page)","live":false,"t":[]},{"n":"topology","live":true,"t":["ops","integrations","cluster"]},{"n":"login","live":true,"t":["ops"]}],"packages":[{"n":"phase2_license_server","root":"backend/phase2_license_server","m":[{"n":"app","l":272},{"n":"audit","l":1088},{"n":"cluster_monitor","l":73},{"n":"config","l":136},{"n":"errors","l":59},{"n":"extensions","l":7},{"n":"gateway_daemon","l":424},{"n":"gateway","l":1517},{"n":"guacd","l":292},{"n":"hsm","l":911},{"n":"identity","l":1481},{"n":"integrations","l":631},{"n":"keys","l":95},{"n":"licensing_bridge","l":102},{"n":"mfa","l":309},{"n":"models","l":3697},{"n":"otp","l":431},{"n":"radius_client","l":218},{"n":"rotation_scheduler","l":67},{"n":"routes","l":3944},{"n":"scim","l":366},{"n":"secrets_store","l":294},{"n":"service","l":12781},{"n":"sso","l":1313},{"n":"webauthn","l":615},{"n":"wsgi","l":13}],"e":[[0,1],[0,2],[0,3],[0,4],[0,5],[0,10],[0,12],[0,13],[0,15],[0,18],[0,19],[0,22],[1,5],[1,11],[1,15],[1,21],[1,22],[2,22],[6,8],[7,3],[7,4],[7,5],[7,8],[7,15],[7,21],[7,22],[9,3],[9,4],[9,5],[9,15],[9,21],[10,4],[10,5],[10,15],[10,21],[12,3],[12,13],[13,3],[14,4],[14,5],[14,10],[14,11],[14,15],[14,16],[14,17],[14,21],[15,5],[15,13],[16,4],[16,5],[16,10],[16,15],[16,21],[16,22],[17,4],[17,5],[17,10],[17,15],[17,22],[18,22],[19,3],[19,4],[19,5],[19,7],[19,9],[19,10],[19,13],[19,14],[19,15],[19,16],[19,17],[19,20],[19,22],[19,23],[19,24],[20,4],[20,5],[20,10],[20,15],[20,22],[21,3],[21,4],[21,9],[21,15],[22,1],[22,3],[22,4],[22,5],[22,7],[22,9],[22,10],[22,11],[22,13],[22,15],[22,16],[22,21],[22,23],[23,1],[23,4],[23,5],[23,15],[24,4],[24,5],[24,10],[24,14],[24,15],[25,0]],"b":{"x":10,"y":10,"w":490,"h":446,"c":5,"col":"var(--ac)"}},{"n":"pam_master","root":"pam_master","m":[{"n":"pam_master/__init__","l":14},{"n":"pam_master/__main__","l":21},{"n":"pam_master/app","l":22},{"n":"pam_master/config","l":112},{"n":"pam_master/crypto","l":83},{"n":"pam_master/db","l":79},{"n":"pam_master/errors","l":60},{"n":"pam_master/issuance","l":629},{"n":"pam_master/keygen","l":105},{"n":"pam_master/keys","l":178},{"n":"pam_master/licensing","l":98},{"n":"pam_master/registry","l":388},{"n":"pam_master/routes","l":208}],"e":[[0,2],[0,3],[1,2],[1,3],[2,3],[2,12],[5,3],[7,3],[7,4],[7,5],[7,6],[7,9],[7,10],[7,11],[8,3],[8,9],[10,3],[10,9],[11,3],[11,4],[11,5],[11,6],[11,9],[12,3],[12,5],[12,6],[12,7],[12,9],[12,11]],"b":{"x":515,"y":10,"w":235,"h":306,"c":4,"col":"var(--ok)"}},{"n":"ipam_licensing","root":"backend/ipam_licensing","m":[{"n":"license_tool","l":544},{"n":"license_validator","l":331},{"n":"license","l":416},{"n":"signature","l":362}],"e":[[0,2],[0,3],[1,2],[1,3]],"b":{"x":515,"y":331,"w":235,"h":166,"c":2,"col":"var(--g)"}}],"workflows":[{"id":"license","title":"License lifecycle","subtitle":"Out-of-band mint, ingest on the node, verify offline, then revoke or restore - the server's own API throughout","steps":[{"op":"GET /api/v1/licenses","label":"Registry read - every installed license with its entitlements","note":null},{"op":"POST /api/v1/licenses/import","label":"Import the signed envelope (license_data + signature)","note":"201: the license lands; a duplicate is refused verbatim with 409"},{"op":"POST /api/v1/licenses/import","label":"The same import again - the honest refusal path","note":"409 verbatim: the license is already installed"},{"op":"POST /api/v1/licenses/validate","label":"Validate a pasted payload offline","note":"The verdict follows the payload's own key: signature, registration, entitled count"},{"op":"GET /api/v1/licenses/{license_key}/file","label":"Download the signed file in either wire format (json envelope or raw jwt)","note":null},{"op":"POST /api/v1/licenses/{license_key}/revoke","label":"Revoke with a recorded reason","note":"The server's own message lands on the status line; the record keeps its trail"},{"op":"POST /api/v1/licenses/{license_key}/restore","label":"Restore - the lifecycle continues","note":"A later revoke can leave the license terminally revoked"}]},{"id":"breakGlass","title":"Emergency break-glass","subtitle":"File, dual-sign, unseal, close - every transition gated by the server","steps":[{"op":"POST /api/v1/break-glass/requests","label":"File the emergency past the EMERGENCY-AUTHORIZE guard","note":null},{"op":"POST /api/v1/break-glass/requests/{request_id}/approve","label":"First approval - a different identity than the requester","note":"403 verbatim if the requester tries to sign their own emergency"},{"op":"POST /api/v1/break-glass/requests/{request_id}/approve","label":"Second approval completes the quorum","note":"400 verbatim if the same approver signs twice"},{"op":"POST /api/v1/break-glass/requests/{request_id}/open","label":"Unseal: the credential is released","note":"With no factor enrolled the release is refused honestly; the capture holds the refusal"},{"op":"POST /api/v1/break-glass/requests/{request_id}/close","label":"Close with the required review note","note":"The server answers with the rotation record"}]},{"id":"auth","title":"Auth & RBAC","subtitle":"Login, identity, role grants, the scoped denial and the revoked token - the gate's live RBAC flow","steps":[{"op":"POST /api/v1/auth/login","label":"Login - the console enters the shell","note":null},{"op":"GET /api/v1/auth/whoami","label":"whoami reports the signed-in principal and its role","note":null},{"op":"POST /api/v1/role-bindings","label":"Bind a role to a session token","note":"The one-time token carries exactly the bound operations"},{"op":"GET /api/v1/roles","label":"The role meets the RBAC gate","note":"403 verbatim: the denial names the role and the operation"},{"op":"DELETE /api/v1/role-bindings/{binding_id}","label":"Delete the binding","note":"The token stops working immediately (401)"}]},{"id":"vendor","title":"Vendor onboarding","subtitle":"Invite, prove identity, sign, ticket, approve - then scoped requests and revocation","steps":[{"op":"POST /api/v1/vendors","label":"Invite the account - the MFA seed is shown exactly once","note":null},{"op":"POST /api/v1/vendors/{vendor_id}/mfa","label":"Vendor verifies the TOTP seed","note":"401 verbatim on a wrong code; the dialog stays open"},{"op":"POST /api/v1/vendors/{vendor_id}/nda","label":"Record the NDA reference","note":null},{"op":"POST /api/v1/vendors/{vendor_id}/ticket","label":"Record the ITSM ticket","note":"409 verbatim while ITSM is not configured"},{"op":"POST /api/v1/vendors/{vendor_id}/approve","label":"Approve the chain","note":"The server names any missing step verbatim"},{"op":"POST /api/v1/vendors/{vendor_id}/requests","label":"The vendor files a scoped request","note":null},{"op":"POST /api/v1/vendors/{vendor_id}/revoke","label":"Revoke the account at any point","note":null}]},{"id":"jit","title":"JIT access","subtitle":"Request, approve or deny, grant, close - ephemeral by construction","steps":[{"op":"POST /api/v1/jit/requests","label":"File the request with its scope and window","note":null},{"op":"POST /api/v1/jit/requests/{request_id}/approve","label":"Approve with the signed-in principal","note":null},{"op":"POST /api/v1/jit/requests/{request_id}/deny","label":"Or deny with a recorded reason","note":"The alternative branch: denial is a first-class outcome"},{"op":"POST /api/v1/jit/requests/{request_id}/consume","label":"Consume the approval into a time-boxed grant","note":"The grant is the only thing the broker will honour"},{"op":"POST /api/v1/jit/requests/{request_id}/close","label":"Close the grant","note":null}]}]};
+      const TG = DATA.tags,
+        R = DATA.routes,
+        PK = DATA.packages,
+        WF = DATA.workflows;
+      const ST = [
+        'not in the route map',
+        'partly wired (overview only)',
+        'wired to a console route',
+      ];
+
+      /* ---- grids: box height derives from module count so nothing clips ---- */
+      const M = [];
+      PK.forEach((p, pi) => {
+        p.m.forEach((mm) => {
+          mm.pi = pi;
+          mm.short = mm.n.split('/').pop(); // grid label: full path is DATA, short is display
+          mm.o = [];
+          mm.i = [];
+        });
+        const tot = p.m.reduce((a, m) => a + m.l, 0);
+        p.m.forEach((m) => {
+          m.tot = tot;
+          M.push(m);
+        });
+        p.e.forEach(([f, t]) => {
+          p.m[f].o.push(p.m[t]);
+          p.m[t].i.push(p.m[f]);
+        });
+      });
+      const E = [];
+      R.forEach((r, i) =>
+        r.t.forEach((n) => E.push({ r: i, t: TG.findIndex((t) => t.n == n) })),
+      );
+
+      /* ---- Console <-> API ---- */
+      function hook(g, f) {
+        const on = () => {
+          sel = f;
+          paint();
+          f.k == 't' ? tagP(f.i) : routeP(f.i);
+        };
+        g.addEventListener('mouseenter', () => paint(f));
+        g.addEventListener('mouseleave', () => paint());
+        g.addEventListener('click', on);
+        g.addEventListener('keydown', (e) => {
+          if (e.key == 'Enter' || e.key == ' ') {
+            e.preventDefault();
+            on();
+          }
+        });
+      }
+      function paint(h) {
+        const f = h || sel;
+        E.forEach((e) => {
+          const on = !f || (f.k == 'r' ? e.r == f.i : e.t == f.i);
+          e.p.setAttribute('stroke', on && f ? 'var(--ac)' : 'var(--g)');
+          e.p.setAttribute('opacity', on ? (f ? 0.95 : 0.35) : 0.07);
+        });
+        RN.forEach((n, i) =>
+          n.setAttribute(
+            'opacity',
+            !f || (f.k == 'r' ? f.i == i : E.some((e) => e.r == i && e.t == f.i)) ? 1 : 0.3,
+          ),
+        );
+        TN.forEach((n, j) =>
+          n.setAttribute(
+            'opacity',
+            !f || (f.k == 't' ? f.i == j : E.some((e) => e.t == j && e.r == f.i)) ? 1 : 0.3,
+          ),
+        );
+      }
+      function renderAPI() {
+        const s = $('#svg');
+        s.innerHTML = '';
+        s.style.display = '';
+        $('#wf').hidden = true;
+        const ry = (i) => 40 + i * 47,
+          ty = (j) => 26 + j * 26;
+        s.setAttribute(
+          'viewBox',
+          '0 0 760 ' +
+            (Math.max(40 + (R.length - 1) * 47 + 15, 26 + (TG.length - 1) * 26 + 20) + 10),
+        );
+        el('text', { x: 10, y: 12, class: 'mu' }, s).textContent = 'Console routes';
+        el('text', { x: 430, y: 12, class: 'mu' }, s).textContent = 'API tags · operations';
+        E.forEach((e) => {
+          const a = ry(e.r),
+            b = ty(e.t) + 10;
+          e.p = el(
+            'path',
+            {
+              d: 'M190 ' + a + ' C310 ' + a + ',310 ' + b + ',430 ' + b,
+              fill: 'none',
+              'stroke-width': 1.4,
+            },
+            s,
+          );
+        });
+        R.forEach((r, i) => {
+          const g = el(
+            'g',
+            { tabindex: 0, role: 'button', 'aria-label': 'Route /' + r.n },
+            s,
+          );
+          el(
+            'rect',
+            {
+              x: 10,
+              y: ry(i) - 15,
+              width: 180,
+              height: 30,
+              rx: 8,
+              fill: 'var(--pn)',
+              stroke: r.t.length ? 'var(--ac)' : 'var(--g)',
+              'stroke-dasharray': r.t.length ? '' : '4 3',
+            },
+            g,
+          );
+          el('text', { x: 20, y: ry(i) + 4 }, g).textContent = '/' + r.n;
+          hook(g, { k: 'r', i });
+          RN.push(g);
+        });
+        TG.forEach((t, j) => {
+          const g = el(
+              'g',
+              { tabindex: 0, role: 'button', 'aria-label': 'API tag ' + t.n },
+              s,
+            ),
+            y = ty(j);
+          el(
+            'rect',
+            {
+              x: 430,
+              y: y,
+              width: 320,
+              height: 20,
+              rx: 6,
+              fill: 'var(--pn)',
+              stroke: t.w ? 'var(--ac)' : 'var(--g)',
+              'stroke-dasharray': t.w == 2 ? '' : '4 3',
+            },
+            g,
+          );
+          el('text', { x: 438, y: y + 14, class: t.w ? '' : 'mu' }, g).textContent = t.n;
+          el(
+            'rect',
+            {
+              x: 600,
+              y: y + 6,
+              width: Math.max(3, (t.o / 49) * 110),
+              height: 8,
+              rx: 2,
+              fill: t.w ? 'var(--ac)' : 'var(--g)',
+              opacity: 0.7,
+            },
+            g,
+          );
+          el('text', { x: 744, y: y + 14, 'text-anchor': 'end' }, g).textContent = t.o;
+          hook(g, { k: 't', i: j });
+          TN.push(g);
+        });
+        paint();
+      }
+      function tagP(j) {
+        const t = TG[j],
+          rs = R.filter((r) => r.t.includes(t.n)).map((r) => '<code>/' + r.n + '</code>');
+        setP(
+          '<h2>' +
+            t.n +
+            '</h2><p>' +
+            t.o +
+            ' operations · ' +
+            ST[t.w] +
+            '</p>' +
+            (t.n == 'settings'
+              ? '<p class="mu">Served by the legacy settings page until its React screen ships.</p>'
+              : '') +
+            '<h3>Called from</h3><p>' +
+            (rs.join(', ') || 'No console route in this snapshot') +
+            '</p><h3>Representative operations</h3><ul>' +
+            t.s.map((x) => '<li><code>' + x + '</code></li>').join('') +
+            '</ul><p class="mu">Paths shown without the /api/v1 prefix. Full list: api-surface.md.</p>',
+        );
+      }
+      function routeP(i) {
+        const r = R[i];
+        setP(
+          '<h2>/' +
+            r.n +
+            '</h2>' +
+            (r.t.length
+              ? '<p>Calls ' +
+                r.t.length +
+                ' API tags:</p><ul>' +
+                r.t
+                  .map((n) => '<li>' + n + ' · ' + TG.find((x) => x.n == n).o + ' ops</li>')
+                  .join('') +
+                '</ul>'
+              : r.live
+                ? '<p>This screen makes no generated-client calls yet.</p>'
+                : '<p>Legacy page with no generated-client calls (F4 pending).</p>'),
+        );
+      }
+      function apiHome() {
+        const tot = TG.reduce((a, t) => a + t.o, 0),
+          un = TG.filter((t) => !t.w),
+          n = un.reduce((a, t) => a + t.o, 0);
+        setP(
+          '<h2>Console ↔ API</h2><p>Lines join each console route to the API tags its generated-client calls resolve to (frontend-map.md). Bars show operations per tag.</p><h3>Observation</h3><p><b>' +
+            n +
+            ' of ' +
+            tot +
+            ' operations (' +
+            Math.round((n / tot) * 100) +
+            '%)</b> sit in tags with no console route in the snapshot: ' +
+            un.map((t) => t.n).join(', ') +
+            '. Some are machine-facing by design (gateway heartbeats, SCIM); for the others, confirm whether a screen exists or is planned.</p><p class="mu">Solid outline: wired. Dashed blue: partly wired. Dashed grey: not in the route map.</p>',
+        );
+      }
+
+      /* ---- Backend modules ---- */
+      function mPaint(h) {
+        const f = h || ms;
+        gE.innerHTML = '';
+        const T = imp && f ? up(f) : null;
+        MN.forEach((m) => {
+          const nb =
+            f && (T ? m == f || T.has(m) : m == f || f.o.includes(m) || f.i.includes(m));
+          m.g.setAttribute('opacity', !f || nb ? 1 : 0.22);
+        });
+        if (f && !T) {
+          f.o.forEach((t) =>
+            el(
+              'line',
+              {
+                x1: f.cx,
+                y1: f.cy,
+                x2: t.cx,
+                y2: t.cy,
+                stroke: 'var(--ac)',
+                'stroke-width': 1.6,
+                opacity: 0.85,
+              },
+              gE,
+            ),
+          );
+          f.i.forEach((t) =>
+            el(
+              'line',
+              {
+                x1: f.cx,
+                y1: f.cy,
+                x2: t.cx,
+                y2: t.cy,
+                stroke: 'var(--wn)',
+                'stroke-width': 1.6,
+                opacity: 0.85,
+              },
+              gE,
+            ),
+          );
+        }
+      }
+      function renderMod() {
+        const s = $('#svg');
+        s.innerHTML = '';
+        s.style.display = '';
+        $('#wf').hidden = true;
+        s.setAttribute(
+          'viewBox',
+          '0 0 760 ' + (Math.max(...PK.map((p) => p.b.y + p.b.h)) + 10),
+        );
+        MN = [];
+        ms = null;
+        PK.forEach((p) => {
+          const g = p.b;
+          el(
+            'rect',
+            {
+              x: g.x,
+              y: g.y,
+              width: g.w,
+              height: g.h,
+              rx: 10,
+              fill: 'none',
+              stroke: 'var(--ln)',
+            },
+            s,
+          );
+          el(
+            'text',
+            { x: g.x + 10, y: g.y + 17, style: 'font-weight:600' },
+            s,
+          ).textContent = p.n + ' · ' + p.m.length + ' modules';
+        });
+        gE = el('g', {}, s);
+        PK.forEach((p) => {
+          const g = p.b,
+            rows = Math.ceil(p.m.length / g.c),
+            cw = g.w / g.c,
+            ch = (g.h - 26) / rows;
+          p.m.forEach((m, k) => {
+            const c = k % g.c,
+              r = Math.floor(k / g.c),
+              top = g.y + 26 + r * ch;
+            m.cx = g.x + c * cw + cw / 2;
+            m.cy = top + (ch - 16) / 2;
+            m.r = Math.min(5 + Math.sqrt(m.l) / 4.2, Math.min(cw, ch - 16) / 2 - 2);
+            const n = el(
+              'g',
+              { tabindex: 0, role: 'button', 'aria-label': m.short + '.py' },
+              s,
+            );
+            el(
+              'circle',
+              {
+                cx: m.cx,
+                cy: m.cy,
+                r: m.r,
+                fill: g.col,
+                opacity: 0.85,
+                stroke: m.l >= 3000 ? 'var(--wn)' : 'none',
+                'stroke-width': 3,
+              },
+              n,
+            );
+            el(
+              'text',
+              { x: m.cx, y: top + ch - 4, 'text-anchor': 'middle', style: 'font-size:9px' },
+              n,
+            ).textContent = m.short;
+            m.g = n;
+            MN.push(m);
+            const on = () => {
+              ms = m;
+              mPaint();
+              modP(m);
+            };
+            n.addEventListener('mouseenter', () => mPaint(m));
+            n.addEventListener('mouseleave', () => mPaint());
+            n.addEventListener('click', on);
+            n.addEventListener('keydown', (e) => {
+              if (e.key == 'Enter' || e.key == ' ') {
+                e.preventDefault();
+                on();
+              }
+            });
+          });
+        });
+      }
+      function modP(m) {
+        const p = PK[m.pi],
+          mu = m.o.filter((t) => t.o.includes(m)),
+          cl = (a) => a.map((t) => '<code>' + t.n + '</code>').join(' ') || 'none';
+        setP(
+          '<h2>' +
+            m.short +
+            '.py</h2><p>' +
+            p.n +
+            ' · ' +
+            fmt(m.l) +
+            ' lines (' +
+            ((m.l / m.tot) * 100).toFixed(1) +
+            '% of the package)</p><h3>Imports (' +
+            m.o.length +
+            ') – blue</h3><p>' +
+            cl(m.o) +
+            '</p><h3>Imported by (' +
+            m.i.length +
+            ') – orange</h3><p>' +
+            cl(m.i) +
+            '</p>' +
+            (mu.length ? '<p><b>Mutual import with:</b> ' + cl(mu) + '</p>' : '') +
+            '<h3>Impact radius</h3><p>' +
+            up(m).size +
+            ' of ' +
+            (PK[m.pi].m.length - 1) +
+            ' other modules in this package depend on it, directly or indirectly.</p><p><button class="btn" id="imp">' +
+            (imp ? 'Show direct links' : 'Highlight everything affected') +
+            '</button></p>',
+        );
+        $('#imp').onclick = () => {
+          imp = !imp;
+          mPaint();
+          modP(m);
+        };
+      }
+      function modHome() {
+        const by = [...M].sort((a, b) => b.l - a.l),
+          fan = [...M].sort((a, b) => b.i.length - a.i.length).slice(0, 3),
+          mu = [];
+        M.forEach((a) =>
+          a.o.forEach((b) => {
+            if (b.o.includes(a) && M.indexOf(a) < M.indexOf(b)) mu.push(a.n + ' ⇄ ' + b.n);
+          }),
+        );
+        setP(
+          '<h2>Backend modules</h2><p>' +
+            M.length +
+            ' modules, ' +
+            fmt(M.reduce((a, m) => a + m.l, 0)) +
+            ' lines, ' +
+            M.reduce((a, m) => a + m.o.length, 0) +
+            ' import edges. Circle size is line count; select a module to see what it imports and what imports it.</p><h3>Observations</h3><ul><li><b>' +
+            by[0].short +
+            '.py</b> is ' +
+            fmt(by[0].l) +
+            ' lines, ' +
+            (by[0].l / by[1].l).toFixed(1) +
+            '× the next largest (' +
+            by[1].short +
+            '.py, ' +
+            fmt(by[1].l) +
+            ').</li><li>Most imported: ' +
+            fan.map((m) => m.short + ' (' + m.i.length + ')').join(', ') +
+            '.</li><li>Widest impact radius: ' +
+            [...M]
+              .sort((a, b) => up(b).size - up(a).size)
+              .slice(0, 3)
+              .map((m) => m.short + ' (' + up(m).size + ')')
+              .join(', ') +
+            ' (modules affected by a change to them).</li><li>Mutual imports: ' +
+            (mu.join(', ') || 'none') +
+            '. These may be function-level imports; check for import cycles.</li></ul><p class="mu">An orange ring marks modules of 3,000+ lines.</p>',
+        );
+      }
+
+      /* ---- Workflows ---- */
+      function go(i) {
+        si = i;
+        const st = WF[wi].steps;
+        document
+          .querySelectorAll('#steps li')
+          .forEach((e, k) => e.classList.toggle('on', k == i));
+        const d = $('#dot');
+        d.classList.remove('go');
+        void d.offsetWidth;
+        d.classList.add('go');
+        setP(
+          '<h2>Step ' +
+            (i + 1) +
+            ' of ' +
+            st.length +
+            '</h2><p><code>' +
+            st[i].op +
+            '</code></p><p>' +
+            st[i].label +
+            '</p>' +
+            (st[i].note ? '<p class="mu">' + st[i].note + '</p>' : '') +
+            '<p class="mu">Paths are shortened: no /api/v1 prefix, and {id} stands for the identifier.</p>',
+        );
+      }
+      function wfHome() {
+        setP(
+          '<h2>' +
+            WF[wi].title +
+            '</h2><p>' +
+            WF[wi].subtitle +
+            '</p><p class="mu">Choose Play to step through, or Next step to go manually. Each step is an operation in the contract.</p>',
+        );
+      }
+      function renderWF() {
+        $('#svg').style.display = 'none';
+        const w = $('#wf');
+        w.hidden = false;
+        const st = WF[wi].steps;
+        w.innerHTML =
+          '<div class="chips">' +
+          WF.map(
+            (x, i) =>
+              '<button class="chip' +
+              (i == wi ? ' on' : '') +
+              '" data-w="' +
+              i +
+              '">' +
+              x.title +
+              '</button>',
+          ).join('') +
+          '</div><p class="mu">' +
+          WF[wi].subtitle +
+          '</p><div class="lane"><span>Console</span><i id="dot"></i><span>PAM API</span></div><p><button class="btn" id="play">▶ Play</button> <button class="btn" id="nx">Next step</button></p><ol id="steps">' +
+          st
+            .map(
+              (s) =>
+                '<li><code>' +
+                s.op +
+                '</code><br><span class="mu">' +
+                s.label +
+                '</span>' +
+                (s.note ? '<br><span class="mu">' + s.note + '</span>' : '') +
+                '</li>',
+            )
+            .join('') +
+          '</ol><p class="mu">An illustrative walk-through of the contract operations in workflows.md. No live traffic is shown.</p>';
+        w.querySelectorAll('[data-w]').forEach(
+          (b) =>
+            (b.onclick = () => {
+              clearInterval(timer);
+              timer = 0;
+              wi = +b.dataset.w;
+              si = -1;
+              renderWF();
+              wfHome();
+            }),
+        );
+        $('#nx').onclick = () => go((si + 1) % st.length);
+        $('#play').onclick = (e) => {
+          if (timer) {
+            clearInterval(timer);
+            timer = 0;
+            e.target.textContent = '▶ Play';
+            return;
+          }
+          e.target.textContent = '❚❚ Pause';
+          go(0);
+          timer = setInterval(() => {
+            if (si >= st.length - 1) {
+              clearInterval(timer);
+              timer = 0;
+              $('#play').textContent = '▶ Play';
+            } else go(si + 1);
+          }, 1600);
+        };
+      }
+
+      /* ---- Shell ---- */
+      function setP(h) {
+        $('#panel').innerHTML = h;
+      }
+      function up(m) {
+        const s = new Set(),
+          q = [m];
+        while (q.length) {
+          const x = q.pop();
+          x.i.forEach((y) => {
+            if (!s.has(y) && y !== m) {
+              s.add(y);
+              q.push(y);
+            }
+          });
+        }
+        return s;
+      }
+      // Editorial domain grouping - emitted (and validated tag-by-tag by
+      // the generator) so the drift test can re-parse it too.
+      const DM = DATA.domains;
+      function dmS(d) {
+        const ts = d[1].split(',').map((n) => TG.find((t) => t.n == n)),
+          o = ts.reduce((a, t) => a + t.o, 0),
+          w = ts.filter((t) => t.w == 2).reduce((a, t) => a + t.o, 0);
+        return { ts, o, w };
+      }
+      function renderSys() {
+        const s = $('#svg');
+        s.innerHTML = '';
+        s.style.display = '';
+        $('#wf').hidden = true;
+        s.setAttribute('viewBox', '0 0 760 420');
+        const bx = (x, y, w, h, t1, t2, c, f) => {
+          const g = el('g', { tabindex: 0, role: 'button', 'aria-label': t1 }, s);
+          el(
+            'rect',
+            {
+              x: x,
+              y: y,
+              width: w,
+              height: h,
+              rx: 10,
+              fill: 'var(--pn)',
+              stroke: c,
+              'stroke-width': 1.5,
+            },
+            g,
+          );
+          el('text', { x: x + 10, y: y + 20, style: 'font-weight:600' }, g).textContent =
+            t1;
+          el('text', { x: x + 10, y: y + 38, class: 'mu' }, g).textContent = t2;
+          g.addEventListener('click', f);
+          g.addEventListener('keydown', (e) => {
+            if (e.key == 'Enter' || e.key == ' ') {
+              e.preventDefault();
+              f();
+            }
+          });
+          return g;
+        };
+        const ar = (d, k) =>
+          el(
+            'path',
+            {
+              d: d,
+              stroke: 'var(--g)',
+              'stroke-width': 1.5,
+              fill: 'none',
+              'stroke-dasharray': k || '',
+            },
+            s,
+          );
+        const ops = TG.reduce((a, t) => a + t.o, 0);
+        bx(
+          10,
+          10,
+          740,
+          58,
+          'Console · React shell',
+          R.length - 1 + ' routes, one page still legacy',
+          'var(--ac)',
+          () => tab(1),
+        );
+        ar('M380 68 L380 100');
+        el('text', { x: 388, y: 88, class: 'mu' }, s).textContent = 'generated client';
+        el(
+          'rect',
+          {
+            x: 10,
+            y: 100,
+            width: 740,
+            height: 150,
+            rx: 12,
+            fill: 'none',
+            stroke: 'var(--ln)',
+          },
+          s,
+        );
+        el('text', { x: 20, y: 118, class: 'mu' }, s).textContent =
+          'API contract · ' +
+          DATA.paths +
+          ' paths · ' +
+          ops +
+          ' operations · ' +
+          TG.length +
+          ' tags (domain grouping is editorial)';
+        DM.forEach((d, k) => {
+          const q = dmS(d);
+          bx(
+            25 + k * 144,
+            130,
+            134,
+            100,
+            d[0],
+            q.o + ' ops · ' + Math.round((q.w / q.o) * 100) + '% wired',
+            'var(--ac)',
+            () =>
+              setP(
+                '<h2>' +
+                  d[0] +
+                  '</h2><ul>' +
+                  q.ts
+                    .map((t) => '<li>' + t.n + ' · ' + t.o + ' ops · ' + ST[t.w] + '</li>')
+                    .join('') +
+                  '</ul><p class="mu">The grouping is an editorial view, not part of the contract.</p>',
+              ),
+          );
+        });
+        ar('M380 250 L380 290');
+        const l2 = PK[0].m.reduce((a, m) => a + m.l, 0);
+        bx(
+          10,
+          290,
+          400,
+          100,
+          PK[0].n,
+          PK[0].m.length + ' modules · ' + fmt(l2) + ' lines',
+          'var(--ac)',
+          () => tab(2),
+        );
+        bx(
+          430,
+          290,
+          170,
+          100,
+          PK[1].n,
+          PK[1].m.length + ' modules · vendor mint tool',
+          'var(--ok)',
+          () => tab(2),
+        );
+        bx(610, 290, 140, 100, PK[2].n, PK[2].m.length + ' modules', 'var(--g)', () =>
+          tab(2),
+        );
+        ar('M515 290 L668 240', '5 4');
+        el('text', { x: 440, y: 272, class: 'mu' }, s).textContent =
+          'signed license, out of band';
+      }
+      function sysHome() {
+        const ops = TG.reduce((a, t) => a + t.o, 0),
+          w = TG.filter((t) => t.w == 2).reduce((a, t) => a + t.o, 0);
+        setP(
+          '<h2>System map</h2><p>Three layers from the topology files: the console, the API contract and the backend packages. Select a box for detail, or open the other views for routes, modules and workflows.</p><h3>At a glance</h3><ul><li>' +
+            w +
+            ' of ' +
+            ops +
+            ' operations (' +
+            Math.round((w / ops) * 100) +
+            '%) belong to tags wired to a console route.</li><li>The license lifecycle starts outside the node: the vendor tool mints, then the node imports and verifies offline (workflows.md).</li></ul><p class="mu">Domain grouping is an editorial view.</p>',
+        );
+      }
+      const IX = [];
+      R.forEach((r, i) => IX.push({ l: 'route · /' + r.n, k: 'r', i: i }));
+      TG.forEach((t, i) => {
+        IX.push({ l: 'tag · ' + t.n, k: 't', i: i });
+        t.s.forEach((o) => IX.push({ l: 'op · ' + o, k: 't', i: i }));
+      });
+      M.forEach((m) =>
+        IX.push({
+          l: 'module · ' + PK[m.pi].n.split('_')[0] + '/' + m.short + '.py',
+          k: 'm',
+          m: m,
+        }),
+      );
+      WF.forEach((w, a) =>
+        w.steps.forEach((s, b) =>
+          IX.push({ l: 'step · ' + w.title + ' · ' + s.op, k: 'w', a: a, b: b }),
+        ),
+      );
+      function nav(h) {
+        if (h.k == 'r' || h.k == 't') {
+          tab(1);
+          sel = { k: h.k, i: h.i };
+          paint();
+          h.k == 'r' ? routeP(h.i) : tagP(h.i);
+        } else if (h.k == 'm') {
+          tab(2);
+          ms = h.m;
+          mPaint();
+          modP(h.m);
+        } else {
+          wi = h.a;
+          si = -1;
+          tab(3);
+          go(h.b);
+        }
+      }
+      $('#q').oninput = (e) => {
+        const v = e.target.value.trim().toLowerCase(),
+          H = $('#hits');
+        H.innerHTML = '';
+        if (v.length < 2) return;
+        IX.filter((x) => x.l.toLowerCase().includes(v))
+          .slice(0, 8)
+          .forEach((x) => {
+            const b = document.createElement('button');
+            b.className = 'chip';
+            b.textContent = x.l;
+            b.onclick = () => {
+              nav(x);
+              H.innerHTML = '';
+            };
+            H.appendChild(b);
+          });
+      };
+      $('#th').onclick = () => {
+        const r = document.documentElement,
+          d = r.dataset.theme
+            ? r.dataset.theme == 'dark'
+            : matchMedia('(prefers-color-scheme:dark)').matches;
+        r.dataset.theme = d ? 'light' : 'dark';
+      };
+      const TB = [
+        ['System map', renderSys, sysHome],
+        ['Console ↔ API', renderAPI, apiHome],
+        ['Backend modules', renderMod, modHome],
+        ['Workflows', renderWF, wfHome],
+      ];
+      function tab(i) {
+        clearInterval(timer);
+        timer = 0;
+        sel = null;
+        ms = null;
+        [...$('#tabs').children].forEach((b, k) => b.setAttribute('aria-pressed', k == i));
+        TB[i][1]();
+        TB[i][2]();
+      }
+      $('#stats').innerHTML = [
+        [DATA.paths, 'paths'],
+        [TG.reduce((a, t) => a + t.o, 0), 'operations'],
+        [TG.length, 'API tags'],
+        [M.length, 'backend modules'],
+        [M.reduce((a, m) => a + m.o.length, 0), 'import edges'],
+        [R.length, 'console routes'],
+      ]
+        .map((x) => '<span class="stat"><b>' + x[0] + '</b> ' + x[1] + '</span>')
+        .join('');
+      TB.forEach((t, i) => {
+        const b = document.createElement('button');
+        b.className = 'tab';
+        b.textContent = t[0];
+        b.setAttribute('aria-pressed', 'false');
+        b.onclick = () => tab(i);
+        $('#tabs').appendChild(b);
+      });
+      tab(0);
+    </script>
+  </body>
+</html>
