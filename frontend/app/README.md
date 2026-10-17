@@ -352,6 +352,38 @@ their own emergency request`, the 400 duplicate signer, the 400
   `../screens/enterprise_licensing_tier_entitlements_node_quotas/code.html`
   stays served until the Flask app mounts `dist/` under `/app/`
   (ADR-0012).
+- **System & Workflow Maps** (`/topology`, ADR-0013 - the user-ordered
+  live diagrams, contract-first): `src/features/topology/` renders five
+  views, every figure derived from a real source. **Frontend**: the
+  console route table extracted from `src/app/layout/nav.ts` +
+  `src/app/router.tsx` with each route's ADR-0012 strangler state, the
+  pending routes honestly linked to their live legacy screens, and each
+  live route's `src/api/generated` client functions resolved to the
+  contract operations they call. **Backend**: the three python trees
+  walked on disk (`pam_master`, `phase2_license_server`,
+  `ipam_licensing`; tests/conftest excluded) with per-file size and the
+  drawn intra-package import edges. **API**: the `apis/openapi.yaml`
+  surface grouped by the contract's own first tag, with real
+  path/operation/method counts. **Network** (live): `GET /health`,
+  `GET /api/v1/cluster` and `GET /api/v1/integrations/status` through
+  the generated client (`expectOk`), rendered as three honest
+  this-node/cluster/integrations cards - loading, `not connected` on
+  transport failure, verbatim data otherwise (the capture's own texts,
+  e.g. `not configured - the mfa band stays advisory`, render raw).
+  **Application**: five curated workflows (license lifecycle, emergency
+  break-glass, auth & RBAC, vendor onboarding, JIT access) where every
+  step is a contract operation and every step's proof names a real
+  fixture/test/gate marker. `src/features/topology/topology.generated.ts`
+  is produced by `pnpm topology` (`scripts/topology.mjs`, never
+  hand-edited): CI regenerates and fails on drift right after the orval
+  step, `topology.generated.test.ts` re-parses nav, router, the contract
+  and the backend trees independently and pins every workflow's
+  operation and evidence file on disk, and the extractor itself refuses
+  any endpoint not in the contract. `src/test/topologyFixtures.ts`
+  holds verbatim rig captures (2026-10-16) backing the test double; the
+  page itself only ever shows live answers. `yaml` is a dev-only
+  dependency for the extractor/test; no diagramming dependency -
+  design-system primitives only.
 - During migration the legacy `../screens/` pages stay reachable and the
   standing gate (`../../shots_tool/__verify_*.mjs`) stays authoritative
   until F5 (ADR-0008).
@@ -362,6 +394,7 @@ their own emergency request`, the 400 duplicate signer, the 400
 pnpm install --frozen-lockfile     # deps from the committed lockfile
 pnpm exec playwright install chromium  # once, for the Storybook browser tests
 pnpm openapi                       # regenerate src/api/generated from the contract
+pnpm topology                      # regenerate src/features/topology/topology.generated.ts
 pnpm format:check                  # prettier --check
 pnpm lint                          # eslint flat config (strict TS)
 pnpm typecheck                     # tsc --noEmit

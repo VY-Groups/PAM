@@ -6,6 +6,7 @@ import { RequireAuth } from './guards/RequireAuth';
 import { PendingScreen } from './PendingScreen';
 import { AppShell } from './layout/AppShell';
 import { NAV_ITEMS } from './layout/nav';
+import type { NavItem } from './layout/nav';
 import { CommandCenterPage } from '../features/command-center/CommandCenterPage';
 import { VaultPage } from '../features/vault/VaultPage';
 import { JitPage } from '../features/jit/JitPage';
@@ -16,6 +17,7 @@ import { InfrastructurePage } from '../features/infrastructure/InfrastructurePag
 import { VendorPage } from '../features/vendor/VendorPage';
 import { BreakGlassPage } from '../features/break-glass/BreakGlassPage';
 import { LicensingPage } from '../features/licensing/LicensingPage';
+import { TopologyPage } from '../features/topology/TopologyPage';
 import { LoginPage } from '../features/auth/pages/LoginPage';
 
 /**
@@ -24,10 +26,26 @@ import { LoginPage } from '../features/auth/pages/LoginPage';
  * link until its screen migrates (plan §8 strangler); Command Center,
  * Credential Vault, JIT Access, the Live Session Hub, Policy & Zero
  * Trust, Compliance & SOC2, Target Infrastructure, Vendor Access,
- * the Emergency Break-Glass and Enterprise Licensing are the first ten
- * F4 replacements (live data), the shell, guards and 404 are real from
- * F3 on.
+ * the Emergency Break-Glass, Enterprise Licensing and the ADR-0013
+ * System & Workflow Maps are the implemented surfaces (live data), the
+ * shell, guards and 404 are real from F3 on.
  */
+
+/** Sidebar paths with a real F4 page - everything else falls back below. */
+const F4_LIVE_ROUTES = new Set([
+  '/command-center',
+  '/vault',
+  '/jit',
+  '/sessions',
+  '/policy',
+  '/compliance',
+  '/infrastructure',
+  '/vendor-access',
+  '/break-glass',
+  '/licensing',
+  '/topology',
+]);
+
 export const routes: RouteObject[] = [
   { path: '/login', element: <LoginPage /> },
   {
@@ -48,18 +66,13 @@ export const routes: RouteObject[] = [
       { path: '/vendor-access', element: <VendorPage /> },
       { path: '/break-glass', element: <BreakGlassPage /> },
       { path: '/licensing', element: <LicensingPage /> },
+      { path: '/topology', element: <TopologyPage /> },
+      // ADR-0013 invariant: a pending fallback needs a legacy URL, so a
+      // nav item without one must be implemented above (the type
+      // predicate keeps the compiler honest).
       ...NAV_ITEMS.filter(
-        (item) =>
-          item.path !== '/command-center' &&
-          item.path !== '/vault' &&
-          item.path !== '/jit' &&
-          item.path !== '/sessions' &&
-          item.path !== '/policy' &&
-          item.path !== '/compliance' &&
-          item.path !== '/infrastructure' &&
-          item.path !== '/vendor-access' &&
-          item.path !== '/break-glass' &&
-          item.path !== '/licensing',
+        (item): item is NavItem & { legacyHref: string } =>
+          !F4_LIVE_ROUTES.has(item.path) && typeof item.legacyHref === 'string',
       ).map((item) => ({
         path: item.path,
         element: <PendingScreen titleKey={item.labelKey} legacyHref={item.legacyHref} />,

@@ -106,4 +106,8 @@ export const queryKeys = {
   licensingDetail: (key: string | null) => ['licensing', 'detail', key] as const,
   licensingFile: (key: string | null, format: string) =>
     ['licensing', 'file', key, format] as const,
+  // System & Workflow Maps (ADR-0013, /topology): the live network view.
+  // Read-only screen - no writes, so no invalidation fan-out.
+  topologyCluster: ['topology', 'cluster'] as const,
+  topologyIntegrations: ['topology', 'integrations'] as const,
 } as const;

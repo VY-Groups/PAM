@@ -200,10 +200,19 @@ python -m pytest pam_master -q                   # 46 tests (vendor tool)
   breakdown by environment, payload signature, activity) and the
   air-gap lifecycle (`POST /api/v1/licenses/import`,
   `POST /api/v1/licenses/validate`, `POST .../{key}/revoke|restore`,
-  `GET .../{key}/file` in json and raw jwt);
+  `GET .../{key}/file` in json and raw jwt,
+  and System & Workflow Maps (`/topology`, ADR-0013) renders the five
+  live diagrams - the frontend route map extracted from the shell's own
+  nav/router with each route's generated-client endpoints, the three
+  backend trees with their drawn import edges, the contract surface
+  grouped by tag with real counts, the live network posture from
+  `GET /health`, `GET /api/v1/cluster` and
+  `GET /api/v1/integrations/status`, and five contract-true workflows
+  naming their fixture/test/gate proof - every extracted figure guarded
+  by a CI regenerate-and-diff drift check;
   the legacy pages below stay served and reachable
   until each replacement passes parity. Served by Phase 2, all
-  eleven sidebar screens are **live**: licensing (`/`), platform settings (`/settings`,
+  twelve sidebar screens are **live**: licensing (`/`), platform settings (`/settings`,
   backed by `GET/PUT /api/v1/settings` with an audit changelog, plus the §20
   Enterprise Integrations cards over `GET /api/v1/integrations/status`), the Command
   Center and Compliance screens (backed by `GET /api/v1/overview` and the
@@ -252,7 +261,9 @@ python -m pytest pam_master -q                   # 46 tests (vendor tool)
   chain: invite with a one-time per-vendor MFA seed, NDA, a real ITSM
   ticket check, an approval that names any missing step, scope- and
   window-checked JIT requests, deny/revoke with the grant-close cascade,
-  and the dashboard's access/denied lists, valid window and recording flag).
+  and the dashboard's access/denied lists, valid window and recording
+  flag), and the System Maps console (`/topology` - five extracted/live
+  diagram views behind the drift gate).
   The launcher shows thirteen live screen cards (both former spec
   screens — `enterprise_licensing_tier_entitlements_node_quotas` and
   `platform_settings_idp_hsm_configuration` — went live at the

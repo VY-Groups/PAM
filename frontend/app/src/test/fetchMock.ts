@@ -1,5 +1,15 @@
 import { vi } from 'vitest';
 
+// ADR-0013 fixtures: verbatim rig captures for the /topology network
+// view (generated from Temp/opencode/cap-topo/ - see the header in
+// topologyFixtures.ts).
+import {
+  TOPOLOGY_CLUSTER_RESPONSE,
+  TOPOLOGY_HEALTH_RESPONSE,
+  TOPOLOGY_INTEGRATIONS_RESPONSE,
+} from './topologyFixtures';
+export * from './topologyFixtures';
+
 // F4 screen 3 fixtures: verbatim rig captures (generated from
 // Temp/opencode/fixtures/*.json - see the header in jitFixtures.ts).
 // Imported here for the route helpers' default bodies below, and
@@ -1861,6 +1871,40 @@ export function licenseRoutes() {
     licenseValidateRoute(),
     licenseLifecycleRoute('revoke'),
     licenseLifecycleRoute('restore'),
+  ];
+}
+
+/* ------------------------------------------- ADR-0013 routes (/topology) */
+
+/**
+ * GET /health with the VERBATIM rig body: the network map renders the
+ * node's name, site and role, which the reduced HEALTH_OK_BODY omits.
+ */
+export function healthVerbatimRoute(
+  body: unknown = TOPOLOGY_HEALTH_RESPONSE,
+  status = 200,
+) {
+  return {
+    match: (url: string) => /\/health(\?|$)/.test(url),
+    respond: () => jsonResponse(status, body),
+  };
+}
+
+/** GET /api/v1/cluster - the verbatim cluster overview (self + peers). */
+export function clusterRoute(body: unknown = TOPOLOGY_CLUSTER_RESPONSE, status = 200) {
+  return {
+    match: (url: string) => /\/api\/v1\/cluster(\?|$)/.test(url),
+    respond: () => jsonResponse(status, body),
+  };
+}
+
+/** The System & Workflow Maps route set (ADR-0013, /topology). */
+export function topologyRoutes() {
+  return [
+    whoamiRoute(WHOAMI_OPEN_BODY),
+    healthVerbatimRoute(),
+    clusterRoute(),
+    integrationsStatusRoute({ status: 200, body: TOPOLOGY_INTEGRATIONS_RESPONSE }),
   ];
 }
 

@@ -11,8 +11,13 @@ export interface NavItem {
   labelKey: string;
   /** Material Symbols glyph exactly as the legacy sidebar renders it. */
   icon: string;
-  /** Real legacy screen URL - stays reachable until F4 replaces it. */
-  legacyHref: string;
+  /**
+   * Real legacy screen URL - stays reachable until F4 replaces it.
+   * Optional since ADR-0013: an F4-native surface (/topology) has no
+   * legacy equivalent. The router's pending fallback requires one, so
+   * a nav item without a legacyHref must be an implemented route.
+   */
+  legacyHref?: string;
   /** As-built: break-glass carries the error color on its icon. */
   danger?: boolean;
 }
@@ -84,5 +89,13 @@ export const NAV_ITEMS: NavItem[] = [
     labelKey: 'nav.settings',
     icon: 'tune',
     legacyHref: '/screens/platform_settings_idp_hsm_configuration/code.html',
+  },
+  {
+    // ADR-0013: F4-native surface, no legacy screen to strangle - the
+    // only nav item without a legacyHref (the pending fallback skips
+    // it; the route below implements it).
+    path: '/topology',
+    labelKey: 'nav.topology',
+    icon: 'schema',
   },
 ];

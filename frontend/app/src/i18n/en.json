@@ -20,7 +20,8 @@
     "licensing": "Licensing & Entitlements",
     "breakGlass": "Emergency Break-Glass",
     "vendorAccess": "Vendor Access",
-    "settings": "Settings"
+    "settings": "Settings",
+    "topology": "System Maps"
   },
   "shell": {
     "signOut": "Sign out",
@@ -1536,6 +1537,144 @@
       "reasonLong": "The reason is at most 500 characters.",
       "payloadRequired": "Paste a license file or token.",
       "payloadShape": "Expected a compact JWT or parseable license JSON."
+    }
+  },
+  "topology": {
+    "page": {
+      "title": "System & Workflow Maps",
+      "subtitle": "Five views of the real system: extracted from the committed tree, fetched live where the server knows better, contract-validated where curated (ADR-0013).",
+      "tabsLabel": "System map views",
+      "viewFrontend": "Frontend",
+      "viewBackend": "Backend",
+      "viewApi": "API",
+      "viewNetwork": "Network",
+      "viewWorkflows": "Application"
+    },
+    "frontend": {
+      "title": "Frontend routes",
+      "subtitle": "nav.ts and router.tsx joined with each feature's real calls into the generated client",
+      "liveCount": "live",
+      "pendingCount": "pending (legacy-backed)",
+      "stateLive": "live",
+      "statePending": "F4 pending",
+      "legacyScreen": "open the legacy screen",
+      "pendingNote": "stays reachable until its F4 replacement ships (strangler)",
+      "noCalls": "no generated-client calls yet"
+    },
+    "backend": {
+      "title": "Backend packages",
+      "filesCount": "files",
+      "linesLabel": "lines",
+      "edgesLabel": "internal imports",
+      "noImports": "no intra-package imports"
+    },
+    "api": {
+      "title": "API surface",
+      "subtitle": "apis/openapi.yaml in full - the contract the typed client is generated from (ADR-0004)",
+      "pathsCount": "paths",
+      "opsCount": "operations",
+      "tagsCount": "tags"
+    },
+    "network": {
+      "title": "Live network posture",
+      "subtitle": "Fetched from the running node's own answers - /health, /api/v1/cluster, /api/v1/integrations/status",
+      "loading": "Loading the node's posture…",
+      "notConnected": "not connected",
+      "selfTitle": "This node",
+      "status": "status",
+      "database": "database",
+      "keyMaterial": "key material",
+      "present": "present",
+      "absent": "absent",
+      "privateKey": "private key",
+      "clusterTitle": "Cluster",
+      "peers": {
+        "healthy": "healthy",
+        "degraded": "degraded",
+        "unknown": "unknown",
+        "unreachable": "unreachable"
+      },
+      "lastProbe": "last probe",
+      "replication": "replicated records",
+      "audit": "audit",
+      "sessions": "sessions",
+      "vault": "vault",
+      "backups": "backups",
+      "verified": "verified",
+      "integrationsTitle": "Integrations",
+      "configured": "configured",
+      "notConfigured": "not configured"
+    },
+    "workflows": {
+      "title": "Application workflows",
+      "subtitle": "Five real lifecycles; every step carries the contract operation and the repo artifact that proves it",
+      "evidence": "proof",
+      "license": {
+        "title": "License lifecycle",
+        "subtitle": "Out-of-band mint, ingest on the node, verify offline, then revoke or restore - the server's own API throughout",
+        "s1": "Registry read - every installed license with its entitlements",
+        "s2": "Import the signed envelope (license_data + signature)",
+        "s2n": "201: the license lands; a duplicate is refused verbatim with 409",
+        "s3": "The same import again - the honest refusal path",
+        "s3n": "409 verbatim: the license is already installed",
+        "s4": "Validate a pasted payload offline",
+        "s4n": "The verdict follows the payload's own key: signature, registration, entitled count",
+        "s5": "Download the signed file in either wire format (json envelope or raw jwt)",
+        "s6": "Revoke with a recorded reason",
+        "s6n": "The server's own message lands on the status line; the record keeps its trail",
+        "s7": "Restore - the lifecycle continues",
+        "s7n": "A later revoke can leave the license terminally revoked"
+      },
+      "breakGlass": {
+        "title": "Emergency break-glass",
+        "subtitle": "File, dual-sign, unseal, close - every transition gated by the server",
+        "s1": "File the emergency past the EMERGENCY-AUTHORIZE guard",
+        "s2": "First approval - a different identity than the requester",
+        "s2n": "403 verbatim if the requester tries to sign their own emergency",
+        "s3": "Second approval completes the quorum",
+        "s3n": "400 verbatim if the same approver signs twice",
+        "s4": "Unseal: the credential is released",
+        "s4n": "With no factor enrolled the release is refused honestly; the capture holds the refusal",
+        "s5": "Close with the required review note",
+        "s5n": "The server answers with the rotation record"
+      },
+      "auth": {
+        "title": "Auth & RBAC",
+        "subtitle": "Login, identity, role grants, the scoped denial and the revoked token - the gate's live RBAC flow",
+        "s1": "Login - the console enters the shell",
+        "s2": "whoami reports the signed-in principal and its role",
+        "s3": "Bind a role to a session token",
+        "s3n": "The one-time token carries exactly the bound operations",
+        "s4": "The role meets the RBAC gate",
+        "s4n": "403 verbatim: the denial names the role and the operation",
+        "s5": "Delete the binding",
+        "s5n": "The token stops working immediately (401)"
+      },
+      "vendor": {
+        "title": "Vendor onboarding",
+        "subtitle": "Invite, prove identity, sign, ticket, approve - then scoped requests and revocation",
+        "s1": "Invite the account - the MFA seed is shown exactly once",
+        "s2": "Vendor verifies the TOTP seed",
+        "s2n": "401 verbatim on a wrong code; the dialog stays open",
+        "s3": "Record the NDA reference",
+        "s4": "Record the ITSM ticket",
+        "s4n": "409 verbatim while ITSM is not configured",
+        "s5": "Approve the chain",
+        "s5n": "The server names any missing step verbatim",
+        "s6": "The vendor files a scoped request",
+        "s7": "Revoke the account at any point"
+      },
+      "jit": {
+        "title": "JIT access",
+        "subtitle": "Request, approve or deny, grant, close - ephemeral by construction",
+        "s1": "File the request with its scope and window",
+        "s2": "Approve with the signed-in principal",
+        "s3": "Or deny with a recorded reason",
+        "s3n": "The alternative branch: denial is a first-class outcome",
+        "s4": "Consume the approval into a time-boxed grant",
+        "s4n": "The grant is the only thing the broker will honour",
+        "s5": "Close the grant"
+      }
     }
   }
 }

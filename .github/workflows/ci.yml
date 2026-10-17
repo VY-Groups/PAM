@@ -145,6 +145,13 @@ jobs:
         run: |
           pnpm openapi
           git diff --exit-code -- src/api/generated
+      - name: System-map drift check (regenerate nav/router/client/openapi/backend extraction)
+        # ADR-0013: /topology renders topology.generated.ts; a route,
+        # contract or backend-tree change without regeneration fails here.
+        working-directory: frontend/app
+        run: |
+          pnpm topology
+          git diff --exit-code -- src/features/topology/topology.generated.ts
       - name: Prettier format check
         working-directory: frontend/app
         run: pnpm format:check

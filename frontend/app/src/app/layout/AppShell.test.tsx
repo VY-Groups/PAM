@@ -30,6 +30,7 @@ const NAV_LABELS = [
   'Emergency Break-Glass',
   'Vendor Access',
   'Settings',
+  'System Maps',
 ];
 
 describe('AppShell (F3 exit: shell renders live nav)', () => {

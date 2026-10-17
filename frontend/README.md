@@ -20,7 +20,7 @@ frontend/
 ├── vendor/             # offline assets: tailwind.min.js + font CSS/woff2
 │                       # (no CDN, no external URLs)
 ├── app/                # VY-PAM React rebuild (strangler app, F3 shell done,
-│                       #   F4 screens 1-10 Command Center + Vault + JIT Access + Live Session Hub + Policy & Zero Trust + Compliance & SOC2 + Target Infrastructure + Vendor Access + Emergency Break-Glass + Enterprise Licensing live; see app/README.md)
+│                       #   F4 screens 1-10 Command Center + Vault + JIT Access + Live Session Hub + Policy & Zero Trust + Compliance & SOC2 + Target Infrastructure + Vendor Access + Emergency Break-Glass + Enterprise Licensing + System Maps (/topology) live; see app/README.md)
 ├── screens/
 │   ├── <screen-name>/
 │   │   ├── code.html   # one self-contained screen (markup + styles + scripts)
@@ -107,7 +107,9 @@ Credential Vault, JIT Access and the Live Session Hub — followed on
 — Compliance & SOC2 — also on 2026-10-15, and screen 7 — Target
 Infrastructure — later the same day, screens 8 — Vendor Access — and 9
 — Emergency Break-Glass — and screen 10 — Enterprise Licensing — on
-2026-10-16, all legacy pages still served
+2026-10-16, and the System Maps console page (`/topology` - live
+extracted diagrams behind a CI drift gate, ADR-0013) the same day, all
+legacy pages still served
 until the `/app/` mount lands, ADR-0012); every
 decision is an ADR in `../docs/frontend/`. Strangler rules: legacy URLs
 stay reachable until each screen's replacement ships (F4),
