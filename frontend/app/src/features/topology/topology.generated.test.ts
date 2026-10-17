@@ -220,3 +220,66 @@ describe('workflows are contract-true and provable (ADR-0013 layer 3)', () => {
     }
   });
 });
+
+/* ---------------------- mermaid docs: the user-facing diagram artifacts */
+
+describe('mermaid docs under docs/architecture (ADR-0013)', () => {
+  const doc = (name: string) =>
+    fs.readFileSync(path.join(REPO, 'docs', 'architecture', name), 'utf8');
+
+  it('frontend-map.md carries every route, endpoint and legacy link', () => {
+    const md = doc('frontend-map.md');
+    expect(md).toContain('```mermaid');
+    for (const row of FRONTEND_ROUTES) {
+      expect(md, `route ${row.path}`).toContain(row.path);
+      for (const ep of row.endpoints) expect(md, `${row.path} -> ${ep}`).toContain(ep);
+      if (row.state === 'pending')
+        expect(md, row.path).toContain(`legacy: ${row.legacyHref}`);
+    }
+  });
+
+  it('backend-map.md mirrors the same files, sizes and edge count', () => {
+    const md = doc('backend-map.md');
+    let edges = 0;
+    for (const pkg of BACKEND_PACKAGES) {
+      for (const file of pkg.files) {
+        expect(md, `${pkg.name}/${file.path}`).toContain(
+          `${file.path} - ${file.lines} lines`,
+        );
+        edges += file.imports.length;
+      }
+    }
+    expect(md.split(' --> ').length - 1).toBe(edges);
+  });
+
+  it('api-surface.md carries the counts and every contract operation', () => {
+    const md = doc('api-surface.md');
+    expect(md).toContain(`${API_PATH_COUNT} paths / ${API_OPERATION_COUNT} operations`);
+    for (const op of API_OPERATIONS) expect(md, op).toContain(op);
+  });
+
+  it('network-posture.md wires the three live hooks to their cards', () => {
+    const md = doc('network-posture.md');
+    for (const [hook, endpoint] of [
+      ['useHealth', 'GET /health'],
+      ['useClusterOverview', 'GET /api/v1/cluster'],
+      ['useTopologyIntegrations', 'GET /api/v1/integrations/status'],
+    ] as const) {
+      expect(md, hook).toContain(`-->|${hook}|`);
+      expect(md, endpoint).toContain(endpoint);
+    }
+  });
+
+  it('workflows.md sequences every step with its label and proof', () => {
+    const md = doc('workflows.md');
+    expect(md.split('sequenceDiagram').length - 1).toBe(WORKFLOWS.length);
+    for (const workflow of WORKFLOWS) {
+      for (const step of workflow.steps) {
+        expect(md, step.operation).toContain(`UI->>API: ${step.operation}`);
+        expect(md, step.evidence.file).toContain(
+          `${step.evidence.file} :: ${step.evidence.contains}`,
+        );
+      }
+    }
+  });
+});

@@ -379,7 +379,13 @@ their own emergency request`, the 400 duplicate signer, the 400
   step, `topology.generated.test.ts` re-parses nav, router, the contract
   and the backend trees independently and pins every workflow's
   operation and evidence file on disk, and the extractor itself refuses
-  any endpoint not in the contract. `src/test/topologyFixtures.ts`
+  any endpoint not in the contract. The same run emits the Mermaid
+  diagram docs under `docs/architecture/` (frontend-map, backend-map,
+  api-surface, network-posture, workflows - rendered natively by
+  GitHub) from the same extraction, so the readable architecture
+  diagrams share the drift gate; the cross-check suite pins every
+  doc's routes, files, operations, edges and workflow steps.
+  `src/test/topologyFixtures.ts`
   holds verbatim rig captures (2026-10-16) backing the test double; the
   page itself only ever shows live answers. `yaml` is a dev-only
   dependency for the extractor/test; no diagramming dependency -

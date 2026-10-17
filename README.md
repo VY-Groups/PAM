@@ -209,7 +209,8 @@ python -m pytest pam_master -q                   # 46 tests (vendor tool)
   `GET /health`, `GET /api/v1/cluster` and
   `GET /api/v1/integrations/status`, and five contract-true workflows
   naming their fixture/test/gate proof - every extracted figure guarded
-  by a CI regenerate-and-diff drift check;
+  by a CI regenerate-and-diff drift check, which also emits the same
+  figures as Mermaid diagrams under `docs/architecture/`;
   the legacy pages below stay served and reachable
   until each replacement passes parity. Served by Phase 2, all
   twelve sidebar screens are **live**: licensing (`/`), platform settings (`/settings`,
