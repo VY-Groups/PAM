@@ -25,7 +25,7 @@ sequenceDiagram
   Note over UI,API: proof: frontend/app/src/test/licensingFixtures.ts :: LIC_LIST_RESPONSE
   UI->>API: POST /api/v1/licenses/import
   Note over UI,API: Import the signed envelope (license_data + signature)
-  Note over UI,API: 201: the license lands; a duplicate is refused verbatim with 409
+  Note over UI,API: 201: the license lands, a duplicate is refused verbatim with 409
   Note over UI,API: proof: frontend/app/src/test/licensingFixtures.ts :: LIC_IMPORT_RESPONSE
   UI->>API: POST /api/v1/licenses/import
   Note over UI,API: The same import again - the honest refusal path
@@ -40,7 +40,7 @@ sequenceDiagram
   Note over UI,API: proof: frontend/app/src/test/licensingFixtures.ts :: LIC_FILE_JWT_ACTIVE_TEXT
   UI->>API: POST /api/v1/licenses/{license_key}/revoke
   Note over UI,API: Revoke with a recorded reason
-  Note over UI,API: The server's own message lands on the status line; the record keeps its trail
+  Note over UI,API: The server's own message lands on the status line, the record keeps its trail
   Note over UI,API: proof: frontend/app/src/test/licensingFixtures.ts :: License revoked
   UI->>API: POST /api/v1/licenses/{license_key}/restore
   Note over UI,API: Restore - the lifecycle continues
@@ -70,7 +70,7 @@ sequenceDiagram
   Note over UI,API: proof: frontend/app/src/test/breakGlassFixtures.ts :: BG_DUPLICATE_APPROVER_400
   UI->>API: POST /api/v1/break-glass/requests/{request_id}/open
   Note over UI,API: Unseal: the credential is released
-  Note over UI,API: With no factor enrolled the release is refused honestly; the capture holds the refusal
+  Note over UI,API: With no factor enrolled the release is refused honestly, the capture holds the refusal
   Note over UI,API: proof: frontend/app/src/test/breakGlassFixtures.ts :: BG_OPEN_RESPONSE
   UI->>API: POST /api/v1/break-glass/requests/{request_id}/close
   Note over UI,API: Close with the required review note
@@ -121,7 +121,7 @@ sequenceDiagram
   Note over UI,API: proof: frontend/app/src/test/vendorFixtures.ts :: INVITE_RESPONSE
   UI->>API: POST /api/v1/vendors/{vendor_id}/mfa
   Note over UI,API: Vendor verifies the TOTP seed
-  Note over UI,API: 401 verbatim on a wrong code; the dialog stays open
+  Note over UI,API: 401 verbatim on a wrong code, the dialog stays open
   Note over UI,API: proof: frontend/app/src/test/vendorFixtures.ts :: MFA_WRONG_RESPONSE
   UI->>API: POST /api/v1/vendors/{vendor_id}/nda
   Note over UI,API: Record the NDA reference

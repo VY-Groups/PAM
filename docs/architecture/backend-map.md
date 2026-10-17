@@ -13,7 +13,7 @@ is the CI drift gate; every figure below is extracted from:
 
 ```mermaid
 flowchart TD
-  subgraph p0 "pam_master (pam_master)"
+  subgraph p0["pam_master (pam_master)"]
   b0_0["pam_master/__init__.py - 14 lines"]
   b0_1["pam_master/__main__.py - 21 lines"]
   b0_2["pam_master/app.py - 22 lines"]
@@ -28,7 +28,7 @@ flowchart TD
   b0_11["pam_master/registry.py - 388 lines"]
   b0_12["pam_master/routes.py - 208 lines"]
   end
-  subgraph p1 "phase2_license_server (backend/phase2_license_server)"
+  subgraph p1["phase2_license_server (backend/phase2_license_server)"]
   b1_0["app.py - 272 lines"]
   b1_1["audit.py - 1088 lines"]
   b1_2["cluster_monitor.py - 73 lines"]
@@ -56,7 +56,7 @@ flowchart TD
   b1_24["webauthn.py - 615 lines"]
   b1_25["wsgi.py - 13 lines"]
   end
-  subgraph p2 "ipam_licensing (backend/ipam_licensing)"
+  subgraph p2["ipam_licensing (backend/ipam_licensing)"]
   b2_0["license_tool.py - 544 lines"]
   b2_1["license_validator.py - 331 lines"]
   b2_2["license.py - 416 lines"]

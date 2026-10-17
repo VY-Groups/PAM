@@ -10,7 +10,7 @@ is the CI drift gate; every figure below is extracted from:
 
 ```mermaid
 flowchart LR
-  subgraph t0 "ops - 7 operations"
+  subgraph t0["ops - 7 operations"]
   o0_0["GET /health"]
   o0_1["GET /api/v1/meta"]
   o0_2["GET /api/v1/overview"]
@@ -19,7 +19,7 @@ flowchart LR
   o0_5["GET /api/v1/audit/verify"]
   o0_6["GET /api/v1/audit/export"]
   end
-  subgraph t1 "licenses - 7 operations"
+  subgraph t1["licenses - 7 operations"]
   o1_0["GET /api/v1/licenses"]
   o1_1["POST /api/v1/licenses/import"]
   o1_2["GET /api/v1/licenses/{license_key}"]
@@ -28,18 +28,18 @@ flowchart LR
   o1_5["POST /api/v1/licenses/{license_key}/restore"]
   o1_6["POST /api/v1/licenses/{license_key}/usage"]
   end
-  subgraph t2 "validation - 2 operations"
+  subgraph t2["validation - 2 operations"]
   o2_0["POST /api/v1/licenses/validate"]
   o2_1["POST /api/v1/licenses/{license_key}/check"]
   end
-  subgraph t3 "settings - 5 operations"
+  subgraph t3["settings - 5 operations"]
   o3_0["GET /api/v1/settings"]
   o3_1["GET /api/v1/settings/audit"]
   o3_2["PUT /api/v1/settings/{group}"]
   o3_3["POST /api/v1/settings/smtp/test"]
   o3_4["POST /api/v1/settings/scim/rotate"]
   end
-  subgraph t4 "vault - 9 operations"
+  subgraph t4["vault - 9 operations"]
   o4_0["GET /api/v1/vault/stats"]
   o4_1["GET /api/v1/vault/items"]
   o4_2["POST /api/v1/vault/items"]
@@ -50,11 +50,11 @@ flowchart LR
   o4_7["GET /api/v1/vault/events"]
   o4_8["GET /api/v1/vault/items/{item_id}/secret"]
   end
-  subgraph t5 "rotation - 2 operations"
+  subgraph t5["rotation - 2 operations"]
   o5_0["POST /api/v1/rotation/run"]
   o5_1["POST /api/v1/rotation/session-end"]
   end
-  subgraph t6 "jit - 8 operations"
+  subgraph t6["jit - 8 operations"]
   o6_0["GET /api/v1/jit/stats"]
   o6_1["GET /api/v1/jit/requests"]
   o6_2["POST /api/v1/jit/requests"]
@@ -64,7 +64,7 @@ flowchart LR
   o6_6["POST /api/v1/jit/requests/{request_id}/consume"]
   o6_7["POST /api/v1/jit/requests/{request_id}/close"]
   end
-  subgraph t7 "sessions - 12 operations"
+  subgraph t7["sessions - 12 operations"]
   o7_0["GET /api/v1/sessions/stats"]
   o7_1["GET /api/v1/sessions"]
   o7_2["POST /api/v1/sessions"]
@@ -78,7 +78,7 @@ flowchart LR
   o7_10["POST /api/v1/sessions/{session_id}/terminate"]
   o7_11["POST /api/v1/sessions/{session_id}/complete"]
   end
-  subgraph t8 "command-control - 12 operations"
+  subgraph t8["command-control - 12 operations"]
   o8_0["POST /api/v1/sessions/{session_id}/events/{seq}/approve"]
   o8_1["POST /api/v1/sessions/{session_id}/events/{seq}/deny"]
   o8_2["GET /api/v1/command-control/stats"]
@@ -92,7 +92,7 @@ flowchart LR
   o8_10["GET /api/v1/command-control/incidents/{incident_id}"]
   o8_11["POST /api/v1/command-control/incidents/{incident_id}/close"]
   end
-  subgraph t9 "discovery - 8 operations"
+  subgraph t9["discovery - 8 operations"]
   o9_0["GET /api/v1/discovery/stats"]
   o9_1["GET /api/v1/discovery/assets"]
   o9_2["POST /api/v1/discovery/assets"]
@@ -102,7 +102,7 @@ flowchart LR
   o9_6["GET /api/v1/discovery/scans"]
   o9_7["POST /api/v1/discovery/scans"]
   end
-  subgraph t10 "risk - 6 operations"
+  subgraph t10["risk - 6 operations"]
   o10_0["POST /api/v1/risk/evaluate"]
   o10_1["GET /api/v1/risk/evaluations"]
   o10_2["GET /api/v1/risk/stats"]
@@ -110,7 +110,7 @@ flowchart LR
   o10_4["POST /api/v1/risk/baselines/train"]
   o10_5["GET /api/v1/risk/anomalies"]
   end
-  subgraph t11 "bypass - 7 operations"
+  subgraph t11["bypass - 7 operations"]
   o11_0["POST /api/v1/bypass/ingest"]
   o11_1["GET /api/v1/bypass/signals"]
   o11_2["POST /api/v1/bypass/scans"]
@@ -119,7 +119,7 @@ flowchart LR
   o11_5["POST /api/v1/bypass/incidents/{incident_id}/close"]
   o11_6["GET /api/v1/bypass/stats"]
   end
-  subgraph t12 "break-glass - 8 operations"
+  subgraph t12["break-glass - 8 operations"]
   o12_0["POST /api/v1/break-glass/requests"]
   o12_1["GET /api/v1/break-glass/requests"]
   o12_2["GET /api/v1/break-glass/requests/{request_id}"]
@@ -129,14 +129,14 @@ flowchart LR
   o12_6["POST /api/v1/break-glass/requests/{request_id}/close"]
   o12_7["GET /api/v1/break-glass/stats"]
   end
-  subgraph t13 "integrations - 5 operations"
+  subgraph t13["integrations - 5 operations"]
   o13_0["GET /api/v1/integrations/status"]
   o13_1["POST /api/v1/mfa/enroll"]
   o13_2["POST /api/v1/mfa/verify"]
   o13_3["POST /api/v1/itsm/verify"]
   o13_4["POST /api/v1/auth/ldap"]
   end
-  subgraph t14 "vendors - 11 operations"
+  subgraph t14["vendors - 11 operations"]
   o14_0["GET /api/v1/vendors"]
   o14_1["POST /api/v1/vendors"]
   o14_2["GET /api/v1/vendors/{vendor_id}"]
@@ -149,7 +149,7 @@ flowchart LR
   o14_9["POST /api/v1/vendors/{vendor_id}/revoke"]
   o14_10["POST /api/v1/vendors/{vendor_id}/requests"]
   end
-  subgraph t15 "cloud - 9 operations"
+  subgraph t15["cloud - 9 operations"]
   o15_0["GET /api/v1/cloud/connectors"]
   o15_1["POST /api/v1/cloud/connectors"]
   o15_2["GET /api/v1/cloud/connectors/{connector_id}"]
@@ -160,7 +160,7 @@ flowchart LR
   o15_7["POST /api/v1/cloud/connectors/{connector_id}/rbac/requests"]
   o15_8["GET /api/v1/cloud/stats"]
   end
-  subgraph t16 "broker - 13 operations"
+  subgraph t16["broker - 13 operations"]
   o16_0["GET /api/v1/broker/policies"]
   o16_1["POST /api/v1/broker/policies"]
   o16_2["GET /api/v1/broker/policies/{policy_id}"]
@@ -175,7 +175,7 @@ flowchart LR
   o16_11["POST /api/v1/broker/credentials/{credential_id}/close"]
   o16_12["GET /api/v1/broker/stats"]
   end
-  subgraph t17 "agent - 15 operations"
+  subgraph t17["agent - 15 operations"]
   o17_0["GET /api/v1/agents"]
   o17_1["POST /api/v1/agents"]
   o17_2["GET /api/v1/agents/{agent_id}"]
@@ -192,7 +192,7 @@ flowchart LR
   o17_13["POST /api/v1/agent-access/requests/{request_id}/close"]
   o17_14["GET /api/v1/agent-access/stats"]
   end
-  subgraph t18 "cluster - 15 operations"
+  subgraph t18["cluster - 15 operations"]
   o18_0["GET /api/v1/cluster"]
   o18_1["GET /api/v1/cluster/nodes"]
   o18_2["POST /api/v1/cluster/nodes"]
@@ -209,14 +209,14 @@ flowchart LR
   o18_13["GET /api/v1/cluster/export/vault"]
   o18_14["GET /api/v1/cluster/export/sessions"]
   end
-  subgraph t19 "rbac - 5 operations"
+  subgraph t19["rbac - 5 operations"]
   o19_0["GET /api/v1/roles"]
   o19_1["GET /api/v1/role-bindings"]
   o19_2["POST /api/v1/role-bindings"]
   o19_3["DELETE /api/v1/role-bindings/{binding_id}"]
   o19_4["GET /api/v1/auth/whoami"]
   end
-  subgraph t20 "sso - 10 operations"
+  subgraph t20["sso - 10 operations"]
   o20_0["GET /api/v1/auth/sso/status"]
   o20_1["GET /api/v1/auth/sso/metadata"]
   o20_2["GET /api/v1/auth/sso/saml/{slot}/metadata"]
@@ -228,13 +228,13 @@ flowchart LR
   o20_8["GET /api/v1/auth/sso/sessions"]
   o20_9["POST /api/v1/auth/sso/sessions/{session_id}/revoke"]
   end
-  subgraph t21 "hsm - 4 operations"
+  subgraph t21["hsm - 4 operations"]
   o21_0["GET /api/v1/hsm/status"]
   o21_1["POST /api/v1/hsm/seal"]
   o21_2["POST /api/v1/hsm/unseal"]
   o21_3["POST /api/v1/hsm/keys/rotate"]
   end
-  subgraph t22 "identity - 49 operations"
+  subgraph t22["identity - 49 operations"]
   o22_0["POST /api/v1/auth/login"]
   o22_1["POST /api/v1/auth/logout"]
   o22_2["GET /api/v1/auth/sessions"]
@@ -285,7 +285,7 @@ flowchart LR
   o22_47["GET /api/v1/scim/v2/Groups/{scim_id}"]
   o22_48["PUT /api/v1/scim/v2/Groups/{scim_id}"]
   end
-  subgraph t23 "gateway - 21 operations"
+  subgraph t23["gateway - 21 operations"]
   o23_0["GET /api/v1/zones"]
   o23_1["POST /api/v1/zones"]
   o23_2["GET /api/v1/zones/{zone_id}"]

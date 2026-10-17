@@ -593,7 +593,7 @@ function writeBackendMapDoc() {
   const fileId = new Map();
   const body = ['flowchart TD'];
   backendOut.forEach((pkg, p) => {
-    body.push(`  subgraph p${p} ${q(`${pkg.name} (${pkg.root})`)}`);
+    body.push(`  subgraph p${p}[${q(`${pkg.name} (${pkg.root})`)}]`);
     pkg.files.forEach((f, i) => {
       fileId.set(`${pkg.root}/${f.path}`, `b${p}_${i}`);
       body.push(`  b${p}_${i}[${q(`${f.path} - ${f.lines} lines`)}]`);
@@ -632,7 +632,9 @@ function writeBackendMapDoc() {
 function writeApiSurfaceDoc() {
   const body = ['flowchart LR'];
   api.tags.forEach((tag, t) => {
-    body.push(`  subgraph t${t} ${q(`${tag.name} - ${tag.operations.length} operations`)}`);
+    body.push(
+      `  subgraph t${t}[${q(`${tag.name} - ${tag.operations.length} operations`)}]`,
+    );
     tag.operations.forEach((op, i) => {
       body.push(`  o${t}_${i}[${q(`${op.method} ${op.path}`)}]`);
     });
@@ -741,6 +743,10 @@ function extractWorkflowFlows() {
 }
 
 function writeWorkflowsDoc() {
+  // Mermaid treats `;` as a statement break everywhere, including inside
+  // Note/message text - a comma renders the same honest copy without
+  // splitting the statement.
+  const seq = (s) => String(s).replace(/;/g, ',');
   const flows = extractWorkflowFlows();
   const parts = [
     docHeader('Application workflows (contract-true)', [
@@ -763,11 +769,11 @@ function writeWorkflowsDoc() {
       '  participant API as PAM API (contract)',
     ];
     for (const step of flow.steps) {
-      body.push(`  UI->>API: ${step.operation}`);
-      body.push(`  Note over UI,API: ${i18nGet(step.labelKey)}`);
-      if (step.noteKey) body.push(`  Note over UI,API: ${i18nGet(step.noteKey)}`);
+      body.push(`  UI->>API: ${seq(step.operation)}`);
+      body.push(`  Note over UI,API: ${seq(i18nGet(step.labelKey))}`);
+      if (step.noteKey) body.push(`  Note over UI,API: ${seq(i18nGet(step.noteKey))}`);
       body.push(
-        `  Note over UI,API: ${i18nGet('topology.workflows.evidence')}: ${step.file} :: ${step.contains}`,
+        `  Note over UI,API: ${seq(i18nGet('topology.workflows.evidence'))}: ${seq(step.file)} :: ${seq(step.contains)}`,
       );
     }
     parts.push('```mermaid\n' + body.join('\n') + '\n```\n');
