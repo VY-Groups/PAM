@@ -30,7 +30,15 @@ The legacy page (142 KB) calls: `GET /settings` (+`/settings/audit`,
 (Amendment 11.3, 2026-10-18: a grep of all 18 `fetch` calls in `code.html`
 proves the page never calls `POST /settings/smtp/test` or
 `POST /settings/scim/rotate` - those are existing API endpoints; 11.3 wires
-them as NEW actions the legacy page does not have.)
+them as NEW actions the legacy page does not have.
+Amendment 11.4, 2026-10-18, user-approved: the same grep over every
+`fetch(` call in `code.html` (16 total) proves the page never calls
+`POST /mfa/verify`, `POST /itsm/verify` or `POST /auth/ldap` - the
+parenthetical above lists endpoints of the `integrations` tag, not page
+calls. Only `POST /mfa/enroll` among them is wired (button
+`btn-mfa-enroll`). 11.4 wires `itsm/verify` + `auth/ldap` as NEW actions
+the legacy page does not have (the 11.3 precedent) and does not wire
+`mfa/verify` at all.)
 
 `GET /api/v1/settings` returns **`schema` + `settings` for exactly 15 groups**:
 `auth, gateway, hsm, itsm, ldap, mfa, radius, scim, siem, sms, smtp, sso,
@@ -54,7 +62,7 @@ never claims a half-built screen. The route goes live only in 11.5.
 | **11.1** | Feature shell (`features/settings/`) + read-only live sections: server-state header, HA/DC/DR cluster posture, SSO + HSM live lines/chips, Enterprise Integrations chips; nav legacyHref correction; verbatim fixtures | vitest + axe in jsdom (page not routed yet) |
 | **11.2** | RBAC/ABAC: role directory, bindings table, create-binding form + one-time token box (hidden until 201) | vitest + axe |
 | **11.3** | The 15 schema groups as RHF+Zod forms (zod derived from the API schema: type/min/max/allow_empty), dirty tracking, save through `X-Admin-Token`, changelog view; `smtp/test` + `scim/rotate` actions; the header `Export JSON` download (user-approved amendment 2026-10-18, legacy parity). Group forms interleave in the legacy page's document order (user-approved 2026-10-18): sso/hsm forms inside their posture sections, zsp/worm cards before the integrations section, the four connector forms inside it, a new Identity section (auth..scim), a new Gateway section, changelog last. `zsp` renders schema-driven like every other group (the legacy page hardcodes it); its labels therefore come from the schema field names, not the static block's prose | vitest + axe |
-| **11.4** | Identity addendum specials: emergency-admin card (`/auth/emergency`), MFA enroll (secret shown once), ITSM verify, LDAP auth, gateway card; `settingsLive`-style exports for the future gate re-point | vitest + axe |
+| **11.4** | Identity addendum specials: emergency-admin card (`/auth/emergency` + the dual-approved open request, `window.prompt` reason parity), MFA enroll (secret shown once); ITSM verify + LDAP auth as NEW actions (user-approved amendment 2026-10-18, the legacy page calls neither); the four connector cards gain their live status notes from `GET /integrations/status` (mfa gate statement, ITSM credentials, SIEM last push, LDAP bind template - user-approved 2026-10-18); `gateway card` was delivered by 11.3's Gateway section (gate 8a contract, asserted there); `settingsLive`-style exports for the future gate re-point | vitest + axe |
 | **11.5** | **Flip**: router live + nav `legacyHref` removed, topology regenerates (settings tag becomes route-wired), gate Settings block re-pointed to the React page (same honest-state regexes, `data-role` selectors, no `id=`), `platform_settings_center/code.html` deleted per the plan, full boundary regression | full battery + gate both modes + e2e |
 
 ## Cross-cutting rules

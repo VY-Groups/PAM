@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next';
 import { Button, SectionHeader } from '../../components';
 import { ChangelogSection } from './ChangelogSection';
 import { ClusterPostureSection } from './ClusterPostureSection';
+import { ConnectorNote } from './ConnectorNote';
 import { GatewaySettingsSection } from './GatewaySettingsSection';
 import { HsmStatusSection } from './HsmStatusSection';
 import { IdentitySettingsSection } from './IdentitySettingsSection';
@@ -10,7 +11,9 @@ import { IntegrationsSection } from './IntegrationsSection';
 import { RbacSection } from './RbacSection';
 import { SettingsFormProvider } from './SettingsFormProvider';
 import { useSettingsForm } from './settingsFormContext';
+import { ItsmVerifyAction, LdapBindAction } from './SettingsGroupActions';
 import { SettingsGroupCard } from './SettingsGroupCard';
+import { useSettingsLiveExport } from './settingsLive';
 import { SsoStatusSection } from './SsoStatusSection';
 import { StoredConfigurationBlock } from './SettingsGroupFields';
 import { WormSettingsSection } from './WormSettingsSection';
@@ -24,12 +27,16 @@ import type { SettingsBanner } from './settingsFormContext';
  * hsm_configuration` is only its design spec).
  *
  * 11.1 built the read-only posture shell (SSO, HSM, integrations,
- * cluster), 11.2 added the RBAC/ABAC directory, and 11.3 adds the 15
+ * cluster), 11.2 added the RBAC/ABAC directory, 11.3 adds the 15
  * schema-driven group forms with the page-level Save/Export and the
- * config-audit changelog. The route stays `pending` (nav keeps its
- * legacyHref) until the 11.5 flip, so nothing here claims to be served
- * yet - the interim verification is Vitest + axe against the verbatim
- * rig captures, and e2e joins at the flip per ADR-0015.
+ * config-audit changelog, and 11.4 adds the sealed emergency-admin card
+ * (legacy state machine ported verbatim), the live connector note lines,
+ * the legacy MFA enroll action and the ITSM/LDAP NEW actions - plus the
+ * legacy-shaped `window.settingsLive` export the standing gate reads.
+ * The route stays `pending` (nav keeps its legacyHref) until the 11.5
+ * flip, so nothing here claims to be served yet - the interim
+ * verification is Vitest + axe against the verbatim rig captures, and
+ * e2e joins at the flip per ADR-0015.
  *
  * Section order IS the legacy page's document order (code.html: SSO,
  * HSM, ZSP, WORM, integrations + its four connector cards, identity,
@@ -51,6 +58,9 @@ function SettingsPageBody() {
   const { t } = useTranslation();
   const { banner, dirtyCount, exportJson, loadFailed, save, saving, toast } =
     useSettingsForm();
+  // The legacy-shaped window export the standing gate's Settings block
+  // reads (settingsLive.ts) - installed while this page is mounted.
+  useSettingsLiveExport();
 
   return (
     <div className="flex flex-col gap-space-lg" data-testid="settings-page">
@@ -106,10 +116,18 @@ function SettingsPageBody() {
       <WormSettingsSection />
       <IntegrationsSection>
         <div className="grid grid-cols-1 xl:grid-cols-2 gap-space-md">
-          <SettingsGroupCard group="mfa" />
-          <SettingsGroupCard group="itsm" />
-          <SettingsGroupCard group="siem" />
-          <SettingsGroupCard group="ldap" />
+          <SettingsGroupCard group="mfa" note={<ConnectorNote group="mfa" />} />
+          <SettingsGroupCard
+            footer={<ItsmVerifyAction />}
+            group="itsm"
+            note={<ConnectorNote group="itsm" />}
+          />
+          <SettingsGroupCard group="siem" note={<ConnectorNote group="siem" />} />
+          <SettingsGroupCard
+            footer={<LdapBindAction />}
+            group="ldap"
+            note={<ConnectorNote group="ldap" />}
+          />
         </div>
       </IntegrationsSection>
       <IdentitySettingsSection />

@@ -203,7 +203,12 @@ export * from './licensingFixtures';
 // capture each (see settingsFixtures.ts header).
 import {
   CLUSTER_BACKUPS_RESPONSE,
+  EMERGENCY_GRANTS_EMPTY_RESPONSE,
+  EMERGENCY_OPEN_REQUESTED_RESPONSE,
   HSM_STATUS_RESPONSE,
+  ITSM_VERIFY_UNCONFIGURED_RESPONSE,
+  LDAP_BIND_UNCONFIGURED_RESPONSE,
+  MFA_ENROLL_RESPONSE,
   ROLE_BINDINGS_RESPONSE,
   ROLE_BINDING_CREATE_RESPONSE,
   ROLE_BINDING_REVOKE_RESPONSE,
@@ -2041,12 +2046,66 @@ export function scimRotateRoute(capture: CapturedResponse = SCIM_ROTATE_RESPONSE
 }
 
 /**
+ * `GET /api/v1/auth/emergency` - sealed-admin grants + username (11.4).
+ * Anchored so `/auth/emergency/open` never falls through to it.
+ */
+export function emergencyRoute(
+  capture: CapturedResponse = EMERGENCY_GRANTS_EMPTY_RESPONSE,
+) {
+  return {
+    match: (url: string) => /\/api\/v1\/auth\/emergency(\?|$)/.test(url),
+    respond: () => jsonResponse(capture.status, capture.body),
+  };
+}
+
+/** `POST /api/v1/auth/emergency/open` - the dual-approved open request (11.4). */
+export function emergencyOpenRoute(
+  capture: CapturedResponse = EMERGENCY_OPEN_REQUESTED_RESPONSE,
+) {
+  return {
+    match: (url: string) => /\/api\/v1\/auth\/emergency\/open(\?|$)/.test(url),
+    respond: () => jsonResponse(capture.status, capture.body),
+  };
+}
+
+/**
+ * `POST /api/v1/mfa/enroll` - the one-time TOTP seed mint (11.4). Anchored
+ * on `/api/v1/mfa/enroll` so the `auth/mfa/enroll/*` factor routes never
+ * match it.
+ */
+export function mfaEnrollRoute(capture: CapturedResponse = MFA_ENROLL_RESPONSE) {
+  return {
+    match: (url: string) => /\/api\/v1\/mfa\/enroll(\?|$)/.test(url),
+    respond: () => jsonResponse(capture.status, capture.body),
+  };
+}
+
+/** `POST /api/v1/itsm/verify` - real ticket lookup (11.4 NEW action). */
+export function itsmVerifyRoute(
+  capture: CapturedResponse = ITSM_VERIFY_UNCONFIGURED_RESPONSE,
+) {
+  return {
+    match: (url: string) => /\/api\/v1\/itsm\/verify(\?|$)/.test(url),
+    respond: () => jsonResponse(capture.status, capture.body),
+  };
+}
+
+/** `POST /api/v1/auth/ldap` - real directory bind (11.4 NEW action). */
+export function ldapBindRoute(capture: CapturedResponse = LDAP_BIND_UNCONFIGURED_RESPONSE) {
+  return {
+    match: (url: string) => /\/api\/v1\/auth\/ldap(\?|$)/.test(url),
+    respond: () => jsonResponse(capture.status, capture.body),
+  };
+}
+
+/**
  * The full Platform Settings route set (screen 11, ADR-0015): the 11.1
- * posture reads, the 11.2 RBAC directory, and the 11.3 settings reads
- * (schema+values, changelog) with the write/action stubs the page never
- * fires on load. Tests that drive a save or an action pass their own
- * captures via the override args (the verbatim write-arm fixtures) -
- * an `undefined` override keeps each helper's default.
+ * posture reads, the 11.2 RBAC directory, the 11.3 settings reads
+ * (schema+values, changelog) and the 11.4 identity specials (emergency
+ * state, MFA enroll, ITSM verify, LDAP bind) with the write/action stubs
+ * the page never fires on load. Tests that drive a save or an action pass
+ * their own captures via the override args (the verbatim write-arm
+ * fixtures) - an `undefined` override keeps each helper's default.
  */
 export function settingsRoutes(overrides?: {
   schema?: CapturedResponse;
@@ -2054,6 +2113,11 @@ export function settingsRoutes(overrides?: {
   putGroup?: CapturedResponse;
   smtpTest?: CapturedResponse;
   scimRotate?: CapturedResponse;
+  emergency?: CapturedResponse;
+  emergencyOpen?: CapturedResponse;
+  mfaEnroll?: CapturedResponse;
+  itsmVerify?: CapturedResponse;
+  ldapBind?: CapturedResponse;
 }) {
   return [
     whoamiRoute(WHOAMI_OPEN_BODY),
@@ -2070,6 +2134,11 @@ export function settingsRoutes(overrides?: {
     settingsPutGroupRoute(overrides?.putGroup),
     smtpTestRoute(overrides?.smtpTest),
     scimRotateRoute(overrides?.scimRotate),
+    emergencyRoute(overrides?.emergency),
+    emergencyOpenRoute(overrides?.emergencyOpen),
+    mfaEnrollRoute(overrides?.mfaEnroll),
+    itsmVerifyRoute(overrides?.itsmVerify),
+    ldapBindRoute(overrides?.ldapBind),
   ];
 }
 

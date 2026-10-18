@@ -1726,7 +1726,11 @@
         "siem": "SIEM"
       },
       "on": "{{name}}: configured",
-      "off": "{{name}}: not configured"
+      "off": "{{name}}: not configured",
+      "enrollButton": "Enroll MFA Factor",
+      "mfaSecretTitle": "TOTP SECRET - SHOWN ONCE, SEALING NOW",
+      "enrollUnreachable": "Could not reach the license server - no factor was enrolled.",
+      "notConnected": "not connected"
     },
     "cluster": {
       "title": "HA / DC / DR Cluster",
@@ -1827,6 +1831,20 @@
       "title": "Identity & Login Security (Addendum C)",
       "subtitle": "Local login hardening - lockout, rate limits, progressive delay, the fail-closed MFA gate, and the email OTP / WebAuthn / RADIUS / SCIM surfaces."
     },
+    "emergency": {
+      "title": "Offline emergency admin (sealed)",
+      "description": "A dedicated local account for SSO outages: the password is random + sealed, the row grants nothing, and a window opens only through a dual-approved grant (two distinct approvers, never the requester) that is alerted on use and rotated after. Reads GET /api/v1/auth/emergency.",
+      "stateSealed": "sealed - {{username}} grants nothing",
+      "statePending": "sealed - grant {{id}} awaits two approvals",
+      "stateOpen": "window OPEN - {{username}} usable until the grant expires",
+      "stateUnreachable": "unreachable",
+      "stateRefused": "request refused: {{message}}",
+      "grantsInitial": "—",
+      "grantsNone": "no grants on record",
+      "grantsSome": "{{count}} grant(s) on record",
+      "openButton": "Request Open Grant",
+      "prompt": "Reason for opening the emergency admin (at least 8 characters):"
+    },
     "gateway": {
       "title": "Session Gateway & Recording (phase 8a)",
       "subtitle": "The guacd-first data plane: zone-mandatory dispatch to a healthy node, sealed per-segment recordings and retention."
@@ -1921,6 +1939,32 @@
           "description": "Zone-mandatory dispatch, the guacd endpoint, segment length, the recording failure policy, spool watermarks and retention."
         }
       },
+      "notes": {
+        "mfa": {
+          "initial": "MFA gate status: —",
+          "unreachable": "MFA gate status: — (license server not reachable)",
+          "gateFallback": "MFA gate status: —"
+        },
+        "itsm": {
+          "initial": "ITSM status: —",
+          "unreachable": "ITSM status: — (license server not reachable)",
+          "connected": "{{vendor}} at {{url}} - credentials {{credentials}}"
+        },
+        "siem": {
+          "initial": "SIEM status: —",
+          "unreachable": "SIEM status: — (license server not reachable)",
+          "connected": "state: {{state}} - last push {{status}}",
+          "recordsSuffix": ", {{count}} record(s) delivered",
+          "batchesSuffix": ", {{count}} failed batch(es)"
+        },
+        "ldap": {
+          "initial": "LDAP status: —",
+          "unreachable": "LDAP status: — (license server not reachable)",
+          "connected": "{{server}}:{{port}} - bind template {{template}}, ticket TTL {{ttl}}s"
+        },
+        "credentialsStored": "stored (sealed)",
+        "credentialsMissing": "missing"
+      },
       "actions": {
         "smtpTestButton": "Send Test Email",
         "smtpTestRecipient": "Test recipient",
@@ -1928,6 +1972,14 @@
         "scimRotateButton": "Rotate SCIM Token",
         "scimRotateConfirm": "Rotate the SCIM bearer token? The current token stops working immediately and the identity provider must be reconfigured with the new one.",
         "scimTokenTitle": "SCIM bearer token - shown once",
+        "itsmTicketLabel": "Ticket reference",
+        "itsmTicketHint": "INC0012345",
+        "itsmVerifyButton": "Verify Ticket",
+        "ldapUsernameLabel": "Bind username",
+        "ldapUsernameHint": "svc-directory",
+        "ldapPasswordLabel": "Bind password",
+        "ldapBindButton": "Test LDAP Bind",
+        "ldapTicketTitle": "LDAP ticket - shown once",
         "unreachable": "Could not reach the license server - the action did not run."
       },
       "fieldLabels": {

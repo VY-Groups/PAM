@@ -8,6 +8,7 @@
 import { useTranslation } from 'react-i18next';
 
 import { SectionHeader } from '../../components';
+import { EmergencyCard } from './EmergencyCard';
 import { ScimRotateAction, SmtpTestAction } from './SettingsGroupActions';
 import { SettingsGroupCard } from './SettingsGroupCard';
 
@@ -27,6 +28,9 @@ export function IdentitySettingsSection() {
         <SettingsGroupCard group="radius" />
         <SettingsGroupCard footer={<ScimRotateAction />} group="scim" />
       </div>
+      {/* 11.4: the sealed emergency-admin card, full width below the grid
+          (legacy code.html:643-657). */}
+      <EmergencyCard />
     </section>
   );
 }

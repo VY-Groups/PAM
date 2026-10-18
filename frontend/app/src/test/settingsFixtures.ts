@@ -2484,3 +2484,215 @@ export const SETTINGS_AFTER_ROTATE_RESPONSE = {
     },
   },
 };
+
+/* ---------------------------------------------------------------------------
+ * 11.4 captures (ADR-0015) - verbatim from the live rigs, 2026-10-18
+ * (raw bodies: Temp/opencode/capture_settings_114.mjs, never staged).
+ *
+ * Capture cycle notes (honest rig drift, verified gate-legal):
+ * - The emergency pending state cannot exist without creating a grant, so
+ *   the capture ran the real flow: open (X-Actor capture-114) -> pending
+ *   GET -> single deny (restore; deny needs no dual control). The rig now
+ *   holds 1 DENIED grant: the state line stays `sealed - emergency-admin
+ *   grants nothing` and the grants line becomes `1 grant(s) on record` -
+ *   both accepted by the gate's honest-state regexes.
+ * - `POST /mfa/enroll` minted a real factor on the open rig (the settings
+ *   `mfa.factor_*` fields are readonly, so this is irreversible via API).
+ *   No gate check touches the factor fields or the integrations chips; the
+ *   raw TOTP secret stayed in the Temp capture file only - the fixture
+ *   carries the deliberate redaction below (house rule: rig-generated
+ *   secrets never enter the repo).
+ * - The refusal arms (400 short reason, 409 not-configured, 400 field
+ *   validation) all raise BEFORE any state change - they are pure.
+ * ------------------------------------------------------------------------- */
+
+/** `GET /api/v1/auth/emergency` - pristine baseline (grants: []). */
+export const EMERGENCY_GRANTS_EMPTY_RESPONSE = {
+  status: 200,
+  body: { grants: [], username: 'emergency-admin' },
+};
+
+/** `POST /api/v1/auth/emergency/open` - the real 201 (reason >= 8 chars). */
+export const EMERGENCY_OPEN_REQUESTED_RESPONSE = {
+  status: 201,
+  body: {
+    grant: {
+      created_at: '2026-10-18T11:08:32.629993',
+      expires_at: null,
+      id: 1,
+      opened_at: null,
+      reason: '11.4 capture of the pending grant state',
+      requested_by: 'capture-114',
+      rotated_at: null,
+      status: 'pending',
+      ticket: '',
+      used_at: null,
+    },
+    message: 'Emergency grant requested',
+  },
+};
+
+/** `GET /api/v1/auth/emergency` - the pending window (1 grant, no approvals). */
+export const EMERGENCY_GRANTS_PENDING_RESPONSE = {
+  status: 200,
+  body: {
+    grants: [
+      {
+        approvals: [],
+        created_at: '2026-10-18T11:08:32.629993',
+        expires_at: null,
+        id: 1,
+        opened_at: null,
+        reason: '11.4 capture of the pending grant state',
+        requested_by: 'capture-114',
+        rotated_at: null,
+        status: 'pending',
+        ticket: '',
+        used_at: null,
+      },
+    ],
+    username: 'emergency-admin',
+  },
+};
+
+/**
+ * `GET /api/v1/auth/emergency` - AFTER the deny restore: the rig's new
+ * baseline (1 denied grant with its deny approval recorded).
+ */
+export const EMERGENCY_GRANTS_DENIED_RESPONSE = {
+  status: 200,
+  body: {
+    grants: [
+      {
+        approvals: [
+          {
+            approver: 'capture-114-approver',
+            created_at: '2026-10-18T11:08:33.165291',
+            decision: 'deny',
+            grant_id: 1,
+            id: 1,
+            note: '',
+          },
+        ],
+        created_at: '2026-10-18T11:08:32.629993',
+        expires_at: null,
+        id: 1,
+        opened_at: null,
+        reason: '11.4 capture of the pending grant state',
+        requested_by: 'capture-114',
+        rotated_at: null,
+        status: 'denied',
+        ticket: '',
+        used_at: null,
+      },
+    ],
+    username: 'emergency-admin',
+  },
+};
+
+/** `POST /api/v1/auth/emergency/open` with a short reason -> verbatim 400. */
+export const EMERGENCY_OPEN_REFUSED_RESPONSE = {
+  status: 400,
+  body: { error: 'A reason of at least 8 characters is required' },
+};
+
+/** `GET /api/v1/auth/emergency` without the admin token (verbatim 401). */
+export const EMERGENCY_UNAUTHORIZED_RESPONSE = {
+  status: 401,
+  body: {
+    error: 'Admin token required (Authorization: Bearer <token> or X-Admin-Token)',
+  },
+};
+
+/** `POST /api/v1/auth/emergency/open` without the admin token (verbatim 401). */
+export const EMERGENCY_OPEN_UNAUTHORIZED_RESPONSE = {
+  status: 401,
+  body: {
+    error: 'Admin token required (Authorization: Bearer <token> or X-Admin-Token)',
+  },
+};
+
+/**
+ * `POST /api/v1/mfa/enroll` (verbatim 201 shape, open rig) - `message` and
+ * `factor` verbatim; the TOTP seed and the `otpauth://` URI that encodes it
+ * are the two deliberate substitutions: rig-generated secrets never enter
+ * the repo (house rule, same as the SCIM token above). The real material
+ * was captured live in the same cycle (Temp file) and the rig now holds
+ * the enrolled factor.
+ */
+export const MFA_ENROLL_RESPONSE = {
+  status: 201,
+  body: {
+    factor: {
+      algorithm: 'SHA1',
+      configured: true,
+      created_at: '2026-10-18T11:08:33.893905',
+      digits: 6,
+      enrolled_for: 'admin',
+      gate: 'medium-risk (mfa-decision) session starts require a valid code',
+      last_verified_at: null,
+      period: 30,
+    },
+    message: 'Factor enrolled - add it to your authenticator app; the secret is shown once',
+    otpauth_uri: '<redacted-shown-once>',
+    secret: '<redacted-shown-once>',
+  },
+};
+
+/** `POST /api/v1/mfa/enroll` without the admin token (verbatim 401). */
+export const MFA_ENROLL_UNAUTHORIZED_RESPONSE = {
+  status: 401,
+  body: {
+    error: 'Admin token required (Authorization: Bearer <token> or X-Admin-Token)',
+  },
+};
+
+/**
+ * `POST /api/v1/itsm/verify` (verbatim 409, both rigs): no instance is
+ * configured - `details.detail` is the verify-side honest gap.
+ */
+export const ITSM_VERIFY_UNCONFIGURED_RESPONSE = {
+  status: 409,
+  body: {
+    details: { configured: false, detail: 'itsm is not configured', field: 'itsm' },
+    error: 'ITSM is not configured',
+  },
+};
+
+/** `POST /api/v1/itsm/verify` without a ticket (verbatim 400). */
+export const ITSM_VERIFY_INVALID_TICKET_RESPONSE = {
+  status: 400,
+  body: { details: { field: 'ticket' }, error: "'ticket' is required" },
+};
+
+/** `POST /api/v1/itsm/verify` without the admin token (verbatim 401). */
+export const ITSM_VERIFY_UNAUTHORIZED_RESPONSE = {
+  status: 401,
+  body: {
+    error: 'Admin token required (Authorization: Bearer <token> or X-Admin-Token)',
+  },
+};
+
+/**
+ * `POST /api/v1/auth/ldap` (verbatim 409): the configured check runs BEFORE
+ * any bind, so the pristine rig refuses with its honest gap and no password
+ * ever leaves the request. The same body answers on the token rig - the
+ * endpoint needs no admin credential (login surface, no auth wall).
+ */
+export const LDAP_BIND_UNCONFIGURED_RESPONSE = {
+  status: 409,
+  body: {
+    details: {
+      configured: false,
+      detail: 'not connected - set ldap.server and ldap.user_bind_template',
+      field: 'ldap',
+    },
+    error: 'LDAP is not configured',
+  },
+};
+
+/** `POST /api/v1/auth/ldap` without a password (verbatim 400). */
+export const LDAP_BIND_INVALID_RESPONSE = {
+  status: 400,
+  body: { details: { field: 'password' }, error: "'password' is required" },
+};

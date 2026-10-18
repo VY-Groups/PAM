@@ -3,6 +3,7 @@ import type { UseMutationResult, UseQueryResult } from '@tanstack/react-query';
 
 import {
   deleteApiV1RoleBindingsBindingId,
+  getApiV1AuthEmergency,
   getApiV1AuthSsoStatus,
   getApiV1Cluster,
   getApiV1ClusterBackups,
@@ -12,6 +13,10 @@ import {
   getApiV1Roles,
   getApiV1Settings,
   getApiV1SettingsAudit,
+  postApiV1AuthEmergencyOpen,
+  postApiV1AuthLdap,
+  postApiV1ItsmVerify,
+  postApiV1MfaEnroll,
   postApiV1RoleBindings,
   postApiV1SettingsScimRotate,
   postApiV1SettingsSmtpTest,
@@ -21,8 +26,16 @@ import type {
   ClusterBackupList,
   ClusterOverview,
   DeleteApiV1RoleBindingsBindingId200,
+  GetApiV1AuthEmergency200,
   HsmStatus,
   IntegrationsStatus,
+  ItsmVerifyRequest,
+  ItsmVerifyResponse,
+  LdapLoginRequest,
+  LdapLoginResponse,
+  MfaEnrollResponse,
+  PostApiV1AuthEmergencyOpen201,
+  PostApiV1AuthEmergencyOpenBody,
   PostApiV1RoleBindings201,
   PostApiV1SettingsScimRotate200,
   PostApiV1SettingsSmtpTest200,
@@ -55,7 +68,10 @@ import type { SettingsGroupName } from './settingsSchema';
  * role directory and binding table with the grant/revoke writes. The 11.3
  * slice adds the settings schema+values read, the config changelog and
  * the three writes (group PUT, SMTP test message, SCIM token rotation)
- * on this same `['settings', ...]` root.
+ * on this same `['settings', ...]` root. The 11.4 slice adds the sealed
+ * emergency admin (state read + the dual-approved open request) and the
+ * integrations actions - MFA enrol (legacy parity) plus ITSM verify and
+ * LDAP bind (NEW actions, ADR-0015 amendment 11.4).
  */
 
 /** `GET /api/v1/auth/sso/status` - IdP federation posture. */
@@ -257,5 +273,93 @@ export function useScimRotate(): UseMutationResult<
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: queryKeys.settingsRoot });
     },
+  });
+}
+
+/**
+ * `GET /api/v1/auth/emergency` - the sealed emergency admin's grants and
+ * username (11.4, legacy parity code.html:1311). The pristine rig answers
+ * `grants: []`; a denied grant stays in the history forever (audit), so
+ * consumers derive the state line exactly like the legacy does: open >
+ * pending > sealed.
+ */
+export function useEmergencyStatus(): UseQueryResult<GetApiV1AuthEmergency200> {
+  return useQuery({
+    queryKey: queryKeys.settingsEmergency,
+    queryFn: async () => expectOk(await getApiV1AuthEmergency()).data,
+  });
+}
+
+/**
+ * `POST /api/v1/auth/emergency/open` - request a pending grant awaiting
+ * two distinct approvals (11.4). Reason is 8..255 chars server-side; a
+ * short reason answers the verbatim 400 the card renders. Success
+ * re-reads the emergency view (the new pending state disables the button,
+ * same as the legacy `loadEmergency()` after the POST).
+ */
+export function useEmergencyOpen(): UseMutationResult<
+  PostApiV1AuthEmergencyOpen201,
+  unknown,
+  PostApiV1AuthEmergencyOpenBody
+> {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (body: PostApiV1AuthEmergencyOpenBody) =>
+      expectOk(await postApiV1AuthEmergencyOpen(body)).data,
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: queryKeys.settingsEmergency });
+    },
+  });
+}
+
+/**
+ * `POST /api/v1/mfa/enroll` - mint this operator's TOTP factor; the seed
+ * and `otpauth://` URI exist in exactly this response (11.4, legacy
+ * parity code.html:1702). Success invalidates the settings root the way
+ * the legacy `loadAll()` re-reads everything: the readonly `mfa.factor_*`
+ * fields move with the chip.
+ */
+export function useMfaEnroll(): UseMutationResult<MfaEnrollResponse, unknown, void> {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async () => expectOk(await postApiV1MfaEnroll({})).data,
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: queryKeys.settingsRoot });
+    },
+  });
+}
+
+/**
+ * `POST /api/v1/itsm/verify` - a real REST lookup against the configured
+ * instance (11.4 NEW action; the legacy page has no button for it - ADR
+ * amendment 11.4). The pristine rig refuses with the verbatim 409 before
+ * any HTTP call; that refusal IS the rendered feedback.
+ */
+export function useItsmVerify(): UseMutationResult<
+  ItsmVerifyResponse,
+  unknown,
+  ItsmVerifyRequest
+> {
+  return useMutation({
+    mutationFn: async (request: ItsmVerifyRequest) =>
+      expectOk(await postApiV1ItsmVerify(request)).data,
+  });
+}
+
+/**
+ * `POST /api/v1/auth/ldap` - a real BER BindRequest against the configured
+ * directory (11.4 NEW action; no legacy button - ADR amendment 11.4). The
+ * configured check runs BEFORE any bind, so the pristine rig answers the
+ * verbatim 409 and the password never leaves the request. A 200 can carry
+ * a one-time admin ticket (token mode) - never re-readable.
+ */
+export function useLdapBind(): UseMutationResult<
+  LdapLoginResponse,
+  unknown,
+  LdapLoginRequest
+> {
+  return useMutation({
+    mutationFn: async (request: LdapLoginRequest) =>
+      expectOk(await postApiV1AuthLdap(request)).data,
   });
 }

@@ -126,6 +126,11 @@ export const queryKeys = {
   // the summary line and the tables stay one view of the same registry.
   settingsRoles: ['settings', 'roles'] as const,
   settingsBindings: ['settings', 'bindings'] as const,
+  // 11.4 identity specials: the sealed emergency admin's grant state. It
+  // rides the settings root like the legacy `loadAll` does (a save re-read
+  // refreshes it too) while keeping its own key so the open-request
+  // mutation invalidates exactly this view.
+  settingsEmergency: ['settings', 'emergency'] as const,
   // 11.3 group forms: the schema+values read (15 groups) and the config
   // changelog. A successful group PUT invalidates the settingsRoot
   // (values, posture lines and the changelog all move together).
