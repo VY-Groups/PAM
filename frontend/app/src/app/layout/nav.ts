@@ -85,6 +85,14 @@ export const NAV_ITEMS: NavItem[] = [
     legacyHref: '/screens/vendor_access_third_party_lifecycle/code.html',
   },
   {
+    // ADR-0016 (batch 11.7): F4-native - no legacy screen ever existed for
+    // user administration (CANONICAL_NAV has no users slot), so the item
+    // carries no legacyHref and the /users route ships live with it.
+    path: '/users',
+    labelKey: 'nav.users',
+    icon: 'manage_accounts',
+  },
+  {
     path: '/settings',
     labelKey: 'nav.settings',
     icon: 'tune',
@@ -96,9 +104,9 @@ export const NAV_ITEMS: NavItem[] = [
     // precedent).
   },
   {
-    // ADR-0013: F4-native surface, no legacy screen to strangle - the
-    // only nav item without a legacyHref (the pending fallback skips
-    // it; the route below implements it).
+    // ADR-0013: F4-native surface, no legacy screen to strangle (the
+    // pending fallback skips every legacyHref-less item; the route
+    // implements it).
     path: '/topology',
     labelKey: 'nav.topology',
     icon: 'schema',

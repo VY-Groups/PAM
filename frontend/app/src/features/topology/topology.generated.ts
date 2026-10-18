@@ -422,6 +422,32 @@ export const FRONTEND_ROUTES: FrontendRouteView[] = [
     ],
   },
   {
+    path: '/users',
+    labelKey: 'nav.users',
+    icon: 'manage_accounts',
+    legacyHref: null,
+    danger: false,
+    state: 'live',
+    component: 'UsersPage',
+    feature: 'users',
+    clientFunctions: [
+      'deleteApiV1UsersUserIdSessions',
+      'getApiV1Users',
+      'patchApiV1UsersUserId',
+      'postApiV1Users',
+      'postApiV1UsersUserIdPasswordReset',
+      'postApiV1UsersUserIdUnlock',
+    ],
+    endpoints: [
+      'DELETE /api/v1/users/{user_id}/sessions',
+      'GET /api/v1/users',
+      'PATCH /api/v1/users/{user_id}',
+      'POST /api/v1/users',
+      'POST /api/v1/users/{user_id}/password-reset',
+      'POST /api/v1/users/{user_id}/unlock',
+    ],
+  },
+  {
     path: '/settings',
     labelKey: 'nav.settings',
     icon: 'tune',
@@ -496,8 +522,16 @@ export const FRONTEND_ROUTES: FrontendRouteView[] = [
     state: 'live',
     component: 'LoginPage',
     feature: 'auth',
-    clientFunctions: ['getHealth'],
-    endpoints: ['GET /health'],
+    clientFunctions: [
+      'getHealth',
+      'postApiV1AuthRecoveryReset',
+      'postApiV1AuthRecoveryStart',
+    ],
+    endpoints: [
+      'GET /health',
+      'POST /api/v1/auth/recovery/reset',
+      'POST /api/v1/auth/recovery/start',
+    ],
   },
 ];
 

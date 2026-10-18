@@ -137,4 +137,11 @@ export const queryKeys = {
   settingsRoot: ['settings'] as const,
   settingsGroups: ['settings', 'groups'] as const,
   settingsAudit: ['settings', 'audit'] as const,
+  // Users & Credentials (ADR-0016 batch 11.7): one ['users', ...] root so a
+  // single prefix invalidation refreshes the registry, the KPI tiles and
+  // the derived status chips together - every write (create, patch active,
+  // unlock, password reset, session revoke) moves the same rows. The list
+  // keys on its server-side source filter, mirroring the contract.
+  usersList: (source: string) => ['users', 'list', source] as const,
+  usersRoot: ['users'] as const,
 } as const;

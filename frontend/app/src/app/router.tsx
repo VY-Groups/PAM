@@ -20,6 +20,7 @@ import { LicensingPage } from '../features/licensing/LicensingPage';
 import { TopologyPage } from '../features/topology/TopologyPage';
 import { LoginPage } from '../features/auth/pages/LoginPage';
 import { SettingsPage } from '../features/settings/SettingsPage';
+import { UsersPage } from '../features/users/UsersPage';
 
 /**
  * The ADR-0005 route table under the `/app` basename (ADR-0012). Every
@@ -48,6 +49,9 @@ const F4_LIVE_ROUTES = new Set([
   // ADR-0015 11.5: the Platform Settings flip - the strangle is complete,
   // so /settings is a live route and carries no pending fallback.
   '/settings',
+  // ADR-0016 11.7: Users & Credentials - F4-native (no legacy screen
+  // existed), live with its batch.
+  '/users',
 ]);
 
 export const routes: RouteObject[] = [
@@ -72,6 +76,7 @@ export const routes: RouteObject[] = [
       { path: '/licensing', element: <LicensingPage /> },
       { path: '/topology', element: <TopologyPage /> },
       { path: '/settings', element: <SettingsPage /> },
+      { path: '/users', element: <UsersPage /> },
       // ADR-0013 invariant: a pending fallback needs a legacy URL, so a
       // nav item without one must be implemented above (the type
       // predicate keeps the compiler honest).
