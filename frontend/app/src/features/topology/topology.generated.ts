@@ -425,7 +425,7 @@ export const FRONTEND_ROUTES: FrontendRouteView[] = [
     path: '/settings',
     labelKey: 'nav.settings',
     icon: 'tune',
-    legacyHref: '/screens/platform_settings_idp_hsm_configuration/code.html',
+    legacyHref: '/screens/platform_settings_center/code.html',
     danger: false,
     state: 'pending',
     component: null,

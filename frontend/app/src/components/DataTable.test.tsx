@@ -74,6 +74,20 @@ describe('DataTable', () => {
     expect(screen.queryByText('bastion-01')).not.toBeInTheDocument();
   });
 
+  it('puts bodyDataRole on the tbody (settings cluster tables)', () => {
+    const { container } = render(
+      <DataTable
+        columns={columns}
+        rows={[]}
+        rowKey={(r) => r.id}
+        caption="Sessions"
+        bodyDataRole="cluster-rows"
+        emptyMessage="No sessions reported"
+      />,
+    );
+    expect(container.querySelector('tbody[data-role="cluster-rows"]')).not.toBeNull();
+  });
+
   it('has no axe violations (with rows)', async () => {
     const { container } = render(
       <DataTable columns={columns} rows={rows} rowKey={(r) => r.id} caption="Sessions" />,

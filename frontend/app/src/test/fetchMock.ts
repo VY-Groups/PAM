@@ -195,6 +195,19 @@ import {
 } from './licensingFixtures';
 export * from './licensingFixtures';
 
+// Screen 11 fixtures: verbatim rig captures for the Platform Settings
+// screen (ADR-0015). The sealed-HSM capture and the SSO/HSM read bodies
+// are re-exported; the route helpers below import the read-side
+// defaults. The cluster overview and integrations status are REUSED from
+// the topology/compliance captures - same endpoints, one verbatim
+// capture each (see settingsFixtures.ts header).
+import {
+  CLUSTER_BACKUPS_RESPONSE,
+  HSM_STATUS_RESPONSE,
+  SSO_STATUS_RESPONSE,
+} from './settingsFixtures';
+export * from './settingsFixtures';
+
 /** Build a fetch-shaped Response with the backend's JSON body. */
 export function jsonResponse(status: number, body: unknown): Response {
   return new Response(JSON.stringify(body), {
@@ -1905,6 +1918,48 @@ export function topologyRoutes() {
     healthVerbatimRoute(),
     clusterRoute(),
     integrationsStatusRoute({ status: 200, body: TOPOLOGY_INTEGRATIONS_RESPONSE }),
+  ];
+}
+
+/** GET /api/v1/auth/sso/status - the IdP federation posture (screen 11). */
+export function ssoStatusRoute(capture: CapturedResponse = SSO_STATUS_RESPONSE) {
+  return {
+    match: (url: string) => /\/auth\/sso\/status(\?|$)/.test(url),
+    respond: () => jsonResponse(capture.status, capture.body),
+  };
+}
+
+/** GET /api/v1/hsm/status - the key custody posture (screen 11). */
+export function hsmStatusRoute(capture: CapturedResponse = HSM_STATUS_RESPONSE) {
+  return {
+    match: (url: string) => /\/hsm\/status(\?|$)/.test(url),
+    respond: () => jsonResponse(capture.status, capture.body),
+  };
+}
+
+/** GET /api/v1/cluster/backups - the backup ledger rows (screen 11). */
+export function clusterBackupsRoute(capture: CapturedResponse = CLUSTER_BACKUPS_RESPONSE) {
+  return {
+    match: (url: string) => /\/cluster\/backups(\?|$)/.test(url),
+    respond: () => jsonResponse(capture.status, capture.body),
+  };
+}
+
+/**
+ * The full Platform Settings route set (screen 11, ADR-0015) - the
+ * read-only posture sections 11.1 ships first: SSO status, HSM status,
+ * integrations chips, the cluster overview and its backup ledger. The
+ * /settings schema+values call joins in 11.3 (the 15 group forms).
+ */
+export function settingsRoutes() {
+  return [
+    whoamiRoute(WHOAMI_OPEN_BODY),
+    healthRoute(),
+    ssoStatusRoute(),
+    hsmStatusRoute(),
+    integrationsStatusRoute(),
+    clusterRoute(),
+    clusterBackupsRoute(),
   ];
 }
 

@@ -16,6 +16,12 @@ export interface DataTableProps<T> {
   caption: string;
   /** Rendered when rows is empty - honest state, never sample data. */
   emptyMessage?: ReactNode;
+  /**
+   * Optional stable hook on the tbody (the settings screen's cluster
+   * tables): verification counts real rows under this role, so the hook
+   * must sit on the body element itself.
+   */
+  bodyDataRole?: string;
   className?: string;
 }
 
@@ -30,6 +36,7 @@ export function DataTable<T>({
   rowKey,
   caption,
   emptyMessage,
+  bodyDataRole,
   className = '',
 }: DataTableProps<T>) {
   return (
@@ -48,7 +55,7 @@ export function DataTable<T>({
           ))}
         </tr>
       </thead>
-      <tbody>
+      <tbody data-role={bodyDataRole}>
         {rows.length === 0 ? (
           <tr>
             <td

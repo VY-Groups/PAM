@@ -1676,5 +1676,83 @@
         "s5": "Close the grant"
       }
     }
+  },
+  "settings": {
+    "page": {
+      "title": "Platform Settings",
+      "subtitle": "Single sign-on, key custody, enterprise integrations and the HA/DC/DR cluster posture, read live from the license server."
+    },
+    "on": "on",
+    "off": "off",
+    "never": "never",
+    "sso": {
+      "title": "Single Sign-On & Identity Provider Federation",
+      "subtitle": "Whether logins federate to an identity provider, and the MFA and session posture that federation enforces.",
+      "unreachable": "SSO status unavailable (license server not reachable)",
+      "lineConfigured": "slots live • last login {{lastLogin}} • session ttl {{ttl}}m • jit {{jit}}",
+      "lineNoIdp": "no IdP configured — set a slot provider to enable SAML/OIDC logins",
+      "chipsLabel": "SSO posture",
+      "enforceOn": "enforce sso: on",
+      "enforceOff": "enforce sso: off",
+      "mfaRequired": "mfa at login: required",
+      "mfaOptional": "mfa at login: optional",
+      "sessions": "{{active}}/{{total}} sessions • {{subjects}} subjects",
+      "noIdp": "no idp configured"
+    },
+    "hsm": {
+      "title": "Hardware Security Module (HSM) & KMS Core",
+      "subtitle": "Key custody: which provider opens the vault, whether it is sealed, and what the last provider probe reported.",
+      "unreachable": "HSM status unavailable (license server not reachable)",
+      "lineNoProvider": "no provider configured — advisory file custody",
+      "lineUnsealed": "{{provider}} • rotation {{rotation}} • last probe {{probe}}",
+      "lineSealed": "{{provider}} — sealed: {{reason}} • rotation {{rotation}} • last probe {{probe}}",
+      "chipsLabel": "HSM posture",
+      "sealed": "sealed",
+      "unsealed": "unsealed",
+      "mode": "mode: {{mode}}",
+      "keyInUse": "key in use: {{key}}",
+      "probeReachable": "reachable",
+      "probeNever": "never"
+    },
+    "integrations": {
+      "title": "Enterprise Integrations",
+      "subtitle": "MFA, ITSM, SIEM and LDAP connectors the license server is wired to - configured only when the server says so.",
+      "unreachable": "Integrations status unavailable (license server not reachable)",
+      "chipsLabel": "Integration status",
+      "names": {
+        "itsm": "ITSM",
+        "ldap": "LDAP",
+        "mfa": "MFA",
+        "siem": "SIEM"
+      },
+      "on": "{{name}}: configured",
+      "off": "{{name}}: not configured"
+    },
+    "cluster": {
+      "title": "HA / DC / DR Cluster",
+      "subtitle": "This node, its registered peers and the backup ledger, read from the cluster aggregate.",
+      "unreachable": "Cluster state unavailable (license server not reachable).",
+      "summaryPlural": "peers",
+      "summarySingular": "peer",
+      "summary": "{{name}} ({{site}}) • {{role}} • {{peerWord}} • {{healthy}} healthy • audit {{audit}} • vault {{vault}} • sessions {{sessions}} • backups {{backups}}",
+      "nodesCaption": "Registered cluster nodes",
+      "nodesEmpty": "No nodes registered",
+      "columns": {
+        "backup": "Backup",
+        "auditSeq": "Audit seq",
+        "health": "Health",
+        "name": "Name",
+        "role": "Role",
+        "size": "Size",
+        "site": "Site",
+        "verified": "Verified"
+      },
+      "backupsTitle": "Backup ledger",
+      "backupsCaption": "Cluster backups",
+      "backupsEmpty": "No backups yet",
+      "sizeBytes": "{{bytes}} B",
+      "verifiedYes": "verified",
+      "verifiedNo": "unverified"
+    }
   }
 }

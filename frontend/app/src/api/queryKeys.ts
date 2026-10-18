@@ -110,4 +110,13 @@ export const queryKeys = {
   // Read-only screen - no writes, so no invalidation fan-out.
   topologyCluster: ['topology', 'cluster'] as const,
   topologyIntegrations: ['topology', 'integrations'] as const,
+  // Platform Settings (screen 11, ADR-0015): one ['settings', ...] root so
+  // a single prefix invalidation refreshes the posture sections together -
+  // they are views of the same running node. Read-only in 11.1; the 15
+  // schema group writes join in 11.3 and invalidate this same root.
+  settingsSso: ['settings', 'sso'] as const,
+  settingsHsm: ['settings', 'hsm'] as const,
+  settingsIntegrations: ['settings', 'integrations'] as const,
+  settingsCluster: ['settings', 'cluster'] as const,
+  settingsClusterBackups: ['settings', 'cluster', 'backups'] as const,
 } as const;

@@ -59,9 +59,7 @@ describe('TopologyPage (F4-native, ADR-0013)', () => {
     // The one pending route stays honest: legacy link, F4-pending chip.
     expect(screen.getByText('F4 pending')).toBeDefined();
     const legacy = screen.getByRole('link', { name: 'open the legacy screen' });
-    expect(legacy.getAttribute('href')).toBe(
-      '/screens/platform_settings_idp_hsm_configuration/code.html',
-    );
+    expect(legacy.getAttribute('href')).toBe('/screens/platform_settings_center/code.html');
 
     await expectNoAxeViolations(container);
   });

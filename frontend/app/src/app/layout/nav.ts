@@ -88,7 +88,11 @@ export const NAV_ITEMS: NavItem[] = [
     path: '/settings',
     labelKey: 'nav.settings',
     icon: 'tune',
-    legacyHref: '/screens/platform_settings_idp_hsm_configuration/code.html',
+    // ADR-0015: the strangle target is the page the server actually
+    // serves (`app.py` SETTINGS_SCREEN) and the one the legacy sidebar
+    // links to. The earlier idp_hsm_configuration path was the design
+    // spec screen, an F4 assembly slip.
+    legacyHref: '/screens/platform_settings_center/code.html',
   },
   {
     // ADR-0013: F4-native surface, no legacy screen to strangle - the

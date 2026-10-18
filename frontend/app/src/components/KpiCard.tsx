@@ -10,6 +10,12 @@ export interface KpiCardProps {
   value?: string | number | null;
   /** Footer row (body-sm), e.g. a delta or a timestamp. */
   footer?: ReactNode;
+  /**
+   * Optional stable hook on the value span alone (the settings posture
+   * tiles). Gate/verification selectors read the NUMBER, never the card
+   * root that also carries the label and footer text.
+   */
+  valueDataRole?: string;
   /** 4px accent bar color (brief §2: bg-primary(-container) as-built). */
   accent?: KpiAccent;
   className?: string;
@@ -31,6 +37,7 @@ export function KpiCard({
   label,
   value,
   footer,
+  valueDataRole,
   accent = 'primary',
   className = '',
 }: KpiCardProps) {
@@ -48,7 +55,10 @@ export function KpiCard({
         </span>
       </div>
       <div className="my-space-md flex items-baseline gap-space-sm">
-        <span className="font-headline-xl text-headline-xl text-on-surface">
+        <span
+          data-role={valueDataRole}
+          className="font-headline-xl text-headline-xl text-on-surface"
+        >
           <Value value={value} />
         </span>
       </div>

@@ -263,7 +263,7 @@ flowchart TD
   r11 --> e82
   r11 --> e4
   r12 --> e4
-  r10 -.-> r10l["legacy: /screens/platform_settings_idp_hsm_configuration/code.html"]
+  r10 -.-> r10l["legacy: /screens/platform_settings_center/code.html"]
   classDef pending fill:#fde68a,stroke:#92400e
   class r10 pending
 ```

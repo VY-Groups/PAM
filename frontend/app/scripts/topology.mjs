@@ -44,10 +44,18 @@ function extractNav() {
   const text = read('frontend/app/src/app/layout/nav.ts');
   const items = [];
   // One alternation per object literal, closing brace anchored, so a
-  // `danger` flag can never leak in from the neighbouring item. Leading
-  // comment lines inside the object (documentation) are allowed for.
-  const re =
-    /\{\s*(?:\/\/[^\n]*\n\s*)*path: '([^']+)',\s*labelKey: '([^']+)',\s*icon: '([^']+)',\s*(?:legacyHref: '([^']*)',\s*)?(?:danger: true,\s*)?\}/g;
+  // `danger` flag can never leak in from the neighbouring item. Between
+  // fields the separator is whitespace plus zero or more comment lines
+  // (documentation is allowed anywhere in the item): a note explaining a
+  // field must never silently drop the item, because a missing nav row
+  // would remove a whole route from the generated map - which drifts
+  // rather than fails.
+  const SEP = String.raw`\s*(?:\/\/[^\n]*\n\s*)*`;
+  const re = new RegExp(
+    `\\{${SEP}path: '([^']+)',${SEP}labelKey: '([^']+)',${SEP}icon: '([^']+)',${SEP}` +
+      `(?:legacyHref: '([^']*)',${SEP})?(?:danger: true,${SEP})?\\}`,
+    'g',
+  );
   for (const m of text.matchAll(re)) {
     items.push({
       path: m[1],
