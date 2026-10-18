@@ -1,0 +1,298 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Screen 11 (11.4) — delivery record — 2026-10-18</title>
+<style>
+  :root {
+    --fg: #1a1d21; --muted: #5b6470; --bg: #ffffff; --panel: #f5f7f9;
+    --line: #d8dee5; --ok: #136f3c; --okbg: #e6f4ec; --warn: #8a5a00;
+    --warnbg: #fdf3dd; --bad: #9b2226; --badbg: #fbeaea; --code: #0f172a;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --fg: #e6e9ee; --muted: #9aa4b2; --bg: #14171b; --panel: #1b2026;
+      --line: #313a44; --ok: #6fdc9a; --okbg: #173226; --warn: #ecc06a;
+      --warnbg: #33290f; --bad: #f28b82; --badbg: #3a1d1d; --code: #d7e2f0;
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0 auto; padding: 2.5rem 1.25rem 4rem; max-width: 62rem;
+    font: 16px/1.6 system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    color: var(--fg); background: var(--bg);
+  }
+  h1 { font-size: 1.7rem; line-height: 1.25; margin: 0 0 .35rem; }
+  h2 { font-size: 1.2rem; margin: 2.4rem 0 .6rem; border-bottom: 1px solid var(--line); padding-bottom: .3rem; }
+  p, li { margin: .5rem 0; }
+  .meta { color: var(--muted); font-size: .92rem; margin-bottom: 1.6rem; }
+  code, pre, .mono { font-family: ui-monospace, SFMono-Regular, Consolas, "Liberation Mono", Menlo, monospace; }
+  code { color: var(--code); background: var(--panel); padding: .08rem .3rem; border-radius: 4px; font-size: .88em; }
+  pre.mermaid {
+    background: var(--panel); border: 1px solid var(--line); border-radius: 8px;
+    padding: 1rem; overflow-x: auto; margin: .8rem 0;
+  }
+  table { border-collapse: collapse; width: 100%; margin: .8rem 0; font-size: .93rem; }
+  th, td { border: 1px solid var(--line); padding: .45rem .6rem; text-align: left; vertical-align: top; }
+  th { background: var(--panel); }
+  .badge { display: inline-block; font-weight: 600; border-radius: 6px; padding: 0 .45rem; white-space: nowrap; }
+  .ok  { color: var(--ok);  background: var(--okbg); }
+  .warn{ color: var(--warn);background: var(--warnbg); }
+  .bad { color: var(--bad); background: var(--badbg); }
+  .note { background: var(--panel); border-left: 3px solid var(--line); padding: .6rem .9rem; border-radius: 0 6px 6px 0; }
+  .foot { margin-top: 3rem; color: var(--muted); font-size: .85rem; border-top: 1px solid var(--line); padding-top: .8rem; }
+</style>
+</head>
+<body>
+
+<h1>Screen 11 (11.4) — delivery record</h1>
+<p class="meta">
+  Break-glass emergency card + connector notes + MFA / ITSM / LDAP actions —
+  ADR-0015 strangler slice, verified 2026-10-18 against the live rigs
+  (<code>localhost:5100</code> open mode, <code>localhost:5101</code> token mode).
+  Code commit <code>b2b5a2b</code>, ledger commit <code>5143e1e</code>.
+  The diagram below renders live in your browser through Mermaid 11
+  (same parser the repo's standing <code>validate_mermaid.mjs</code> runs).
+</p>
+
+<h2>1. Delivery status</h2>
+<table>
+  <tr><th>Check</th><th>State</th><th>Evidence</th></tr>
+  <tr>
+    <td>Gate mode 5100</td>
+    <td><span class="badge ok">✅ ALL CHECKS PASSED</span></td>
+    <td>83 PASS / 0 FAIL, exit 0 (the 7 fewer than 5101 = the RBAC flow is honestly
+      waived in open mode). The pre-fix run this session had 89 PASS + 1 FAIL —
+      see §7.</td>
+  </tr>
+  <tr>
+    <td>Gate mode 5101</td>
+    <td><span class="badge ok">✅ ALL CHECKS PASSED</span></td>
+    <td>90 PASS / 0 FAIL, exit 0 — first run of this session, includes the RBAC
+      flow (bound role, denial verbatim, ABAC scope refusal, revoked-token 401).</td>
+  </tr>
+  <tr>
+    <td>gitleaks</td>
+    <td><span class="badge ok">✅ clean</span></td>
+    <td>v8.24.2 via docker <code>protect --staged --config /repo/.gitleaks.toml</code>,
+      “no leaks found”, exit 0 — run on both staged diffs (code commit + ledger).</td>
+  </tr>
+  <tr>
+    <td>Commit + push + CI 6/6</td>
+    <td><span class="badge ok">✅ done</span></td>
+    <td><code>b2b5a2b</code> “Screen 11 (11.4): …” → CI run 39134126518, 6/6 success;
+      ledger <code>5143e1e</code> → CI run 39135094196, 6/6 success.</td>
+  </tr>
+  <tr>
+    <td>MASTER ledger row</td>
+    <td><span class="badge ok">✅ appended</span></td>
+    <td><code>docs(ledger): screen 11.4 row</code> (<code>5143e1e</code>), single
+      row appended after the 11.3 row, table stays contiguous.</td>
+  </tr>
+</table>
+
+<h2>2. Scope and contract</h2>
+<p>
+  ADR-0015 (<code>docs/frontend/ADR-0015-settings-strangler.md</code>, amended in
+  this commit) targets <code>platform_settings_center</code> — the page
+  <code>app.py</code> actually serves for <code>/settings</code>. The flip is
+  phase <strong>11.5 and last</strong>, so <code>no-legacyHref ⇒ implemented
+  route</code> holds at every commit: through 11.4 the React sections live on the
+  target page while <code>/settings</code> keeps serving the legacy page.
+  Interim verification is vitest + axe in jsdom (user-approved contract), with the
+  gate's settings checks re-pointed to React <code>data-role</code> hooks at 11.5.
+</p>
+
+<h2>3. What shipped (<code>b2b5a2b</code>, 17 files, +1864/−36)</h2>
+<table>
+  <tr><th>File</th><th>Role</th></tr>
+  <tr><td><code>features/settings/EmergencyCard.tsx</code></td><td>Break-glass card — the legacy emergency state machine (new)</td></tr>
+  <tr><td><code>features/settings/ConnectorNote.tsx</code></td><td>Per-card connector note — error-wins precedence (new)</td></tr>
+  <tr><td><code>features/settings/settingsLive.ts</code></td><td>Cluster + RBAC posture exports for the page (new)</td></tr>
+  <tr><td><code>features/settings/SettingsGroupActions.tsx</code></td><td>ITSM verify + LDAP bind actions, shared <code>FeedbackLine</code> exported (modified)</td></tr>
+  <tr><td><code>features/settings/IntegrationsSection.tsx</code></td><td>MFA enrol header action + one-time secret box (modified)</td></tr>
+  <tr><td><code>features/settings/SettingsPage.tsx</code></td><td>Notes + footers on the four connector cards, <code>useSettingsLiveExport()</code> (modified)</td></tr>
+  <tr><td><code>features/settings/SettingsGroupCard.tsx</code></td><td><code>note</code> prop for the connector notes (modified)</td></tr>
+  <tr><td><code>features/settings/IdentitySettingsSection.tsx</code></td><td>Renders <code>EmergencyCard</code> after the grid (modified)</td></tr>
+  <tr><td><code>features/settings/queries.ts</code> / <code>api/queryKeys.ts</code></td><td>Five hooks + the <code>settingsEmergency</code> key (modified)</td></tr>
+  <tr><td><code>i18n/en.json</code></td><td>All copy as keys — <code>settings.emergency.*</code>, <code>settings.forms.notes.*</code>, actions/integrations keys (ADR-0010)</td></tr>
+  <tr><td><code>test/settingsFixtures.ts</code> / <code>test/fetchMock.ts</code></td><td>Verbatim 11.4 captures + five route helpers (modified)</td></tr>
+  <tr><td><code>SettingsEmergency.test.tsx</code> (11), <code>SettingsIntegrationsActions.test.tsx</code> (13), <code>SettingsLive.test.tsx</code> (7)</td><td>31 new cases, gate regexes transcribed verbatim, axe on every rendered state (new)</td></tr>
+  <tr><td><code>docs/frontend/ADR-0015-settings-strangler.md</code></td><td>Inventory amended: four connector notes + two new actions (modified)</td></tr>
+</table>
+
+<h2>4. Behaviour contracts (as proven by tests)</h2>
+<ul>
+  <li><strong>Emergency state machine — verbatim.</strong> Sealed
+    (<code>sealed - emergency-admin grants nothing</code> /
+    <code>…awaits two approvals</code>) or <code>window OPEN - …</code>; the grants
+    line renders em-dash in flight, <code>N grant(s) on record</code>,
+    <code>no grants on record</code>; the open button is disabled exactly when
+    <code>!data || pending &gt; 0 || open &gt; 0</code>.</li>
+  <li><strong>Prompt parity.</strong> <code>window.prompt</code> asks for the reason
+    with the verbatim fallback line; a null cancel makes no request; a transport
+    failure of the open attempt renders the legacy
+    <code>request refused: &lt;error.message&gt;</code> (message passthrough).</li>
+  <li><strong>Refusal keyed to the snapshot.</strong> The refusal is stored against
+    a <code>snapshot</code> field (no <code>useEffect</code> — satisfies
+    <code>react-hooks/set-state-in-effect</code>); it clears on onSuccess
+    invalidation or any fresh read.</li>
+  <li><strong>ConnectorNote precedence.</strong> Error wins over every branch
+    (matches the 11.1 chips); the connected branches are contract-driven and
+    deliberately unasserted — a pristine rig never reports them (documented like
+    the SMTP 200 arm).</li>
+  <li><strong>settingsLive.</strong> Cluster state
+    <code>{reachable:true, role, …overview}</code>, skeleton
+    <code>{reachable:false, role:'unknown'}</code>; RBAC <code>{reachable,
+    roles, bindings}</code>; load awaits <code>invalidateQueries</code>; both
+    deleted on unmount. <code>EmergencyCard</code> carries
+    <code>data-role="emergency-state|emergency-grants|emergency-open"</code> +
+    testids so the 11.5 gate re-point reads React instead of the legacy page.</li>
+  <li><strong>Actions.</strong> Strict 11.3 precedent — <code>error.message</code>
+    verbatim; BackendDown renders the shared
+    <code>settings.forms.actions.unreachable</code>; the LDAP bind password is
+    never echoed, cleared on success, and the one-time ticket box only enters the
+    DOM after a real success.</li>
+  <li><strong>MFA enrol.</strong> The secret box enters the DOM only after a real
+    201 (fixture secret is the redacted stand-in, house rule) and a failed
+    re-enrol keeps the minted factor.</li>
+</ul>
+
+<h2>5. Data flow</h2>
+<pre class="mermaid">
+flowchart TD
+    subgraph page["platform_settings_center - React strangler target (legacy still served until 11.5)"]
+        SP["SettingsPage"]
+        EC["EmergencyCard - data-role emergency-state / emergency-grants / emergency-open"]
+        CN["ConnectorNote - error wins over connected branches"]
+        IA["IntegrationsSection - MFA enrol header action + one-time secret box"]
+        GA["SettingsGroupActions - settings-itsm-verify + settings-ldap-bind"]
+        LS["settingsLive - cluster and rbac posture exports"]
+    end
+    subgraph api["Live rig API v1"]
+        EMG["GET /auth/emergency - POST break-glass open (window.prompt reason)"]
+        INS["GET /integrations/status"]
+        ACT["POST itsm verify - ldap bind - mfa enrol"]
+        PST["cluster and rbac posture reads"]
+    end
+    SP --> EC
+    SP --> CN
+    SP --> IA
+    SP --> GA
+    SP --> LS
+    EC --> EMG
+    CN --> INS
+    IA --> ACT
+    GA --> ACT
+    LS --> PST
+</pre>
+
+<h2>6. Verification record</h2>
+<table>
+  <tr><th>Layer</th><th>Result</th></tr>
+  <tr><td>ESLint / tsc / build / prettier</td><td><span class="badge ok">✅</span> all clean</td></tr>
+  <tr><td>Vitest (full suite)</td><td><span class="badge ok">✅</span> 44 files / 394 tests — including the 31 new 11.4 cases and axe on every rendered state; ran before the rig-side fix with no code change between battery and commit</td></tr>
+  <tr><td>Standing gate <code>__verify_agent.mjs</code></td><td><span class="badge ok">✅</span> 5100: 83 PASS / 0 FAIL — 5101: 90 PASS / 0 FAIL, both <code>ALL CHECKS PASSED</code>, exit 0</td></tr>
+  <tr><td>gitleaks v8.24.2 (staged)</td><td><span class="badge ok">✅</span> “no leaks found”, exit 0, both staged diffs</td></tr>
+  <tr><td>CI (GitHub Actions)</td><td><span class="badge ok">✅</span> 6/6 on <code>b2b5a2b</code> (39134126518) and 6/6 on <code>5143e1e</code> (39135094196)</td></tr>
+</table>
+
+<h2>7. The capture-drift saga (honest record)</h2>
+<ol>
+  <li><strong>11:08 UTC — the drift.</strong> The 11.4 capture cycle called
+    <code>POST /mfa/enroll</code> on rig5100 to capture the real 201 shape. That
+    endpoint generates a genuine TOTP factor and writes it into the settings
+    <code>mfa</code> group's <em>readonly</em> fields
+    (<code>factor_enrolled_for=admin</code>, <code>factor_secret=&lt;set&gt;</code>,
+    <code>factor_created_at=…</code> — changelog actor <code>admin</code>).</li>
+  <li><strong>13:19 UTC — the gate fails (1 check).</strong> 89 PASS, 1 FAIL: the
+    Hub 8a flow's <code>POST /sessions</code> step returns 403
+    <code>TOTP code required - a factor is enrolled</code>. The session-start risk
+    gate calls <code>_mfa_band_gate → mfa_status()</code>, which reads exactly that
+    settings row. This <strong>supersedes</strong> the earlier claim “no gate check
+    touches the factor”: settings-screen checks don't, but the Hub 8a session
+    gate does.</li>
+  <li><strong>Planned remedy — and why it was wrong.</strong> The standing plan was
+    <code>DELETE /api/v1/auth/mfa/factors/&lt;id&gt;</code>. Reading the contracts
+    first (routes.py:3327, mfa.py:219, identity.py) showed the mismatch:
+    that route deletes from the <em>identity</em> <code>mfa_factors</code> table,
+    which is <strong>empty</strong> — <code>POST /mfa/enroll</code> (the
+    legacy-facing enrol the page captures) writes only the settings row. The
+    identity table was always empty: <code>POST /auth/login</code> as admin
+    succeeded with no MFA challenge; only the risk band at session start refused.</li>
+  <li><strong>Diagnosis (no guesses).</strong> <code>SETTINGS_SCHEMA['mfa']</code>
+    marks all <code>factor_*</code> fields <code>readonly: True</code> —
+    <code>PUT /settings/mfa</code> rejects them; no disarm/reset route exists
+    anywhere in the API; <code>GET /settings/mfa</code> 404s (the served shape is
+    <code>{schema, settings}</code> via <code>GET /settings</code> — an early
+    PowerShell read of <code>$null</code> printed as empty and was caught by
+    re-reading the raw JSON); the sqlite probe confirmed the empty identity table.</li>
+  <li><strong>Fix — the app's own routine, not raw SQL.</strong>
+    <code>Temp/vypam-rig/disarm_mfa_114.py</code> runs inside the container and
+    calls <code>_persist_settings('mfa', …)</code> — the exact routine
+    <code>mfa_enroll</code> itself writes through, whose docstring states the MFA
+    endpoints “keep the same changelog discipline”. One
+    <code>SettingsEvent</code> records the clearing (actor
+    <code>rig-maintenance</code>, 13:54:51, old→new honest) and the audit trail
+    itself is never touched. Verified after: <code>settings.mfa</code> reads all
+    empty on 5100; rig5101 was already pristine (<code>stored=False</code>).</li>
+  <li><strong>Side upkeep, documented.</strong> The cleanup script rotated both
+    rigs' console-admin passwords through the API's own path
+    (password-reset → forced-change → login → logout); the gate authenticates via
+    <code>X-Admin-Token</code>, not the password, and both post-fix gate runs prove
+    nothing else depended on it. The gate's earlier 401 on
+    <code>auth/mfa/factors</code> (“Console session required”) is why the honest
+    API sequence establishes a session first — <code>_stepup_if_human</code>
+    passes machine/token sessions (routes.py:2866).</li>
+  <li><strong>Proof.</strong> Re-ran the gate in both modes: 5100 83/0, 5101 90/0,
+    <code>ALL CHECKS PASSED</code> ×2 — the Hub 8a session step now through.</li>
+</ol>
+
+<h2>8. Rig state / handoff notes</h2>
+<ul>
+  <li>rig5100: TOTP factor disarmed (settings row cleared via
+    <code>_persist_settings</code>, changelog entry <code>rig-maintenance</code>),
+    the 1 denied emergency grant kept (gate-legal — the gate expects
+    <code>1 grant(s) on record</code>), admin password rotated.</li>
+  <li>rig5101: pristine — no factor was ever enrolled there
+    (<code>settings.mfa.stored=False</code>), admin password rotated.</li>
+  <li>Nothing in <code>Temp/</code> enters the repo: the rotation passwords live
+    only in <code>Temp/opencode/cleanup_mfa_114.mjs</code>; the captured TOTP seed
+    was never committed (fixture shows <code>&lt;redacted-shown-once&gt;</code>).</li>
+</ul>
+
+<h2>9. Next — 11.5 (the flip)</h2>
+<ol>
+  <li>Flip the <code>/settings</code> route to the React page; remove
+    <code>legacyHref</code>.</li>
+  <li>Re-point the gate's settings checks to the React
+    <code>data-role</code> / testid hooks (EmergencyCard already carries them).</li>
+  <li>Widen the gate's pending-branch regex to
+    <code>sealed - grant \S+ awaits two approvals</code> (unreachable on pristine
+    rigs until then — noted in the test comment).</li>
+  <li>Full battery + gate both modes + gitleaks + CI 6/6 + ledger row — final batch
+    of screen 11.</li>
+</ol>
+
+<p class="foot">
+  Generated 2026-10-18. Self-contained file — the diagram above is parsed live by
+  Mermaid 11 (CDN, same version the repo's standing validator pins). Left
+  untracked per the repo's explicit-path staging rule for HTML artifacts (like
+  <code>docs/architecture/VY-PAM Architecture Explorer2.html</code>); say the word
+  to have it committed as its own docs commit.
+</p>
+
+<script src="https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.min.js"></script>
+<script>
+  if (window.mermaid) {
+    window.mermaid.initialize({ startOnLoad: true, theme: 'neutral' });
+  } else {
+    document.querySelectorAll('pre.mermaid').forEach(function (el) {
+      el.classList.remove('mermaid');
+      el.style.whiteSpace = 'pre-wrap';
+    });
+  }
+</script>
+</body>
+</html>
