@@ -104,10 +104,13 @@ describe('Platform Settings (screen 11, ADR-0015) - 11.1 posture shell', () => {
     renderWithProviders(<SettingsPage />);
 
     const summary = await screen.findByTestId('settings-cluster-summary');
-    // Verbatim from the standing gate (shots_tool/__verify_agent.mjs):
+    // Verbatim from the standing gate (shots_tool/__verify_agent.mjs:373) -
+    // the separator there is U+00B7 (MIDDLE DOT), byte-checked at the 11.5
+    // flip: an earlier transcription used U+2022 and the catalogue drifted
+    // with it.
     await waitFor(() =>
       expect(summary.textContent).toMatch(
-        /^\S+ \((dc|dr)\) \u2022 (active|passive) \u2022 \d+ peers? \u2022 \d+ healthy \u2022 audit \d+ \u2022 vault \d+ \u2022 sessions \d+ \u2022 backups \d+$/,
+        /^\S+ \((dc|dr)\) · (active|passive) · \d+ peers? · \d+ healthy · audit \d+ · vault \d+ · sessions \d+ · backups \d+$/,
       ),
     );
   });

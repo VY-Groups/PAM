@@ -33,10 +33,10 @@ import type { SettingsBanner } from './settingsFormContext';
  * (legacy state machine ported verbatim), the live connector note lines,
  * the legacy MFA enroll action and the ITSM/LDAP NEW actions - plus the
  * legacy-shaped `window.settingsLive` export the standing gate reads.
- * The route stays `pending` (nav keeps its legacyHref) until the 11.5
- * flip, so nothing here claims to be served yet - the interim
- * verification is Vitest + axe against the verbatim rig captures, and
- * e2e joins at the flip per ADR-0015.
+ * 11.5 flipped it (ADR-0015): this page IS the served Platform Settings
+ * screen - the router mounts it at /settings, the server redirects the
+ * old URL here and the legacy `platform_settings_center/code.html` is
+ * deleted; the standing gate reads this page (e2e from the flip on).
  *
  * Section order IS the legacy page's document order (code.html: SSO,
  * HSM, ZSP, WORM, integrations + its four connector cards, identity,

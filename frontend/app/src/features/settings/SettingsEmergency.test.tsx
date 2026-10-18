@@ -24,9 +24,12 @@ import { SettingsPage } from './SettingsPage';
  * transcribed - they are the 11.5 re-point contract for the React card.
  */
 
-// Transcribed from shots_tool/__verify_agent.mjs:609-612 (the gate contract).
+// Transcribed from shots_tool/__verify_agent.mjs (the gate contract, 11.5
+// re-pointed at this page): the sealed-pending arm was widened at the flip
+// to `sealed - grant <id> awaits two approvals` - the legacy text with the
+// grant id the React card renders verbatim.
 const GATE_STATE =
-  /^(sealed - emergency-admin (grants nothing|awaits two approvals)|window OPEN - emergency-admin)/;
+  /^(sealed - grant \S+ awaits two approvals|sealed - emergency-admin (grants nothing|awaits two approvals)|window OPEN - emergency-admin)/;
 const GATE_GRANTS = /^(no grants on record|\d+ grant\(s\) on record)$/;
 
 const OPEN_BUTTON = 'Request Open Grant';
@@ -86,10 +89,10 @@ describe('sealed emergency card (screen 11, ADR-0015 11.4)', () => {
     const state = await settledState({ emergency: EMERGENCY_GRANTS_PENDING_RESPONSE });
 
     // Legacy parity text carries the grant id (code.html:1325) - richer
-    // than the gate's first branch `sealed - emergency-admin awaits two
+    // than the old gate branch `sealed - emergency-admin awaits two
     // approvals`, which the pristine rigs can never produce (a pending
     // grant only exists after a live request). The 11.5 gate re-point
-    // widens this branch to the legacy text; the page keeps it verbatim.
+    // widened that branch to this legacy text; the page keeps it verbatim.
     await waitFor(() =>
       expect(state.textContent).toBe('sealed - grant 1 awaits two approvals'),
     );

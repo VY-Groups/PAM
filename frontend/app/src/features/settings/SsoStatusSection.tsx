@@ -60,19 +60,19 @@ export function SsoStatusSection({ children }: { children?: ReactNode }) {
         className="flex flex-wrap items-center gap-space-sm"
         role="group"
       >
-        <Chip className="gap-1.5">
+        <Chip className="gap-1.5" dataRole="chip-sso-enforce">
           <StatusDot state={data ? (data.enforce_sso ? 'ok' : 'muted') : 'muted'} />
           {data
             ? t(data.enforce_sso ? 'settings.sso.enforceOn' : 'settings.sso.enforceOff')
             : ''}
         </Chip>
-        <Chip className="gap-1.5">
+        <Chip className="gap-1.5" dataRole="chip-sso-mfa">
           <StatusDot state={data ? (data.require_mfa ? 'ok' : 'muted') : 'muted'} />
           {data
             ? t(data.require_mfa ? 'settings.sso.mfaRequired' : 'settings.sso.mfaOptional')
             : ''}
         </Chip>
-        <Chip className="gap-1.5">
+        <Chip className="gap-1.5" dataRole="chip-sso-sessions">
           <StatusDot state={data ? (data.configured ? 'ok' : 'muted') : 'muted'} />
           {data
             ? data.configured

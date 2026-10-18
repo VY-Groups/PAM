@@ -198,6 +198,12 @@ jobs:
       - name: Install the gate's browser tooling (playwright-core)
         working-directory: shots_tool
         run: npm ci
+      - name: Build the React console (ADR-0012: the rig serves frontend/app/dist under /app/)
+        working-directory: frontend/app
+        run: |
+          npm install -g pnpm@12.11.2 && pnpm --version
+          pnpm install --frozen-lockfile
+          pnpm build
       - name: "Open-mode rig: boot, seed, standing gate, live-screen verify"
         shell: pwsh
         run: |

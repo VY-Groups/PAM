@@ -15,6 +15,7 @@ REPO_ROOT = SERVER_DIR.parent.parent
 if str(SERVER_DIR) not in sys.path:
     sys.path.insert(0, str(SERVER_DIR))
 
+import app as app_module  # noqa: E402
 from app import create_app  # noqa: E402
 from config import Config  # noqa: E402
 
@@ -34,10 +35,14 @@ CANONICAL_NAV = [
     ("license-entitlement-center", "license_entitlement_center"),
     ("break-glass-emergency-protocol", "break_glass_emergency_protocol"),
     ("vendor-access-third-party-lifecycle", "vendor_access_third_party_lifecycle"),
+    # The settings slot stays in every sidebar (CANONICAL_NAV truth) but its
+    # href is the server route /settings since the 11.5 flip (ADR-0015): the
+    # legacy page it pointed at is deleted.
     ("platform-settings-center", "platform_settings_center"),
 ]
 # Which sidebar item marks "you are here" on each screen (the two spec screens
-# point at themselves instead of the live screen they spec'd).
+# point at themselves instead of the live screen they spec'd). The deleted
+# platform_settings_center page (11.5 flip) is not a WIRED_SCREEN anymore.
 OWN_INDEX = {
     "pam_command_center_threat_dashboard": 0,
     "credential_vault_secrets_inventory": 1,
@@ -49,7 +54,6 @@ OWN_INDEX = {
     "license_entitlement_center": 7,
     "break_glass_emergency_protocol": 8,
     "vendor_access_third_party_lifecycle": 9,
-    "platform_settings_center": 10,
     "enterprise_licensing_tier_entitlements_node_quotas": 7,
     "platform_settings_idp_hsm_configuration": 10,
 }
@@ -157,15 +161,14 @@ def test_settings_returns_spec_defaults_and_schema(client):
 
 
 def test_settings_screen_served_at_settings(client):
+    """ADR-0015 11.5 (the strangler flip): the legacy URL keeps working -
+    it 302s to the React screen Flask now serves under /app/. The screen
+    itself is not asserted here on purpose: the serving contract (shell +
+    SPA fallback + honest JSON 404 without a build) is pinned by the
+    /app/ tests below, which do not depend on `pnpm build` having run."""
     response = client.get("/settings")
-    assert response.status_code == 200
-    assert response.content_type.startswith("text/html")
-    html = response.get_data(as_text=True)
-    assert 'data-settings-group="sso"' in html
-    assert 'data-settings-group="hsm"' in html
-    assert 'data-settings-group="worm"' in html
-    assert 'id="btn-save-settings"' in html
-    assert "Settings Stored Successfully" in html
+    assert response.status_code == 302
+    assert response.headers["Location"] == "/app/settings"
 
 
 # ---------------------------------------------------------------------------
@@ -356,7 +359,12 @@ def test_every_screen_has_the_canonical_nav():
         hrefs = re.findall(r'data-path="[^"]+"[^>]*href="([^"]+)"', nav)
         own = OWN_INDEX[folder]
         expected = [
-            f"../{folder}/code.html" if index == own else f"../{target}/code.html"
+            # 11.5 flip (ADR-0015): the settings slot links the server route
+            # /settings (which redirects to the React page) on every screen
+            # except a spec screen whose own slot IS the settings slot.
+            "/settings" if index == 10 and index != own
+            else f"../{folder}/code.html" if index == own
+            else f"../{target}/code.html"
             for index, (_, target) in enumerate(CANONICAL_NAV)
         ]
         assert hrefs == expected, folder
@@ -364,8 +372,12 @@ def test_every_screen_has_the_canonical_nav():
         active = re.findall(r'<a[^>]*aria-current="page"[^>]*data-path="([^"]+)"', nav)
         assert active == [CANONICAL_NAV[own][0]], folder
 
-        # every target the sidebar names must exist on disk
+        # every target the sidebar names must exist on disk - server routes
+        # (absolute hrefs like /settings) are asserted through the app in
+        # test_server_serves_the_suite instead
         for href in hrefs:
+            if href.startswith("/"):
+                continue
             assert (SCREENS_DIR / folder / href).resolve().is_file(), f"{folder} -> {href}"
 
 
@@ -376,35 +388,6 @@ def test_no_screen_has_dead_sidebar_links():
         assert not dead, f"{folder} still has {len(dead)} dead sidebar links"
 
 
-def test_settings_screen_carries_the_rbac_section():
-    """The RBAC / ABAC section (architecture section 10) ships on Platform
-    Settings: the role registry, the grant form with every built-in role,
-    the one-time token box and the bindings table."""
-    html = (SCREENS_DIR / "platform_settings_center" / "code.html").read_text(
-        encoding="utf-8"
-    )
-    assert 'data-role="rbac-section"' in html
-    for marker in (
-        'data-role="rbac-role-rows"',
-        'data-role="rbac-binding-rows"',
-        'data-role="rbac-token-once"',
-        'data-role="btn-rbac-create"',
-        'id="rbac-token-value"',
-    ):
-        assert marker in html, marker
-    # the grant form offers exactly the built-in roles
-    select_block = html.split('data-role="rbac-input-role"')[1].split("</select>")[0]
-    roles = re.findall(r'<option value="([^"]+)">', select_block)
-    assert sorted(roles) == sorted(
-        ["admin", "approver", "operator", "auditor", "auditor-read-only"]
-    )
-    assert "vypam-rbac1" in html
-    assert "/api/v1/auth/whoami" in html
-    # the screen loads the live state and exposes it to the standing gate
-    assert "await loadRbac()" in html
-    assert "rbac: { load: loadRbac, state: rbacLive }" in html
-
-
 def test_launcher_links_every_screen():
     index = UI_ROOT / "index.html"
     assert index.is_file(), "frontend launcher index.html missing"
@@ -412,6 +395,10 @@ def test_launcher_links_every_screen():
     for folder in WIRED_SCREENS:
         assert f"screens/{folder}/code.html" in html, folder
         assert f"screens/{folder}/screen.png" in html, folder
+    # 11.5 flip (ADR-0015): the launcher's settings card points at the
+    # server route that now serves the React page, not the deleted file.
+    assert 'data-kind="live" href="/settings"' in html
+    assert "screens/platform_settings_center/code.html" not in html
 
 
 # ---------------------------------------------------------------------------
@@ -424,9 +411,49 @@ def test_server_serves_the_suite(client):
         assert response.status_code == 200, folder
         assert response.content_type.startswith("text/html"), folder
 
-    # the live screens keep their own routes
-    for path in ("/", "/license", "/settings"):
+    # the live screens keep their own routes; /settings is the 11.5 flip:
+    # the old URL lands on the React page under /app/
+    for path in ("/", "/license"):
         assert client.get(path).status_code == 200, path
+    settings = client.get("/settings")
+    assert settings.status_code == 302
+    assert settings.headers["Location"] == "/app/settings"
+
+
+# ---------------------------------------------------------------------------
+# the built React console under /app/ (ADR-0012 serving contract)
+# ---------------------------------------------------------------------------
+def test_settings_redirect_without_a_build_is_honest(client, tmp_path, monkeypatch):
+    """The redirect never depends on the bundle: /settings always answers
+    302, and /app/ without a build is an honest JSON 404 - never a stub."""
+    assert client.get("/settings").status_code == 302
+    monkeypatch.setattr(app_module, "CONSOLE_DIST", tmp_path / "no-dist")
+    missing = client.get("/app/")
+    assert missing.status_code == 404
+    assert "console build not found" in missing.get_json()["error"]
+
+
+def test_console_serves_shell_assets_and_spa_fallback(client, tmp_path, monkeypatch):
+    """ADR-0012: Flask serves frontend/app/dist under /app/ - the shell at
+    /app/, real files as-is, and the shell as the SPA fallback so client
+    routes deep-link (basename /app, ADR-0005)."""
+    dist = tmp_path / "dist"
+    (dist / "assets").mkdir(parents=True)
+    (dist / "index.html").write_text("<div id=\"root\">console</div>", encoding="utf-8")
+    (dist / "assets" / "app.js").write_text("console.log('ok')", encoding="utf-8")
+    monkeypatch.setattr(app_module, "CONSOLE_DIST", dist)
+
+    for path in ("/app", "/app/", "/app/settings", "/app/vault/deep"):
+        response = client.get(path)
+        assert response.status_code == 200, path
+        assert b"console" in response.data, path
+
+    asset = client.get("/app/assets/app.js")
+    assert asset.status_code == 200
+    assert asset.content_type.startswith(("text/javascript", "application/javascript"))
+
+    # the traversal attempt is refused, not served
+    assert client.get("/app/../../etc/passwd").status_code in (308, 404)
 
 
 def test_server_serves_previews_and_design_doc(client):

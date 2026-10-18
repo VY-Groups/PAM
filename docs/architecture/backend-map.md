@@ -29,7 +29,7 @@ flowchart TD
   b0_12["pam_master/routes.py - 208 lines"]
   end
   subgraph p1["phase2_license_server (backend/phase2_license_server)"]
-  b1_0["app.py - 272 lines"]
+  b1_0["app.py - 303 lines"]
   b1_1["audit.py - 1088 lines"]
   b1_2["cluster_monitor.py - 73 lines"]
   b1_3["config.py - 136 lines"]

@@ -203,6 +203,7 @@ export * from './licensingFixtures';
 // capture each (see settingsFixtures.ts header).
 import {
   CLUSTER_BACKUPS_RESPONSE,
+  CLUSTER_FAILOVER_DEMOTE_RESPONSE,
   EMERGENCY_GRANTS_EMPTY_RESPONSE,
   EMERGENCY_OPEN_REQUESTED_RESPONSE,
   HSM_STATUS_RESPONSE,
@@ -1959,6 +1960,25 @@ export function clusterBackupsRoute(capture: CapturedResponse = CLUSTER_BACKUPS_
   };
 }
 
+/**
+ * POST /api/v1/cluster/failover - the real role flip (screen 11.5). The
+ * method picks the answer (house pattern): a POST answers the captured
+ * flip, anything else gets an honest 405 (there is no read endpoint).
+ */
+export function clusterFailoverRoute(
+  capture: CapturedResponse = CLUSTER_FAILOVER_DEMOTE_RESPONSE,
+) {
+  return {
+    match: (url: string) => /\/api\/v1\/cluster\/failover(\?|$)/.test(url),
+    respond: (init?: RequestInit) => {
+      if ((init?.method ?? 'GET') !== 'POST') {
+        return jsonResponse(405, { error: 'Method not allowed' });
+      }
+      return jsonResponse(capture.status, capture.body);
+    },
+  };
+}
+
 /** GET /api/v1/roles - the seeded role directory (screen 11). */
 export function rolesRoute(capture: CapturedResponse = ROLES_RESPONSE) {
   return {
@@ -2127,6 +2147,7 @@ export function settingsRoutes(overrides?: {
     integrationsStatusRoute(),
     clusterRoute(),
     clusterBackupsRoute(),
+    clusterFailoverRoute(),
     rolesRoute(),
     roleBindingsRoute(),
     settingsSchemaRoute(overrides?.schema),

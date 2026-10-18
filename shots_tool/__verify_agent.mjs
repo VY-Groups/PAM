@@ -339,7 +339,9 @@ ps.on('console', (m) => {
 ps.on('response', (r) => {
   if (r.status() >= 400 && !/favicon/.test(r.url())) psBad.push(r.status() + ' ' + r.url());
 });
-await ps.goto(BASE + '/screens/platform_settings_center/code.html', { waitUntil: 'load' });
+// ADR-0015 11.5: the settings checks read the REACT page - Flask serves
+// the built console under /app/ (ADR-0012) and /settings redirects there.
+await ps.goto(BASE + '/app/settings', { waitUntil: 'load' });
 await new Promise((r) => setTimeout(r, 3000));
 const psBits = await ps.evaluate(() => {
   const q = (s) => document.querySelector(s);
@@ -439,14 +441,14 @@ const ssoHsm = await ps.evaluate(() => {
   const hsmGroup = q('[data-settings-group="hsm"]');
   const kindSelect = q('[data-role="rbac-input-kind"]');
   return {
-    ssoLine: t('#ssoLiveLine').trim(),
-    hsmLine: t('#hsmLiveLine').trim(),
-    ssoEnforce: t('#chip-sso-enforce').trim(),
-    ssoMfa: t('#chip-sso-mfa').trim(),
-    ssoSessions: t('#chip-sso-sessions').trim(),
-    hsmMode: t('#chip-hsm-mode').trim(),
-    hsmSeal: t('#chip-hsm-seal').trim(),
-    hsmKey: t('#chip-hsm-key').trim(),
+    ssoLine: t('[data-testid="settings-sso-line"]').trim(),
+    hsmLine: t('[data-testid="settings-hsm-line"]').trim(),
+    ssoEnforce: t('[data-role="chip-sso-enforce"]').trim(),
+    ssoMfa: t('[data-role="chip-sso-mfa"]').trim(),
+    ssoSessions: t('[data-role="chip-sso-sessions"]').trim(),
+    hsmMode: t('[data-role="chip-hsm-mode"]').trim(),
+    hsmSeal: t('[data-role="chip-hsm-seal"]').trim(),
+    hsmKey: t('[data-role="chip-hsm-key"]').trim(),
     ssoGroupRendered: !!ssoGroup && ssoGroup.children.length > 0,
     hsmGroupRendered: !!hsmGroup && hsmGroup.children.length > 0,
     ssoGroupFields: ssoGroup ? ssoGroup.querySelectorAll('input,select').length : 0,
@@ -595,10 +597,11 @@ const ident = await ps.evaluate(() => {
       smtp: groupFields('smtp'), sms: groupFields('sms'),
       radius: groupFields('radius'), scim: groupFields('scim'),
     },
-    emergencyState: t('#emergencyState').trim(),
-    emergencyGrants: t('#emergencyGrants').trim(),
-    openBtn: !!q('#btn-emergency-open'),
-    openBtnDisabled: q('#btn-emergency-open') ? q('#btn-emergency-open').disabled : true,
+    emergencyState: t('[data-role="emergency-state"]').trim(),
+    emergencyGrants: t('[data-role="emergency-grants"]').trim(),
+    openBtn: !!q('[data-role="emergency-open"]'),
+    openBtnDisabled: q('[data-role="emergency-open"]')
+      ? q('[data-role="emergency-open"]').disabled : true,
   };
 });
 check(ident.fields.auth === 16 && ident.fields.webauthn === 3
@@ -606,7 +609,12 @@ check(ident.fields.auth === 16 && ident.fields.webauthn === 3
   && ident.fields.radius === 5 && ident.fields.scim === 2,
   'Settings screen: identity group boxes render their real schema fields -> '
   + JSON.stringify(ident.fields));
-check(/^(sealed - emergency-admin (grants nothing|awaits two approvals)|window OPEN - emergency-admin)/.test(ident.emergencyState),
+// The React emergency card's three honest arms (EmergencyCard.tsx, ported
+// verbatim from the legacy state machine): pending grants render the grant
+// id, so the sealed-pending arm widens to `sealed - grant <id> awaits two
+// approvals` (ADR-0015 11.5 - the legacy page never showed it on a
+// pristine rig).
+check(/^(sealed - grant \S+ awaits two approvals|sealed - emergency-admin (grants nothing|awaits two approvals)|window OPEN - emergency-admin)/.test(ident.emergencyState),
   'Settings screen: emergency card state is real data -> "' + ident.emergencyState + '"');
 check(ident.openBtn && /^(no grants on record|\d+ grant\(s\) on record)$/.test(ident.emergencyGrants),
   'Settings screen: emergency grants line honest -> "' + ident.emergencyGrants + '"');

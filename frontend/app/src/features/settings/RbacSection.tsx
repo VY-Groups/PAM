@@ -213,7 +213,11 @@ export function RbacSection() {
   }
 
   return (
-    <section className="flex flex-col gap-space-md" data-testid="settings-rbac">
+    <section
+      className="flex flex-col gap-space-md"
+      data-role="rbac-section"
+      data-testid="settings-rbac"
+    >
       <SectionHeader
         subtitle={t('settings.rbac.subtitle')}
         title={t('settings.rbac.title')}
@@ -221,6 +225,7 @@ export function RbacSection() {
 
       <p
         className="font-code-sm text-code-sm text-on-surface-variant"
+        data-role="rbac-summary"
         data-testid="settings-rbac-summary"
       >
         {summary}
@@ -295,6 +300,7 @@ export function RbacSection() {
           {t('settings.rbac.form.kind')}
           <select
             className="px-3 py-2 rounded bg-surface-container-lowest text-on-surface font-body-sm text-body-sm focus:outline-none focus:ring-1 focus:ring-primary-container"
+            data-role="rbac-input-kind"
             data-testid="settings-rbac-input-kind"
             onChange={(event) => setKind(event.target.value as RoleBindingCreateKind)}
             value={kind}
@@ -336,6 +342,7 @@ export function RbacSection() {
       */}
       <div
         className={`${tokenOnce === null ? 'hidden' : ''} rounded-lg bg-primary/5 border border-primary/30 p-space-sm`}
+        data-role="rbac-token-once"
         data-testid="settings-rbac-token-once"
       >
         <span className="font-label-badge text-label-badge text-primary">

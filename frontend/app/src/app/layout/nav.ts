@@ -89,10 +89,11 @@ export const NAV_ITEMS: NavItem[] = [
     labelKey: 'nav.settings',
     icon: 'tune',
     // ADR-0015: the strangle target is the page the server actually
-    // serves (`app.py` SETTINGS_SCREEN) and the one the legacy sidebar
-    // links to. The earlier idp_hsm_configuration path was the design
-    // spec screen, an F4 assembly slip.
-    legacyHref: '/screens/platform_settings_center/code.html',
+    // served (`app.py` SETTINGS_SCREEN) and the one the legacy sidebar
+    // linked to. 11.5 flipped it: the React route is live, the legacy
+    // page is deleted and the server redirects /settings here - so the
+    // nav item carries no legacyHref (an F4-native surface, /topology's
+    // precedent).
   },
   {
     // ADR-0013: F4-native surface, no legacy screen to strangle - the

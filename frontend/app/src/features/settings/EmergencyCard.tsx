@@ -113,6 +113,8 @@ export function EmergencyCard() {
       </p>
       <div className="flex flex-wrap items-center gap-2">
         <Button
+          data-role="emergency-open"
+          data-testid="settings-emergency-open"
           disabled={disabled}
           icon="emergency_home"
           onClick={requestOpen}

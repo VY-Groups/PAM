@@ -68,18 +68,18 @@ export function HsmStatusSection({ children }: { children?: ReactNode }) {
         className="flex flex-wrap items-center gap-space-sm"
         role="group"
       >
-        <Chip className="gap-1.5">
+        <Chip className="gap-1.5" dataRole="chip-hsm-seal">
           <StatusDot state={data ? (data.sealed ? 'error' : 'ok') : 'muted'} />
           {data ? t(data.sealed ? 'settings.hsm.sealed' : 'settings.hsm.unsealed') : ''}
         </Chip>
-        <Chip className="gap-1.5">
+        <Chip className="gap-1.5" dataRole="chip-hsm-mode">
           {/* Legacy tone: enforced=ok, advisory=warn. The design system has no
               warn dot, so advisory maps to `muted` - a deliberate, documented
               down-grade, never an "ok" for a mode that does not enforce. */}
           <StatusDot state={data ? (data.mode === 'enforced' ? 'ok' : 'muted') : 'muted'} />
           {data ? t('settings.hsm.mode', { mode: data.mode }) : ''}
         </Chip>
-        <Chip className="gap-1.5">
+        <Chip className="gap-1.5" dataRole="chip-hsm-key">
           <StatusDot
             state={data ? (data.key_in_use === 'provider' ? 'ok' : 'muted') : 'muted'}
           />

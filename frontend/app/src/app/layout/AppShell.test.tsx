@@ -3,12 +3,10 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { expectNoAxeViolations } from '../../test/axe';
 import {
-  WHOAMI_OPEN_BODY,
   commandCenterRoutes,
-  healthRoute,
+  settingsRoutes,
   stubFetch,
   vaultRoutes,
-  whoamiRoute,
 } from '../../test/fetchMock';
 import { renderApp } from '../../test/renderApp';
 
@@ -78,16 +76,18 @@ describe('AppShell (F3 exit: shell renders live nav)', () => {
     expect(screen.getByRole('button', { name: /Sign out/i })).toBeInTheDocument();
   });
 
-  it('renders the honest F4-pending screen with its live legacy link', async () => {
-    stubFetch([whoamiRoute(WHOAMI_OPEN_BODY), healthRoute()]);
-    // /licensing is a real F4 replacement now (screen 10); Settings is
-    // still pending, so the strangler contract is asserted there.
+  it('renders the live Settings screen at /settings (ADR-0015 11.5 flip)', async () => {
+    // The flip closed the strangler: every sidebar item is an implemented
+    // route now, so /settings renders the real Platform Settings page -
+    // no pending screen and no legacy link anywhere in the shell.
+    stubFetch(settingsRoutes());
     renderApp('/settings');
-    expect(
-      await screen.findByRole('heading', { name: /arrives at F4/ }),
-    ).toBeInTheDocument();
-    const legacy = screen.getByRole('link', { name: /Open the legacy screen/i });
-    expect(legacy).toHaveAttribute('href', '/screens/platform_settings_center/code.html');
+    expect(await screen.findByTestId('settings-page')).toBeInTheDocument();
+    expect(screen.queryByRole('link', { name: /Open the legacy screen/i })).toBeNull();
+    expect(screen.getByRole('link', { name: 'Settings' })).toHaveAttribute(
+      'href',
+      '/settings',
+    );
   });
 
   it('has no axe violations', async () => {

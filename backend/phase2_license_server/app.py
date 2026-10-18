@@ -12,7 +12,7 @@ import logging
 import os
 from typing import Optional
 
-from flask import Flask, abort, jsonify, send_from_directory
+from flask import Flask, abort, jsonify, redirect, send_from_directory
 from sqlalchemy import text
 
 from config import REPO_ROOT, Config
@@ -34,13 +34,15 @@ from audit import ensure_audit_chain
 
 logger = logging.getLogger(__name__)
 
-# The product frontend (legacy static suite; the VY-PAM React rebuild lands
-# in frontend/app/ during the strangler migration — docs/frontend/ADR-0012):
-# the server serves the launcher, the two live screens and every
-# sidebar-linked screen from here.
+# The product frontend: the React console (built bundle under
+# frontend/app/dist, served at /app/ per docs/frontend/ADR-0012) plus the
+# legacy static suite it strangles - the server serves the launcher, the
+# live license screen and every sidebar-linked screen from here. The
+# settings screen is the first strangler flip (ADR-0015 11.5): /settings
+# redirects to the React page and the legacy settings page is deleted.
 UI_ROOT = REPO_ROOT / "frontend"
 LICENSE_SCREEN = UI_ROOT / "screens" / "license_entitlement_center" / "code.html"
-SETTINGS_SCREEN = UI_ROOT / "screens" / "platform_settings_center" / "code.html"
+CONSOLE_DIST = UI_ROOT / "app" / "dist"
 
 
 def _register_error_handlers(app: Flask) -> None:
@@ -163,10 +165,39 @@ def create_app(config: Optional[Config] = None) -> Flask:
 
     @app.get("/settings")
     def settings_screen():
-        """Serve the live Platform Settings screen from the design suite."""
-        if not SETTINGS_SCREEN.is_file():
-            return jsonify({"error": f"Settings screen not found at {SETTINGS_SCREEN}"}), 404
-        return send_from_directory(str(SETTINGS_SCREEN.parent), SETTINGS_SCREEN.name)
+        """Strangle flip (ADR-0015, 11.5): the old URL keeps working and
+        lands on the React Platform Settings page under /app/."""
+        return redirect("/app/settings")
+
+    @app.get("/app")
+    @app.get("/app/")
+    def console_shell():
+        """Serve the built React console shell - same-origin under /app/
+        exactly as ADR-0012 prescribes for the migration. Until the
+        bundle is built the answer is an honest 404, never a stub."""
+        if not (CONSOLE_DIST / "index.html").is_file():
+            return jsonify(
+                {"error": f"console build not found at {CONSOLE_DIST} - run pnpm build"}
+            ), 404
+        return send_from_directory(str(CONSOLE_DIST), "index.html")
+
+    @app.get("/app/<path:console_path>")
+    def console_files(console_path: str):
+        """Built console files, with the app shell as the SPA fallback so
+        client routes like /app/settings deep-link (basename /app)."""
+        root = CONSOLE_DIST.resolve()
+        try:
+            target = (CONSOLE_DIST / console_path).resolve()
+            target.relative_to(root)
+        except (OSError, ValueError):
+            abort(404)
+        if target.is_file():
+            return send_from_directory(str(target.parent), target.name)
+        if (CONSOLE_DIST / "index.html").is_file():
+            return send_from_directory(str(CONSOLE_DIST), "index.html")
+        return jsonify(
+            {"error": f"console build not found at {CONSOLE_DIST} - run pnpm build"}
+        ), 404
 
     @app.get("/<path:suite_path>")
     def suite_files(suite_path: str):

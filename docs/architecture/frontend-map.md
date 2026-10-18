@@ -25,11 +25,9 @@ flowchart TD
   r7["/licensing - Licensing & Entitlements"]
   r8["/break-glass - Emergency Break-Glass"]
   r9["/vendor-access - Vendor Access"]
+  r10["/settings - Settings"]
   r11["/topology - System Maps"]
   r12["/login (LoginPage)"]
-  end
-  subgraph s_pending["F4 pending - the legacy screen stays served (ADR-0012)"]
-  r10["/settings - Settings"]
   end
   e0["GET /api/v1/bypass/incidents"]
   r0 --> e0
@@ -258,12 +256,47 @@ flowchart TD
   r9 --> e107
   e108["POST /api/v1/vendors/{vendor_id}/ticket"]
   r9 --> e108
-  e109["GET /api/v1/cluster"]
-  r11 --> e109
+  e109["DELETE /api/v1/role-bindings/{binding_id}"]
+  r10 --> e109
+  e110["GET /api/v1/auth/emergency"]
+  r10 --> e110
+  e111["GET /api/v1/auth/sso/status"]
+  r10 --> e111
+  e112["GET /api/v1/cluster"]
+  r10 --> e112
+  e113["GET /api/v1/cluster/backups"]
+  r10 --> e113
+  e114["GET /api/v1/hsm/status"]
+  r10 --> e114
+  r10 --> e82
+  e115["GET /api/v1/role-bindings"]
+  r10 --> e115
+  e116["GET /api/v1/roles"]
+  r10 --> e116
+  e117["GET /api/v1/settings"]
+  r10 --> e117
+  e118["GET /api/v1/settings/audit"]
+  r10 --> e118
+  e119["POST /api/v1/auth/emergency/open"]
+  r10 --> e119
+  e120["POST /api/v1/auth/ldap"]
+  r10 --> e120
+  e121["POST /api/v1/cluster/failover"]
+  r10 --> e121
+  e122["POST /api/v1/itsm/verify"]
+  r10 --> e122
+  e123["POST /api/v1/mfa/enroll"]
+  r10 --> e123
+  e124["POST /api/v1/role-bindings"]
+  r10 --> e124
+  e125["POST /api/v1/settings/scim/rotate"]
+  r10 --> e125
+  e126["POST /api/v1/settings/smtp/test"]
+  r10 --> e126
+  e127["PUT /api/v1/settings/{group}"]
+  r10 --> e127
+  r11 --> e112
   r11 --> e82
   r11 --> e4
   r12 --> e4
-  r10 -.-> r10l["legacy: /screens/platform_settings_center/code.html"]
-  classDef pending fill:#fde68a,stroke:#92400e
-  class r10 pending
 ```

@@ -112,6 +112,22 @@ export const CLUSTER_BACKUPS_RESPONSE = {
 };
 
 /**
+ * `POST /api/v1/cluster/failover` - the real role flip (screen 11.5).
+ * Contract shape per `ClusterFailoverResponse` (`{node, from, to}`, the
+ * fields the legacy toast composes); no rig capture exists because the
+ * standing rigs are never failovered - the endpoint itself is the repo's
+ * own OpenAPI contract, and the test asserts the exact request body.
+ */
+export const CLUSTER_FAILOVER_DEMOTE_RESPONSE = {
+  status: 200,
+  body: {
+    node: 'pam-node-1',
+    from: 'active',
+    to: 'passive',
+  },
+};
+
+/**
  * `GET /api/v1/roles` - the seeded role directory (verbatim from the
  * open rig :5100, Temp/opencode/settings_rig_captures.json). Five
  * built-in roles, each with its computed operation count; the count is

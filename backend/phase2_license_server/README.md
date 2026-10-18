@@ -116,21 +116,23 @@ Admin actions (import / revoke / restore / download) send the token as
 `X-Admin-Token`; enter it once in the UI (kept in `sessionStorage` for that tab
 only). If `LICENSE_ADMIN_TOKEN` is unset the server runs in open mode.
 
-`GET /settings` serves the **Platform Settings** screen
-(`frontend/screens/platform_settings_center/`), built from the spec screen
-`platform_settings_idp_hsm_configuration/` and wired to the settings API below:
-it loads the fifteen configuration groups plus their schema, renders editable
-controls (readonly factor fields disabled with a badge, secrets as
-sealed `not set` boxes), tracks dirty fields, saves through the admin token,
-shows the live configuration changelog and the §20 **Enterprise Integrations**
-cards with live chips over `GET /api/v1/integrations/status` (including
-**Enroll MFA Factor**, whose secret is shown once) plus the §18 **HA / DC /
-DR Cluster** section over `GET /api/v1/cluster` (this node's identity and
-role, the registry with real probe results, replica posture, the backup
-ledger, register / probe / sync / remove, promote / demote, take a
-backup) plus the 6c **SSO + HSM enforcement** lines (live SSO status,
-MFA requirement, sessions/subjects chips over `GET /api/v1/auth/sso/status`;
-custody state, mode and the seal/unseal actions over `GET /api/v1/hsm/status`).
+`GET /app/` serves the **React console** (the built bundle under
+`frontend/app/dist`, ADR-0012) with the API same-origin, so its
+`fetch('/api/v1/...')` calls resolve against this server and no CORS is
+needed or enabled. Since the ADR-0015 **11.5 flip**, `GET /settings`
+redirects to the console's Platform Settings page (`/app/settings`) —
+the strangler successor of `screens/platform_settings_center/code.html`,
+which is deleted. That page renders the fifteen configuration groups
+plus their schema, saves through the admin token, shows the live
+configuration changelog and the §20 **Enterprise Integrations** cards
+with live chips over `GET /api/v1/integrations/status` (including
+**Enroll MFA Factor**, whose secret is shown once) plus the §18 **HA /
+DC / DR Cluster** section over `GET /api/v1/cluster` (this node's
+identity and role, the registry with real probe results, replica
+posture, the backup ledger, promote / demote, take a backup) plus the
+6c **SSO + HSM enforcement** lines (live SSO status, MFA requirement,
+sessions/subjects chips over `GET /api/v1/auth/sso/status`; custody
+state, mode and the seal/unseal state over `GET /api/v1/hsm/status`).
 
 More screens render from their own APIs: the **Command Center** and
 **Compliance** screens (`GET /api/v1/overview` + the unified

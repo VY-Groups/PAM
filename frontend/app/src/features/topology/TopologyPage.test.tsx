@@ -56,10 +56,11 @@ describe('TopologyPage (F4-native, ADR-0013)', () => {
     // output pinned here): import is really part of that feature.
     expect(screen.getByText('POST /api/v1/licenses/import')).toBeDefined();
 
-    // The one pending route stays honest: legacy link, F4-pending chip.
-    expect(screen.getByText('F4 pending')).toBeDefined();
-    const legacy = screen.getByRole('link', { name: 'open the legacy screen' });
-    expect(legacy.getAttribute('href')).toBe('/screens/platform_settings_center/code.html');
+    // 11.5 flip closed the last pending route: no F4-pending chip and no
+    // "open the legacy screen" link remains on the map - every sidebar
+    // item is route-wired now (ADR-0015's completed strangler).
+    expect(screen.queryByText('F4 pending')).toBeNull();
+    expect(screen.queryByRole('link', { name: 'open the legacy screen' })).toBeNull();
 
     await expectNoAxeViolations(container);
   });

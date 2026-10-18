@@ -76,7 +76,12 @@ export function buildSettingsLive(queryClient: QueryClient): SettingsLiveExport 
   return {
     cluster: {
       load: async () => {
-        await queryClient.invalidateQueries({ queryKey: queryKeys.settingsCluster });
+        // Legacy `loadCluster` chains `loadClusterBackups` too, so the
+        // summary AND the ledger/replica rows re-read together.
+        await Promise.all([
+          queryClient.invalidateQueries({ queryKey: queryKeys.settingsCluster }),
+          queryClient.invalidateQueries({ queryKey: queryKeys.settingsClusterBackups }),
+        ]);
       },
       get state(): SettingsLiveClusterState {
         const overview = queryClient.getQueryData<ClusterOverview>(
