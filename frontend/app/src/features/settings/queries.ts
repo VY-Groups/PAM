@@ -10,7 +10,12 @@ import {
   getApiV1IntegrationsStatus,
   getApiV1RoleBindings,
   getApiV1Roles,
+  getApiV1Settings,
+  getApiV1SettingsAudit,
   postApiV1RoleBindings,
+  postApiV1SettingsScimRotate,
+  postApiV1SettingsSmtpTest,
+  putApiV1SettingsGroup,
 } from '../../api/generated';
 import type {
   ClusterBackupList,
@@ -19,13 +24,20 @@ import type {
   HsmStatus,
   IntegrationsStatus,
   PostApiV1RoleBindings201,
+  PostApiV1SettingsScimRotate200,
+  PostApiV1SettingsSmtpTest200,
+  PutApiV1SettingsGroupBody,
   RoleBindingCreate,
   RoleBindingList,
   RoleList,
+  SettingsAuditResponse,
+  SettingsResponse,
+  SettingsWriteResponse,
   SsoStatus,
 } from '../../api/generated/models';
 import { expectOk } from '../../api/http';
 import { queryKeys } from '../../api/queryKeys';
+import type { SettingsGroupName } from './settingsSchema';
 
 /**
  * Platform Settings (screen 11, ADR-0015) read hooks for the 11.1 slice:
@@ -40,8 +52,10 @@ import { queryKeys } from '../../api/queryKeys';
  * page already calls (inventory in ADR-0015). 11.1 ships four sections:
  * SSO federation, HSM custody, the Enterprise Integrations chips and the
  * HA/DC/DR cluster posture (overview + its backup ledger). 11.2 adds the
- * role directory and binding table with the grant/revoke writes. The 15
- * schema-group forms join in 11.3 on this same `['settings', ...]` root.
+ * role directory and binding table with the grant/revoke writes. The 11.3
+ * slice adds the settings schema+values read, the config changelog and
+ * the three writes (group PUT, SMTP test message, SCIM token rotation)
+ * on this same `['settings', ...]` root.
  */
 
 /** `GET /api/v1/auth/sso/status` - IdP federation posture. */
@@ -154,6 +168,94 @@ export function useRevokeRoleBinding(): UseMutationResult<
       expectOk(await deleteApiV1RoleBindingsBindingId(bindingId)).data,
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: queryKeys.settingsBindings });
+    },
+  });
+}
+
+/**
+ * `GET /api/v1/settings` - the render schema plus the stored-or-default
+ * values for all 15 groups (11.3). The schema's per-field descriptors
+ * (type, min/max, max_length, allow_empty, choices, readonly) are what
+ * the Zod rules and the control mapping derive from - the page never
+ * hardcodes a field list.
+ */
+export function useSettingsGroups(): UseQueryResult<SettingsResponse> {
+  return useQuery({
+    queryKey: queryKeys.settingsGroups,
+    queryFn: async () => expectOk(await getApiV1Settings()).data,
+  });
+}
+
+/**
+ * `GET /api/v1/settings/audit?limit=20` - the configuration changelog
+ * (11.3): which group's fields changed, by whom, when. The legacy page
+ * asks for exactly 20 rows; the key is fixed to that limit.
+ */
+export function useSettingsAudit(): UseQueryResult<SettingsAuditResponse> {
+  return useQuery({
+    queryKey: queryKeys.settingsAudit,
+    queryFn: async () => expectOk(await getApiV1SettingsAudit({ limit: 20 })).data,
+  });
+}
+
+/**
+ * `PUT /api/v1/settings/{group}` - merge one group's fields (11.3).
+ * No `onSuccess` invalidation here on purpose: the save controller loops
+ * several dirty groups and must keep the form's dirty state intact until
+ * the WHOLE loop succeeds (or stops honestly at the first refusal), then
+ * invalidates the settings root once - the same load-after-save the
+ * legacy page does.
+ */
+export function usePutSettingsGroup(): UseMutationResult<
+  SettingsWriteResponse,
+  unknown,
+  { group: SettingsGroupName; body: PutApiV1SettingsGroupBody }
+> {
+  return useMutation({
+    mutationFn: async ({
+      group,
+      body,
+    }: {
+      group: SettingsGroupName;
+      body: PutApiV1SettingsGroupBody;
+    }) => expectOk(await putApiV1SettingsGroup(group, body)).data,
+  });
+}
+
+/**
+ * `POST /api/v1/settings/smtp/test` - send a real test message through
+ * the configured SMTP server (11.3). The pristine rig answers the honest
+ * 503 refusal naming what to set; that refusal IS the rendered feedback,
+ * never a swallowed failure.
+ */
+export function useSmtpTest(): UseMutationResult<
+  PostApiV1SettingsSmtpTest200,
+  unknown,
+  string
+> {
+  return useMutation({
+    mutationFn: async (to: string) =>
+      expectOk(await postApiV1SettingsSmtpTest({ to })).data,
+  });
+}
+
+/**
+ * `POST /api/v1/settings/scim/rotate` - mint a fresh SCIM bearer token
+ * (11.3). The token is shown exactly once (the response is the only
+ * place it ever exists); the rotate stamps the `scim` group itself
+ * (`stored`, `enabled`, `token_sha256`), so the settings root is
+ * invalidated for the re-read.
+ */
+export function useScimRotate(): UseMutationResult<
+  PostApiV1SettingsScimRotate200,
+  unknown,
+  void
+> {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async () => expectOk(await postApiV1SettingsScimRotate()).data,
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: queryKeys.settingsRoot });
     },
   });
 }

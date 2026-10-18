@@ -1,3 +1,4 @@
+import type { ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import { Chip, SectionHeader, StatusDot } from '../../components';
@@ -18,8 +19,12 @@ import { useSsoStatus } from './queries';
  * An unreachable backend renders the honest "not connected" rail - never
  * a zeroed posture that would read as "no SSO is configured", which is a
  * different (and false) claim.
+ *
+ * 11.3: the trailing `children` slot hosts the `sso` settings form
+ * (Stored Configuration block) inside this posture section, exactly
+ * where the legacy page renders it.
  */
-export function SsoStatusSection() {
+export function SsoStatusSection({ children }: { children?: ReactNode }) {
   const { t } = useTranslation();
   const sso = useSsoStatus();
   const data = sso.isError ? undefined : sso.data;
@@ -80,6 +85,8 @@ export function SsoStatusSection() {
             : ''}
         </Chip>
       </div>
+
+      {children}
     </section>
   );
 }

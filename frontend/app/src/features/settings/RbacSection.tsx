@@ -10,6 +10,7 @@ import type {
   RoleBindingCreateRole,
 } from '../../api/generated/models';
 import { ApiError, isBackendDown, isUnauthorized } from '../../api/http';
+import { settingsAgo } from './ago';
 import {
   useCreateRoleBinding,
   useRevokeRoleBinding,
@@ -82,23 +83,6 @@ function scopeSummary(binding: RoleBinding, t: TFunction): string {
     parts.push(t('settings.rbac.scopeItems', { items: scope.vault_items.join(', ') }));
   }
   return parts.length ? parts.join(' \u00b7 ') : t('settings.rbac.scopeUnscoped');
-}
-
-/** Legacy `ago`: relative last-use, "never" when the row never ran. */
-function ago(iso: string | null | undefined, t: TFunction): string {
-  if (!iso) return t('settings.never');
-  const then = new Date(iso);
-  if (Number.isNaN(then.getTime())) return iso;
-  const seconds = Math.max(0, (Date.now() - then.getTime()) / 1000);
-  if (seconds < 60) return t('settings.rbac.agoJustNow');
-  if (seconds < 3600)
-    return t('settings.rbac.agoMinutes', { count: Math.floor(seconds / 60) });
-  if (seconds < 86400)
-    return t('settings.rbac.agoHours', { count: Math.floor(seconds / 3600) });
-  const days = Math.floor(seconds / 86400);
-  return days === 1
-    ? t('settings.rbac.agoYesterday')
-    : t('settings.rbac.agoDays', { count: days });
 }
 
 /** Legacy `rbacAction` error words: server error verbatim, honest fallbacks. */
@@ -418,7 +402,7 @@ export function RbacSection() {
           {
             key: 'lastUsed',
             header: t('settings.rbac.columns.lastUsed'),
-            render: (row: RoleBinding) => ago(row.last_used_at, t),
+            render: (row: RoleBinding) => settingsAgo(row.last_used_at, t),
           },
           {
             key: 'actions',

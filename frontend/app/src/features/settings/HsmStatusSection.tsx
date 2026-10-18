@@ -1,3 +1,4 @@
+import type { ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import { Chip, SectionHeader, StatusDot } from '../../components';
@@ -13,8 +14,12 @@ import { useHsmStatus } from './queries';
  * `sealed` in the error tone and the line says so verbatim. A dead
  * backend renders the honest "not connected" rail rather than an
  * "unsealed" claim, which would be false.
+ *
+ * 11.3: the trailing `children` slot hosts the `hsm` settings form
+ * (Stored Configuration block) inside this posture section, exactly
+ * where the legacy page renders it.
  */
-export function HsmStatusSection() {
+export function HsmStatusSection({ children }: { children?: ReactNode }) {
   const { t } = useTranslation();
   const hsm = useHsmStatus();
   const data = hsm.isError ? undefined : hsm.data;
@@ -81,6 +86,8 @@ export function HsmStatusSection() {
           {data ? t('settings.hsm.keyInUse', { key: data.key_in_use }) : ''}
         </Chip>
       </div>
+
+      {children}
     </section>
   );
 }

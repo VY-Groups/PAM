@@ -1,3 +1,4 @@
+import type { ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import { Chip, SectionHeader, StatusDot } from '../../components';
@@ -12,8 +13,12 @@ import { useIntegrationsStatus } from './queries';
  * A dead backend renders the "not connected" rail; it does NOT claim the
  * connectors are unconfigured, which the server would be the only
  * authority to state.
+ *
+ * 11.3: the trailing `children` slot hosts the four connector group
+ * cards (mfa, itsm, siem, ldap) below the chips, the legacy page's
+ * layout.
  */
-export function IntegrationsSection() {
+export function IntegrationsSection({ children }: { children?: ReactNode }) {
   const { t } = useTranslation();
   const integrations = useIntegrationsStatus();
   const data = integrations.isError ? undefined : integrations.data;
@@ -58,6 +63,8 @@ export function IntegrationsSection() {
           ))}
         </div>
       )}
+
+      {children}
     </section>
   );
 }

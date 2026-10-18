@@ -1680,7 +1680,7 @@
   "settings": {
     "page": {
       "title": "Platform Settings",
-      "subtitle": "Single sign-on, key custody, enterprise integrations and the HA/DC/DR cluster posture, read live from the license server."
+      "subtitle": "Single sign-on, key custody, enterprise integrations, the HA/DC/DR cluster posture and the full settings registry, read live from the license server."
     },
     "on": "on",
     "off": "off",
@@ -1814,6 +1814,254 @@
       "agoHours": "{{count}} hours ago",
       "agoYesterday": "yesterday",
       "agoDays": "{{count}} days ago"
+    },
+    "zsp": {
+      "title": "Global Zero-Standing Privilege & Session Defaults",
+      "subtitle": "Baseline constraints for just-in-time ephemeral access elevation requests."
+    },
+    "worm": {
+      "title": "Immutable WORM Audit Ledger Destination",
+      "subtitle": "Write-once-read-many cryptographic storage verified by RFC 3161 timestamps."
+    },
+    "identity": {
+      "title": "Identity & Login Security (Addendum C)",
+      "subtitle": "Local login hardening - lockout, rate limits, progressive delay, the fail-closed MFA gate, and the email OTP / WebAuthn / RADIUS / SCIM surfaces."
+    },
+    "gateway": {
+      "title": "Session Gateway & Recording (phase 8a)",
+      "subtitle": "The guacd-first data plane: zone-mandatory dispatch to a healthy node, sealed per-segment recordings and retention."
+    },
+    "changelog": {
+      "title": "Config Audit Changelog",
+      "fullLog": "Full Log",
+      "empty": "No configuration changes recorded yet.",
+      "unavailable": "Audit changelog unavailable (license server not reachable).",
+      "itemLine": "{{actor}} updated {{group}} — {{detail}}",
+      "itemSub": "{{action}} · {{ago}}"
+    },
+    "forms": {
+      "storedConfiguration": "Stored Configuration",
+      "readOnlyBadge": "read-only",
+      "on": "ON",
+      "off": "OFF",
+      "secretStored": "stored - type to replace",
+      "secretNotSet": "not set",
+      "loading": "loading...",
+      "metaSaved": "saved {{ago}} by {{by}}",
+      "metaDefault": "built-in defaults (not saved yet)",
+      "unreachable": "Settings unavailable (license server not reachable)",
+      "save": "Save Changes",
+      "saveCount": "Save Changes ({{count}})",
+      "saving": "Saving...",
+      "export": "Export JSON",
+      "exportNotLoaded": "Load the settings before exporting.",
+      "nothingToSave": "Nothing to save - no settings have been changed.",
+      "storedOk": "Settings stored - config audit changelog updated.",
+      "storedToast": "Settings Stored Successfully",
+      "storedToastFields": "{{fields}} updated.",
+      "storedToastNoChanges": "No value changes were detected.",
+      "tokenFallback": "Admin token required to store settings.",
+      "rejectedFallback": "Settings were rejected",
+      "unreachableSave": "Could not reach the license server - the changes were NOT saved.",
+      "validation": {
+        "required": "'{{field}}' is required",
+        "bool": "'{{field}}' must be true or false",
+        "integer": "'{{field}}' must be an integer",
+        "min": "'{{field}}' must be >= {{min}}",
+        "max": "'{{field}}' must be <= {{max}}",
+        "maxLength": "'{{field}}' must be at most {{max}} characters",
+        "enum": "'{{field}}' must be one of {{choices}}",
+        "urlHttps": "'{{field}}' must be an https URL",
+        "urlHttp": "'{{field}}' must be an http(s) URL",
+        "slug": "'{{field}}' must be a DNS-style name (lowercase letters, digits, dots, dashes)"
+      },
+      "cards": {
+        "mfa": {
+          "title": "MFA - TOTP factor (RFC 6238)",
+          "description": "The TOTP factor state - enrolled by its own endpoint, read-only here."
+        },
+        "itsm": {
+          "title": "ITSM - ticket verification",
+          "description": "Ticket verification against the vendor API - endpoint, credentials and timeout."
+        },
+        "siem": {
+          "title": "SIEM - outbound audit push",
+          "description": "Outbound audit push: webhook destination, signing secret and timeout."
+        },
+        "ldap": {
+          "title": "LDAP - directory bind",
+          "description": "Directory bind: server, port, TLS and the user bind template."
+        },
+        "auth": {
+          "title": "Login security - lockout, limits, MFA gate",
+          "description": "Per-account and per-IP refusal limits, spray detection, progressive delay, and the fail-closed mfa_required gate."
+        },
+        "webauthn": {
+          "title": "WebAuthn / FIDO2 - relying party",
+          "description": "Relying party settings for the in-product attestation and assertion checks."
+        },
+        "smtp": {
+          "title": "Email OTP - sealed SMTP delivery",
+          "description": "Sealed SMTP delivery for e-mail OTP: host, port, TLS and credentials, plus a real test send."
+        },
+        "sms": {
+          "title": "SMS OTP - DLT-registered templates (India)",
+          "description": "Sender id, DLT content template id and country - honest gap: no SMS gateway is wired."
+        },
+        "radius": {
+          "title": "RADIUS - RFC 2865 push/OTP factor",
+          "description": "A real Access-Request over UDP; the shared secret is sealed at rest."
+        },
+        "scim": {
+          "title": "SCIM 2.0 - identity provider lifecycle",
+          "description": "Joiner-mover-leaver on /api/v1/scim/v2/Users and /Groups; the bearer token is shown once at rotation - only its sha256 is stored."
+        },
+        "gateway": {
+          "title": "Gateway - dispatch, recording, retention",
+          "description": "Zone-mandatory dispatch, the guacd endpoint, segment length, the recording failure policy, spool watermarks and retention."
+        }
+      },
+      "actions": {
+        "smtpTestButton": "Send Test Email",
+        "smtpTestRecipient": "Test recipient",
+        "smtpTestRecipientHint": "The address the test message is delivered to.",
+        "scimRotateButton": "Rotate SCIM Token",
+        "scimRotateConfirm": "Rotate the SCIM bearer token? The current token stops working immediately and the identity provider must be reconfigured with the new one.",
+        "scimTokenTitle": "SCIM bearer token - shown once",
+        "unreachable": "Could not reach the license server - the action did not run."
+      },
+      "fieldLabels": {
+        "auth": {
+          "breached_password_extra": "Breached Password Extra",
+          "emergency_window_minutes": "Emergency Window Minutes",
+          "lockout_minutes": "Lockout Minutes",
+          "lockout_threshold": "Lockout Threshold",
+          "max_sessions_per_user": "Max Sessions Per User",
+          "mfa_required": "MFA Required",
+          "password_min_length": "Password Min Length",
+          "progressive_delay": "Progressive Delay",
+          "rate_limit_per_account": "Rate Limit Per Account",
+          "rate_limit_per_ip": "Rate Limit Per Ip",
+          "remember_device_days": "Remember Device Days",
+          "require_device_posture": "Require Device Posture",
+          "session_absolute_hours": "Session Absolute Hours",
+          "session_idle_minutes": "Session Idle Minutes",
+          "spray_threshold": "Spray Threshold",
+          "stepup_ttl_minutes": "Stepup TTL Minutes"
+        },
+        "gateway": {
+          "enabled": "Enabled",
+          "guacd_host": "Guacd Host",
+          "guacd_port": "Guacd Port",
+          "node_heartbeat_ttl_seconds": "Node Heartbeat TTL Seconds",
+          "recording_failure_policy": "Recording Failure Policy",
+          "require_zone": "Require Zone",
+          "retention_default_days": "Retention Default Days",
+          "retention_overrides": "Retention Overrides",
+          "segment_seconds": "Segment Seconds",
+          "spool_alert_threshold_pct": "Spool Alert Threshold Pct",
+          "spool_full_threshold_pct": "Spool Full Threshold Pct",
+          "spool_max_bytes": "Spool Max Bytes"
+        },
+        "hsm": {
+          "cluster_id": "Cluster ID",
+          "enforcement": "Enforcement",
+          "fips_profile": "FIPS Profile",
+          "key_rotation_hours": "Key Rotation Hours",
+          "kms_endpoint": "KMS Endpoint",
+          "master_key_label": "Master Key Label",
+          "pin_reference": "PIN Reference",
+          "provider": "Provider",
+          "region": "Region",
+          "seal_delay_seconds": "Seal Delay Seconds"
+        },
+        "itsm": {
+          "api_token": "API Token",
+          "base_url": "Base URL",
+          "path_template": "Path Template",
+          "timeout_seconds": "Timeout Seconds",
+          "username": "Username",
+          "vendor": "Vendor"
+        },
+        "ldap": {
+          "port": "Port",
+          "server": "Server",
+          "ticket_ttl_seconds": "Ticket TTL Seconds",
+          "timeout_seconds": "Timeout Seconds",
+          "use_ssl": "Use SSL",
+          "user_bind_template": "User Bind Template"
+        },
+        "mfa": {
+          "factor_created_at": "Factor Created At",
+          "factor_enrolled_for": "Factor Enrolled For",
+          "factor_last_verified_at": "Factor Last Verified At",
+          "factor_secret": "Factor Secret"
+        },
+        "radius": {
+          "enabled": "Enabled",
+          "host": "Host",
+          "port": "Port",
+          "secret": "Secret",
+          "timeout_seconds": "Timeout Seconds"
+        },
+        "scim": {
+          "enabled": "Enabled",
+          "token_sha256": "Token Sha256"
+        },
+        "siem": {
+          "enabled": "Enabled",
+          "signing_secret": "Signing Secret",
+          "timeout_seconds": "Timeout Seconds",
+          "webhook_url": "Webhook URL"
+        },
+        "sms": {
+          "country": "Country",
+          "enabled": "Enabled",
+          "provider": "Provider",
+          "sender_id": "Sender ID",
+          "template_id": "Template ID"
+        },
+        "smtp": {
+          "enabled": "Enabled",
+          "from_address": "From Address",
+          "host": "Host",
+          "password": "Password",
+          "port": "Port",
+          "use_tls": "Use Tls",
+          "username": "Username"
+        },
+        "sso": {
+          "enforce_sso": "Enforce SSO",
+          "jit_provisioning": "JIT Provisioning",
+          "primary_entity_id": "Primary Entity ID",
+          "primary_metadata_url": "Primary Metadata URL",
+          "primary_provider": "Primary Provider",
+          "protocol": "Protocol",
+          "require_mfa": "Require MFA",
+          "secondary_metadata_url": "Secondary Metadata URL",
+          "secondary_provider": "Secondary Provider",
+          "session_ttl_minutes": "Session TTL Minutes"
+        },
+        "webauthn": {
+          "allowed_origins": "Allowed Origins",
+          "rp_id": "Rp ID",
+          "rp_name": "Rp Name"
+        },
+        "worm": {
+          "bucket": "Bucket",
+          "destination": "Destination",
+          "immutability_enabled": "Immutability Enabled",
+          "object_lock_mode": "Object Lock Mode",
+          "region": "Region",
+          "retention_days": "Retention Days"
+        },
+        "zsp": {
+          "default_jit_ttl_minutes": "Default JIT TTL Minutes",
+          "max_ttl_extension_minutes": "Max TTL Extension Minutes",
+          "session_inactivity_timeout_minutes": "Session Inactivity Timeout Minutes",
+          "tier0_quorum_approvers": "Tier-0 Quorum Approvers"
+        }
+      }
     }
   }
 }

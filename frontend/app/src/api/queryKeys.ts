@@ -112,8 +112,9 @@ export const queryKeys = {
   topologyIntegrations: ['topology', 'integrations'] as const,
   // Platform Settings (screen 11, ADR-0015): one ['settings', ...] root so
   // a single prefix invalidation refreshes the posture sections together -
-  // they are views of the same running node. Read-only in 11.1; the 15
-  // schema group writes join in 11.3 and invalidate this same root.
+  // they are views of the same running node. A settings group write (11.3)
+  // invalidates this whole root: the POSTURE sections read the same node
+  // state the group forms edit.
   settingsSso: ['settings', 'sso'] as const,
   settingsHsm: ['settings', 'hsm'] as const,
   settingsIntegrations: ['settings', 'integrations'] as const,
@@ -125,4 +126,10 @@ export const queryKeys = {
   // the summary line and the tables stay one view of the same registry.
   settingsRoles: ['settings', 'roles'] as const,
   settingsBindings: ['settings', 'bindings'] as const,
+  // 11.3 group forms: the schema+values read (15 groups) and the config
+  // changelog. A successful group PUT invalidates the settingsRoot
+  // (values, posture lines and the changelog all move together).
+  settingsRoot: ['settings'] as const,
+  settingsGroups: ['settings', 'groups'] as const,
+  settingsAudit: ['settings', 'audit'] as const,
 } as const;

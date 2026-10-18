@@ -208,6 +208,11 @@ import {
   ROLE_BINDING_CREATE_RESPONSE,
   ROLE_BINDING_REVOKE_RESPONSE,
   ROLES_RESPONSE,
+  SCIM_ROTATE_RESPONSE,
+  SETTINGS_AUDIT_RESPONSE,
+  SETTINGS_PUT_RESPONSE,
+  SETTINGS_RESPONSE,
+  SMTP_TEST_UNCONFIGURED_RESPONSE,
   SSO_STATUS_RESPONSE,
 } from './settingsFixtures';
 export * from './settingsFixtures';
@@ -1980,13 +1985,76 @@ export function roleBindingsRoute(
 }
 
 /**
- * The full Platform Settings route set (screen 11, ADR-0015) - the
- * read-only posture sections 11.1 ships first: SSO status, HSM status,
- * integrations chips, the cluster overview and its backup ledger. 11.2
- * adds the RBAC directory (roles + bindings); the /settings schema and
- * values call joins in 11.3 (the 15 group forms).
+ * `GET /api/v1/settings` - the schema + values for all 15 groups (11.3).
+ * Anchored on the bare path so `/settings/audit`, the `PUT /settings/{group}`
+ * writes and the two action stems never match it.
  */
-export function settingsRoutes() {
+export function settingsSchemaRoute(capture: CapturedResponse = SETTINGS_RESPONSE) {
+  return {
+    match: (url: string) => /\/api\/v1\/settings(\?|$)/.test(url),
+    respond: () => jsonResponse(capture.status, capture.body),
+  };
+}
+
+/** `GET /api/v1/settings/audit?limit=20` - the configuration changelog. */
+export function settingsAuditRoute(capture: CapturedResponse = SETTINGS_AUDIT_RESPONSE) {
+  return {
+    match: (url: string) => /\/api\/v1\/settings\/audit(\?|$)/.test(url),
+    respond: () => jsonResponse(capture.status, capture.body),
+  };
+}
+
+const SETTINGS_GROUP_STEM =
+  /\/api\/v1\/settings\/(sso|hsm|zsp|worm|mfa|itsm|siem|ldap|auth|webauthn|smtp|sms|radius|scim|gateway)(\?|$)/;
+
+/**
+ * `PUT /api/v1/settings/{group}` - one of the 15 group writes. The method
+ * picks the answer (house pattern): a PUT answers the captured write,
+ * anything else gets an honest 405 (there is no read endpoint per group).
+ */
+export function settingsPutGroupRoute(capture: CapturedResponse = SETTINGS_PUT_RESPONSE) {
+  return {
+    match: (url: string) => SETTINGS_GROUP_STEM.test(url),
+    respond: (init?: RequestInit) => {
+      if ((init?.method ?? 'GET') !== 'PUT') {
+        return jsonResponse(405, { error: 'Method not allowed' });
+      }
+      return jsonResponse(capture.status, capture.body);
+    },
+  };
+}
+
+/** `POST /api/v1/settings/smtp/test` - the real test-message action (11.3). */
+export function smtpTestRoute(capture: CapturedResponse = SMTP_TEST_UNCONFIGURED_RESPONSE) {
+  return {
+    match: (url: string) => /\/api\/v1\/settings\/smtp\/test(\?|$)/.test(url),
+    respond: () => jsonResponse(capture.status, capture.body),
+  };
+}
+
+/** `POST /api/v1/settings/scim/rotate` - the one-time SCIM token mint (11.3). */
+export function scimRotateRoute(capture: CapturedResponse = SCIM_ROTATE_RESPONSE) {
+  return {
+    match: (url: string) => /\/api\/v1\/settings\/scim\/rotate(\?|$)/.test(url),
+    respond: () => jsonResponse(capture.status, capture.body),
+  };
+}
+
+/**
+ * The full Platform Settings route set (screen 11, ADR-0015): the 11.1
+ * posture reads, the 11.2 RBAC directory, and the 11.3 settings reads
+ * (schema+values, changelog) with the write/action stubs the page never
+ * fires on load. Tests that drive a save or an action pass their own
+ * captures via the override args (the verbatim write-arm fixtures) -
+ * an `undefined` override keeps each helper's default.
+ */
+export function settingsRoutes(overrides?: {
+  schema?: CapturedResponse;
+  audit?: CapturedResponse;
+  putGroup?: CapturedResponse;
+  smtpTest?: CapturedResponse;
+  scimRotate?: CapturedResponse;
+}) {
   return [
     whoamiRoute(WHOAMI_OPEN_BODY),
     healthRoute(),
@@ -1997,6 +2065,11 @@ export function settingsRoutes() {
     clusterBackupsRoute(),
     rolesRoute(),
     roleBindingsRoute(),
+    settingsSchemaRoute(overrides?.schema),
+    settingsAuditRoute(overrides?.audit),
+    settingsPutGroupRoute(overrides?.putGroup),
+    smtpTestRoute(overrides?.smtpTest),
+    scimRotateRoute(overrides?.scimRotate),
   ];
 }
 
