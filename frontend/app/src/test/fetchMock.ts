@@ -204,6 +204,10 @@ export * from './licensingFixtures';
 import {
   CLUSTER_BACKUPS_RESPONSE,
   HSM_STATUS_RESPONSE,
+  ROLE_BINDINGS_RESPONSE,
+  ROLE_BINDING_CREATE_RESPONSE,
+  ROLE_BINDING_REVOKE_RESPONSE,
+  ROLES_RESPONSE,
   SSO_STATUS_RESPONSE,
 } from './settingsFixtures';
 export * from './settingsFixtures';
@@ -1945,11 +1949,42 @@ export function clusterBackupsRoute(capture: CapturedResponse = CLUSTER_BACKUPS_
   };
 }
 
+/** GET /api/v1/roles - the seeded role directory (screen 11). */
+export function rolesRoute(capture: CapturedResponse = ROLES_RESPONSE) {
+  return {
+    match: (url: string) => /\/api\/v1\/roles(\?|$)/.test(url),
+    respond: () => jsonResponse(capture.status, capture.body),
+  };
+}
+
+/**
+ * GET / POST / DELETE /api/v1/role-bindings[/{id}] - the binding list,
+ * the grant write (201) and the revoke write (200). All three share the
+ * stem, so the method picks the response (house pattern:
+ * `agentDetailRoute`, `policyRulesRoute`).
+ */
+export function roleBindingsRoute(
+  list: CapturedResponse = ROLE_BINDINGS_RESPONSE,
+  create: CapturedResponse = ROLE_BINDING_CREATE_RESPONSE,
+  revoke: CapturedResponse = ROLE_BINDING_REVOKE_RESPONSE,
+) {
+  return {
+    match: (url: string) => /\/api\/v1\/role-bindings(\/\d+)?(\?|$)/.test(url),
+    respond: (init?: RequestInit) => {
+      const method = init?.method ?? 'GET';
+      if (method === 'POST') return jsonResponse(create.status, create.body);
+      if (method === 'DELETE') return jsonResponse(revoke.status, revoke.body);
+      return jsonResponse(list.status, list.body);
+    },
+  };
+}
+
 /**
  * The full Platform Settings route set (screen 11, ADR-0015) - the
  * read-only posture sections 11.1 ships first: SSO status, HSM status,
- * integrations chips, the cluster overview and its backup ledger. The
- * /settings schema+values call joins in 11.3 (the 15 group forms).
+ * integrations chips, the cluster overview and its backup ledger. 11.2
+ * adds the RBAC directory (roles + bindings); the /settings schema and
+ * values call joins in 11.3 (the 15 group forms).
  */
 export function settingsRoutes() {
   return [
@@ -1960,6 +1995,8 @@ export function settingsRoutes() {
     integrationsStatusRoute(),
     clusterRoute(),
     clusterBackupsRoute(),
+    rolesRoute(),
+    roleBindingsRoute(),
   ];
 }
 

@@ -4,6 +4,7 @@ import { SectionHeader } from '../../components';
 import { ClusterPostureSection } from './ClusterPostureSection';
 import { HsmStatusSection } from './HsmStatusSection';
 import { IntegrationsSection } from './IntegrationsSection';
+import { RbacSection } from './RbacSection';
 import { SsoStatusSection } from './SsoStatusSection';
 
 /**
@@ -14,14 +15,16 @@ import { SsoStatusSection } from './SsoStatusSection';
  *
  * This 11.1 slice is the read-only posture shell: SSO federation, HSM
  * custody, the enterprise integrations chips and the HA/DC/DR cluster
- * view. The route stays `pending` (nav keeps its legacyHref) until the
- * 11.5 flip, so nothing here claims to be served yet - the interim
- * verification is Vitest + axe against the verbatim rig captures, and
- * e2e joins at the flip per ADR-0015.
+ * view; 11.2 adds the RBAC/ABAC directory below the cluster section -
+ * the same document order the legacy page (and the gate's 6b
+ * `belowCluster` check) holds. The route stays `pending` (nav keeps its
+ * legacyHref) until the 11.5 flip, so nothing here claims to be served
+ * yet - the interim verification is Vitest + axe against the verbatim
+ * rig captures, and e2e joins at the flip per ADR-0015.
  *
- * Sections stack in the legacy page's order; 11.2-11.4 add the RBAC
- * directory, the 15 schema group forms and the identity/emergency/
- * gateway actions below these.
+ * Sections stack in the legacy page's order; 11.3-11.4 add the 15
+ * schema group forms and the identity/emergency/gateway actions below
+ * these.
  */
 export function SettingsPage() {
   const { t } = useTranslation();
@@ -36,6 +39,7 @@ export function SettingsPage() {
       <HsmStatusSection />
       <IntegrationsSection />
       <ClusterPostureSection />
+      <RbacSection />
     </div>
   );
 }

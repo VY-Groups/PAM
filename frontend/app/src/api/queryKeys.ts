@@ -119,4 +119,10 @@ export const queryKeys = {
   settingsIntegrations: ['settings', 'integrations'] as const,
   settingsCluster: ['settings', 'cluster'] as const,
   settingsClusterBackups: ['settings', 'cluster', 'backups'] as const,
+  // 11.2 RBAC/ABAC: the role directory and the binding table. The two
+  // writes (grant / revoke) invalidate both - a grant can mint a token
+  // and add a row, a revoke stamps `revoked_at` on one - so the tiles,
+  // the summary line and the tables stay one view of the same registry.
+  settingsRoles: ['settings', 'roles'] as const,
+  settingsBindings: ['settings', 'bindings'] as const,
 } as const;

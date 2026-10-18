@@ -57,4 +57,17 @@ regexes = [
   # and are never reused anywhere else. Allowlisted so the scan keeps
   # watching for NEW secrets in the seed script.
   '''Zephyr-Console-7391-Qx!|Harbor-Session-4826-Kv!|Lantern-Audit-5173-Nt!''',
+  # The RBAC binding fixtures (frontend/app/src/test/settingsFixtures.ts)
+  # carry `token_prefix` values captured verbatim from the live rig. The
+  # contract documents the field as "The public part of the minted token
+  # (`vypam-rbac1.<id>.`) - never the secret" (openapi.yaml RoleBinding) -
+  # it identifies the binding, not the credential, and the matching secret
+  # is sha256 at rest on the rig. The one-time token's BODY value never
+  # entered the file at all (redacted; its real string's death was captured
+  # as a 401 before the fixture was written). Scoped to the token_prefix
+  # assignment shape only: a full token string, the `token:` field, or any
+  # other vypam-rbac-shaped value still fails the scan. Pattern anchors both
+  # the assignment form and the bare prefix form, so a full token string
+  # (`vypam-rbac1.<id>.<secret>`) never satisfies it.
+  "^(token_prefix: ')?vypam-rbac1[.][0-9]+[.](')?$",
 ]
