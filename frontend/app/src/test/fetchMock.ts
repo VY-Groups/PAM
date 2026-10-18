@@ -223,6 +223,21 @@ import {
 } from './settingsFixtures';
 export * from './settingsFixtures';
 
+// ADR-0016 fixtures (batches 11.6 + 11.7): verbatim rig captures for the
+// password-recovery flow and the Users & Credentials screen (see the
+// header in identityFixtures.ts). The recovery pair, the refusal bodies
+// and the alternate write answers are re-exported for the screens'
+// tests; the route helpers below import only the read-side defaults.
+import {
+  USER_PASSWORD_RESET_RESPONSE,
+  USER_PATCH_DEACTIVATE_RESPONSE,
+  USER_REVOKE_SESSIONS_RESPONSE,
+  USER_UNLOCK_RESPONSE,
+  USERS_CREATE_GENERATED_RESPONSE,
+  USERS_LIST_RESPONSE,
+} from './identityFixtures';
+export * from './identityFixtures';
+
 /** Build a fetch-shaped Response with the backend's JSON body. */
 export function jsonResponse(status: number, body: unknown): Response {
   return new Response(JSON.stringify(body), {
@@ -2160,6 +2175,96 @@ export function settingsRoutes(overrides?: {
     mfaEnrollRoute(overrides?.mfaEnroll),
     itsmVerifyRoute(overrides?.itsmVerify),
     ldapBindRoute(overrides?.ldapBind),
+  ];
+}
+
+/* ------------------------------------------------------ ADR-0016 routes */
+
+/**
+ * GET/POST /api/v1/users - the registry list (GET, `?source=` filter) and
+ * create (POST) share the path, so the method picks the response.
+ */
+export function usersRoute(
+  list: CapturedResponse = USERS_LIST_RESPONSE,
+  create: CapturedResponse = USERS_CREATE_GENERATED_RESPONSE,
+) {
+  return {
+    match: (url: string) => /\/api\/v1\/users(\?|$)/.test(url),
+    respond: (init?: RequestInit) => {
+      if ((init?.method ?? 'GET') === 'POST')
+        return jsonResponse(create.status, create.body);
+      return jsonResponse(list.status, list.body);
+    },
+  };
+}
+
+/**
+ * PATCH /api/v1/users/{id} - activate / deactivate. No GET detail exists
+ * (list-only contract), so every method on the exact id stem answers the
+ * capture; deeper stems (`/unlock`, `/password-reset`, `/sessions`) are
+ * anchored past this regex and never match it.
+ */
+export function userPatchRoute(
+  id: number,
+  capture: CapturedResponse = USER_PATCH_DEACTIVATE_RESPONSE,
+) {
+  return {
+    match: (url: string) => new RegExp(`/users/${id}(\\?|$)`).test(url),
+    respond: () => jsonResponse(capture.status, capture.body),
+  };
+}
+
+/** POST /api/v1/users/{id}/unlock - clear a lockout (captured). */
+export function userUnlockRoute(
+  id: number,
+  capture: CapturedResponse = USER_UNLOCK_RESPONSE,
+) {
+  return {
+    match: (url: string) => url.endsWith(`/users/${id}/unlock`),
+    respond: () => jsonResponse(capture.status, capture.body),
+  };
+}
+
+/** POST /api/v1/users/{id}/password-reset - admin reset (captured). */
+export function userResetRoute(
+  id: number,
+  capture: CapturedResponse = USER_PASSWORD_RESET_RESPONSE,
+) {
+  return {
+    match: (url: string) => url.endsWith(`/users/${id}/password-reset`),
+    respond: () => jsonResponse(capture.status, capture.body),
+  };
+}
+
+/**
+ * DELETE /api/v1/users/{id}/sessions - revoke every live session (the
+ * screen never reads this path; any other method answers an honest 405
+ * instead of a guessed body).
+ */
+export function userSessionsRevokeRoute(
+  id: number,
+  capture: CapturedResponse = USER_REVOKE_SESSIONS_RESPONSE,
+) {
+  return {
+    match: (url: string) => url.endsWith(`/users/${id}/sessions`),
+    respond: (init?: RequestInit) => {
+      if ((init?.method ?? 'GET') === 'DELETE')
+        return jsonResponse(capture.status, capture.body);
+      return jsonResponse(405, { error: `No mock for method on users/${id}/sessions` });
+    },
+  };
+}
+
+/** The full Users & Credentials route set (ADR-0016 batch 11.7, /users). */
+export function usersRoutes() {
+  return [
+    whoamiRoute(WHOAMI_OPEN_BODY),
+    healthRoute(),
+    usersRoute(),
+    userUnlockRoute(2),
+    userResetRoute(2),
+    userSessionsRevokeRoute(2),
+    userPatchRoute(2),
   ];
 }
 

@@ -70,4 +70,13 @@ regexes = [
   # the assignment form and the bare prefix form, so a full token string
   # (`vypam-rbac1.<id>.<secret>`) never satisfies it.
   "^(token_prefix: ')?vypam-rbac1[.][0-9]+[.](')?$",
+  # The two generated-password placeholders in the ADR-0016 identity
+  # fixtures (frontend/app/src/test/identityFixtures.ts) are SYNTHETIC
+  # literals written for this repo, per the SECRET_REVEAL house rule:
+  # the rig's real one-time passwords were never transcribed - these
+  # stand in their place so the fixtures prove the reveal/copy/UI
+  # behaviour without carrying a credential-shaped string. The exact
+  # two literals only - any other generated_password value still fails
+  # the scan.
+  '''fixture-GeneratedOnce-0000|fixture-ResetOnce-0000''',
 ]

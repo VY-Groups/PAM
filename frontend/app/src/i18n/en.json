@@ -21,6 +21,7 @@
     "breakGlass": "Emergency Break-Glass",
     "vendorAccess": "Vendor Access",
     "settings": "Settings",
+    "users": "Users & Credentials",
     "topology": "System Maps"
   },
   "shell": {
@@ -42,6 +43,18 @@
     "back": "Back",
     "required": "Username and password are required.",
     "enterCode": "Enter the verification code.",
+    "forgotPassword": "Forgot password?",
+    "recoveryTitle": "Password recovery",
+    "recoveryStartHint": "Request a one-time code for this account. The answer is the same whether or not the account exists.",
+    "recoverySendCode": "Send code",
+    "recoverySent": "If {{username}} has an account, a one-time code was sent to its registered e-mail.",
+    "recoverySmtpNote": "No mail server configured? The attempt is still recorded on the auth trail - an administrator can set a new password from Users & Credentials.",
+    "recoveryCode": "One-time code",
+    "recoveryNewPassword": "New password",
+    "recoveryPolicy": "At least 14 characters - the server enforces the full password policy.",
+    "recoverySubmit": "Set new password",
+    "recoveryUsernameRequired": "Enter your username to request a code.",
+    "recoveryEnterAll": "Enter the code and a new password of at least 14 characters.",
     "refused": "Login refused ({{status}}).",
     "enrolmentRequired": "Account not yet enrolled ({{methods}}): an enrolment ticket is required - fail-closed, no silent pass.",
     "serverFooter": "License server: {{state}}",
@@ -2138,6 +2151,75 @@
           "tier0_quorum_approvers": "Tier-0 Quorum Approvers"
         }
       }
+    }
+  },
+  "users": {
+    "page": {
+      "title": "Users & Credentials",
+      "subtitle": "Console user administration - create accounts, clear lockouts, reset passwords and revoke sessions, read live from the license server."
+    },
+    "columns": {
+      "username": "Username",
+      "displayName": "Display name",
+      "email": "E-mail",
+      "source": "Source",
+      "status": "Status",
+      "lastLogin": "Last sign-in",
+      "actions": "Actions"
+    },
+    "statusChips": {
+      "active": "Active",
+      "inactive": "Inactive",
+      "locked": "Locked",
+      "mustChange": "Must change password",
+      "emergency": "Emergency",
+      "never": "Never"
+    },
+    "caption": "Console users with their source, status and last sign-in.",
+    "empty": "No users match this filter.",
+    "states": {
+      "loading": "Loading users…",
+      "error": "Could not load users: {{message}}"
+    },
+    "filter": {
+      "label": "Filter users",
+      "placeholder": "Username, display name or e-mail",
+      "sourceLabel": "Source",
+      "sourceAll": "All sources"
+    },
+    "kpi": {
+      "total": "Users",
+      "active": "Active",
+      "locked": "Locked",
+      "mustChange": "Must change password"
+    },
+    "actions": {
+      "deactivate": "Deactivate",
+      "activate": "Activate",
+      "unlock": "Unlock",
+      "resetPassword": "Reset password",
+      "revokeSessions": "Revoke sessions",
+      "confirmDeactivate": "Deactivate {{username}}? Every live session of this account is revoked.",
+      "confirmRevoke": "Revoke every live session of {{username}}?"
+    },
+    "create": {
+      "title": "Create a console user",
+      "subtitle": "A local account. Leave the password empty and a strong one is generated and shown once.",
+      "username": "Username",
+      "displayName": "Display name",
+      "email": "E-mail",
+      "password": "Initial password (optional)",
+      "passwordHint": "At least 14 characters when set - the server enforces the full policy.",
+      "submit": "Create user",
+      "usernameRequired": "Enter a username.",
+      "passwordTooShort": "The initial password must be at least 14 characters."
+    },
+    "secret": {
+      "generatedTitle": "Generated password for {{username}} - shown once",
+      "resetTitle": "New password for {{username}} - shown once",
+      "copy": "Copy",
+      "copied": "Copied",
+      "copyFailed": "The clipboard is unavailable - select the value and copy it manually."
     }
   }
 }
