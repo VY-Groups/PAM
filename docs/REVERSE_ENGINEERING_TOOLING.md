@@ -31,7 +31,7 @@ ADR/capture/gate workflow.
 | Agent skill | `~/.agents/skills/reverse-engineer-anything/` (`SKILL.md` + 6 references) | loaded in the running session |
 | Live tools | — | **207 tools** exposed; `binary_session({})` MCP call returned the capability inventory |
 | Doctor | — | `healthy: true`; `environment_healthy: false` **only** from optional bring-your-own engines (Ghidra `GHIDRA_INSTALL_DIR` unset, IDA registration unset, JADX JAR unset, Kuna unset, Hopper macOS-only) and `config_drift` in *other* detected clients (`copilot_cli`, `trae`, `vscode`) — all out of this integration's scope |
-| CLI fallback | `npx -y rea-agents@6.7.0 <command>` | used for all three evidence runs in §5; returns the same evidence envelope as MCP |
+| CLI fallback | `npx -y rea-agents@6.7.0 <command>` | used for runs §5.1–§5.3; runs §5.4–§5.5 went through the **live MCP tools** (`inspect_go_binary`, `export_evidence_bundle`) — same evidence envelope |
 
 Incident (documented remedy): the first MCP start was killed mid-download and left a
 corrupt partial npx install (`ERR_MODULE_NOT_FOUND … @modelcontextprotocol/client/dist/index.mjs`).
@@ -56,8 +56,10 @@ From REA's own skill contract (loaded in §2):
   artefacts we did not build, or cross-checking a built artefact against source claims.)
 
 **Target scope (constraint):** own artefacts and open-source/authorized targets only
-(this run: sops MPL-2.0, Vaultwarden AGPL-3.0, our own rig DB). No proprietary
-competitor consoles — REA's disclaimer requires authorization to examine.
+(runs so far: sops MPL-2.0, Vaultwarden AGPL-3.0, Teleport Apache-2.0, OpenBao MPL-2.0,
+our own rig DB). No proprietary competitor consoles — REA's disclaimer requires
+authorization to examine; the proprietary market leaders are studied from public
+product documentation instead (§6, every claim source-labelled).
 
 ---
 
@@ -79,7 +81,7 @@ competitor consoles — REA's disclaimer requires authorization to examine.
 
 ---
 
-## 5. Three verified runs (all on 2026-10-19)
+## 5. Five verified runs (all on 2026-10-19)
 
 ### 5.1 Supply-chain inspection of another secrets tool — `inspect-go-binary`
 
@@ -146,13 +148,113 @@ competitor consoles — REA's disclaimer requires authorization to examine.
   studies against a *built* console — module graph → workflow inventory → focused
   `trace_application_feature` follow-ups — with coverage honestly bounded.
 
+### 5.4 Market-leader architecture fingerprint — `inspect-go-binary` (Teleport)
+
+- **Artefact:** `teleport-v18.10.0-linux-amd64-bin.tar.gz` from `cdn.teleport.dev`, sha256
+  `a5a2f1ec1390d001b221353c047df858e068661d044cf00742943f7c618634db` — **matches the
+  publisher's `.sha256` sidecar** (verified, not assumed). Inspected member
+  `teleport/tctl` (control-plane CLI): the main `teleport` ELF is 373,768,552 bytes and
+  REA's stable-input bound is 256 MiB — the fail-closed rejection is documented in §8;
+  `tctl` ships from the same release and the same module graph.
+- **Evidence:** `ev_3bae8688f35b3f7eb964727b5c8e1a56259299b65ced8a3523d3a09d2b71b0b4`,
+  authority `shipped-artifact`, confidence `observed`; `tctl` sha256
+  `0a1ab654c2cc228705cf7da55ef02bbec4238adb4a8c7396535bdd31b85cc0e9`, ELF x86_64.
+- **Facts:** Go `go1.25.11`; main module `github.com/gravitational/teleport` (`(devel)`
+  release build); **237 dependencies, `complete: true`, 0 unparsed lines**. Build settings
+  verbatim: `-tags pam,libfido2,libfido2static,piv,kustomize_disable_go_plugin_support`,
+  `CGO_ENABLED=1`, `-trimpath=true`. Security-relevant deps: `go-webauthn/webauthn`
+  (WebAuthn/FIDO2), `keys-pub/go-libfido2` (hardware keys via cgo), `go-piv/piv-go/v2`
+  (PIV smartcards), `crewjam/saml` + `russellhaering/gosaml2` (SAML), `zitadel/oidc/v3`,
+  `golang-jwt/jwt` v4 **and** v5, `filippo.io/age` (age encryption — their
+  session-recording protection), `mattermost/xml-roundtrip-validator` (SAML
+  signature-wrapping defence), `jackc/pgx/v5 v5.9.2` **and** `mattn/go-sqlite3 v1.14.28`
+  (PostgreSQL + SQLite drivers in one build).
+- **Limitations (verbatim highlight):** "Embedded build metadata is observed file content,
+  not proof of compiler identity, dependency authenticity or runtime behavior."
+- **VY-PAM takeaway:** the leading open-source PAM **links native Linux PAM + FIDO2 + PIV
+  at build time and ships SQLite + PostgreSQL storage drivers together** — shipped-artifact
+  evidence for ADR-0019's dialect-aware dual-backend design (§6).
+
+### 5.5 Secrets-engine design fingerprint — `inspect-go-binary` (OpenBao)
+
+- **Artefact:** `openbao_2.7.1_windows_amd64.zip` (GitHub release), sha256
+  `e3b3335918a78cc730bb07014c4191c80fe5eb376f3f1a708185acf8bc0109ac` — **matches upstream
+  `checksums.txt`** (verified); member `bao.exe` sha256
+  `b985ff8c559c16e763e517a3b2abd14f9e7e0f88fda4e440fe84273d9abaeacd`.
+- **Evidence:** `ev_573b793d694820b9e67228d78aca01e0c2b4dbe5b723cc0d08975dc3d1f4541b`,
+  authority `shipped-artifact`, confidence `observed`; PE x86_64.
+- **Facts:** Go `go1.27.1`; main `github.com/openbao/openbao/v2 v2.7.1`; **289
+  dependencies, `complete: true`, 0 unparsed**. Build settings: `-tags ui` (console
+  embedded), `CGO_ENABLED=0` (pure Go), version injected via
+  `-ldflags -X …internal/version.fullVersion=2.7.1` plus VCS provenance
+  (`vcs.revision=a5db72cef75c24b920ade02065b18dd8eb666bac`, `vcs.modified=false`).
+  Security-relevant deps: `pquerna/otp v1.5.0` (TOTP/HOTP — same feature class as our 11.8
+  TOTP), `tink-crypto/tink-go/v2`, `ProtonMail/go-crypto`, the `openbao/go-kms-wrapping`
+  family (transit / KMIP / static key-wrapping backends), `caddyserver/certmagic` +
+  `mholt/acmez/v3` (ACME), `coreos/go-oidc/v3`, `jefferai/isbadcipher` (TLS cipher
+  denylist), `jackc/pgx/v5 v5.10.0` + `go.etcd.io/bbolt` + `boltdb/raft-boltdb`
+  (PostgreSQL + embedded KV + HA-raft storage options).
+- **VY-PAM takeaway:** a second independent market artefact shipping **PostgreSQL and
+  embedded storage side by side**; also the cleanest reproducible-build template observed
+  so far (ldflags version stamp + VCS stamp + `CGO_ENABLED=0`).
+
 ---
 
-## 6. Lane catalogue → VY-PAM use
+## 6. Market PAM design study — scope, findings, decisions
+
+**Scope (lawful + honest).** Shipped-artifact REA is used only on open-source/authorized
+targets (§3): Teleport (Apache-2.0) and OpenBao (MPL-2.0) qualify, and their module
+graphs/build settings are read exactly as shipped (§5.4, §5.5). The proprietary leaders
+(CyberArk/Palo Alto, BeyondTrust, Delinea) are **not** reverse-engineered — no
+authorization exists (§3) — their design is studied from public product documentation
+only, and every claim below is labelled by source.
+
+**Feature taxonomy of the proprietary leaders (public product pages, accessed
+2026-10-19):**
+
+| Capability | CyberArk/Palo Alto "Idira" PAM page (public) | Delinea Secret Server page (public) |
+|---|---|---|
+| Encrypted vaulting + rotation | "vaulting" with automated rotation | "encrypted vault"; "password creation, rotation and expiration" automation |
+| Session isolation + recording | "Isolate and record every sensitive session" | "Record and monitor every privileged session", audit trails |
+| Approval / maker-checker | JIT entitlements evaluated at request time | "check-in/out, role-based access, and approval workflows" |
+| Zero standing privileges | ZSP as the headline operating model | positioned via the platform layer |
+| Account discovery | — | "Identify and inventory all privileged accounts" |
+| Identity threat response | ITDR: terminate risky sessions / step-up auth | — |
+
+**Decisions this feeds (source-labelled):**
+
+1. **ADR-0019 PostgreSQL is market-standard, not an experiment.** Both leaders' shipped
+   builds carry `jackc/pgx/v5` *and* an embedded store (Teleport: `mattn/go-sqlite3`;
+   OpenBao: `bbolt`/`raft-boltdb`) — §5.4/§5.5 shipped-artifact evidence. Our
+   dialect-aware `ensure_schema` + SQLite-dev/PostgreSQL-prod split mirrors that exact
+   dual-backend pattern; proceed as contracted.
+2. **Approval workflows are a named market feature** (Delinea public page: "approval
+   workflows"; CyberArk public page: JIT entitlements). Batch 12.0's two-officer
+   ChangeRequest + lease model is the VY-PAM primitive for it — market-validated, no
+   re-scope.
+3. **The MFA baseline of the leader set is hardware** (Teleport build tags: `libfido2`,
+   `piv`, `pam` — §5.4). Our 11.8 TOTP + e-mail-OTP console covers the software-token
+   tier; **WebAuthn/FIDO2 is the evidence-backed candidate for a future batch** — to be
+   contracted in its own ADR when scheduled, not slipped into 11.9–12.0.
+4. **Session recording is universal among leaders** (all three sources above), and
+   Teleport protects recordings with `filippo.io/age` (§5.4). VY-PAM has no recording
+   lane yet — recorded as a future feature candidate (own ADR when scheduled), with
+   per-recording encryption as the studied pattern.
+5. **Audit trails are the compliance floor** in every leader's pitch; our append-only
+   `audit_events` + dialect-aware triggers (§5.2 baseline, ADR-0019 D3) is the matching
+   primitive — no change.
+6. **Build hygiene to mirror on our releases later:** `-trimpath` + VCS/ldflags version
+   stamping is common practice (sops §5.1, Teleport §5.4, OpenBao §5.5); OpenBao's
+   `CGO_ENABLED=0` portability philosophy matches our `psycopg[binary]` wheel choice
+   (no system libpq needed on the host).
+
+---
+
+## 7. Lane catalogue → VY-PAM use
 
 | Lane (CLI/MCP) | Prerequisite | Status here | VY-PAM use |
 |---|---|---|---|
-| `inspect-go-binary`, `inspect-rust-binary` | none | ✅ verified (§5.1) | supply-chain review of third-party tools |
+| `inspect-go-binary`, `inspect-rust-binary` | none | ✅ verified (§5.1, §5.4, §5.5) | supply-chain review + architecture fingerprints of third-party tools |
 | `inspect-sqlite-database` | Node 24 | ✅ verified (§5.2) | shipped-schema audits; ADR-0019 baseline |
 | `analyze-javascript-application`, `recover-javascript-sources`, `trace-javascript-semantics`, `reconcile-javascript-runtime` | none | ✅ verified (§5.3) | other products' built consoles/Electron apps |
 | `inspect-web-network-capture` (HAR/SAZ/mitmproxy) | a saved capture | available, **not adopted** | candidate to systematise rig captures; would need its own contract decision — today's verbatim captures remain the house method |
@@ -164,15 +266,26 @@ competitor consoles — REA's disclaimer requires authorization to examine.
 
 ---
 
-## 7. Operating notes
+## 8. Operating notes
 
 - Setup/diagnostics: `npx -y rea-agents@6.7.0 setup --client opencode --dry-run` → review →
   `--yes`; `npx -y rea-agents@6.7.0 doctor --client opencode --format json`.
   Upgrade = change the pin in `~/.config/opencode/opencode.json` and re-run doctor;
   `uninstall` removes REA-owned config and skill files.
+- **Resource guards:** stable artifact reads are bounded to **256 MiB** (plus 1 MiB
+  aggregate embedded strings, 16 MiB structural tables, 8 MiB metadata payloads). The
+  Teleport main ELF (373,768,552 bytes) was rejected fail-closed with that bound named in
+  the error and "retrying the unchanged oversized input will fail again" in its own
+  remediation — the remedy used was the same-release `tctl` sibling (§5.4), not a retry.
+- **MCP-native evidence flow (§5.4–§5.5):** `inspect_go_binary` (MCP, in-session) →
+  `export_evidence_bundle` → local JSON (203,722 bytes, 2 records, 0 unknowns) → bounded
+  local parser (`node -e`), never raw `Get-Content` of an envelope. `inspect_go_binary`
+  evidence does not support `inspect_analysis_view` (fail-closed, explicit) — the
+  full `module_text` comes from the exported record.
 - Raw evidence lives untracked in `Temp/rea-evidence/` (sops exe 53.5 MB + checksums,
-  `licenses.db` snapshot 1.1 MB, Vaultwarden extracted bundle 142.3 MB, three JSON
-  envelopes — the JS run is 218 MB, summarize with `summarize.mjs`, do not `Get-Content -Raw`
+  `licenses.db` snapshot 1.1 MB, Vaultwarden extracted bundle 142.3 MB, Teleport tarball
+  207 MB + extracted binaries, OpenBao zip 72 MB + `bao.exe`, five JSON envelopes — the
+  JS run is 218 MB, summarize with `summarize.mjs`, do not `Get-Content -Raw`
   into a shell). Nothing under `Temp/` is ever staged.
 - No change to house gates: verbatim rig captures, ADR-first contracts, `__verify_agent.mjs`
   gates, gitleaks, ledger rows and topology regen are unaffected. REA feeds *inputs*
