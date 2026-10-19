@@ -280,61 +280,63 @@ flowchart TD
   r11 --> e118
   e119["POST /api/v1/auth/mfa/enroll/email/verify"]
   r11 --> e119
-  e120["POST /api/v1/auth/mfa/enroll/totp"]
+  e120["POST /api/v1/auth/mfa/enroll/radius"]
   r11 --> e120
-  e121["POST /api/v1/auth/mfa/enroll/totp/verify"]
+  e121["POST /api/v1/auth/mfa/enroll/totp"]
   r11 --> e121
-  e122["POST /api/v1/auth/mfa/stepup"]
+  e122["POST /api/v1/auth/mfa/enroll/totp/verify"]
   r11 --> e122
-  e123["DELETE /api/v1/role-bindings/{binding_id}"]
-  r12 --> e123
-  e124["GET /api/v1/auth/emergency"]
+  e123["POST /api/v1/auth/mfa/stepup"]
+  r11 --> e123
+  e124["DELETE /api/v1/role-bindings/{binding_id}"]
   r12 --> e124
-  e125["GET /api/v1/auth/sso/status"]
+  e125["GET /api/v1/auth/emergency"]
   r12 --> e125
-  e126["GET /api/v1/cluster"]
+  e126["GET /api/v1/auth/sso/status"]
   r12 --> e126
-  e127["GET /api/v1/cluster/backups"]
+  e127["GET /api/v1/cluster"]
   r12 --> e127
-  e128["GET /api/v1/hsm/status"]
+  e128["GET /api/v1/cluster/backups"]
   r12 --> e128
-  r12 --> e82
-  e129["GET /api/v1/role-bindings"]
+  e129["GET /api/v1/hsm/status"]
   r12 --> e129
-  e130["GET /api/v1/roles"]
+  r12 --> e82
+  e130["GET /api/v1/role-bindings"]
   r12 --> e130
-  e131["GET /api/v1/settings"]
+  e131["GET /api/v1/roles"]
   r12 --> e131
-  e132["GET /api/v1/settings/audit"]
+  e132["GET /api/v1/settings"]
   r12 --> e132
-  e133["POST /api/v1/auth/emergency/open"]
+  e133["GET /api/v1/settings/audit"]
   r12 --> e133
-  e134["POST /api/v1/auth/ldap"]
+  e134["POST /api/v1/auth/emergency/open"]
   r12 --> e134
-  e135["POST /api/v1/cluster/failover"]
+  e135["POST /api/v1/auth/ldap"]
   r12 --> e135
-  e136["POST /api/v1/itsm/verify"]
+  e136["POST /api/v1/cluster/failover"]
   r12 --> e136
-  e137["POST /api/v1/mfa/enroll"]
+  e137["POST /api/v1/itsm/verify"]
   r12 --> e137
-  e138["POST /api/v1/role-bindings"]
+  e138["POST /api/v1/mfa/enroll"]
   r12 --> e138
-  e139["POST /api/v1/settings/scim/rotate"]
+  e139["POST /api/v1/role-bindings"]
   r12 --> e139
-  e140["POST /api/v1/settings/smtp/test"]
+  e140["POST /api/v1/settings/scim/rotate"]
   r12 --> e140
-  e141["PUT /api/v1/settings/{group}"]
+  e141["POST /api/v1/settings/smtp/test"]
   r12 --> e141
-  r13 --> e126
+  e142["PUT /api/v1/settings/{group}"]
+  r12 --> e142
+  r13 --> e127
   r13 --> e82
   r13 --> e4
   r14 --> e4
-  e142["POST /api/v1/auth/otp/start"]
-  r14 --> e142
-  e143["POST /api/v1/auth/password"]
+  e143["POST /api/v1/auth/otp/start"]
   r14 --> e143
-  e144["POST /api/v1/auth/recovery/reset"]
+  e144["POST /api/v1/auth/password"]
   r14 --> e144
-  e145["POST /api/v1/auth/recovery/start"]
+  e145["POST /api/v1/auth/recovery/reset"]
   r14 --> e145
+  e146["POST /api/v1/auth/recovery/start"]
+  r14 --> e146
 ```
