@@ -238,6 +238,26 @@ import {
 } from './identityFixtures';
 export * from './identityFixtures';
 
+// ADR-0017 fixtures (batch 11.8): verbatim rig captures for the forced
+// password change, the e-mail OTP login arm and the /auth/mfa self-service
+// surface (see the header in securityFixtures.ts). The refusals and the
+// alternate write answers are re-exported for the screens' tests; the
+// route helpers below import the defaults.
+import {
+  BACKUP_CODES_RESPONSE,
+  DELETE_FACTOR_OK_RESPONSE,
+  ENROLL_EMAIL_RESPONSE,
+  ENROLL_EMAIL_VERIFY_BAD_RESPONSE,
+  ENROLL_RADIUS_UNCONFIGURED_RESPONSE,
+  ENROLL_TOTP_RESPONSE,
+  ENROLL_TOTP_VERIFY_WRONG_RESPONSE,
+  MFA_FACTORS_RESPONSE,
+  OTP_START_LOGIN_RESPONSE,
+  PASSWORD_CHANGE_OK_RESPONSE,
+  STEPUP_OK_RESPONSE,
+} from './securityFixtures';
+export * from './securityFixtures';
+
 /** Build a fetch-shaped Response with the backend's JSON body. */
 export function jsonResponse(status: number, body: unknown): Response {
   return new Response(JSON.stringify(body), {
@@ -2265,6 +2285,137 @@ export function usersRoutes() {
     userResetRoute(2),
     userSessionsRevokeRoute(2),
     userPatchRoute(2),
+  ];
+}
+
+/* ---------------------------------------------------- ADR-0017 routes */
+
+/** POST /api/v1/auth/password - the forced first-login change (captured). */
+export function passwordChangeRoute(
+  capture: CapturedResponse = PASSWORD_CHANGE_OK_RESPONSE,
+) {
+  return {
+    match: (url: string) => url.endsWith('/auth/password'),
+    respond: () => jsonResponse(capture.status, capture.body),
+  };
+}
+
+/** POST /api/v1/auth/otp/start - the generic e-mail OTP challenge (captured). */
+export function otpStartRoute(capture: CapturedResponse = OTP_START_LOGIN_RESPONSE) {
+  return {
+    match: (url: string) => url.endsWith('/auth/otp/start'),
+    respond: () => jsonResponse(capture.status, capture.body),
+  };
+}
+
+/**
+ * GET/DELETE /api/v1/auth/mfa/factors - the factor list (GET on the bare
+ * path) and factor removal (DELETE on `/{id}`) share the stem, so the
+ * method picks the response; the optional `/{id}` group keeps one matcher
+ * for both.
+ */
+export function mfaFactorsRoute(
+  list: CapturedResponse = MFA_FACTORS_RESPONSE,
+  remove: CapturedResponse = DELETE_FACTOR_OK_RESPONSE,
+) {
+  return {
+    match: (url: string) => /\/auth\/mfa\/factors(\/\d+)?(\?|$)/.test(url),
+    respond: (init?: RequestInit) => {
+      if ((init?.method ?? 'GET') === 'DELETE')
+        return jsonResponse(remove.status, remove.body);
+      return jsonResponse(list.status, list.body);
+    },
+  };
+}
+
+/** POST /api/v1/auth/mfa/backup-codes - ten single-use codes (captured). */
+export function mfaBackupCodesRoute(capture: CapturedResponse = BACKUP_CODES_RESPONSE) {
+  return {
+    match: (url: string) => url.endsWith('/auth/mfa/backup-codes'),
+    respond: () => jsonResponse(capture.status, capture.body),
+  };
+}
+
+/** POST /api/v1/auth/mfa/enroll/totp - enrol (or rotate) the TOTP factor. */
+export function mfaEnrollTotpRoute(capture: CapturedResponse = ENROLL_TOTP_RESPONSE) {
+  return {
+    match: (url: string) => url.endsWith('/auth/mfa/enroll/totp'),
+    respond: () => jsonResponse(capture.status, capture.body),
+  };
+}
+
+/** POST /api/v1/auth/mfa/enroll/totp/verify - prove the live code. */
+export function mfaEnrollTotpVerifyRoute(
+  capture: CapturedResponse = ENROLL_TOTP_VERIFY_WRONG_RESPONSE,
+) {
+  return {
+    match: (url: string) => url.endsWith('/auth/mfa/enroll/totp/verify'),
+    respond: () => jsonResponse(capture.status, capture.body),
+  };
+}
+
+/** POST /api/v1/auth/mfa/enroll/email - start the mailbox enrolment. */
+export function mfaEnrollEmailRoute(capture: CapturedResponse = ENROLL_EMAIL_RESPONSE) {
+  return {
+    match: (url: string) => url.endsWith('/auth/mfa/enroll/email'),
+    respond: () => jsonResponse(capture.status, capture.body),
+  };
+}
+
+/** POST /api/v1/auth/mfa/enroll/email/verify - activate the e-mail factor. */
+export function mfaEnrollEmailVerifyRoute(
+  capture: CapturedResponse = ENROLL_EMAIL_VERIFY_BAD_RESPONSE,
+) {
+  return {
+    match: (url: string) => url.endsWith('/auth/mfa/enroll/email/verify'),
+    respond: () => jsonResponse(capture.status, capture.body),
+  };
+}
+
+/** POST /api/v1/auth/mfa/enroll/radius - the honest captured 503 by default. */
+export function mfaEnrollRadiusRoute(
+  capture: CapturedResponse = ENROLL_RADIUS_UNCONFIGURED_RESPONSE,
+) {
+  return {
+    match: (url: string) => url.endsWith('/auth/mfa/enroll/radius'),
+    respond: () => jsonResponse(capture.status, capture.body),
+  };
+}
+
+/** POST /api/v1/auth/mfa/stepup - the fresh-assertion window (captured). */
+export function mfaStepupRoute(capture: CapturedResponse = STEPUP_OK_RESPONSE) {
+  return {
+    match: (url: string) => url.endsWith('/auth/mfa/stepup'),
+    respond: () => jsonResponse(capture.status, capture.body),
+  };
+}
+
+/**
+ * A login stub for the identity flows: the callback decides per request
+ * (the forced-change 403, the MFA challenge, the OTP retry, the mint).
+ */
+export function authLoginRoute(
+  respond: (init?: RequestInit) => Response | Promise<Response>,
+) {
+  return {
+    match: (url: string) => url.endsWith('/auth/login'),
+    respond,
+  };
+}
+
+/** The Security & MFA route set (ADR-0017 batch 11.8, /security). */
+export function securityRoutes() {
+  return [
+    whoamiRoute(WHOAMI_OPEN_BODY),
+    healthRoute(),
+    mfaFactorsRoute(),
+    mfaBackupCodesRoute(),
+    mfaEnrollTotpRoute(),
+    mfaEnrollTotpVerifyRoute(),
+    mfaEnrollEmailRoute(),
+    mfaEnrollEmailVerifyRoute(),
+    mfaEnrollRadiusRoute(),
+    mfaStepupRoute(),
   ];
 }
 

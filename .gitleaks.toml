@@ -79,4 +79,12 @@ regexes = [
   # two literals only - any other generated_password value still fails
   # the scan.
   '''fixture-GeneratedOnce-0000|fixture-ResetOnce-0000''',
+  # The TOTP-enrol fixture body (frontend/app/src/test/securityFixtures.ts,
+  # ADR-0017 batch 1, `ENROLL_TOTP_RESPONSE`) carries
+  # `secret: 'fixture-TotpSecret-0000'` - same class as the two literals
+  # above: the rig capture's real enrolled TOTP secret was substituted out
+  # before the fixture was written (fixture-over-capture house rule), so no
+  # credential-shaped value from the rig exists in any staged file. The exact
+  # synthetic literal only - any other secret value still fails the scan.
+  '''fixture-TotpSecret-0000''',
 ]

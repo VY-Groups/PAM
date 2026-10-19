@@ -144,4 +144,11 @@ export const queryKeys = {
   // keys on its server-side source filter, mirroring the contract.
   usersList: (source: string) => ['users', 'list', source] as const,
   usersRoot: ['users'] as const,
+  // Security & MFA (ADR-0017 batch 11.8): one ['security', ...] root - a
+  // factor write (enrol, verify, delete) or a backup-code regeneration
+  // moves the same factor list, so every write invalidates securityFactors
+  // and the table follows (the page orchestrates it around the step-up
+  // retry-once flow).
+  securityFactors: ['security', 'factors'] as const,
+  securityRoot: ['security'] as const,
 } as const;

@@ -21,6 +21,7 @@ import { TopologyPage } from '../features/topology/TopologyPage';
 import { LoginPage } from '../features/auth/pages/LoginPage';
 import { SettingsPage } from '../features/settings/SettingsPage';
 import { UsersPage } from '../features/users/UsersPage';
+import { SecurityPage } from '../features/security/SecurityPage';
 
 /**
  * The ADR-0005 route table under the `/app` basename (ADR-0012). Every
@@ -28,9 +29,10 @@ import { UsersPage } from '../features/users/UsersPage';
  * link until its screen migrates (plan §8 strangler); Command Center,
  * Credential Vault, JIT Access, the Live Session Hub, Policy & Zero
  * Trust, Compliance & SOC2, Target Infrastructure, Vendor Access,
- * the Emergency Break-Glass, Enterprise Licensing and the ADR-0013
- * System & Workflow Maps are the implemented surfaces (live data), the
- * shell, guards and 404 are real from F3 on.
+ * the Emergency Break-Glass, Enterprise Licensing, the ADR-0013
+ * System & Workflow Maps, Users & Credentials (ADR-0016) and the
+ * Security & MFA self-service surface (ADR-0017) are the implemented
+ * surfaces (live data), the shell, guards and 404 are real from F3 on.
  */
 
 /** Sidebar paths with a real F4 page - everything else falls back below. */
@@ -52,6 +54,9 @@ const F4_LIVE_ROUTES = new Set([
   // ADR-0016 11.7: Users & Credentials - F4-native (no legacy screen
   // existed), live with its batch.
   '/users',
+  // ADR-0017 11.8: Security & MFA - F4-native self-service surface,
+  // live with its batch.
+  '/security',
 ]);
 
 export const routes: RouteObject[] = [
@@ -77,6 +82,7 @@ export const routes: RouteObject[] = [
       { path: '/topology', element: <TopologyPage /> },
       { path: '/settings', element: <SettingsPage /> },
       { path: '/users', element: <UsersPage /> },
+      { path: '/security', element: <SecurityPage /> },
       // ADR-0013 invariant: a pending fallback needs a legacy URL, so a
       // nav item without one must be implemented above (the type
       // predicate keeps the compiler honest).

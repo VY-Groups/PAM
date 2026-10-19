@@ -28,6 +28,7 @@ const NAV_LABELS = [
   'Emergency Break-Glass',
   'Vendor Access',
   'Users & Credentials',
+  'Security & MFA',
   'Settings',
   'System Maps',
 ];

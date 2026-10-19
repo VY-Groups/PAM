@@ -8,18 +8,22 @@ import { Navigate, useNavigate } from 'react-router';
 import { ApiError, expectOk, isBackendDown } from '../../../api/http';
 import {
   getHealth,
+  postApiV1AuthOtpStart,
+  postApiV1AuthPassword,
   postApiV1AuthRecoveryReset,
   postApiV1AuthRecoveryStart,
 } from '../../../api/generated';
 import { queryKeys } from '../../../api/queryKeys';
 import { useAuth } from '../../../app/providers/useAuth';
 import {
+  changePasswordSchema,
   loginSchema,
   mfaSchema,
   recoveryResetSchema,
   recoveryStartSchema,
 } from '../schemas';
 import type {
+  ChangePasswordFormValues,
   LoginFormValues,
   MfaFormValues,
   RecoveryResetFormValues,
@@ -49,6 +53,8 @@ export function LoginPage() {
   const navigate = useNavigate();
 
   const [challenge, setChallenge] = useState<string | null>(null);
+  const [changeUser, setChangeUser] = useState<string | null>(null);
+  const [otpChallenge, setOtpChallenge] = useState<string | null>(null);
   const [recovery, setRecovery] = useState<
     null | { step: 1 } | { step: 2; username: string; challengeId: string }
   >(null);
@@ -71,6 +77,10 @@ export function LoginPage() {
   });
   const recoveryResetForm = useForm<RecoveryResetFormValues>({
     resolver: zodResolver(recoveryResetSchema),
+    mode: 'onSubmit',
+  });
+  const changeForm = useForm<ChangePasswordFormValues>({
+    resolver: zodResolver(changePasswordSchema),
     mode: 'onSubmit',
   });
 
@@ -105,7 +115,12 @@ export function LoginPage() {
   const doLogin = async (
     username: string,
     password: string,
-    extra?: { login_challenge?: string; totp_code?: string },
+    extra?: {
+      login_challenge?: string;
+      totp_code?: string;
+      otp_challenge_id?: string;
+      otp_code?: string;
+    },
   ): Promise<void> => {
     setBusy(true);
     setError('');
@@ -116,6 +131,7 @@ export function LoginPage() {
         navigate('/', { replace: true });
       } else {
         setCreds({ username, password });
+        setOtpChallenge(null);
         setChallenge(outcome.challenge);
       }
     } catch (err) {
@@ -128,6 +144,14 @@ export function LoginPage() {
               methods: err.body?.methods_allowed?.join(', ') ?? '',
             }),
           );
+        } else if (
+          err.status === 403 &&
+          (err.details as { reason?: string } | null)?.reason === 'password-change-required'
+        ) {
+          // captured 403 {details: {reason: "password-change-required"}} -
+          // the server refuses sign-in until POST /auth/password runs
+          setChallenge(null);
+          setChangeUser(username);
         } else if (err.body?.error) {
           setError(err.body.error);
         } else {
@@ -149,13 +173,87 @@ export function LoginPage() {
   const onUserInvalid = (): void => setError(t('login.required'));
   const onMfaValid = (values: MfaFormValues): void => {
     if (creds) {
-      void doLogin(creds.username, creds.password, {
-        login_challenge: challenge ?? undefined,
-        totp_code: values.code,
-      });
+      if (otpChallenge !== null) {
+        // e-mail OTP arm: the challenge id + code travel inline at login
+        // (openapi /auth/login otp_challenge_id, otp_code)
+        void doLogin(creds.username, creds.password, {
+          otp_challenge_id: otpChallenge,
+          otp_code: values.code,
+        });
+      } else {
+        void doLogin(creds.username, creds.password, {
+          login_challenge: challenge ?? undefined,
+          totp_code: values.code,
+        });
+      }
     }
   };
   const onMfaInvalid = (): void => setError(t('login.enterCode'));
+
+  /**
+   * Start the e-mail OTP login challenge: the captured generic 202
+   * ({status, challenge_id}) is byte-identical for every username - the
+   * same anti-enumeration contract as the recovery flow (ADR-0016).
+   */
+  const sendLoginOtp = (): void => {
+    if (!creds) return;
+    void (async () => {
+      setBusy(true);
+      setError('');
+      setNotice('');
+      try {
+        const res = expectOk(
+          await postApiV1AuthOtpStart({ username: creds.username, purpose: 'login' }),
+        );
+        const id = (res.data as { challenge_id?: unknown }).challenge_id;
+        if (typeof id !== 'string' || id === '') {
+          setError(t('errors.unexpectedBody'));
+          return;
+        }
+        setOtpChallenge(id);
+        setNotice(t('login.otpSent'));
+      } catch (err) {
+        recoveryFailure(err);
+      } finally {
+        setBusy(false);
+      }
+    })();
+  };
+
+  /** POST /auth/password - the captured forced-change path (ADR-0017 D1). */
+  const onChangeValid = (values: ChangePasswordFormValues): void => {
+    if (changeUser === null) return;
+    const username = changeUser;
+    void (async () => {
+      setBusy(true);
+      setError('');
+      setNotice('');
+      try {
+        const res = expectOk(
+          await postApiV1AuthPassword({
+            username,
+            old_password: values.old_password,
+            new_password: values.new_password,
+          }),
+        );
+        const message = (res.data as { message?: unknown }).message;
+        // the server's own answer renders verbatim ("Password changed")
+        setNotice(
+          typeof message === 'string' && message !== ''
+            ? message
+            : t('errors.unexpectedBody'),
+        );
+        setChangeUser(null);
+        userForm.setValue('username', username);
+        changeForm.reset();
+      } catch (err) {
+        recoveryFailure(err);
+      } finally {
+        setBusy(false);
+      }
+    })();
+  };
+  const onChangeInvalid = (): void => setError(t('login.changeEnterAll'));
 
   /** Enter recovery step 1, carrying over a username already typed. */
   const startRecovery = (): void => {
@@ -246,14 +344,70 @@ export function LoginPage() {
           </div>
         </div>
 
-        {challenge !== null ? (
+        {changeUser !== null ? (
+          <form
+            className="flex flex-col gap-space-md"
+            onSubmit={changeForm.handleSubmit(onChangeValid, onChangeInvalid)}
+            noValidate
+          >
+            <p className="font-body-sm text-body-sm text-on-surface-variant">
+              {t('login.changeTitle')}
+            </p>
+            <p className="font-body-sm text-body-sm text-on-surface-variant">
+              {t('login.changeHint')}
+            </p>
+            <label className="flex flex-col gap-1">
+              <span className="font-label-md text-label-md text-on-surface-variant">
+                {t('login.changeCurrent')}
+              </span>
+              <input
+                {...changeForm.register('old_password')}
+                autoComplete="current-password"
+                type="password"
+                className={inputClass}
+              />
+            </label>
+            <label className="flex flex-col gap-1">
+              <span className="font-label-md text-label-md text-on-surface-variant">
+                {t('login.changeNew')}
+              </span>
+              <input
+                {...changeForm.register('new_password')}
+                autoComplete="new-password"
+                type="password"
+                className={inputClass}
+              />
+            </label>
+            <p className="font-body-sm text-body-sm text-on-surface-variant">
+              {t('login.recoveryPolicy')}
+            </p>
+            <button
+              type="submit"
+              disabled={busy}
+              className="w-full py-2 rounded-lg bg-primary text-on-primary font-label-md text-label-md font-semibold hover:bg-primary-container transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              {t('login.changeSubmit')}
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setChangeUser(null);
+                setError('');
+                setNotice('');
+              }}
+              className="w-full py-1.5 rounded-lg bg-surface-container text-on-surface font-label-md text-label-md font-semibold hover:bg-surface-container-high transition-colors"
+            >
+              {t('login.back')}
+            </button>
+          </form>
+        ) : challenge !== null ? (
           <form
             className="flex flex-col gap-space-md"
             onSubmit={mfaForm.handleSubmit(onMfaValid, onMfaInvalid)}
             noValidate
           >
             <p className="font-body-sm text-body-sm text-on-surface-variant">
-              {t('login.mfaPrompt')}
+              {t(otpChallenge !== null ? 'login.otpPrompt' : 'login.mfaPrompt')}
             </p>
             <label className="flex flex-col gap-1">
               <span className="font-label-md text-label-md text-on-surface-variant">
@@ -277,9 +431,19 @@ export function LoginPage() {
             </button>
             <button
               type="button"
+              disabled={busy}
+              onClick={sendLoginOtp}
+              className="w-full py-1.5 rounded-lg bg-surface-container text-on-surface font-label-md text-label-md font-semibold hover:bg-surface-container-high transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              {t('login.sendEmailCode')}
+            </button>
+            <button
+              type="button"
               onClick={() => {
                 setChallenge(null);
+                setOtpChallenge(null);
                 setError('');
+                setNotice('');
               }}
               className="w-full py-1.5 rounded-lg bg-surface-container text-on-surface font-label-md text-label-md font-semibold hover:bg-surface-container-high transition-colors"
             >

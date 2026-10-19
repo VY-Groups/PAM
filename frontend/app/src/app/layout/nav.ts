@@ -93,6 +93,14 @@ export const NAV_ITEMS: NavItem[] = [
     icon: 'manage_accounts',
   },
   {
+    // ADR-0017 (batch 11.8): F4-native self-service surface - no legacy
+    // screen ever existed for personal MFA management, so the item carries
+    // no legacyHref and the /security route ships live with it.
+    path: '/security',
+    labelKey: 'nav.security',
+    icon: 'security',
+  },
+  {
     path: '/settings',
     labelKey: 'nav.settings',
     icon: 'tune',

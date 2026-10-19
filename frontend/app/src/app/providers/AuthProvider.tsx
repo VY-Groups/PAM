@@ -37,7 +37,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     async (
       username: string,
       password: string,
-      extra?: { login_challenge?: string; totp_code?: string },
+      extra?: {
+        login_challenge?: string;
+        totp_code?: string;
+        otp_challenge_id?: string;
+        otp_code?: string;
+      },
     ): Promise<LoginOutcome> => {
       const res: postApiV1AuthLoginResponse = await postApiV1AuthLogin({
         username,

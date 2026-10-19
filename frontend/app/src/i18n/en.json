@@ -22,6 +22,7 @@
     "vendorAccess": "Vendor Access",
     "settings": "Settings",
     "users": "Users & Credentials",
+    "security": "Security & MFA",
     "topology": "System Maps"
   },
   "shell": {
@@ -55,6 +56,15 @@
     "recoverySubmit": "Set new password",
     "recoveryUsernameRequired": "Enter your username to request a code.",
     "recoveryEnterAll": "Enter the code and a new password of at least 14 characters.",
+    "changeTitle": "Password change required",
+    "changeHint": "Your administrator flagged this account: set a new password before sign-in continues.",
+    "changeCurrent": "Current password",
+    "changeNew": "New password",
+    "changeSubmit": "Change password",
+    "changeEnterAll": "Enter your current password and a new password of at least 14 characters.",
+    "otpSent": "If that account exists, a one-time code was sent to its registered e-mail.",
+    "otpPrompt": "Enter the one-time code e-mailed to your account.",
+    "sendEmailCode": "E-mail me a one-time code",
     "refused": "Login refused ({{status}}).",
     "enrolmentRequired": "Account not yet enrolled ({{methods}}): an enrolment ticket is required - fail-closed, no silent pass.",
     "serverFooter": "License server: {{state}}",
@@ -1688,6 +1698,78 @@
         "s4n": "The grant is the only thing the broker will honour",
         "s5": "Close the grant"
       }
+    }
+  },
+  "security": {
+    "page": {
+      "title": "Security & MFA",
+      "subtitle": "Your sign-in factors, step-up verification and backup codes - self-service, every change audited."
+    },
+    "columns": {
+      "factor": "Factor",
+      "label": "Label",
+      "status": "Status",
+      "lastUsed": "Last used",
+      "actions": "Actions"
+    },
+    "states": {
+      "loading": "Loading your factors…",
+      "error": "Cannot load factors: {{message}}",
+      "empty": "No factors yet - enrol an authenticator app below; fail-closed sign-in needs one."
+    },
+    "statusChips": {
+      "active": "Active",
+      "inactive": "Inactive",
+      "never": "Never"
+    },
+    "actions": {
+      "remove": "Remove",
+      "confirmRemove": "Remove the {{label}} factor? Sign-in keeps working while another factor remains."
+    },
+    "totp": {
+      "title": "Authenticator app",
+      "subtitle": "Add your authenticator (Google Authenticator, Authy, 1Password…): the secret is shown once, then prove it with a live code.",
+      "enrol": "Set up authenticator app",
+      "secretTitle": "Shown once - add it to your authenticator now; it cannot be read back.",
+      "secretLabel": "Secret",
+      "uriLabel": "Manual entry URI",
+      "copy": "Copy secret",
+      "copied": "Secret copied.",
+      "copyFailed": "Copy failed - select the value manually.",
+      "code": "Current code from the app",
+      "codeRequired": "Enter the current code from your authenticator app.",
+      "verify": "Verify and activate",
+      "verified": "Authenticator app verified ({{method}})."
+    },
+    "backup": {
+      "title": "Backup codes",
+      "subtitle": "Ten single-use codes for when your authenticator is gone - generating a new set retires every earlier code.",
+      "generate": "Generate backup codes"
+    },
+    "email": {
+      "title": "E-mail one-time code",
+      "subtitle": "Enrol your registered mailbox as a second factor: the code proves you control the address.",
+      "send": "E-mail me a code",
+      "sent": "If your account has a registered mailbox, a one-time code was sent to it.",
+      "smtpNote": "No mail server configured yet? The attempt is still recorded on the auth trail - an administrator configures SMTP in Platform Settings.",
+      "code": "One-time code",
+      "codeRequired": "Enter the one-time code from your mailbox.",
+      "verify": "Verify e-mail factor",
+      "verified": "E-mail factor enrolled."
+    },
+    "stepup": {
+      "title": "Step-up verification",
+      "subtitle": "This action needs a fresh MFA assertion - enter a current code and the action continues once.",
+      "code": "Verification code",
+      "codeRequired": "Enter the verification code.",
+      "verify": "Verify step-up",
+      "verified": "Step-up verified ({{method}})."
+    },
+    "radius": {
+      "title": "RADIUS push/OTP",
+      "subtitle": "Enrol the factor your organisation's RADIUS server issues - the code arrives out of band on the authenticator the server owns.",
+      "enrol": "Enrol RADIUS factor",
+      "verified": "RADIUS factor enrolled."
     }
   },
   "settings": {
