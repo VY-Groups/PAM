@@ -6,10 +6,17 @@
 #                   public half (the repo tracks only the public key; a
 #                   fresh private key must pair with a re-derived public,
 #                   and the suite signs with the product's real key),
-#                   then python -m pytest backend -q (host count;
-#                   proven 2026-10-16 in a committed-tree-only container
-#                   mirror: 794 passed)
-#   docker-tests  : compose run ... pytest tests -q      (in-container count)
+#                   then python -m pytest backend -q (single PostgreSQL
+#                   leg since ADR-0019 D5; the committed-tree container
+#                   mirror printed 794 passed on 2026-10-16, and this
+#                   tree printed 834 passed, 0 skipped on postgres:16
+#                   2026-10-20)
+#   docker-tests  : compose run ... pytest tests -q (in-container count:
+#                   phase2 tests/ scope, so this tree printed 752 passed,
+#                   161 warnings in 4057.31s (1:07:37) over the compose
+#                   postgres:16, exitcode=0, 2026-10-20 - the repo-root
+#                   834 above plus these 752 minus the 82 ipam_licensing
+#                   tests the repo-root command also collects)
 #   lint          : ruff 0.17.0, pyflakes errors gate (E9,F63,F7,F82) - clean
 #   security      : bandit 1.9.4 High+Medium gate - 0 findings after the
 #                   scheme-guard hardening (gateway_daemon/hsm/integrations/
@@ -21,10 +28,12 @@
 #                   ephemeral-key rig, seed it with tools/demo_seed.py, run
 #                   __verify_agent.mjs (playwright, msedge preinstalled) in
 #                   open mode and __verify_live.mjs over the wired screens,
-#                   then a token-mode rig with GATE_ADMIN_TOKEN. Every
-#                   command was executed locally on the same toolchain
-#                   first (the demo seed and both gate modes ran against
-#                   real rigs on this Windows box before the YAML shipped).
+#                   then a token-mode rig with GATE_ADMIN_TOKEN. Both rigs
+#                   are PostgreSQL-backed (the job's own postgres:16
+#                   container, ADR-0019). Every command was executed
+#                   locally on the same toolchain first (the demo seed and
+#                   both gate modes ran against PG-backed rigs on this
+#                   Windows box before the YAML shipped).
 #   frontend-rebuild : pnpm@12.11.2 (node 24) in frontend/app - install
 #                   --frozen-lockfile, pnpm audit (no known vulnerabilities,
 #                   added 2026-10-16 batch C), orval regenerate + git diff
@@ -51,8 +60,28 @@ concurrency:
 
 jobs:
   backend-tests:
-    name: Backend suite (Linux host count)
+    # ADR-0019 D5 (amended): PostgreSQL is the only storage engine - one
+    # leg, one suite, no engine matrix (the workflow stays at 6 checks).
+    name: Backend suite (Linux host, PostgreSQL)
     runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: pam
+          POSTGRES_PASSWORD: pam
+          POSTGRES_DB: pam
+        ports:
+          - 5432:5432
+        # docker's default 64MB /dev/shm crashed PostgreSQL under the first
+        # full battery (DSM resize ENOSPC -> segfault -> recovery mode, the
+        # 136-error cascade; ADR-0019 battery findings)
+        options: >-
+          --health-cmd "pg_isready -U pam"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+          --shm-size 1g
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -77,7 +106,9 @@ jobs:
       #      mismatched pair, so the stale public half goes; first boot
       #      re-derives it from the new private key (keys.py
       #      _check_public_key writes the public when it is missing).
-      # Mirror result with these exact steps: 794 passed.
+      # Mirror result with these exact steps: 794 passed (2026-10-16);
+      # the full suite on this tree over postgres:16 printed 834 passed,
+      # 0 skipped (2026-10-20, ADR-0019 D5).
       - name: Generate the signing keys once (the repo tracks only the public half)
         working-directory: pam_master
         run: python -m pam_master.keygen
@@ -85,14 +116,19 @@ jobs:
         run: rm license_public_key.pem
       - name: Full backend suite
         run: python -m pytest backend -q
+        env:
+          PAM_TEST_DATABASE_URI: postgresql+psycopg://pam:pam@127.0.0.1:5432/pam
 
   docker-tests:
     name: In-container suite (dev image)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      # ADR-0019 D5/D7 (amended): compose starts its postgres dependency
+      # (service_healthy) and the suite runs against it - the same engine
+      # the product ships, in the same shape it ships.
       - name: Build the dev image and run the baked-in tests
-        run: docker compose -f backend/phase2_license_server/docker-compose.yml run --build --rm --no-deps license-server python -m pytest tests -q
+        run: docker compose -f backend/phase2_license_server/docker-compose.yml run --build --rm -e PAM_TEST_DATABASE_URI=postgresql+psycopg://pam:pam@postgres:5432/pam license-server python -m pytest tests -q
 
   lint:
     name: Ruff (pyflakes errors gate)
@@ -204,12 +240,23 @@ jobs:
           npm install -g pnpm@12.11.2 && pnpm --version
           pnpm install --frozen-lockfile
           pnpm build
+      - name: "Start PostgreSQL for the rigs (ADR-0019 D5: one engine)"
+        shell: pwsh
+        run: |
+          docker run -d --name vypam-ci-pg -e POSTGRES_USER=pam -e POSTGRES_PASSWORD=pam -e POSTGRES_DB=pam -p 5432:5432 --shm-size=1g postgres:16
+          foreach ($i in 1..45) {
+            docker exec vypam-ci-pg pg_isready -U pam
+            if ($LASTEXITCODE -eq 0) { break }
+            Start-Sleep -Seconds 2
+          }
+          docker exec vypam-ci-pg psql -U pam -d postgres -c "CREATE DATABASE pam_ci_open;"
+          docker exec vypam-ci-pg psql -U pam -d postgres -c "CREATE DATABASE pam_ci_token;"
       - name: "Open-mode rig: boot, seed, standing gate, live-screen verify"
         shell: pwsh
         run: |
           $keydir = Join-Path $env:RUNNER_TEMP "vypam-ci-keys"
           New-Item -ItemType Directory -Force -Path $keydir | Out-Null
-          $env:LICENSE_DATABASE_URI = "sqlite:///" + ((Join-Path $env:RUNNER_TEMP "vypam_ci_open.db") -replace '\\','/')
+          $env:LICENSE_DATABASE_URI = "postgresql+psycopg://pam:pam@127.0.0.1:5432/pam_ci_open"
           $env:LICENSE_SERVER_PORT = "5000"
           $env:PAM_NODE_NAME = "ci-rig"
           $env:LICENSE_PRIVATE_KEY_PATH = Join-Path $keydir "ci_private.pem"
@@ -236,7 +283,7 @@ jobs:
         run: |
           $keydir = Join-Path $env:RUNNER_TEMP "vypam-ci-keys-token"
           New-Item -ItemType Directory -Force -Path $keydir | Out-Null
-          $env:LICENSE_DATABASE_URI = "sqlite:///" + ((Join-Path $env:RUNNER_TEMP "vypam_ci_token.db") -replace '\\','/')
+          $env:LICENSE_DATABASE_URI = "postgresql+psycopg://pam:pam@127.0.0.1:5432/pam_ci_token"
           $env:LICENSE_SERVER_PORT = "5001"
           $env:PAM_NODE_NAME = "ci-rig"
           $env:LICENSE_ADMIN_TOKEN = "ci-gate-token-" + [guid]::NewGuid().ToString("N").Substring(0, 12)

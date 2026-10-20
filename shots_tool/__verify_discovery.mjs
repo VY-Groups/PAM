@@ -1,9 +1,8 @@
 // Discovery screen e2e: real UI actions against a throwaway server instance
-// (own port + own DB, so the dev database stays pristine), then a file://
-// honesty sweep. Exit code 1 on any failed assertion.
+// (own port + own PostgreSQL database, so the dev database stays pristine),
+// then a file:// honesty sweep. Exit code 1 on any failed assertion.
 import { chromium } from 'playwright-core';
-import { spawn } from 'node:child_process';
-import { mkdirSync, rmSync } from 'node:fs';
+import { spawn, spawnSync } from 'node:child_process';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -66,15 +65,32 @@ async function sweep(page, mode) {
 }
 
 // --------------------------------------------------------------- server ----
-const tmpDir = join(SHOTS_DIR, '.tmp');
-mkdirSync(tmpDir, { recursive: true });
-const dbPath = join(tmpDir, `discovery_ui_${process.pid}.db`);
+// ADR-0019 D5/D10: PostgreSQL is the only storage engine - the gate boots
+// its server against a dedicated fresh database on the developer's
+// PostgreSQL (PAM_GATE_DATABASE_URI, defaulting to the local server).
+const MAINT_URI = process.env.PAM_GATE_DATABASE_URI
+  || 'postgresql+psycopg://pam:pam@127.0.0.1:5432/pam';
+const dbName = `pam_gate_disc_${process.pid}`;
+const maintain = (db) => MAINT_URI.replace(/\/[^/]*$/, `/${db}`);
+// raw psycopg speaks the plain postgresql:// scheme (the +psycopg suffix
+// is SQLAlchemy's driver selection)
+const rawUri = (db) => maintain(db).replace(/^postgresql\+psycopg:/, 'postgresql:');
+const resetDb = spawnSync('python', ['-c', [
+  'import psycopg',
+  `with psycopg.connect(${JSON.stringify(rawUri('postgres'))}, autocommit=True) as c:`,
+  `    c.execute('DROP DATABASE IF EXISTS "${dbName}" WITH (FORCE)')`,
+  `    c.execute('CREATE DATABASE "${dbName}"')`,
+].join('\n')], { encoding: 'utf8' });
+if (resetDb.status !== 0) {
+  console.error(resetDb.stdout || '', resetDb.stderr || '');
+  throw new Error('could not prepare a fresh PostgreSQL database for the gate');
+}
 const server = spawn('python', ['app.py'], {
   cwd: join(REPO, 'backend', 'phase2_license_server'),
   env: {
     ...process.env,
     LICENSE_SERVER_PORT: String(PORT),
-    LICENSE_DATABASE_URI: `sqlite:///${dbPath.replace(/\\/g, '/')}`,
+    LICENSE_DATABASE_URI: maintain(dbName),
   },
   stdio: ['ignore', 'pipe', 'pipe'],
 });
@@ -262,7 +278,13 @@ try {
   if (browser) await browser.close().catch(() => {});
   server.kill();
   await sleep(400);
-  try { rmSync(dbPath, { force: true }); } catch { /* lock may linger */ }
+  try {
+    spawnSync('python', ['-c', [
+      'import psycopg',
+      `with psycopg.connect(${JSON.stringify(rawUri('postgres'))}, autocommit=True) as c:`,
+      `    c.execute('DROP DATABASE IF EXISTS "${dbName}" WITH (FORCE)')`,
+    ].join('\n')]);
+  } catch { /* best-effort cleanup */ }
 }
 
 console.log('\n---------------------------------------------');

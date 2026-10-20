@@ -61,7 +61,7 @@ Supported wire formats and algorithms:
 | `tests/test_cloud.py` | §14 cloud PAM: connector lifecycle + honest states, endpoint rules, real probes, inventory upsert/refusals, K8s RBAC → JIT → real RoleBinding apply/remove, delete guard, stats, ledger fan-in |
 | `tests/test_broker.py` | §15 CI/CD credential broker: pipeline token auth (shown once, sha256, never waived), auto/manual policies, TTL cap + target scope refusals, approval queue, release (secret once) → close/expiry rotation, revoke cascade, stats, ledger fan-in |
 | `tests/test_agent.py` | §16 AI-agent PAM: identity lifecycle + agent token auth (shown once, sha256, never waived), task allow-list CRUD + refusals (unknown task/out-of-target/cap), risk landings (low auto-approve with binding snapshot, medium sign-off, critical block), open/close with forced recording, revoke + task-delete cascades, expiry, stats, ledger fan-in |
-| `tests/test_cluster.py` | §18 HA/DC/DR: node registry + real probes, hash-verified pull replication (audit/vault/sessions), passive write gate (409 before auth), role failover + opt-in monitor, verified SQLite backups, admin-401 |
+| `tests/test_cluster.py` | §18 HA/DC/DR: node registry + real probes, hash-verified pull replication (audit/vault/sessions), passive write gate (409 before auth), role failover + opt-in monitor, verified logical backup bundles, admin-401 |
 | `tests/test_sso.py` | 6c SSO: SAML + OIDC happy paths, signature/tamper/replay/expiry refusals, MFA fail-closed, sessions + revoke, binding-kind gating, ledger fan-in |
 | `tests/test_hsm.py` | 6c HSM custody: providers, envelope wrap/rotate, advisory/enforced, seal/unseal, honest refusals, ledger fan-in |
 | `tests/test_identity.py` | 7 identity & login: scrypt policy, console sessions + CSRF, fail-closed MFA ladder, identical 401 refusals (no enumeration), lockout/unlock, actor binding, emergency admin dual control, factor recovery |
@@ -193,17 +193,19 @@ is no seed inventory: every credential enters through **Onboard New Credential**
 "not connected" states instead of sample rows.
 
 ```bash
-python -m pytest tests -q     # 712 tests (from backend/phase2_license_server)
-python -m pytest backend -q   # 794 tests from the repo root (+ shared crypto core)
+export PAM_TEST_DATABASE_URI=postgresql+psycopg://pam:pam@127.0.0.1:5432/pam
+python -m pytest backend -q   # 834 passed from the repo root (+ shared crypto core)
+python -m pytest tests -q     # the server suite (from backend/phase2_license_server)
 ```
 
 **Docker (development/runtime testing only — never a shipping instruction):**
 `Dockerfile` + `docker-compose.yml` in this folder build a dev-only image from
-the repository root (`docker compose up --build` → host **5010 → container
-5000**, throwaway `dev-admin-token`, fresh in-container database per `up`;
-`.dockerignore` keeps `*.pem`/`*.key`/`.env`/`*.db` out of every build
-context). The same image runs this suite in its Linux runtime:
-`docker run --rm vypam-license-server:dev python -m pytest tests -q`.
+the repository root and start it against a real `postgres:16` service
+(`docker compose up --build` → host **5010 → container 5000**, throwaway
+`dev-admin-token`, named volume, `down -v` starts empty; `.dockerignore`
+keeps `*.pem`/`*.key`/`.env`/`*.db` out of every build context). The same
+image runs this suite in its Linux runtime against the same service:
+`docker compose run --rm license-server python -m pytest tests -q`.
 
 ## Configuration
 
@@ -221,7 +223,9 @@ See `.env.example`. Highlights:
   generation) lives in PAM-MASTER / the Phase 1 CLI.
 - `LICENSE_AUTOGENERATE_KEYS=1` — allow creating a missing key pair (dev only;
   it changes which licenses are verifiable).
-- `LICENSE_DATABASE_URI` — defaults to SQLite next to this README.
+- `LICENSE_DATABASE_URI` — **required**: the PostgreSQL server
+  (`postgresql+psycopg://user:pass@host:5432/db`). PostgreSQL is the only
+  storage engine (ADR-0019); the server refuses to boot without it.
 - `VAULT_KEY_PATH` — AES-256-GCM master key for credential-vault secrets
   (default `vault_master.key` next to the database; `*.key` is gitignored).
   `VAULT_AUTOGENERATE_KEY=1` (default) creates a missing key once on first
@@ -393,7 +397,7 @@ cross-checked against these routes by `tests/test_openapi_contract.py`.
 | POST | `/cluster/failover` | admin | `{"action":"promote"\|"demote"}` flips this node's role (already there → 409), `from`/`to` on the §19 trail |
 | POST | `/cluster/monitor/tick` | admin | One auto-failover decision: no-op while active; promotes only after 3 consecutive failures **and** every active peer failed |
 | GET | `/cluster/backups` | admin | Backup ledger: path, size, sha256, audit seq, verification result |
-| POST | `/cluster/backups` | admin | SQLite online backup into `CLUSTER_BACKUP_DIR` (201): copy re-opened read-only + chain re-walked; non-SQLite engine → 503 |
+| POST | `/cluster/backups` | admin | Logical NDJSON bundle of every table into `CLUSTER_BACKUP_DIR` (201): file hashed, then re-parsed and its embedded chain re-walked (ADR-0019 D4) |
 | GET | `/cluster/export/vault` | admin | Replicated ciphertext + metadata only (never plaintext) |
 | GET | `/cluster/export/sessions` | admin | Session metadata stream (ids, targets, times - no recording content) |
 | GET | `/auth/sso/status` | – | 6c SSO runtime truth: protocol, slots live, `enforce_sso`, `require_mfa`, sessions active + subjects |
@@ -1038,11 +1042,11 @@ curl -s -X POST http://127.0.0.1:5000/api/v1/cluster/failover \
   -d '{"action":"demote","reason":"planned handover to pam-dr-2"}'
 # -> {"node": "pam-node-1", "from": "active", "to": "passive"}
 
-# a verified backup: SQLite online backup API, then the copy is re-opened
-# read-only and its chain re-walked before the 201 returns
+# a verified backup: a logical NDJSON bundle of every table, hashed,
+# re-parsed and its embedded chain re-walked before the 201 returns
 curl -s -X POST http://127.0.0.1:5000/api/v1/cluster/backups \
   -H 'X-Actor: runbook'
-# -> {"backup": {"path": ".../pam-backup-20261010T...-seq67.db",
+# -> {"backup": {"path": ".../pam-backup-20261010T...-seq67.ndjson",
 #     "sha256": "...", "size_bytes": 245760, "audit_seq": 67,
 #     "verified": true, "verify_detail": "chain intact over 67 records"},
 #     "message": "Backup created"}  (201)
@@ -1060,7 +1064,8 @@ curl -s -X POST http://127.0.0.1:5000/api/v1/cluster/backups \
   command control (incidents and their closure included) and risk (every §7
   evaluation, refusals included) — into one
   `audit_events` chain: `seq` + `prev_hash` link each record to a sha256 over
-  its canonical content, SQLite triggers refuse `UPDATE`/`DELETE` outright
+  its canonical content, the engine's append-only triggers refuse
+  `UPDATE`/`DELETE` outright
   (`audit_events is append-only (architecture 19)`), first boot backfills any
   pre-existing history exactly once, and `/audit/verify` reports the first
   break instead of trusting the row count. Channel content stays in the

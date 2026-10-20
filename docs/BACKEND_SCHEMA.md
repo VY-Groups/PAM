@@ -1,9 +1,10 @@
 # VY-PAM — Backend Schema
 
-**Status:** as-built for Phase 8a
-Two databases: the **shipped runtime DB** (`backend/phase2_license_server/
-licenses.db`, SQLAlchemy/Flask-SQLAlchemy) and the **vendor-tool DB**
-(`pam_master/master.db`, raw `sqlite3`). Both are SQLite, both git-ignored.
+**Status:** as-built for Phase 8a (storage: PostgreSQL, ADR-0019)
+Two stores: the **shipped runtime DB** (PostgreSQL, required via
+`LICENSE_DATABASE_URI`, SQLAlchemy/Flask-SQLAlchemy) and the **vendor-tool
+DB** (`pam_master/master.db`, raw `sqlite3`, repo-internal tooling only -
+ADR-0019 D9).
 
 Schema management: `db.create_all()` at first boot +
 `models.ensure_schema()` for **additive** column backfill on upgrade — no
@@ -44,7 +45,7 @@ cluster_nodes ─1:n─ cluster_events            (node_id → cluster_nodes; §
 cluster_nodes ─1:n─ cluster_audit_replicas    (peer chain evidence re-hashed here - never merged into audit_events)
 cluster_nodes ─1:n─ cluster_secret_replicas   (peer vault ciphertext stored sealed; plaintext_here flags a local key match)
 cluster_nodes ─1:n─ cluster_session_replicas  (peer session metadata as evidence, not a merge)
-cluster_backups                              (verified SQLite copies: path + sha256 + audit_seq)
+cluster_backups                              (verified logical backup bundles: path + sha256 + audit_seq)
 roles                                     (the five built-in roles, seeded once at startup; per-operation policy in code)
 role_bindings                             (who holds which role + ABAC scope; local tokens sha256 at rest, revocation is a timestamp - row kept as evidence)
 rbac_events                               (grant/revoke actions → ledger source `rbac`; the minted token never enters `detail`)
@@ -75,10 +76,11 @@ gateway_events                            (module trail → ledger source `gatew
 audit_events                                    (hash chain over all of the above)
 ```
 
-Referential integrity in the runtime DB is **application-enforced** (indexed
-integer references, no `FOREIGN KEY` constraints) — deliberate for SQLite
-`create_all` simplicity; tests assert cascade behavior. The vendor DB does
-use real FKs (`PRAGMA foreign_keys = ON`).
+Referential integrity in the runtime DB: the models declare the
+relationships (enforced by PostgreSQL), except the evidence references
+deliberately kept inert (ADR-0019 D2/D10, `EVIDENCE_FOREIGN_KEYS`) - tests
+assert the cascade behavior. The vendor-tool DB does use real FKs
+(`PRAGMA foreign_keys = ON`).
 
 ### 1.1 `licenses` — imported signed entitlements
 
@@ -626,7 +628,7 @@ DateTime indexed.
 | payload | JSON | ✗ | `{}` | metadata only — ids, targets, times; never recording content |
 | synced_at | DateTime | ✗ | now | indexed |
 
-### 1.44 `cluster_backups` — §18 verified SQLite backup ledger
+### 1.44 `cluster_backups` - §18 verified backup ledger
 
 | Column | Type | Null | Default | Index/Notes |
 |---|---|---|---|---|

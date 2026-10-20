@@ -1005,7 +1005,7 @@
       "triggers": "APPEND-ONLY TRIGGERS",
       "triggersInstalled": "installed",
       "triggersMissing": "MISSING",
-      "triggersFooter": "append-only SQLite enforcement"
+      "triggersFooter": "append-only PostgreSQL enforcement"
     },
     "digest": {
       "title": "Hash-chain digest",

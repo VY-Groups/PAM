@@ -16,7 +16,6 @@ import json
 import re
 import secrets
 import socket
-import sqlite3
 import threading
 import time
 import urllib.error
@@ -27,12 +26,18 @@ from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Set, Tuple
 
+from sqlalchemy import (
+    MetaData as sa_MetaData,
+    Select as sa_Select,
+    Table as sa_Table,
+    inspect as sa_inspect,
+)
+
 from config import Config
 from errors import (
     APIError,
     Conflict,
     NotFound,
-    ServiceUnavailable,
     Unauthorized,
     ValidationFailed,
 )
@@ -580,8 +585,8 @@ def list_licenses(
 
     `status` accepts 'active' (not revoked), 'revoked', 'valid' (active and
     unexpired) and 'expired'. Expiry is evaluated in Python because the
-    datetime columns are naive local time, which SQLite's date functions
-    would compare against UTC.
+    datetime columns are naive local time, which the database's own
+    comparison would interpret against its UTC convention.
     """
     allowed_statuses = {STATUS_ACTIVE, STATUS_REVOKED, "valid", "expired"}
     if status and status not in allowed_statuses:
@@ -7898,9 +7903,9 @@ def list_vendors(
     if status is not None:
         query = query.filter_by(status=status)
     if q is not None and q.strip():
-        like = f"%{q.strip()}%"
+        pattern = f"%{q.strip()}%"
         query = query.filter(
-            VendorAccount.name.like(like) | VendorAccount.contact.like(like)
+            VendorAccount.name.ilike(pattern) | VendorAccount.contact.ilike(pattern)
         )
     total = query.count()
     rows = (
@@ -11082,9 +11087,9 @@ def agent_stats() -> Dict[str, Any]:
 # HA / DC / DR (architecture section 18): a node registry with real health
 # probes, pull replication (audit chain hash-verified record by record,
 # vault ciphertext, session metadata), role-enforced failover, an opt-in
-# automatic-failover monitor and real SQLite backups.
+# automatic-failover monitor and verified logical backup bundles.
 #
-# The shipped server is one node (SQLite, one process); what section 18
+# The shipped server is one node (one process); what section 18
 # asks for is delivered as the honest single-binary halves:
 #
 #   - `cluster_nodes` holds this node (its identity comes from the
@@ -11106,9 +11111,10 @@ def agent_stats() -> Dict[str, Any]:
 #     peers; when every one of them has failed
 #     CLUSTER_FAILOVER_FAILURES consecutive probes, the passive node
 #     promotes itself with the failures recorded as the reason.
-#   - Backups use SQLite's own online backup API against the live file,
-#     then re-open the copy read-only and re-walk its audit chain - a
-#     backup that cannot be verified says so.
+#   - Backups stream a logical NDJSON bundle of every table (writes
+#     continue), hash the file, then re-parse it and re-walk its embedded
+#     audit chain - a backup that cannot be verified says so
+#     (ADR-0019 D4).
 # ---------------------------------------------------------------------------
 CLUSTER_ROLES = ("active", "passive")
 CLUSTER_SITES = ("dc", "dr")
@@ -12625,38 +12631,54 @@ def export_sessions() -> Dict[str, Any]:
     return {"sessions": sessions, "count": len(sessions)}
 
 
+def _bundle_json_default(value: Any) -> Any:
+    """JSON encoding for a logical backup bundle (ADR-0019 D4): datetimes
+    keep their ISO form (the chain recomputation parses exactly this),
+    binary columns are tagged base64, everything else stringifies
+    honestly - never silently dropped."""
+    if isinstance(value, datetime):
+        return value.isoformat()
+    if isinstance(value, (bytes, bytearray, memoryview)):
+        return {"__bytes_b64__": base64.b64encode(bytes(value)).decode("ascii")}
+    return str(value)
+
+
 def create_cluster_backup(*, actor: str) -> ClusterBackup:
     """Take a real, verified backup of this node's database (section 18's
-    Backup requirement): SQLite's online backup API copies the live file
-    without stopping writes, the copy is hashed, then re-opened read-only
-    and its audit chain re-walked from the copy itself - a backup that
-    cannot be verified records why, honestly."""
+    Backup requirement): a logical NDJSON bundle of every table, streamed
+    to the backup directory without stopping writes (ADR-0019 D4). The
+    file is hashed, then re-parsed and its embedded audit chain re-walked
+    from the bundle itself - a backup that cannot be verified records why,
+    honestly."""
     config = _vault_config()
-    uri = config.database_uri
-    if not uri.startswith("sqlite:///"):
-        raise ServiceUnavailable(
-            "Backups are implemented for the SQLite storage engine",
-            {"scheme": uri.split("://", 1)[0] if "://" in uri else uri},
-        )
-    source_path = uri[len("sqlite:///"):]
-    if not source_path or source_path == ":memory:":
-        raise ServiceUnavailable(
-            "This node's database has no file to back up", {"database": uri}
-        )
     directory = config.cluster_backup_dir
     directory.mkdir(parents=True, exist_ok=True)
     head = audit.chain_stats()
     stamp = datetime.now().strftime("%Y%m%dT%H%M%S%f")
-    destination = directory / f"pam-backup-{stamp}-seq{head['last_seq']}.db"
-    source = sqlite3.connect(source_path)
-    try:
-        copy = sqlite3.connect(str(destination))
-        try:
-            source.backup(copy)
-        finally:
-            copy.close()
-    finally:
-        source.close()
+    destination = directory / f"pam-backup-{stamp}-seq{head['last_seq']}.ndjson"
+    inspector = sa_inspect(db.engine)
+    metadata = sa_MetaData()
+    with destination.open("w", encoding="utf-8", newline="\n") as handle:
+        for table in sorted(inspector.get_table_names()):
+            # identifiers are reflected through SQLAlchemy and quoted by the
+            # dialect - never built as strings (the ADR-0019 D2 rule); the
+            # ledger streams in chain order for a readable bundle
+            table_object = sa_Table(table, metadata, autoload_with=db.engine)
+            statement = sa_Select(table_object)
+            if table == "audit_events":
+                statement = statement.order_by(table_object.c.seq)
+            result = db.session.execute(
+                statement.execution_options(stream_results=True)
+            )
+            for row in result.mappings():
+                handle.write(
+                    json.dumps(
+                        {"table": table, "row": dict(row)},
+                        default=_bundle_json_default,
+                        separators=(",", ":"),
+                    )
+                    + "\n"
+                )
     raw = destination.read_bytes()
     digest = hashlib.sha256(raw).hexdigest()
     verified, detail = _verify_backup_chain(destination)
@@ -12689,41 +12711,71 @@ def create_cluster_backup(*, actor: str) -> ClusterBackup:
 
 
 def _verify_backup_chain(path: Path) -> Tuple[bool, str]:
-    """Re-walk the audit chain inside a backup file (read-only open, the
-    same recomputation /audit/verify performs against the live store)."""
-    connection = sqlite3.connect(f"file:{path.as_posix()}?mode=ro", uri=True)
+    """Re-walk the audit chain from a backup bundle (the same recomputation
+    /audit/verify performs against the live store; ADR-0019 D4). Every
+    verdict string keeps its exact wording, so the recorded contract and
+    its tests hold unchanged."""
+    rows: List[Dict[str, Any]] = []
     try:
-        rows = connection.execute(
-            "SELECT seq, prev_hash, event_hash, event_ref, source, action, "
-            "actor, subject, detail, created_at FROM audit_events ORDER BY seq"
-        ).fetchall()
-    except sqlite3.Error as exc:
-        return False, f"backup has no readable audit_events table: {exc}"
-    finally:
-        connection.close()
+        with path.open("r", encoding="utf-8") as handle:
+            for line in handle:
+                line = line.strip()
+                if not line:
+                    continue
+                record = json.loads(line)
+                if (
+                    isinstance(record, dict)
+                    and record.get("table") == "audit_events"
+                    and isinstance(record.get("row"), dict)
+                ):
+                    rows.append(record["row"])
+    except (OSError, ValueError) as exc:
+        return False, f"backup bundle is not readable NDJSON: {exc}"
+    if not rows:
+        return False, "backup bundle carries no audit_events records"
+    try:
+        rows.sort(key=lambda row: int(row["seq"]))
+    except (KeyError, TypeError, ValueError) as exc:
+        return False, f"unreadable audit record in bundle: {exc}"
     previous_hash = audit.AUDIT_GENESIS_HASH
     expected = 1
-    for seq, prev_hash, event_hash, event_ref, source, action, actor, subject, detail_json, created_at_raw in rows:
+    for row in rows:
+        seq = row.get("seq")
+        try:
+            seq = int(seq)
+        except (TypeError, ValueError):
+            return False, f"unreadable audit record in bundle: seq {seq!r}"
+        event_hash = row.get("event_hash")
         if seq != expected:
             return False, f"chain break at seq {seq} (expected {expected})"
-        if prev_hash != previous_hash:
+        if row.get("prev_hash") != previous_hash:
             return False, f"chain link broken at seq {seq}"
         try:
-            created_at = datetime.fromisoformat(str(created_at_raw))
-            detail = json.loads(detail_json) if detail_json else {}
-        except (ValueError, TypeError) as exc:
+            created_at_raw = row["created_at"]
+            created_at = (
+                created_at_raw
+                if isinstance(created_at_raw, datetime)
+                else datetime.fromisoformat(str(created_at_raw))
+            )
+            detail_json = row["detail"]
+            detail = (
+                detail_json
+                if isinstance(detail_json, dict)
+                else (json.loads(detail_json) if detail_json else {})
+            )
+            recomputed = audit.compute_hash(
+                seq=seq,
+                created_at=created_at,
+                event_ref=row["event_ref"],
+                source=row["source"],
+                action=row["action"],
+                actor=row["actor"],
+                subject=row["subject"],
+                detail=detail,
+                prev_hash=row["prev_hash"],
+            )
+        except (KeyError, ValueError, TypeError) as exc:
             return False, f"unreadable record at seq {seq}: {exc}"
-        recomputed = audit.compute_hash(
-            seq=seq,
-            created_at=created_at,
-            event_ref=event_ref,
-            source=source,
-            action=action,
-            actor=actor,
-            subject=subject,
-            detail=detail,
-            prev_hash=prev_hash,
-        )
         if recomputed != event_hash:
             return False, f"content hash mismatch at seq {seq}"
         previous_hash = event_hash

@@ -75,7 +75,7 @@ describe('Compliance & SOC2 (F4 screen 6)', () => {
     const triggers = await kpiCard('APPEND-ONLY TRIGGERS');
     expect(within(triggers).getByText('installed')).toBeInTheDocument();
     expect(
-      within(triggers).getByText('append-only SQLite enforcement'),
+      within(triggers).getByText('append-only PostgreSQL enforcement'),
     ).toBeInTheDocument();
   });
 

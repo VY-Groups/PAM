@@ -1,24 +1,24 @@
 """Phase 6a - HA / DC / DR (architecture section 18) coverage.
 
 Every claim here is checked against a real second node (served over HTTP
-by werkzeug, with its own database and its own vault key), a real SQLite
-file on disk, or the immutable ledger itself: probes measure, replication
-re-hashes record by record, the passive gate refuses product writes, the
-monitor counts real probe failures, and a backup is a file whose bytes
-and whose chain both check out.
+by werkzeug, with its own database and its own vault key), a direct
+connection to a real database, or the immutable ledger itself: probes
+measure, replication re-hashes record by record, the passive gate refuses
+product writes, the monitor counts real probe failures, and a backup is a
+file whose bytes and whose chain both check out.
 """
 from __future__ import annotations
 
 import dataclasses
 import hashlib
 import json
-import sqlite3
 import sys
 import threading
 from pathlib import Path
 from typing import Any, Dict
 
 import pytest
+from sqlalchemy import create_engine, text
 from werkzeug.serving import make_server
 
 SERVER_DIR = Path(__file__).resolve().parents[1]
@@ -28,6 +28,7 @@ if str(SERVER_DIR) not in sys.path:
 
 from app import create_app  # noqa: E402
 from config import Config  # noqa: E402
+from _testdb import test_database_uri  # noqa: E402
 import audit as audit_module  # noqa: E402
 import service as service_module  # noqa: E402
 from models import (  # noqa: E402
@@ -51,7 +52,7 @@ CLOSED_URL = "https://pam-no-such-node.invalid"
 # ---------------------------------------------------------------------------
 def _config(tmp_path: Path) -> Config:
     return Config(
-        database_uri=f"sqlite:///{(tmp_path / 'licenses.db').as_posix()}",
+        database_uri=test_database_uri(tmp_path),
         private_key_path=REPO_ROOT / "license_private_key.pem",
         public_key_path=REPO_ROOT / "license_public_key.pem",
         ed25519_private_key_path=tmp_path / "license_ed25519_private.pem",
@@ -138,7 +139,7 @@ def make_peer(tmp_path: Path, httpd: _Httpd):
         directory = tmp_path / f"peer{index}"
         directory.mkdir(parents=True, exist_ok=True)
         values = dict(
-            database_uri=f"sqlite:///{(directory / 'peer.db').as_posix()}",
+            database_uri=test_database_uri(directory, "peer.db"),
             private_key_path=REPO_ROOT / "license_private_key.pem",
             public_key_path=REPO_ROOT / "license_public_key.pem",
             ed25519_private_key_path=directory / "ed25519_private.pem",
@@ -675,18 +676,22 @@ def test_sync_stores_a_tampered_peer_chain_as_unverified_evidence(
 
     # tamper with storage-level access: exactly the edit the append-only
     # trigger exists to stop - a record's content changed behind its hash
-    db_file = Path(peer.config.database_uri[len("sqlite:///"):])
-    connection = sqlite3.connect(str(db_file))
+    # (direct connection; the trigger is dropped by name first)
+    engine = create_engine(peer.config.database_uri)
     try:
-        connection.execute("DROP TRIGGER IF EXISTS audit_events_no_update")
-        cursor = connection.execute(
-            "UPDATE audit_events SET detail = ? WHERE seq = ?",
-            ('{"tampered": true}', target_seq),
-        )
-        assert cursor.rowcount == 1
-        connection.commit()
+        with engine.begin() as connection:
+            connection.execute(
+                text(
+                    "DROP TRIGGER IF EXISTS audit_events_no_update ON audit_events"
+                )
+            )
+            cursor = connection.execute(
+                text("UPDATE audit_events SET detail = :detail WHERE seq = :seq"),
+                {"detail": '{"tampered": true}', "seq": target_seq},
+            )
+            assert cursor.rowcount == 1
     finally:
-        connection.close()
+        engine.dispose()
 
     node = register(client, "tampered-peer", base_url=peer.base_url)
     chain = sync(client, node["id"], kinds=["audit"])["kinds"]["audit"]
@@ -1120,7 +1125,7 @@ def test_backup_is_a_real_verified_file(client, config):
     assert backup["size_bytes"] == len(raw)
     assert backup["sha256"] == hashlib.sha256(raw).hexdigest()
     assert backup["audit_seq"] >= 1
-    # the copy was re-opened read-only and its chain re-walked
+    # the bundle was re-parsed and its embedded chain re-walked
     assert backup["verified"] is True
     assert backup["verify_detail"] == (
         f"chain intact over {backup['audit_seq']} records"
@@ -1140,26 +1145,23 @@ def test_backup_is_a_real_verified_file(client, config):
 
 
 def test_backup_verifier_detects_a_tampered_copy(client):
-    # real history first: the copy must hold at least one chain record
+    # real history first: the bundle must hold at least one chain record
     assert client.put(
         "/api/v1/settings/zsp", json={"tier0_quorum_approvers": 3}, headers=ACTOR
     ).status_code == 200
     created = client.post("/api/v1/cluster/backups", headers=ACTOR)
     path = Path(created.get_json()["backup"]["path"])
 
-    # storage-level tamper inside the copy: the append-only trigger would
-    # stop it on the live store, so drop it - the re-walk must still catch it
-    connection = sqlite3.connect(str(path))
-    try:
-        connection.execute("DROP TRIGGER IF EXISTS audit_events_no_update")
-        cursor = connection.execute(
-            "UPDATE audit_events SET detail = ? WHERE seq = 1",
-            ('{"tampered": true}',),
-        )
-        assert cursor.rowcount == 1
-        connection.commit()
-    finally:
-        connection.close()
+    # tamper inside the copy: edit one chain record's detail - the file is
+    # data at rest, exactly where an attacker with file access would write
+    lines = path.read_text(encoding="utf-8").splitlines()
+    tampered = []
+    for line in lines:
+        record = json.loads(line)
+        if record.get("table") == "audit_events" and record["row"].get("seq") == 1:
+            record["row"]["detail"] = {"tampered": True}
+        tampered.append(json.dumps(record, separators=(",", ":")))
+    path.write_text("\n".join(tampered) + "\n", encoding="utf-8")
 
     with client.application.app_context():
         verified, detail = service_module._verify_backup_chain(path)
@@ -1168,31 +1170,16 @@ def test_backup_verifier_detects_a_tampered_copy(client):
 
 
 def test_backup_verifier_reports_a_file_without_a_chain(tmp_path, client):
-    not_a_backup = tmp_path / "unrelated.db"
-    connection = sqlite3.connect(str(not_a_backup))
-    connection.execute("CREATE TABLE unrelated (id INTEGER)")
-    connection.close()
+    not_a_backup = tmp_path / "unrelated.ndjson"
+    not_a_backup.write_text(
+        json.dumps({"table": "unrelated", "row": {"id": 1}}) + "\n",
+        encoding="utf-8",
+    )
 
     with client.application.app_context():
         verified, detail = service_module._verify_backup_chain(not_a_backup)
     assert verified is False
-    assert detail.startswith("backup has no readable audit_events table")
-
-
-def test_backup_refuses_a_non_sqlite_storage_engine(client, config):
-    swapped = dataclasses.replace(
-        config, database_uri="postgresql://pam@db-host/pam"
-    )
-    original = client.application.config["LICENSE_CONFIG"]
-    client.application.config["LICENSE_CONFIG"] = swapped
-    try:
-        response = client.post("/api/v1/cluster/backups", headers=ACTOR)
-        assert response.status_code == 503
-        body = response.get_json()
-        assert "SQLite" in body["error"]
-        assert body["details"] == {"scheme": "postgresql"}
-    finally:
-        client.application.config["LICENSE_CONFIG"] = original
+    assert detail == "backup bundle carries no audit_events records"
 
 
 # ---------------------------------------------------------------------------

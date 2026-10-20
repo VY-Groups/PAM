@@ -1,10 +1,10 @@
 """Tests for encrypted-at-rest secrets, versioning and the rotation engine.
 
 Everything asserted here is real: secrets are sealed with AES-256-GCM and
-the plaintext is checked absent from the database file, rotations mint new
-versions validated by decrypt round-trip, cascade/skip/session-end behaviour
-is read back from the API's own responses, and a quiet scheduler clock
-produces no events.
+the plaintext is checked absent from every column of the store, rotations
+mint new versions validated by decrypt round-trip, cascade/skip/session-end
+behaviour is read back from the API's own responses, and a quiet scheduler
+clock produces no events.
 
 Run with:  python -m pytest backend/phase2_license_server/tests/test_rotation.py -q
 """
@@ -18,6 +18,7 @@ from pathlib import Path
 
 import pytest
 from cryptography.hazmat.primitives import serialization
+from sqlalchemy import inspect as sa_inspect, text
 
 SERVER_DIR = Path(__file__).resolve().parent.parent
 REPO_ROOT = SERVER_DIR.parent.parent
@@ -26,6 +27,7 @@ if str(SERVER_DIR) not in sys.path:
 
 from app import create_app  # noqa: E402
 from config import Config  # noqa: E402
+from _testdb import test_database_uri  # noqa: E402
 from errors import APIError, ValidationFailed  # noqa: E402
 from models import (  # noqa: E402
     VaultEvent,
@@ -48,7 +50,7 @@ ACTOR = {"X-Actor": "tester", "Authorization": "Bearer test-admin-token"}
 
 def make_config(tmp_path: Path, **overrides) -> Config:
     kwargs = dict(
-        database_uri=f"sqlite:///{(tmp_path / 'licenses.db').as_posix()}",
+        database_uri=test_database_uri(tmp_path),
         private_key_path=REPO_ROOT / "license_private_key.pem",
         public_key_path=REPO_ROOT / "license_public_key.pem",
         ed25519_private_key_path=tmp_path / "license_ed25519_private.pem",
@@ -147,18 +149,32 @@ def test_list_and_detail_never_expose_the_secret(client):
     assert "secret" not in detail["item"]
 
 
-def test_no_plaintext_in_the_database_file(client, tmp_path):
+def test_no_plaintext_in_the_database_file(client, app):
+    """The store really holds a sealed version row for the item, and the
+    plaintext exists nowhere in it: every column of every table is walked
+    over SQL - a stronger property than one file's bytes could show
+    (ADR-0019 D5, rewritten for the PostgreSQL-only store)."""
     value = "Plaintext-Must-Not-Be-At-Rest-9977"
-    onboard(client, "sql-secret", secret=value)
+    item = onboard(client, "sql-secret", secret=value)
 
-    raw = b""
-    for suffix in ("", "-wal", "-shm"):
-        path = tmp_path / f"licenses.db{suffix}"
-        if path.exists():
-            raw += path.read_bytes()
-    # the sealed row is on disk, the plaintext is not
-    assert b"vault_secret_versions" in raw
-    assert value.encode("utf-8") not in raw
+    with app.app_context():
+        inspector = sa_inspect(db.engine)
+        tables = sorted(inspector.get_table_names())
+        # the sealed row is in the store, the plaintext is not
+        assert "vault_secret_versions" in tables
+        sealed = db.session.execute(
+            text("SELECT blob FROM vault_secret_versions WHERE item_id = :item_id"),
+            {"item_id": item["id"]},
+        ).scalars().all()
+        assert sealed and all(cell for cell in sealed)
+        for table in tables:
+            for column in inspector.get_columns(table):
+                name = column["name"]
+                cells = db.session.execute(
+                    text(f'SELECT "{name}" FROM "{table}"')
+                ).scalars().all()
+                for cell in cells:
+                    assert value not in str(cell), f"{table}.{name}"
 
 
 def test_reveal_requires_admin_token(client):

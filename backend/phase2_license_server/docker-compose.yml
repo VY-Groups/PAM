@@ -1,8 +1,11 @@
-# DEV ONLY - phase-2 license server development environment.
+# PRODUCTION-SHAPE compose - the only compose file (ADR-0019 D7/D10).
 #
-# The shipped product installs directly on its target system; Docker exists
-# purely as a convenience for local development and real-time testing and is
-# never a deployment requirement (docs/DEPLOYMENT_RUNBOOK.md).
+# PostgreSQL is the only storage engine: this file starts postgres:16 plus
+# the license server pointed at it - the same shape a bare-metal install
+# runs. The shipped product installs directly on its target system; Docker
+# exists purely as a convenience for local development and real-time
+# testing and is never a deployment requirement
+# (docs/DEPLOYMENT_RUNBOOK.md).
 #
 #   docker compose up --build
 # Health:  http://127.0.0.1:5010/health
@@ -10,9 +13,25 @@
 #
 # Port 5010 is intentional: the host dev server (`python app.py`) usually
 # owns 5000, and both must be able to run side by side.
-# The database lives inside the container - every `up` starts from a fresh,
-# empty database, which is exactly what runtime testing wants.
+# The data lives in a named volume; `down -v` starts over empty.
 services:
+  postgres:
+    image: postgres:16
+    # docker's 64MB default /dev/shm crashed PostgreSQL during the first
+    # full battery (DSM resize ENOSPC -> segfault -> recovery; ADR-0019)
+    shm_size: "1gb"
+    environment:
+      POSTGRES_USER: pam
+      POSTGRES_PASSWORD: pam
+      POSTGRES_DB: pam
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U pam"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+    volumes:
+      - pam-pgdata:/var/lib/postgresql/data
+
   license-server:
     build:
       context: ../..
@@ -23,6 +42,12 @@ services:
       LICENSE_ADMIN_TOKEN: "dev-admin-token"
       LICENSE_SECRET_KEY: "dev-only-do-not-use"
       LICENSE_AUTOGENERATE_KEYS: "1"
+      # ADR-0019 D8: the storage engine is required and PostgreSQL-only -
+      # same env knob as a bare-metal install (config.py).
+      LICENSE_DATABASE_URI: "postgresql+psycopg://pam:pam@postgres:5432/pam"
+    depends_on:
+      postgres:
+        condition: service_healthy
     healthcheck:
       test:
         - CMD
@@ -32,3 +57,6 @@ services:
       interval: 15s
       timeout: 5s
       retries: 3
+
+volumes:
+  pam-pgdata:

@@ -29,7 +29,7 @@ Facts the design leans on (all checked, no guessing):
 | two-officer attestation with requester refusal is the house pattern | gateway.py:483-487, identity.py:1342-1343, service.py:7197-7204 |
 | the console already fetches public bootstrap data at boot (whoami, health) | AuthProvider/QueryProvider patterns |
 
-## Decision 1 - bootstrap officers (batch 11.10, backend)
+## Decision 1 - bootstrap officers (batch 11.11, backend)
 
 On **first boot only** - when the users table is empty AND setup is not
 completed - the app creates exactly two console identities from the
@@ -52,7 +52,7 @@ VY-PAM side:
   (never on a non-empty user table), and they are ordinary users the
   company may retire after setup (documented, not automatic).
 
-## Decision 2 - the setup surface (batch 11.10, backend)
+## Decision 2 - the setup surface (batch 11.11, backend)
 
 A small `setup` API next to the existing tags - the wizard writes through
 existing endpoints wherever they already exist (SMTP, users, bindings):
@@ -92,7 +92,7 @@ stateDiagram-v2
     configured --> [*]: every later admin change = two officers (ADR-0017 D3)
 ```
 
-## Decision 3 - tenancy branding (batch 11.10, frontend)
+## Decision 3 - tenancy branding (batch 11.11, frontend)
 
 - the login card and the app shell consume `GET /setup/state`: unbranded
   -> the honest default "VY-PAM by VY-Groups"; branded -> the logo +
@@ -131,7 +131,11 @@ make real users; do real things, not just seeded data"):
 
 ## Batch table
 
+*(renumbered 2026-10-19: this batch moved 11.10 -> 11.11 when ADR-0019
+inserted PostgreSQL as batch 11.9; the program order is unchanged - setup
+still lands after identity hardening)*
+
 | Batch | Surface | Contract delta | Evidence bar |
 |---|---|---|---|
-| 11.10 | openapi + backend + console | `/setup` state/profile/complete + bootstrap first-boot hook | backend tests (bootstrap idempotence, complete refusals, dual passwords), clean-install rig walkthrough captured verbatim, vitest+axe wizard, branding live on the rig |
+| 11.11 | openapi + backend + console | `/setup` state/profile/complete + bootstrap first-boot hook | backend tests (bootstrap idempotence, complete refusals, dual passwords), clean-install rig walkthrough captured verbatim, vitest+axe wizard, branding live on the rig |
 | (deps) | - | forced change card (ADR-0017 D1) reused for the officers' first sign-in | batch 11.8 |

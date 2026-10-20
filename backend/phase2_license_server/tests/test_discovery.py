@@ -23,6 +23,7 @@ if str(SERVER_DIR) not in sys.path:
 
 from app import create_app  # noqa: E402
 from config import Config  # noqa: E402
+from _testdb import test_database_uri  # noqa: E402
 from models import (  # noqa: E402
     ACCOUNT_KINDS,
     ASSET_PAM_STATUSES,
@@ -45,7 +46,7 @@ ACTOR = {"X-Actor": "tester", "Authorization": "Bearer test-admin-token"}
 @pytest.fixture
 def config(tmp_path: Path) -> Config:
     return Config(
-        database_uri=f"sqlite:///{(tmp_path / 'licenses.db').as_posix()}",
+        database_uri=test_database_uri(tmp_path),
         private_key_path=REPO_ROOT / "license_private_key.pem",
         public_key_path=REPO_ROOT / "license_public_key.pem",
         ed25519_private_key_path=tmp_path / "license_ed25519_private.pem",

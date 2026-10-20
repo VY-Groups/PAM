@@ -11,11 +11,11 @@ mode stays open and says so).
 from __future__ import annotations
 
 import json
-import sqlite3
 import sys
 from pathlib import Path
 
 import pytest
+from sqlalchemy import text
 
 SERVER_DIR = Path(__file__).resolve().parents[1]
 REPO_ROOT = SERVER_DIR.parents[1]
@@ -24,7 +24,9 @@ if str(SERVER_DIR) not in sys.path:
 
 from app import create_app  # noqa: E402
 from config import Config  # noqa: E402
+from _testdb import test_database_uri  # noqa: E402
 import service as service_module  # noqa: E402
+from extensions import db  # noqa: E402
 from models import RBAC_ROLES, RBAC_TOKEN_PREFIX  # noqa: E402
 
 ADMIN = {"Authorization": "Bearer test-admin-token"}
@@ -33,7 +35,7 @@ ACTOR = {"X-Actor": "admin", "Authorization": "Bearer test-admin-token"}
 
 def _config(tmp_path: Path, admin_token="test-admin-token") -> Config:
     return Config(
-        database_uri=f"sqlite:///{(tmp_path / 'licenses.db').as_posix()}",
+        database_uri=test_database_uri(tmp_path),
         private_key_path=REPO_ROOT / "license_private_key.pem",
         public_key_path=REPO_ROOT / "license_public_key.pem",
         ed25519_private_key_path=tmp_path / "license_ed25519_private.pem",
@@ -278,7 +280,7 @@ def test_management_endpoints_stay_admin_only(client):
 # ---------------------------------------------------------------------------
 # the binding lifecycle and its credential
 # ---------------------------------------------------------------------------
-def test_local_binding_token_is_shown_once_and_hashed_at_rest(client, config, app):
+def test_local_binding_token_is_shown_once_and_hashed_at_rest(client, app):
     binding, token = bind(client, "svc-nightly", "auditor")
     assert token.startswith(f"{RBAC_TOKEN_PREFIX}.{binding['id']}.")
     listed = client.get("/api/v1/role-bindings", headers=ADMIN).get_json()["bindings"]
@@ -288,14 +290,13 @@ def test_local_binding_token_is_shown_once_and_hashed_at_rest(client, config, ap
     assert row["token_prefix"].startswith(f"{RBAC_TOKEN_PREFIX}.{binding['id']}.")
     # the plaintext never round-trips through any response
     assert token not in json.dumps(listed)
-    # and the database stores only the sha256
+    # and the database stores only the sha256 (queried over SQL - the
+    # storage engine is PostgreSQL, ADR-0019 D10)
     with app.app_context():
-        db_path = config.database_uri.replace("sqlite:///", "")
-        connection = sqlite3.connect(db_path)
-        stored = connection.execute(
-            "SELECT token_sha256 FROM role_bindings WHERE id = ?", (binding["id"],)
-        ).fetchone()[0]
-        connection.close()
+        stored = db.session.execute(
+            text("SELECT token_sha256 FROM role_bindings WHERE id = :id"),
+            {"id": binding["id"]},
+        ).scalar_one()
     assert stored and stored != token
     assert len(stored) == 64
 

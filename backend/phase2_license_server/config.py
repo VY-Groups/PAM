@@ -61,8 +61,8 @@ class Config:
     rotation_scheduler: bool = False
     rotation_scheduler_interval: int = 300
     # HA / DC / DR (architecture section 18): this node's identity in the
-    # cluster registry, the opt-in automatic-failover monitor and where real
-    # SQLite backups are written.
+    # cluster registry, the opt-in automatic-failover monitor and where the
+    # logical backup bundles are written.
     node_name: str = "pam-node-1"
     node_site: str = "dc"
     cluster_monitor: bool = False
@@ -74,11 +74,22 @@ class Config:
 
     @classmethod
     def from_env(cls) -> "Config":
-        default_db = SERVER_DIR / "licenses.db"
-        database_uri = (
-            os.getenv("LICENSE_DATABASE_URI")
-            or f"sqlite:///{default_db.as_posix()}"
-        )
+        # ADR-0019 D8 (fail-fast, production-grade): there is no embedded
+        # default engine - the URI is required and must be PostgreSQL.
+        database_uri = os.getenv("LICENSE_DATABASE_URI") or ""
+        if not database_uri:
+            raise ValueError(
+                "LICENSE_DATABASE_URI is not set - PostgreSQL is the only "
+                "storage engine (ADR-0019); point it at a server, e.g. "
+                "postgresql+psycopg://pam:pam@127.0.0.1:5432/pam"
+            )
+        if not database_uri.startswith("postgres"):
+            scheme = database_uri.split("://", 1)[0] if "://" in database_uri else database_uri
+            raise ValueError(
+                "LICENSE_DATABASE_URI must be a PostgreSQL URI - PostgreSQL "
+                "is the only storage engine (ADR-0019), SQLite was removed; "
+                f"got {scheme!r}"
+            )
         node_site = (os.getenv("PAM_SITE") or "dc").strip().lower()
         if node_site not in ("dc", "dr"):
             raise ValueError(

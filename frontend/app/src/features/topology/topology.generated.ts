@@ -688,7 +688,7 @@ export const BACKEND_PACKAGES: BackendPackageView[] = [
       },
       {
         path: 'audit.py',
-        lines: 1088,
+        lines: 1114,
         imports: [
           'backend/phase2_license_server/extensions.py',
           'backend/phase2_license_server/integrations.py',
@@ -704,7 +704,7 @@ export const BACKEND_PACKAGES: BackendPackageView[] = [
       },
       {
         path: 'config.py',
-        lines: 136,
+        lines: 147,
         imports: [],
       },
       {
@@ -795,7 +795,7 @@ export const BACKEND_PACKAGES: BackendPackageView[] = [
       },
       {
         path: 'models.py',
-        lines: 3697,
+        lines: 3745,
         imports: [
           'backend/phase2_license_server/extensions.py',
           'backend/phase2_license_server/licensing_bridge.py',
@@ -873,7 +873,7 @@ export const BACKEND_PACKAGES: BackendPackageView[] = [
       },
       {
         path: 'service.py',
-        lines: 12781,
+        lines: 12826,
         imports: [
           'backend/phase2_license_server/audit.py',
           'backend/phase2_license_server/config.py',

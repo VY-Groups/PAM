@@ -7,6 +7,7 @@ from typing import Any, Dict, List, Optional
 
 from extensions import db
 from licensing_bridge import optional_fields, sig
+from sqlalchemy import inspect as sa_inspect
 
 STATUS_ACTIVE = "active"
 STATUS_REVOKED = "revoked"
@@ -17,9 +18,9 @@ EVENT_REVOKED = "revoked"
 EVENT_RESTORED = "restored"
 EVENT_USAGE_REPORTED = "usage_reported"
 
-# Columns added after the first release. SQLite cannot ALTER TABLE its way to
-# new columns, so they are appended at startup (see ensure_schema) instead of
-# forcing users to delete their database.
+# Columns added after the first release. They are appended at startup to any
+# existing database (see ensure_schema) instead of forcing users to delete
+# their data and start over.
 SCHEMA_COLUMNS: Dict[str, Dict[str, str]] = {
     "licenses": {
         "license_id": "VARCHAR(64)",
@@ -66,41 +67,84 @@ SCHEMA_COLUMNS: Dict[str, Dict[str, str]] = {
 }
 
 # Indexes released UNIQUE whose rule now lives in the application (a live-row
-# check, so revoked/denied history does not occupy a name forever). SQLite
-# can DROP INDEX, so startup relaxes them in place instead of forcing a table
-# rebuild. (gateway_nodes, phase 8a: register_node refuses a duplicate name
-# over non-terminal rows only.)
+# check, so revoked/denied history does not occupy a name forever). Startup
+# relaxes them in place (DROP INDEX + non-unique CREATE INDEX) instead of
+# forcing a table rebuild. (gateway_nodes, phase 8a: register_node refuses a
+# duplicate name over non-terminal rows only.)
 SOFT_UNIQUE_INDEXES = (("gateway_nodes", "ix_gateway_nodes_name"),)
+
+# Constraints the shipped DDL declares but the shipped runtime never
+# enforced (baseline evidence: no foreign_keys pragma exists anywhere in the
+# shipped code), while the application contract needs them inert:
+# gateway.delete_zone answers 200 over a zone a revoked gateway node still
+# points at, because that zone_id is evidence of where the node once lived.
+# PostgreSQL would enforce the constraint (and 500 the delete) - so startup
+# drops it, exactly like SOFT_UNIQUE_INDEXES relaxes the uniqueness that
+# moved into the application. (ADR-0019: first full PostgreSQL battery
+# finding.)
+EVIDENCE_FOREIGN_KEYS = (("gateway_nodes", "gateway_nodes_zone_id_fkey"),)
 
 
 def ensure_schema(engine) -> List[str]:
-    """Add any missing spec columns to an existing database and relax any
-    index whose uniqueness moved into the application.
+    """Add any missing spec columns to an existing database, relax any
+    index whose uniqueness moved into the application, and drop any
+    evidence foreign key whose enforcement never shipped.
+
+    Reads through the SQLAlchemy inspector (ADR-0019 D2); PostgreSQL is
+    the only storage engine (D10), so the statements are the PostgreSQL
+    spellings. One spec token has no PostgreSQL spelling - DATETIME - and
+    maps to TIMESTAMP there (a fresh database never reaches this path; the
+    models define the current shape).
 
     Returns the changes made (empty when the schema was current).
     """
     added: List[str] = []
+    inspector = sa_inspect(engine)
+    ddl_type_map = {"DATETIME": "TIMESTAMP"}
     with engine.begin() as connection:
         for table, columns in SCHEMA_COLUMNS.items():
+            if not inspector.has_table(table):
+                continue
             existing = {
-                row[1]
-                for row in connection.exec_driver_sql(f"PRAGMA table_info({table})")
+                column["name"] for column in inspector.get_columns(table)
             }
             for name, ddl in columns.items():
                 if name in existing:
                     continue
+                for token, replacement in ddl_type_map.items():
+                    ddl = ddl.replace(token, replacement)
                 connection.exec_driver_sql(
                     f"ALTER TABLE {table} ADD COLUMN {name} {ddl}"
                 )
                 added.append(f"{table}.{name}")
         for table, index in SOFT_UNIQUE_INDEXES:
-            live = connection.exec_driver_sql(
-                f"PRAGMA index_list({table})"
-            ).fetchall()
-            if any(row[1] == index and row[2] for row in live):
+            if not inspector.has_table(table):
+                continue
+            live = inspector.get_indexes(table)
+            if any(row["name"] == index and row.get("unique") for row in live):
                 connection.exec_driver_sql(f"DROP INDEX {index}")
-                connection.exec_driver_sql(f"CREATE INDEX {index} ON {table} (name)")
+                connection.exec_driver_sql(
+                    f"CREATE INDEX {index} ON {table} (name)"
+                )
                 added.append(f"{index} relaxed to a live-row check")
+        # The evidence FK ships in the baseline DDL but was never enforced
+        # (ADR-0019 D2/D10): same reconciliation contract - present ->
+        # dropped and reported, absent -> nothing to do.
+        for table, constraint in EVIDENCE_FOREIGN_KEYS:
+            if not inspector.has_table(table):
+                continue
+            present = any(
+                row["name"] == constraint
+                for row in inspector.get_foreign_keys(table)
+            )
+            if present:
+                connection.exec_driver_sql(
+                    f"ALTER TABLE {table} DROP CONSTRAINT {constraint}"
+                )
+                added.append(
+                    f"{constraint} dropped (evidence reference, "
+                    "never enforced when shipped)"
+                )
     return added
 
 
@@ -1429,9 +1473,9 @@ class AuditEvent(db.Model):
     Every module event row (license, settings, vault, discovery, JIT,
     session lifecycle, command control and risk evaluation) is copied here
     at flush time: `seq` is the chain position, `event_hash` =
-    sha256(prev_hash + canonical payload), and SQLite BEFORE UPDATE/DELETE
-    triggers make the rows immutable at the storage layer - there is no API
-    path that writes or removes them either.
+    sha256(prev_hash + canonical payload), and PostgreSQL BEFORE
+    UPDATE/DELETE triggers make the rows immutable at the storage layer -
+    there is no API path that writes or removes them either.
     """
 
     __tablename__ = "audit_events"
@@ -2307,7 +2351,7 @@ class AgentEvent(db.Model):
 # ---------------------------------------------------------------------------
 # HA / DC / DR (architecture section 18)
 #
-# The shipped server is a single node (SQLite, one process). Section 18's
+# The shipped server is a single node (one process). Section 18's
 # enterprise topology - load balancer, access nodes, vault cluster, DR site
 # with encrypted replication - is delivered honestly as the two halves a
 # single binary can really do:
@@ -2522,11 +2566,11 @@ class ClusterSessionReplica(db.Model):
 
 
 class ClusterBackup(db.Model):
-    """One real SQLite backup of this node's database (the section-18
-    `Backup` requirement): a byte-for-byte copy taken with sqlite3's own
-    backup API against the live file, its sha256 recorded here. `verified`
-    is set when the file was re-opened and its audit chain re-walked after
-    the copy - a backup that cannot be verified says so."""
+    """One real backup of this node's database (the section-18 `Backup`
+    requirement): a logical NDJSON bundle of the live store written without
+    stopping writes (ADR-0019 D4), its sha256 recorded here. `verified` is
+    set when the bundle was re-parsed and its embedded audit chain re-walked
+    after the write - a backup that cannot be verified says so."""
 
     __tablename__ = "cluster_backups"
 
@@ -3492,6 +3536,10 @@ class GatewayNode(db.Model):
     # a revoked/denied row's name frees for its replacement (the former DDL
     # unique index is relaxed at startup via SOFT_UNIQUE_INDEXES)
     name = db.Column(db.String(80), nullable=False, index=True)
+    # declared like the shipped DDL, but inert (EVIDENCE_FOREIGN_KEYS drops
+    # it at startup): the shipped runtime never enforced it, and
+    # gateway.delete_zone keeps this zone_id as evidence of where the
+    # revoked node once lived - over a deleted zone
     zone_id = db.Column(db.Integer, db.ForeignKey("zones.id"), nullable=False, index=True)
     pool_id = db.Column(db.Integer, db.ForeignKey("gateway_pools.id"), nullable=True)
     endpoint_host = db.Column(db.String(255), nullable=False)

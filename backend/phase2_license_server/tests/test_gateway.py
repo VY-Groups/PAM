@@ -33,6 +33,7 @@ if str(SERVER_DIR) not in sys.path:
 
 from app import create_app  # noqa: E402
 from config import Config  # noqa: E402
+from _testdb import test_database_uri  # noqa: E402
 from extensions import db  # noqa: E402
 import gateway_daemon  # noqa: E402
 import guacd  # noqa: E402
@@ -194,7 +195,7 @@ class _GuacdStub:
 # ---------------------------------------------------------------------------
 def _config(tmp_path: Path) -> Config:
     return Config(
-        database_uri=f"sqlite:///{(tmp_path / 'licenses.db').as_posix()}",
+        database_uri=test_database_uri(tmp_path),
         private_key_path=REPO_ROOT / "license_private_key.pem",
         public_key_path=REPO_ROOT / "license_public_key.pem",
         ed25519_private_key_path=tmp_path / "license_ed25519_private.pem",
@@ -554,7 +555,7 @@ def test_zone_lifecycle_and_conflicts(client):
     assert client.get(f"/api/v1/zones/{zone['id']}", headers=ADMIN).status_code == 404
 
 
-def test_zone_delete_refuses_live_nodes_and_frees_after_revoke(client):
+def test_zone_delete_refuses_live_nodes_and_frees_after_revoke(client, app):
     """A live node claims its zone (fail-closed); terminal rows (pending is
     not terminal - it still claims the zone until a checker decides) block
     deletion, while a revoked node is evidence, not a resident."""
@@ -578,7 +579,12 @@ def test_zone_delete_refuses_live_nodes_and_frees_after_revoke(client):
     assert revoked.status_code == 200
     gone = client.delete(f"/api/v1/zones/{live_zone['id']}", headers=ADMIN)
     assert gone.status_code == 200
-    # the revoked row keeps its zone_id as where the node once lived
+    # the revoked row keeps its zone_id as where the node once lived - the
+    # row outlives its zone (EVIDENCE_FOREIGN_KEYS keeps that possible)
+    with app.app_context():
+        survivor = db.session.get(GatewayNode, node_id)
+        assert survivor is not None
+        assert survivor.zone_id == live_zone["id"]
     listed = client.get("/api/v1/zones", headers=ADMIN).get_json()["zones"]
     assert [row["name"] for row in listed] == ["pendingzone"]
 

@@ -186,7 +186,7 @@ token or explicit open dev mode), (c) runtime↔disk (encrypted secrets),
 |---|---|---|
 | Ordered | `seq` unique, ascending | `test_audit.py` chain walk |
 | Chained | `prev_hash` → `event_hash = sha256(canonical record)`, genesis `0`×64 | verify endpoint recompute |
-| Append-only | SQLite triggers abort `UPDATE`/`DELETE` with `'audit_events is append-only (architecture 19)'` | trigger tests |
+| Append-only | PostgreSQL triggers abort `UPDATE`/`DELETE` with `'audit_events is append-only (architecture 19)'` | trigger tests |
 | Complete coverage | 21 sources (`license settings vault discovery jit session command risk bypass break-glass integration vendor cloud broker agent cluster rbac sso hsm auth gateway`); mapper-coverage test fails if any event model lacks a mapper | `MAPPERS` ⇄ models ⇄ `by_source` assertions |
 | Detect, don't repair | tampering is **reported** (`first break` index), never silently fixed | forged-insert test |
 | Portable evidence | `/audit/verify`, `/audit/export` NDJSON in chain order | contract + audit tests |
@@ -222,7 +222,7 @@ with per-event `seq` and custody watermarks.
 | SSO / MFA / HSM integration | ✅ | SAML 2.0 / OIDC login with signature-verified IdP metadata + assertion / `id_token`, single-use flows, fail-closed MFA assertion, JIT subjects + server-side sessions + `kind=sso` bindings (6c); HSM/KMS providers envelope-wrap the master key — `enforcement=enforced` refuses file fallback and seals on provider failure; posture counts real evidence, never settings booleans |
 | Geo-IP / UEBA behavioral analytics | ⚠️ UEBA built, no geo feed | §11 baselines from real history + named deviations (unusual time/device/IP/target/command/privilege) driving the block→rotate→incident chain; `location` stays `is_global` (no geo feed claimed) |
 | TLS in transit | ⛔ at app layer | terminate at reverse proxy (see runbook) |
-| HA / DR | ✅ | multi-node registry + real `/health` probes, hash-verified pull replication (audit/vault/sessions), passive write gate, manual failover + opt-in auto-promote, verified SQLite backups — runbooks in the deployment runbook §7 |
+| HA / DR | ✅ | multi-node registry + real `/health` probes, hash-verified pull replication (audit/vault/sessions), passive write gate, manual failover + opt-in auto-promote, verified logical backup bundles — runbooks in the deployment runbook §7 |
 | Break-glass emergency workflow (§17) | ✅ | dual approval (requester excluded) → recorded session → forced rotation at close; ledger `break-glass` |
 | Gateway data plane & credential injection (8a) | ✅ | brokered rdp/ssh/vnc/telnet through maker-checked nodes over zones/pools (self-approval 403, fail-closed 503 dispatch with the create rolled back); one-shot connect-args per node token — the user never sees the injected password and the admin bearer is refused 403 by name; per-segment AES-256-GCM recordings under a master-key-wrapped envelope key (SHA-256 verified before decrypt, tamper ⇒ 500, destroyed key ⇒ 410 with rows kept); retention legal hold for incident-linked sessions; ledger `gateway` (21st source) |
 | Third-party / vendor access (§13) | ✅ | per-vendor TOTP (sealed, shown once) + NDA + real ITSM ticket → strict approval gate → scope/window-checked JIT request with forced session recording + lazy expiry; refusals recorded; ledger `vendor` |

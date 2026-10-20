@@ -18,6 +18,7 @@ if str(SERVER_DIR) not in sys.path:
 import app as app_module  # noqa: E402
 from app import create_app  # noqa: E402
 from config import Config  # noqa: E402
+from _testdb import test_database_uri  # noqa: E402
 
 ADMIN = {"Authorization": "Bearer test-admin-token"}
 UI_ROOT = REPO_ROOT / "frontend"
@@ -62,7 +63,7 @@ WIRED_SCREENS = sorted(OWN_INDEX)
 
 def _make_config(tmp_path: Path, admin_token) -> Config:
     return Config(
-        database_uri=f"sqlite:///{(tmp_path / 'settings.db').as_posix()}",
+        database_uri=test_database_uri(tmp_path, 'settings.db'),
         private_key_path=REPO_ROOT / "license_private_key.pem",
         public_key_path=REPO_ROOT / "license_public_key.pem",
         ed25519_private_key_path=tmp_path / "license_ed25519_private.pem",

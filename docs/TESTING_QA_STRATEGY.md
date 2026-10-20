@@ -9,41 +9,42 @@ Every number below was collected from the real suite at this commit.
 
 | Suite | File | Tests |
 |---|---|---|
-| **Backend total** | `python -m pytest backend -q` | **794** |
+| **Backend total** | `python -m pytest backend -q` | **834** |
 | ├ licensing core | `backend/ipam_licensing/test_license_core.py` | 46 |
 | ├ licensing spec | `backend/ipam_licensing/test_license_spec.py` | 35 |
 | ├ licensing bridge | `backend/ipam_licensing/test_licensing.py` | 1 |
-| ├ API & licenses | `…/tests/test_api.py` | 59 |
-| ├ settings + UI structure | `…/tests/test_settings_and_ui.py` | 33 |
-| ├ vault | `…/tests/test_vault_dashboard.py` | 19 |
-| ├ rotation | `…/tests/test_rotation.py` | 30 |
-| ├ discovery | `…/tests/test_discovery.py` | 19 |
-| ├ JIT | `…/tests/test_jit.py` | 18 |
-| ├ sessions | `…/tests/test_sessions.py` | 23 |
-| ├ command control | `…/tests/test_command_control.py` | 18 |
-| ├ audit ledger | `…/tests/test_audit.py` | 19 |
-| ├ risk engine (4f) | `…/tests/test_risk.py` | 19 |
-| ├ bypass detection (4g) | `…/tests/test_bypass.py` | 19 |
-| ├ break-glass (4h) | `…/tests/test_break_glass.py` | 22 |
-| ├ integrations (4i) | `…/tests/test_integrations.py` | 41 |
-| ├ UEBA (4j) | `…/tests/test_ueba.py` | 9 |
-| ├ watermark (4k) | `…/tests/test_watermark.py` | 6 |
-| ├ vendor PAM (5a) | `…/tests/test_vendor_pam.py` | 21 |
-| ├ cloud PAM (5b) | `…/tests/test_cloud.py` | 27 |
-| ├ broker (5c) | `…/tests/test_broker.py` | 24 |
-| ├ agent PAM (5d) | `…/tests/test_agent.py` | 29 |
+| ├ API & licenses | `…/tests/test_api.py` | 60 |
+| ├ settings + UI structure | `…/tests/test_settings_and_ui.py` | 35 |
+| ├ vault | `…/tests/test_vault_dashboard.py` | 20 |
+| ├ rotation | `…/tests/test_rotation.py` | 31 |
+| ├ discovery | `…/tests/test_discovery.py` | 20 |
+| ├ JIT | `…/tests/test_jit.py` | 19 |
+| ├ sessions | `…/tests/test_sessions.py` | 24 |
+| ├ command control | `…/tests/test_command_control.py` | 19 |
+| ├ audit ledger | `…/tests/test_audit.py` | 20 |
+| ├ risk engine (4f) | `…/tests/test_risk.py` | 20 |
+| ├ bypass detection (4g) | `…/tests/test_bypass.py` | 20 |
+| ├ break-glass (4h) | `…/tests/test_break_glass.py` | 23 |
+| ├ integrations (4i) | `…/tests/test_integrations.py` | 42 |
+| ├ UEBA (4j) | `…/tests/test_ueba.py` | 10 |
+| ├ watermark (4k) | `…/tests/test_watermark.py` | 7 |
+| ├ vendor PAM (5a) | `…/tests/test_vendor_pam.py` | 22 |
+| ├ cloud PAM (5b) | `…/tests/test_cloud.py` | 28 |
+| ├ broker (5c) | `…/tests/test_broker.py` | 25 |
+| ├ agent PAM (5d) | `…/tests/test_agent.py` | 30 |
 | ├ HA/DC/DR (6a) | `…/tests/test_cluster.py` | 36 |
-| ├ RBAC/ABAC (6b) | `…/tests/test_rbac.py` | 31 |
-| ├ SSO login (6c) | `…/tests/test_sso.py` | 37 |
-| ├ HSM custody (6c) | `…/tests/test_hsm.py` | 14 |
-| ├ identity & login (7) | `…/tests/test_identity.py` | 33 |
-| ├ MFA challenge (7) | `…/tests/test_mfa.py` | 11 |
-| ├ e-mail OTP (7) | `…/tests/test_otp.py` | 13 |
-| ├ WebAuthn (7) | `…/tests/test_webauthn.py` | 17 |
-| ├ RADIUS (7) | `…/tests/test_radius.py` | 13 |
-| ├ SCIM (7) | `…/tests/test_scim.py` | 9 |
-| ├ gateway data plane (8a) | `…/tests/test_gateway.py` | 34 |
-| └ OpenAPI contract | `…/tests/test_openapi_contract.py` | 9 |
+| ├ RBAC/ABAC (6b) | `…/tests/test_rbac.py` | 32 |
+| ├ SSO login (6c) | `…/tests/test_sso.py` | 38 |
+| ├ HSM custody (6c) | `…/tests/test_hsm.py` | 15 |
+| ├ identity & login (7) | `…/tests/test_identity.py` | 34 |
+| ├ MFA challenge (7) | `…/tests/test_mfa.py` | 12 |
+| ├ e-mail OTP (7) | `…/tests/test_otp.py` | 14 |
+| ├ WebAuthn (7) | `…/tests/test_webauthn.py` | 18 |
+| ├ RADIUS (7) | `…/tests/test_radius.py` | 14 |
+| ├ SCIM (7) | `…/tests/test_scim.py` | 10 |
+| ├ gateway data plane (8a) | `…/tests/test_gateway.py` | 35 |
+| ├ storage contract (ADR-0019) | `…/tests/test_postgres.py` | 9 |
+| └ OpenAPI contract | `…/tests/test_openapi_contract.py` | 10 |
 | **Vendor tool total** | `python -m pytest pam_master -q` | **46** |
 | ├ registry (encrypted PII) | `pam_master/tests/test_registry.py` | 15 |
 | ├ skeleton/custody/health | `pam_master/tests/test_skeleton.py` | 13 |
@@ -59,7 +60,7 @@ code constants, required `info`/tags (24), and live response shapes ⇄
 schemas — currently **209 paths / 250 operations** (the 4 node-token ops
 are intentionally outside the admin set).
 
-The 8a gateway layer (`test_gateway.py`, 34, all passing) runs a **real
+The 8a gateway layer (`test_gateway.py`, 35, all passing) runs a **real
 in-thread TCP guacd stub** speaking the Apache wire protocol — handshake
 order, error-opcode honesty, garbage fail-closed, client
 ack/sync/disconnect — plus the broker fail-closed matrix, the node-token
@@ -128,9 +129,9 @@ a fullPage path.
 ## 4. Boundary regression (local at every boundary; enforced in CI on every push)
 
 ```powershell
-python -X utf8 -m pytest backend -q          # 794
+python -X utf8 -m pytest backend -q          # 834
 python -X utf8 -m pytest pam_master -q       # 46
-python -X utf8 -m pytest backend\phase2_license_server\tests\test_openapi_contract.py -q   # 9
+python -X utf8 -m pytest backend\phase2_license_server\tests\test_openapi_contract.py -q   # 10
 # boundary smoke (Temp\opencode\smoke_restructure.py): 17/17
 python tools/demo_seed.py                    # idempotent demo rig (public API only)
 node shots_tool/__verify_live.mjs            # ALL CHECKS PASSED
@@ -194,7 +195,8 @@ same commit with **real** counts.
 
 - No coverage percentage is reported (not measured honestly today).
 - No browser-matrix or performance benchmarks are asserted — none exist.
-- Load/scalability: single-node SQLite by design; HA is §18, not built.
+- Load/scalability: one PostgreSQL server by design (ADR-0019); multi-writer
+  HA is §18, not built.
 
 ## 8. Planned suites (see `IMPLEMENTATION_PLAN.md`)
 
@@ -205,10 +207,10 @@ Each pending phase adds a test file and grows the contract — **counts are
 |---|---|---|
 | 5a-5d | `test_vendor_pam.py`, `test_cloud.py`, `test_broker.py`, `test_agent.py` | per-phase path additions |
 | 6a §18 | `test_cluster.py` (36) | 15 cluster paths + the `Health` node-identity fields |
-| 6b | `test_rbac.py` (31) | 4 rbac paths + role scope lists on the 74 role-declaring admin ops + `rbacToken`/`ldapTicket` schemes |
-| 6c | `test_sso.py` (37), `test_hsm.py` (14) | 14 SSO/HSM paths + settings enforcement + posture evidence |
-| 7 | `test_identity.py` (33), `test_mfa.py` (11), `test_otp.py` (13), `test_webauthn.py` (17), `test_radius.py` (13), `test_scim.py` (9) | 41 identity paths / 49 ops + the `identity` tag + security schemes on the 16 new admin operations |
-| 8a | `test_gateway.py` (34) | 17 gateway paths / 21 ops + the `gateway` tag + the `nodeToken` security scheme (settings `{group}` enum gains `gateway`) |
+| 6b | `test_rbac.py` (32) | 4 rbac paths + role scope lists on the 74 role-declaring admin ops + `rbacToken`/`ldapTicket` schemes |
+| 6c | `test_sso.py` (38), `test_hsm.py` (15) | 14 SSO/HSM paths + settings enforcement + posture evidence |
+| 7 | `test_identity.py` (34), `test_mfa.py` (12), `test_otp.py` (14), `test_webauthn.py` (18), `test_radius.py` (14), `test_scim.py` (10) | 41 identity paths / 49 ops + the `identity` tag + security schemes on the 16 new admin operations |
+| 8a | `test_gateway.py` (35) | 17 gateway paths / 21 ops + the `gateway` tag + the `nodeToken` security scheme (settings `{group}` enum gains `gateway`) |
 
 Standing expectations for every future phase: the 4-way lockstep
 (routes ⇄ openapi ⇄ ADMIN ⇄ tests), mapper-coverage test keeps all event

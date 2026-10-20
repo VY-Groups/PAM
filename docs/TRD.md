@@ -13,7 +13,7 @@
    Browser (admin)  ───► │ VY-PAM (shipped)                           │
    1920×1600 console      │  frontend/  static screens (file:// or HTTP)│
                           │  apis/      openapi.yaml (contract)        │
-                          │  backend/   Flask runtime + SQLite         │
+                          │  backend/   Flask runtime + PostgreSQL     │
                           │    └ ipam_licensing (shared crypto engine) │
                           └────────────────────────────────────────────┘
                                      ▲ signed license envelope (.lic)
@@ -48,10 +48,10 @@ repo.
 | Language | Python 3 (`python -X utf8`) | stdlib-first; no compiled deps |
 | Web | Flask, blueprint `api` under `/api/v1` | app factory in `app.py`, `create_app()` |
 | ORM | SQLAlchemy (Flask-SQLAlchemy) | declarative models, `db.create_all()` + additive `ensure_schema()` |
-| Store | SQLite (`licenses.db`, git-ignored) | append-only enforced by triggers on `audit_events` |
+| Store | PostgreSQL (`postgresql+psycopg://…`, required - ADR-0019) | append-only enforced by triggers on `audit_events` |
 | Crypto | `cryptography` lib | RSA-PSS-SHA256 (default) / Ed25519 envelopes; AES-256-GCM secrets |
 | Frontend | Static HTML + Tailwind (CDN build) + vanilla JS | 11 sidebar screens, no bundler, works from `file://` |
-| Tests | pytest | 794 backend + 46 pam_master |
+| Tests | pytest | 834 backend + 46 pam_master |
 | UI verification | Node + `playwright-core` (`shots_tool/`) | viewport 1920×1600, never `fullPage` |
 | Vendor tool | Flask + raw `sqlite3` | `pam_master` package, `python -m pam_master` |
 
@@ -193,7 +193,8 @@ Rules enforced by tests/conventions:
 - Record: `{seq, source, action, entity, actor, detail, at, prev_hash,
   event_hash}`; `event_hash = sha256(canonical JSON incl. prev_hash)`,
   genesis prev = `0`×64.
-- SQLite triggers `BEFORE UPDATE` / `BEFORE DELETE` → `RAISE(ABORT, …)`.
+- PostgreSQL triggers `BEFORE UPDATE` / `BEFORE DELETE` → `RAISE EXCEPTION`
+  with the verbatim `audit_events is append-only (…)` message.
 - First boot backfills any pre-chain history **exactly once** (flag row).
 - `/audit/verify` recomputes the entire chain (reports first break index);
   `/audit/export` streams NDJSON in chain order (the SIEM seam).
@@ -508,11 +509,11 @@ Rules enforced by tests/conventions:
   probes every registered active peer while passive and promotes only
   after **3** consecutive failures *and* all of them failed; an active
   node never auto-demotes - failback is an operator decision.
-- **Backups**: `POST /cluster/backups` copies the live SQLite database
-  through the online backup API into `CLUSTER_BACKUP_DIR`
-  (`pam-backup-<ts>-seq<N>.db`), records sha256 + audit seq, then re-opens
-  the copy read-only and re-walks its chain before answering 201; a
-  non-SQLite engine answers 503 honestly.
+- **Backups**: `POST /cluster/backups` streams a logical NDJSON bundle of
+  every table into `CLUSTER_BACKUP_DIR`
+  (`pam-backup-<ts>-seq<N>.ndjson`), records sha256 + audit seq, then
+  re-parses the bundle and re-walks its embedded chain before answering
+  201 (ADR-0019 D4).
 
 ### 4.21 RBAC / ABAC (§10) - Phase 6b
 
@@ -788,7 +789,7 @@ Shipped server (`backend/phase2_license_server`, `.env` supported):
 
 | Variable | Default | Purpose |
 |---|---|---|
-| `LICENSE_DATABASE_URI` | `sqlite:///licenses.db` | DB location |
+| `LICENSE_DATABASE_URI` | **required** | PostgreSQL URI (`postgresql+psycopg://user:pass@host:5432/db`) — the only storage engine (ADR-0019) |
 | `LICENSE_PRIVATE_KEY_PATH` / `LICENSE_PUBLIC_KEY_PATH` | repo-root PEMs | RSA-PSS envelope keys |
 | `LICENSE_ED25519_PRIVATE_KEY_PATH` / `LICENSE_ED25519_PUBLIC_KEY_PATH` | repo-root PEMs | Ed25519 keys |
 | `LICENSE_SECRET_KEY` | dev value + warning | Flask secret |
@@ -800,7 +801,7 @@ Shipped server (`backend/phase2_license_server`, `.env` supported):
 | `ROTATION_SCHEDULER` / `ROTATION_SCHEDULER_INTERVAL_SECONDS` | off / 3600 | background rotation |
 | `PAM_NODE_NAME` / `PAM_SITE` | `pam-node-1` / `dc` | §18 self identity (`site` is `dc` or `dr`); the registry row is created at startup, its role never reset by a restart |
 | `CLUSTER_MONITOR` / `CLUSTER_MONITOR_INTERVAL_SECONDS` | off / 60 | opt-in auto-failover monitor thread (tick interval, minimum 5 s) |
-| `CLUSTER_BACKUP_DIR` | `backend/phase2_license_server/backups` | where `POST /api/v1/cluster/backups` writes its verified SQLite copies |
+| `CLUSTER_BACKUP_DIR` | `backend/phase2_license_server/backups` | where `POST /api/v1/cluster/backups` writes its verified logical backup bundles |
 | `LICENSE_SERVER_HOST` / `LICENSE_SERVER_PORT` / `LICENSE_SERVER_DEBUG` | `127.0.0.1` / `5000` / off | dev server |
 
 Vendor tool (`pam_master`): `MASTER_DATABASE_URI`, `MASTER_RSA_PRIVATE_KEY_PATH`,
@@ -810,8 +811,9 @@ Vendor tool (`pam_master`): `MASTER_DATABASE_URI`, `MASTER_RSA_PRIVATE_KEY_PATH`
 
 ## 7. Key trade-offs & constraints (accepted today)
 
-1. **SQLite single-writer** — fine for one appliance node; §18 HA is out of
-   scope. Journal mode + short transactions keep the ledger consistent.
+1. **PostgreSQL as one external server** - the appliance ships one node
+   against its own PostgreSQL (ADR-0019); §18 multi-writer HA is out of
+   scope. Short transactions keep the ledger consistent.
 2. **Naive datetimes stored local-time** — tests anchor the clock by patching
    module `datetime` in *both* the service and models modules (lesson from
    4f: column defaults bind their `datetime` at import).

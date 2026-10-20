@@ -353,8 +353,8 @@ Admin registers the DR peer (name / site / role / base URL - https unless
     active peer each tick and promotes itself only after 3 consecutive
     failures AND all active peers failed; an active node never demotes
     itself - failback is an operator decision
-  New Backup (POST /cluster/backups): SQLite online backup + sha256 +
-    chain re-walked from the copy; restore is file put-back + /health +
+  New Backup (POST /cluster/backups): logical NDJSON bundle + sha256 +
+    chain re-walked from the bundle; restore is engine restore + /health +
     /audit/verify per the deployment runbook
   every action fans into the ledger as source `cluster` (16th source);
     Compliance gains the 17th chip

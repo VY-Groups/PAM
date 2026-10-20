@@ -14,7 +14,8 @@ installs directly on a machine — no VM, no container.
 - No outbound network required — the console ships fully vendored (Tailwind
   runtime, fonts and icons under `frontend/vendor/`); air-gapped installs
   need nothing extra
-- Disk: the DB is one SQLite file; keys are a handful of PEM/`*.key` files
+- Disk: PostgreSQL keeps the DB server-side (back it up per §6) — this
+  install carries only a handful of PEM/`*.key` files
 
 ## 2. Install — shipped product (VY-PAM)
 
@@ -34,7 +35,8 @@ pip install waitress
 waitress-serve --port 5000 wsgi:app
 ```
 
-First boot, automatically: creates `licenses.db`, generates missing keys **only
+First boot, automatically: creates the schema on the configured PostgreSQL
+server, generates missing keys **only
 if** `LICENSE_AUTOGENERATE_KEYS=1`, backfills the audit chain once, seeds the
 15 §9 rules into an empty table, and (if enabled) starts the rotation
 scheduler.
@@ -46,11 +48,14 @@ Development alternative (**runtime/real-time testing only**, never a
 shipping instruction): `backend/phase2_license_server/docker-compose.yml`
 builds a **dev-only** image from the repo root
 (`docker build -f backend/phase2_license_server/Dockerfile -t vypam-license-server:dev .`),
-maps **5010 → 5000** (the host dev server usually owns 5000), gives every
-`up` a fresh in-container database, and bakes throwaway signing keys per
-build — `.dockerignore` keeps `*.pem`/`*.key`/`.env`/`*.db` out of every
-build context. The same image runs the suite in its Linux runtime:
-`docker run --rm vypam-license-server:dev python -m pytest tests -q`.
+maps **5010 → 5000** (the host dev server usually owns 5000), starts a real
+`postgres:16` service (`shm_size: 1g`, named volume, `service_healthy`) and
+points the server at it via `LICENSE_DATABASE_URI` (ADR-0019 D7: one
+production-shape compose), gives every `up` a fresh database (`down -v`
+starts over), and bakes throwaway signing keys per build — `.dockerignore`
+keeps `*.pem`/`*.key`/`.env`/`*.db` out of every build context. The same
+image runs the suite in its Linux runtime against the same service:
+`docker compose run --rm license-server python -m pytest tests -q`.
 
 ## 3. Install — vendor tool (VY-PAM MASTER, internal only)
 
@@ -76,7 +81,7 @@ shipping instruction.
 
 | Variable | Default | Notes |
 |---|---|---|
-| `LICENSE_DATABASE_URI` | `sqlite:///licenses.db` | keep on local disk |
+| `LICENSE_DATABASE_URI` | **required — no default** | PostgreSQL is the only storage engine (ADR-0019): `postgresql+psycopg://user:pass@host:5432/db` — the psycopg `[binary]` wheel in `requirements.txt` bundles libpq, no system client libraries needed. Unset, or a non-PostgreSQL scheme (e.g. a stale `sqlite:///` line), refuses to boot with an honest error naming this ADR. |
 | `LICENSE_SERVER_HOST` / `LICENSE_SERVER_PORT` / `LICENSE_SERVER_DEBUG` | `127.0.0.1` / `5000` / off | bind to localhost behind a proxy |
 | `LICENSE_ADMIN_TOKEN` | **unset = open dev mode** | **set this in production**; unset ⇒ `X-Auth-Mode: open` |
 | `LICENSE_PRIVATE_KEY_PATH` / `LICENSE_PUBLIC_KEY_PATH` | repo-root PEMs | verification keys |
@@ -108,13 +113,20 @@ shipping instruction.
 
 ## 6. Backup / restore / upgrade
 
-**Backup** (while the service is stopped, or copy-consistent):
+**Backup** (the engine's own files while stopped, or copy-consistent):
 ```
-licenses.db          # domain data + audit chain
+PostgreSQL data / pg_dump  # domain data + audit chain (ADR-0019 engine)
 vault.key            # VAULT_KEY_PATH — secrets are unrecoverable without it
 license_*.pem        # verification keys (trust root stays in PAM-MASTER)
 .env                 # config (contains secrets — store accordingly)
 ```
+Verified logical backups (§7) run without stopping the service:
+`POST /api/v1/cluster/backups` streams a logical NDJSON bundle of every
+table into `CLUSTER_BACKUP_DIR`, hashes it, then re-parses it and re-walks
+its embedded audit chain before answering (`verified: true`) — copy the
+bundle off-host with your normal job. The operations-grade physical lane
+remains `pg_dump`/WAL archiving. The chain verifies afterwards either way
+via `GET /api/v1/audit/verify`.
 
 **Restore:** stop service → put files back with original permissions →
 start → `GET /health` + `GET /api/v1/audit/verify` (chain must report intact
@@ -124,7 +136,8 @@ across the restored history).
 → start. Schema changes are additive and applied at boot by
 `ensure_schema()`; the one-time chain backfill and rule seeding never repeat.
 Run the boundary suites before exposing it: `python -m pytest backend -q`
-(expect **794**) and `python -m pytest pam_master -q` (**46**).
+(expect **834** — the suite requires `PAM_TEST_DATABASE_URI`, §2) and
+`python -m pytest pam_master -q` (**46**).
 
 ## 7. HA / DC / DR runbooks (§18)
 
@@ -186,11 +199,11 @@ peer and promotes itself only after **3** consecutive failures *and* all
 active peers failed. An active node never auto-demotes — failback is
 always an operator decision.
 
-**Scheduled backups** (per node): `POST /api/v1/cluster/backups` copies
-the live SQLite file into `CLUSTER_BACKUP_DIR` and re-walks the chain
-from the copy before answering (`verified: true`); copy the file
-off-host with your normal job. Restore is §6 (file put-back →
-`GET /health` + `GET /api/v1/audit/verify`).
+**Scheduled backups** (per node): `POST /api/v1/cluster/backups` streams
+the live store into a logical NDJSON bundle under `CLUSTER_BACKUP_DIR` and
+re-walks the chain from the bundle before answering (`verified: true`);
+copy the bundle off-host with your normal job. Restore is §6 (restore the
+engine from `pg_dump`/volume → `GET /health` + `GET /api/v1/audit/verify`).
 
 **DR drill:** on a spare node set `PAM_SITE=dr`, register the production
 peers, run `sync`, then confirm `GET /api/v1/audit/verify` is intact and
@@ -227,8 +240,8 @@ are evidence, never merged — the spare still serves only its own ledger.
 ## 10. Uninstall
 
 Stop the process; delete the install directory **after** securely destroying
-`vault.key`, the PEMs, `licenses.db`, and `.env` (they contain secrets,
-credentials, and audit history).
+`vault.key`, the PEMs, the PostgreSQL data and its dumps, and `.env` (they
+contain secrets, credentials, and audit history).
 
 ## 11. Target deployment (after planned work — see `IMPLEMENTATION_PLAN.md`)
 
@@ -237,10 +250,10 @@ Status per item — recorded so operations planning isn't surprising:
 - **§18 HA/DC/DR (phase 6a — shipped, single-binary scope):** node
   registry, real `/health` probes, hash-verified pull replication
   (audit/vault/sessions), the passive write gate, manual failover + opt-in
-  automatic promotion, and verified SQLite backups run today — runbooks in
-  §7. Still ahead of the full spec picture: external load-balancer
-  topology guidance and a replicated store replacing single-file SQLite
-  for multi-writer nodes.
+  automatic promotion, and verified logical backup bundles run today —
+  runbooks in §7. Still ahead of the full spec picture: external
+  load-balancer topology guidance and a replicated store for multi-writer
+  nodes.
 - **Phase 4i connectors:** SIEM outbound push and LDAP/SSO auth paths add
   egress/firewall expectations (outbound webhook + LDAP port) to this
   checklist when configured.

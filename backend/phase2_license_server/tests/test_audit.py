@@ -2,9 +2,9 @@
 
 Every module event trail (license, settings, vault, discovery, JIT, session
 lifecycle, command control) fans into one append-only, hash-chained store:
-`seq` links each record to the previous hash, SQLite triggers refuse UPDATE
-and DELETE, a full walk (`/audit/verify`) reports the first break, and the
-export endpoint hands a SIEM the same records as NDJSON.
+`seq` links each record to the previous hash, the storage engine's triggers
+refuse UPDATE and DELETE, a full walk (`/audit/verify`) reports the first
+break, and the export endpoint hands a SIEM the same records as NDJSON.
 
 The ledger never stores channel content (keystrokes stay in the session
 recording) and never stores secrets (a reveal logs who/what/when, not the
@@ -32,6 +32,7 @@ import audit  # noqa: E402
 import models  # noqa: E402
 from app import create_app  # noqa: E402
 from config import Config  # noqa: E402
+from _testdb import test_database_uri  # noqa: E402
 from licensing_bridge import LicenseType, get_generator, sig  # noqa: E402
 from models import (  # noqa: E402
     AUDIT_GENESIS_HASH,
@@ -50,7 +51,7 @@ ACTOR = {"X-Actor": "tester", "Authorization": "Bearer test-admin-token"}
 @pytest.fixture
 def config(tmp_path: Path) -> Config:
     return Config(
-        database_uri=f"sqlite:///{(tmp_path / 'licenses.db').as_posix()}",
+        database_uri=test_database_uri(tmp_path),
         private_key_path=REPO_ROOT / "license_private_key.pem",
         public_key_path=REPO_ROOT / "license_public_key.pem",
         ed25519_private_key_path=tmp_path / "license_ed25519_private.pem",
@@ -498,7 +499,11 @@ def test_missing_record_is_a_gap_even_if_the_trigger_is_dropped(client):
         assert audit.triggers_installed(db.engine) is True
 
         with db.engine.begin() as conn:
-            conn.execute(text("DROP TRIGGER audit_events_no_delete"))
+            # the trigger is dropped by name (audit._PG_TRIGGERS); the
+            # only storage engine requires the target table
+            conn.execute(
+                text("DROP TRIGGER audit_events_no_delete ON audit_events")
+            )
         assert audit.triggers_installed(db.engine) is False
         assert audit.chain_stats()["trigger_protection"] is False
 

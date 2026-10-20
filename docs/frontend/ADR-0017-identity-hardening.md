@@ -60,7 +60,10 @@ stateDiagram-v2
   unconfigured `webauthn` group is source-verified at
   `webauthn.py:399-404`.
 
-## Decision 2 - batch 11.9 (backend + frontend)
+## Decision 2 - batch 11.10 (backend + frontend)
+
+*(batch renumbered from 11.9 on 2026-10-19: ADR-0019 inserted PostgreSQL as
+batch 11.9 in the same program, same date - this batch is now 11.10)*
 
 - `PATCH /api/v1/users/{id}` gains **`must_change_password`** (boolean,
   optional): the admin can mark a user "change password at next sign-in"
@@ -104,7 +107,7 @@ surfaces - `PUT /settings/{group}`, `POST/PATCH /users*`,
 | Batch | Surface | Contract delta | Evidence bar |
 |---|---|---|---|
 | 11.8 | console | none (existing endpoints) | vitest+axe both login states + /security; gate both modes unchanged |
-| 11.9 | console + openapi | `PATCH /users/{id}.must_change_password` | backend contract+route tests, vitest+axe, capture on a throwaway rig |
+| 11.10 | console + openapi | `PATCH /users/{id}.must_change_password` | backend contract+route tests, vitest+axe, capture on a throwaway rig |
 | 12.0 | console + openapi + models | `change-requests` surface | backend dual-control tests (incl. self-approval refusal), vitest+axe inbox, gate both modes |
 
 Cross-reference: ADR-0018 (first-run setup) reuses Decision 1's forced

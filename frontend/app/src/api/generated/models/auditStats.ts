@@ -38,6 +38,6 @@ export interface AuditStats {
   oldest_at: string | null;
   /** @nullable */
   newest_at: string | null;
-  /** The append-only SQLite triggers are installed. */
+  /** The append-only PostgreSQL triggers are installed. */
   trigger_protection: boolean;
 }

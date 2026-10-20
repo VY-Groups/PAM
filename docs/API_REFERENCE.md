@@ -250,7 +250,7 @@ and the YAML ever disagree, the YAML wins.
 | POST | `/api/v1/cluster/failover` | `{"action": "promote"\|"demote"}` flips this node's role for real (already there → 409), `from`/`to` recorded on the §19 trail |
 | POST | `/api/v1/cluster/monitor/tick` | one auto-failover decision: no-op while active; a passive node is promoted only after `CLUSTER_FAILOVER_FAILURES` (3) consecutive probe failures **and** every active peer failed |
 | GET | `/api/v1/cluster/backups` | backup ledger: path, size, sha256, audit seq, verification result |
-| POST | `/api/v1/cluster/backups` | SQLite online backup into `CLUSTER_BACKUP_DIR` (201): the copy is re-opened read-only and its chain re-walked before answering; non-SQLite engine → 503 |
+| POST | `/api/v1/cluster/backups` | logical NDJSON bundle of every table into `CLUSTER_BACKUP_DIR` (201): the file is hashed, then re-parsed and its embedded chain re-walked before answering (ADR-0019 D4) |
 | GET | `/api/v1/cluster/export/vault` | replicated ciphertext + metadata only (never plaintext) - what a DR node without the key pulls |
 | GET | `/api/v1/cluster/export/sessions` | session metadata stream (ids, targets, times - no recording content) |
 

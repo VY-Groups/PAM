@@ -3,7 +3,7 @@
 One append-only, hash-chained store for every module event:
 
     module event -> audit_events row -> sha256(prev_hash + payload)
-    -> timestamp -> SQLite append-only triggers -> SIEM export (NDJSON)
+    -> timestamp -> PostgreSQL append-only triggers -> SIEM export (NDJSON)
 
 - A ``before_flush`` listener copies each new event row into the ledger in
   the same transaction, so an event cannot be committed unaudited.
@@ -13,7 +13,7 @@ One append-only, hash-chained store for every module event:
   and never breaks the request that committed it.
 - ``event_hash`` links seq N to N-1; ``GET /api/v1/audit/verify`` walks the
   whole chain and reports the first break (gap, re-link or content change).
-- SQLite ``BEFORE UPDATE``/``BEFORE DELETE`` triggers make the rows
+- PostgreSQL ``BEFORE UPDATE``/``BEFORE DELETE`` triggers make the rows
   immutable even for someone with direct database access, and the API has
   no route that writes or deletes them.
 - Channel content (keystrokes, file payloads) stays in the append-only
@@ -94,14 +94,20 @@ SOURCE_RANK = {name: index for index, name in enumerate(AUDIT_SOURCES)}
 _SESSION_LEDGER_TYPES = ("status", "note")
 _COMMAND_LEDGER_TYPES = ("command", "approval")
 
-_TRIGGERS = {
+_PG_TRIGGER_FUNCTION = (
+    "CREATE OR REPLACE FUNCTION audit_events_append_only() RETURNS trigger "
+    "LANGUAGE plpgsql AS $$ BEGIN "
+    "RAISE EXCEPTION 'audit_events is append-only (architecture 19)'; "
+    "END; $$"
+)
+_PG_TRIGGERS = {
     "audit_events_no_update": (
         "CREATE TRIGGER audit_events_no_update BEFORE UPDATE ON audit_events "
-        "BEGIN SELECT RAISE(ABORT, 'audit_events is append-only (architecture 19)'); END"
+        "FOR EACH ROW EXECUTE FUNCTION audit_events_append_only()"
     ),
     "audit_events_no_delete": (
         "CREATE TRIGGER audit_events_no_delete BEFORE DELETE ON audit_events "
-        "BEGIN SELECT RAISE(ABORT, 'audit_events is append-only (architecture 19)'); END"
+        "FOR EACH ROW EXECUTE FUNCTION audit_events_append_only()"
     ),
 }
 
@@ -890,13 +896,29 @@ def append_explicit(
     return rows[0]
 
 
+def _id_lock_key(table: str) -> int:
+    """Stable advisory-lock key for a table's id allocation (ADR-0019 D6).
+
+    Derived in Python (sha256 of "pam-id-alloc:<table>", low 63 bits) so the
+    key is identical on every node and needs no undocumented PostgreSQL
+    hashing function."""
+    digest = hashlib.sha256(f"pam-id-alloc:{table}".encode()).digest()
+    return int.from_bytes(digest[:8], "big") & ((1 << 63) - 1)
+
+
 def _ensure_id(db_session, obj: Any, pending: Dict[Any, List[int]]) -> None:
     """Assign the source id up front so the ledger ref ("vault:3") exists
-    before the row is inserted (single-writer sqlite: max+1, like the
-    session seq counter)."""
+    before the row is inserted (max+1, like the session seq counter).
+    PostgreSQL serialises concurrent allocators with an advisory
+    transaction lock so max+1 cannot collide across sessions
+    (ADR-0019 D6)."""
     if obj.id is not None:
         return
     cls = type(obj)
+    db_session.execute(
+        text("SELECT pg_advisory_xact_lock(:key)"),
+        {"key": _id_lock_key(cls.__tablename__)},
+    )
     with db_session.no_autoflush:
         current = db_session.query(func.max(cls.id)).scalar()
     floor = int(current or 0)
@@ -950,40 +972,44 @@ install_listener()
 
 
 def _install_triggers(engine) -> bool:
-    """Create the append-only triggers when they are missing (sqlite only)."""
-    if engine.dialect.name != "sqlite":
-        return False
-    with engine.begin() as conn:
-        existing = {
-            row[0]
-            for row in conn.execute(
-                text(
-                    "SELECT name FROM sqlite_master WHERE type='trigger' "
-                    "AND name LIKE 'audit_events_%'"
+    """Create the append-only triggers when they are missing (PostgreSQL,
+    the only storage engine; unknown dialects stay fail-closed, ADR-0019
+    D3/D10)."""
+    if engine.dialect.name == "postgresql":
+        with engine.begin() as conn:
+            existing = {
+                row[0]
+                for row in conn.execute(
+                    text(
+                        "SELECT tgname FROM pg_trigger "
+                        "WHERE NOT tgisinternal AND tgname LIKE 'audit_events_%'"
+                    )
                 )
-            )
-        }
-        for name, sql in _TRIGGERS.items():
-            if name not in existing:
-                conn.execute(text(sql))
-    return True
+            }
+            missing = set(_PG_TRIGGERS) - existing
+            if missing:
+                conn.execute(text(_PG_TRIGGER_FUNCTION))
+                for name in sorted(missing):
+                    conn.execute(text(_PG_TRIGGERS[name]))
+        return True
+    return False
 
 
 def triggers_installed(engine) -> bool:
     """True when both immutability triggers are live in the database."""
-    if engine.dialect.name != "sqlite":
-        return False
-    with engine.connect() as conn:
-        existing = {
-            row[0]
-            for row in conn.execute(
-                text(
-                    "SELECT name FROM sqlite_master WHERE type='trigger' "
-                    "AND name LIKE 'audit_events_%'"
+    if engine.dialect.name == "postgresql":
+        with engine.connect() as conn:
+            existing = {
+                row[0]
+                for row in conn.execute(
+                    text(
+                        "SELECT tgname FROM pg_trigger "
+                        "WHERE NOT tgisinternal AND tgname LIKE 'audit_events_%'"
+                    )
                 )
-            )
-        }
-    return set(_TRIGGERS) <= existing
+            }
+        return set(_PG_TRIGGERS) <= existing
+    return False
 
 
 def ensure_audit_chain() -> int:

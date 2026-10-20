@@ -9790,11 +9790,10 @@ export const getPostApiV1ClusterBackupsUrl = () => {
 }
 
 /**
- * SQLite's online backup API copies the live file without stopping
- * writes; the copy is hashed (sha256) and re-opened read-only to
- * re-walk its audit chain. A backup that cannot be verified records
- * why, honestly. The storage engine must be SQLite - other engines
- * answer 503 rather than pretending.
+ * A logical NDJSON bundle of every table, streamed to the backup
+ * directory without stopping writes (ADR-0019 D4); the file is
+ * hashed (sha256), then re-parsed to re-walk its embedded audit
+ * chain. A backup that cannot be verified records why, honestly.
  * @summary Take a real backup now
  */
 export const postApiV1ClusterBackups = async ( options?: Parameters<typeof postApiV1ClusterBackupsMutator>[1]): Promise<postApiV1ClusterBackupsResponse> => {

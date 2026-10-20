@@ -23,6 +23,7 @@ if str(SERVER_DIR) not in sys.path:
 
 from app import create_app  # noqa: E402
 from config import Config  # noqa: E402
+from _testdb import test_database_uri  # noqa: E402
 from licensing_bridge import LicenseType, get_generator, sig  # noqa: E402
 from models import (  # noqa: E402
     VAULT_STATUS_FAILED,
@@ -39,7 +40,7 @@ ACTOR = {"X-Actor": "tester", "Authorization": "Bearer test-admin-token"}
 @pytest.fixture
 def config(tmp_path: Path) -> Config:
     return Config(
-        database_uri=f"sqlite:///{(tmp_path / 'licenses.db').as_posix()}",
+        database_uri=test_database_uri(tmp_path),
         private_key_path=REPO_ROOT / "license_private_key.pem",
         public_key_path=REPO_ROOT / "license_public_key.pem",
         ed25519_private_key_path=tmp_path / "license_ed25519_private.pem",
@@ -453,7 +454,7 @@ def test_overview_sums_reported_usage(client):
 
 def test_overview_flags_open_auth_mode(tmp_path: Path):
     config = Config(
-        database_uri=f"sqlite:///{(tmp_path / 'open.db').as_posix()}",
+        database_uri=test_database_uri(tmp_path, 'open.db'),
         private_key_path=REPO_ROOT / "license_private_key.pem",
         public_key_path=REPO_ROOT / "license_public_key.pem",
         ed25519_private_key_path=tmp_path / "license_ed25519_private.pem",
