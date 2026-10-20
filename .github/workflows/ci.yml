@@ -243,14 +243,29 @@ jobs:
       - name: "Start PostgreSQL for the rigs (ADR-0019 D5: one engine)"
         shell: pwsh
         run: |
-          docker run -d --name vypam-ci-pg -e POSTGRES_USER=pam -e POSTGRES_PASSWORD=pam -e POSTGRES_DB=pam -p 5432:5432 --shm-size=1g postgres:16
-          foreach ($i in 1..45) {
-            docker exec vypam-ci-pg pg_isready -U pam
-            if ($LASTEXITCODE -eq 0) { break }
+          # The windows runner's Docker engine is Windows-container-only
+          # (no Linux backend, no Desktop to switch), so postgres:16 cannot
+          # run there - "no matching manifest for windows(10.0.26100)/amd64".
+          # Install PostgreSQL 16 natively instead (choco ships on the runner)
+          # and keep the exact downstream contract: role pam/pam, databases
+          # pam_ci_open + pam_ci_token, TCP 127.0.0.1:5432.
+          choco install postgresql16 --yes --no-progress --params "'/Password:pam /Port:5432'"
+          if ($LASTEXITCODE -ne 0) { throw "postgresql16 install failed (exit $LASTEXITCODE)" }
+          # Steps inherit the runner's env snapshot, so choco's PATH addition
+          # is not visible here - call psql by full path.
+          $psql = Join-Path $env:ProgramFiles "PostgreSQL\16\bin\psql.exe"
+          $env:PGPASSWORD = "pam"
+          $ready = $false
+          foreach ($i in 1..30) {
+            & $psql -h 127.0.0.1 -U postgres -d postgres -c "SELECT 1" 2>$null | Out-Null
+            if ($LASTEXITCODE -eq 0) { $ready = $true; break }
             Start-Sleep -Seconds 2
           }
-          docker exec vypam-ci-pg psql -U pam -d postgres -c "CREATE DATABASE pam_ci_open;"
-          docker exec vypam-ci-pg psql -U pam -d postgres -c "CREATE DATABASE pam_ci_token;"
+          if (-not $ready) { throw "PostgreSQL did not become ready" }
+          & $psql -h 127.0.0.1 -U postgres -d postgres -c "CREATE ROLE pam LOGIN SUPERUSER PASSWORD 'pam';"
+          & $psql -h 127.0.0.1 -U postgres -d postgres -c "CREATE DATABASE pam_ci_open OWNER pam;"
+          & $psql -h 127.0.0.1 -U postgres -d postgres -c "CREATE DATABASE pam_ci_token OWNER pam;"
+          if ($LASTEXITCODE -ne 0) { throw "rig databases could not be created" }
       - name: "Open-mode rig: boot, seed, standing gate, live-screen verify"
         shell: pwsh
         run: |
