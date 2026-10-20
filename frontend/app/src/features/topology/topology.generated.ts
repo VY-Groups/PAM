@@ -670,7 +670,7 @@ export const BACKEND_PACKAGES: BackendPackageView[] = [
     files: [
       {
         path: 'app.py',
-        lines: 303,
+        lines: 334,
         imports: [
           'backend/phase2_license_server/audit.py',
           'backend/phase2_license_server/cluster_monitor.py',

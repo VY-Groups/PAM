@@ -199,6 +199,37 @@ def create_app(config: Optional[Config] = None) -> Flask:
             {"error": f"console build not found at {CONSOLE_DIST} - run pnpm build"}
         ), 404
 
+    @app.get("/<folder>/<path:screen_path>")
+    def screen_root_mirror(folder: str, screen_path: str):
+        """P0 fix (ADR-0020): the entry screen served at / carries relative
+        `../<folder>/code.html` hrefs, which the browser clamps to
+        `/<folder>/code.html` at the root - mirror those onto the screens
+        tree so the canonical sidebar works from both serving contexts.
+        Shared assets (`/vendor/...`) fall back to the plain UI-root
+        lookup, and the API/health namespaces are refused exactly as in
+        suite_files, which stays the catch-all below."""
+        if folder in ("api", "health") or folder.startswith("api/"):
+            abort(404)
+        root = UI_ROOT.resolve()
+        if folder == "screens":
+            candidates = (UI_ROOT / "screens" / screen_path,)
+        else:
+            # the screens mirror first, then the plain UI-root lookup so
+            # two-segment assets like /vendor/... keep answering as before
+            candidates = (
+                UI_ROOT / "screens" / folder / screen_path,
+                UI_ROOT / folder / screen_path,
+            )
+        for candidate in candidates:
+            try:
+                target = candidate.resolve()
+                target.relative_to(root)
+            except (OSError, ValueError):
+                continue
+            if target.is_file():
+                return send_from_directory(str(target.parent), target.name)
+        abort(404)
+
     @app.get("/<path:suite_path>")
     def suite_files(suite_path: str):
         """Serve the rest of the frontend (sidebars link to it).

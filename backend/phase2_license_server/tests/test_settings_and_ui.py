@@ -421,6 +421,25 @@ def test_server_serves_the_suite(client):
     assert settings.headers["Location"] == "/app/settings"
 
 
+def test_root_mirror_serves_every_screen(client):
+    """P0 fix (ADR-0020): the entry screen at / links ../<folder>/code.html,
+    which the browser clamps to /<folder>/code.html - those root-relative
+    URLs must answer 200 like the canonical /screens/... ones."""
+    for folder in WIRED_SCREENS:
+        response = client.get(f"/{folder}/code.html")
+        assert response.status_code == 200, folder
+        assert response.content_type.startswith("text/html"), folder
+
+
+def test_root_mirror_refuses_api_health_and_unknown(client):
+    """The mirror never shadows the API/health namespaces (same refusal as
+    suite_files) and unknown folders stay honest 404s, not listings. Real
+    /api/v1/... routes keep their own registered answers."""
+    assert client.get("/api/v1/licenses").status_code != 404  # registered route
+    for path in ("/api/anything", "/health/live", "/no_such_screen/code.html"):
+        assert client.get(path).status_code == 404, path
+
+
 # ---------------------------------------------------------------------------
 # the built React console under /app/ (ADR-0012 serving contract)
 # ---------------------------------------------------------------------------
