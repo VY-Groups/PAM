@@ -120,3 +120,30 @@ export const NAV_ITEMS: NavItem[] = [
     icon: 'schema',
   },
 ];
+
+export interface NavGroup {
+  /** i18n key for the group heading. */
+  labelKey: string;
+  /** NAV_ITEMS paths in this group, in sidebar display order. */
+  paths: string[];
+}
+
+/**
+ * ADR-0020 Decision 3 - the six sidebar groups. Deliberately a separate
+ * export, NOT a field on each NAV_ITEM: the topology extractor parses
+ * nav.ts with a closing-brace-anchored per-item regex
+ * (scripts/topology.mjs:54-57), so an extra field inside the item
+ * literals would silently drop nav rows and drift the generated map.
+ * Every NAV_ITEMS path appears in exactly one group (nav.test.ts).
+ */
+export const NAV_GROUPS: NavGroup[] = [
+  {
+    labelKey: 'nav.group.accessSessions',
+    paths: ['/sessions', '/jit', '/break-glass', '/vendor-access'],
+  },
+  { labelKey: 'nav.group.infrastructure', paths: ['/infrastructure', '/topology'] },
+  { labelKey: 'nav.group.identityAccess', paths: ['/users', '/security'] },
+  { labelKey: 'nav.group.policyCompliance', paths: ['/policy', '/compliance'] },
+  { labelKey: 'nav.group.vaultSecrets', paths: ['/vault'] },
+  { labelKey: 'nav.group.platform', paths: ['/command-center', '/licensing', '/settings'] },
+];

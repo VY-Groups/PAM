@@ -1,8 +1,12 @@
+import { useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Link, NavLink } from 'react-router';
+import { Link, NavLink, useNavigate } from 'react-router';
 
 import mark from '../../assets/vy-pam-mark.svg';
-import { NAV_ITEMS } from './nav';
+import { Button, NotConnected, StatusDot, Value } from '../../components';
+import { useClusterOverview } from '../../features/topology/queries';
+import { useAuth } from '../providers/useAuth';
+import { NAV_GROUPS, NAV_ITEMS } from './nav';
 
 const linkBase =
   'flex items-center gap-space-sm px-space-md py-space-sm rounded-lg transition-colors ';
@@ -11,15 +15,44 @@ const linkInactive =
   'text-on-surface-variant hover:bg-surface-container hover:text-on-surface transition-colors font-body-md text-body-md';
 
 /**
- * Sidebar (as-built markup from the legacy screens, plan §3 layout):
- * fixed w-64 rail, brand header, "Privileged Controls" section, one nav
- * link per ADR-0005 route. Active state matches the legacy
- * `bg-primary-container` pill; NavLink sets `aria-current="page"`.
+ * Sidebar (ADR-0020 Decision 1): three regions. Header = the as-built
+ * brand block plus a client-side nav filter (the contract has no
+ * /search endpoint, so it filters sidebar links only). Body = one nav
+ * landmark wrapping the six Decision-3 groups. Footer = the real cluster
+ * context (GET /api/v1/cluster self) and the whoami identity chip +
+ * sign-out moved verbatim out of the TopBar. Collapses to a drawer below
+ * lg (AppShell owns the toggle).
  */
-export function Sidebar() {
+export function Sidebar({ open, onNavigate }: { open: boolean; onNavigate: () => void }) {
   const { t } = useTranslation();
+  const navigate = useNavigate();
+  const { whoami, logout } = useAuth();
+  const cluster = useClusterOverview();
+  const [filter, setFilter] = useState('');
+
+  const needle = filter.trim().toLowerCase();
+  const visiblePaths = useMemo(
+    () =>
+      new Set(
+        NAV_ITEMS.filter((item) => t(item.labelKey).toLowerCase().includes(needle)).map(
+          (item) => item.path,
+        ),
+      ),
+    [needle, t],
+  );
+
+  const onSignOut = async () => {
+    await logout();
+    navigate('/login', { replace: true });
+  };
+
   return (
-    <aside className="fixed left-0 top-0 h-full w-64 bg-surface-container-lowest border-r border-outline-variant/30 z-50 flex flex-col justify-between shadow-[0_1px_8px_rgba(0,0,0,0.03)]">
+    <aside
+      id="app-sidebar"
+      className={`fixed left-0 top-0 h-full w-64 bg-surface-container-lowest border-r border-outline-variant/30 z-50 flex-col justify-between shadow-[0_1px_8px_rgba(0,0,0,0.03)] ${
+        open ? 'flex' : 'hidden'
+      } lg:flex`}
+    >
       <div className="flex flex-col">
         <div className="h-16 px-space-lg flex items-center justify-between border-b border-outline-variant/20">
           <Link to="/" className="flex items-center gap-space-sm">
@@ -40,30 +73,98 @@ export function Sidebar() {
             verified_user
           </span>
         </div>
-        <div className="px-space-md py-space-sm">
-          <div className="px-space-sm py-space-xs mb-space-xs font-code-sm text-code-sm text-outline uppercase tracking-wider font-semibold">
-            {t('app.sectionLabel')}
-          </div>
-          <nav aria-label={t('nav.ariaLabel')} className="flex flex-col gap-1">
-            {NAV_ITEMS.map((item) => (
-              <NavLink
-                key={item.path}
-                to={item.path}
-                className={({ isActive }) =>
-                  `${linkBase}${isActive ? linkActive : linkInactive}`
-                }
-              >
-                <span
-                  className={`material-symbols-outlined text-[20px]${item.danger ? ' text-error' : ''}`}
-                  aria-hidden="true"
-                >
-                  {item.icon}
-                </span>
-                <span>{t(item.labelKey)}</span>
-              </NavLink>
-            ))}
-          </nav>
+        <div className="px-space-md py-space-sm border-b border-outline-variant/20">
+          <label htmlFor="nav-filter" className="sr-only">
+            {t('shell.filterLabel')}
+          </label>
+          <input
+            id="nav-filter"
+            type="search"
+            value={filter}
+            onChange={(event) => setFilter(event.target.value)}
+            placeholder={t('shell.filterPlaceholder')}
+            className="w-full px-space-sm py-1 rounded bg-surface-container text-on-surface font-body-sm text-body-sm border border-outline-variant/40 focus:outline-none focus:ring-1 focus:ring-primary-container"
+          />
         </div>
+        <nav
+          aria-label={t('nav.ariaLabel')}
+          className="px-space-md py-space-sm flex flex-col gap-space-md overflow-y-auto"
+        >
+          {NAV_GROUPS.map((group) => {
+            const items = NAV_ITEMS.filter(
+              (item) => group.paths.includes(item.path) && visiblePaths.has(item.path),
+            );
+            if (items.length === 0) return null;
+            return (
+              <div key={group.labelKey}>
+                <div className="px-space-sm py-space-xs mb-space-xs font-code-sm text-code-sm text-outline uppercase tracking-wider font-semibold">
+                  {t(group.labelKey)}
+                </div>
+                <div className="flex flex-col gap-1">
+                  {items.map((item) => (
+                    <NavLink
+                      key={item.path}
+                      to={item.path}
+                      onClick={onNavigate}
+                      className={({ isActive }) =>
+                        `${linkBase}${isActive ? linkActive : linkInactive}`
+                      }
+                    >
+                      <span
+                        className={`material-symbols-outlined text-[20px]${
+                          item.danger ? ' text-error' : ''
+                        }`}
+                        aria-hidden="true"
+                      >
+                        {item.icon}
+                      </span>
+                      <span>{t(item.labelKey)}</span>
+                    </NavLink>
+                  ))}
+                </div>
+              </div>
+            );
+          })}
+          {visiblePaths.size === 0 ? (
+            <p className="px-space-sm font-body-sm text-body-sm text-on-surface-variant">
+              {t('shell.filterEmpty')}
+            </p>
+          ) : null}
+        </nav>
+      </div>
+      <div className="px-space-md py-space-sm border-t border-outline-variant/20 flex flex-col gap-space-sm">
+        <div className="flex items-center gap-space-sm font-code-sm text-code-sm text-on-surface">
+          <span className="text-outline uppercase tracking-wider">
+            {t('shell.clusterContext')}
+          </span>
+          {cluster.data ? (
+            // One text node on purpose: a combined line never collides with
+            // exact-match queries for the bare node name elsewhere.
+            <span>{`${cluster.data.self.name} · ${cluster.data.self.role} · ${cluster.data.self.site}`}</span>
+          ) : cluster.isError ? (
+            <NotConnected />
+          ) : (
+            <Value />
+          )}
+        </div>
+        {whoami ? (
+          <div className="flex items-center gap-space-sm px-space-sm py-1 rounded bg-surface-container border border-outline-variant/30 font-code-sm text-code-sm text-on-surface">
+            <StatusDot state="ok" />
+            <span>{whoami.principal}</span>
+            <span className="text-outline">|</span>
+            <span className="text-outline font-semibold">
+              {t('shell.roleBadge', { role: whoami.role })}
+            </span>
+          </div>
+        ) : null}
+        <Button
+          variant="secondary"
+          icon="logout"
+          className="w-full justify-center"
+          onClick={() => void onSignOut()}
+        >
+          {t('shell.signOut')}
+        </Button>
       </div>
     </aside>
   );

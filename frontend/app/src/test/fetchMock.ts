@@ -435,6 +435,9 @@ export function commandCenterRoutes() {
   return [
     whoamiRoute(WHOAMI_OPEN_BODY),
     healthRoute(),
+    // The shell footer reads the cluster context (ADR-0020), so every
+    // full-shell route set answers /api/v1/cluster honestly.
+    clusterRoute(),
     overviewRoute(),
     eventsRoute(),
     bypassStatsRoute(),
@@ -640,6 +643,9 @@ export function vaultRoutes() {
   return [
     whoamiRoute(WHOAMI_OPEN_BODY),
     healthRoute(),
+    // The shell footer reads the cluster context (ADR-0020), so every
+    // full-shell route set answers /api/v1/cluster honestly.
+    clusterRoute(),
     vaultStatsRoute(),
     vaultItemsRoute(),
     vaultEventsRoute(),
@@ -853,6 +859,9 @@ export function jitRoutes() {
   return [
     whoamiRoute(WHOAMI_OPEN_BODY),
     healthRoute(),
+    // The shell footer reads the cluster context (ADR-0020), so every
+    // full-shell route set answers /api/v1/cluster honestly.
+    clusterRoute(),
     jitStatsRoute(),
     jitQueueRoute(),
     jitDetailRoute(1, JIT_DETAIL_DENIED_BODY),
@@ -977,6 +986,9 @@ export function sessionsRoutes() {
   return [
     whoamiRoute(WHOAMI_OPEN_BODY),
     healthRoute(),
+    // The shell footer reads the cluster context (ADR-0020), so every
+    // full-shell route set answers /api/v1/cluster honestly.
+    clusterRoute(),
     sessionStatsRoute(),
     sessionListRoute(),
     sessionDetailRoute(SESSION_IDS.live, SESSION_DETAIL_LIVE_RESPONSE),
@@ -1157,6 +1169,9 @@ export function policyRoutes() {
   return [
     whoamiRoute(WHOAMI_OPEN_BODY),
     healthRoute(),
+    // The shell footer reads the cluster context (ADR-0020), so every
+    // full-shell route set answers /api/v1/cluster honestly.
+    clusterRoute(),
     policyStatsRoute(),
     policyRulesRoute(),
     policyRuleDetailRoute(POLICY_IDS.idA, {
@@ -1254,6 +1269,9 @@ export function complianceRoutes() {
   return [
     whoamiRoute(WHOAMI_OPEN_BODY),
     healthRoute(),
+    // The shell footer reads the cluster context (ADR-0020), so every
+    // full-shell route set answers /api/v1/cluster honestly.
+    clusterRoute(),
     auditStatsRoute(),
     auditVerifyRoute(),
     auditExportRoute(),
@@ -1474,6 +1492,9 @@ export function infrastructureRoutes() {
   return [
     whoamiRoute(WHOAMI_OPEN_BODY),
     healthRoute(),
+    // The shell footer reads the cluster context (ADR-0020), so every
+    // full-shell route set answers /api/v1/cluster honestly.
+    clusterRoute(),
     discoveryStatsRoute(),
     // Order matters on shared stems: the query-string GETs first, then
     // the bare-path POSTs, then the id-scoped writes.
@@ -1591,6 +1612,9 @@ export function vendorRoutes() {
   return [
     whoamiRoute(WHOAMI_OPEN_BODY),
     healthRoute(),
+    // The shell footer reads the cluster context (ADR-0020), so every
+    // full-shell route set answers /api/v1/cluster honestly.
+    clusterRoute(),
     // Order matters on shared stems: the query-string GET first, then
     // the id-scoped dashboard, then the bare-path POST invite, then the
     // step writes.
@@ -1689,6 +1713,9 @@ export function breakGlassRoutes() {
   return [
     whoamiRoute(WHOAMI_OPEN_BODY),
     healthRoute(),
+    // The shell footer reads the cluster context (ADR-0020), so every
+    // full-shell route set answers /api/v1/cluster honestly.
+    clusterRoute(),
     // The factor state (mfa.configured=false on this rig) drives the
     // banner line, the process rail and the direct-open path.
     integrationsStatusRoute(),
@@ -1920,6 +1947,9 @@ export function licenseRoutes() {
   return [
     whoamiRoute(WHOAMI_OPEN_BODY),
     healthRoute(),
+    // The shell footer reads the cluster context (ADR-0020), so every
+    // full-shell route set answers /api/v1/cluster honestly.
+    clusterRoute(),
     licenseMetaRoute(),
     licenseOverviewRoute(),
     // The file routes precede the detail routes: both address the same
@@ -2177,10 +2207,12 @@ export function settingsRoutes(overrides?: {
   return [
     whoamiRoute(WHOAMI_OPEN_BODY),
     healthRoute(),
+    // The shell footer reads the cluster context (ADR-0020), so every
+    // full-shell route set answers /api/v1/cluster honestly.
+    clusterRoute(),
     ssoStatusRoute(),
     hsmStatusRoute(),
     integrationsStatusRoute(),
-    clusterRoute(),
     clusterBackupsRoute(),
     clusterFailoverRoute(),
     rolesRoute(),
@@ -2280,6 +2312,9 @@ export function usersRoutes() {
   return [
     whoamiRoute(WHOAMI_OPEN_BODY),
     healthRoute(),
+    // The shell footer reads the cluster context (ADR-0020), so every
+    // full-shell route set answers /api/v1/cluster honestly.
+    clusterRoute(),
     usersRoute(),
     userUnlockRoute(2),
     userResetRoute(2),
@@ -2408,6 +2443,9 @@ export function securityRoutes() {
   return [
     whoamiRoute(WHOAMI_OPEN_BODY),
     healthRoute(),
+    // The shell footer reads the cluster context (ADR-0020), so every
+    // full-shell route set answers /api/v1/cluster honestly.
+    clusterRoute(),
     mfaFactorsRoute(),
     mfaBackupCodesRoute(),
     mfaEnrollTotpRoute(),

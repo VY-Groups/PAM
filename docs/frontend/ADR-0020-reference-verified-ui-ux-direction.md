@@ -156,6 +156,65 @@ immediately after 11.9, staged path-by-path so nothing leaks into the 11.9
 commit (app.py edits are unstaged; the test file carries 11.9-staged content
 plus unstaged P0 additions until the P0 batch stages them).
 
+### Shell/IA batch contract — pre-implementation (2026-10-20)
+
+The shell/IA redesign (Decisions 1–3) lands as its own unnumbered batch
+immediately after the P0 batch (11.10/11.11/12.0 are contractually pinned by
+ADR-0017/0018 and were not renumbered for it). Every input below was read
+from the tree before any code was written.
+
+**Decision 1 — shell frame (mechanics pinned):**
+
+| Region | Content | Honest data source |
+|--------|---------|--------------------|
+| Sidebar header | VY-PAM mark (unchanged) + filter input | Client-side nav filter over the 14 routes — the contract has **no `/search` endpoint**, so the input filters sidebar links only and is labelled "Filter navigation" (never "global search") |
+| Sidebar body | The six groups below, one `<nav aria-label>` wrapping all of them | `NAV_GROUPS` in `nav.ts` (see Decision 3) |
+| Sidebar footer | Node/cluster context + user menu (principal, role, sign-out) | `GET /api/v1/cluster` `self` (name/role/site) + existing `whoami` — moved out of the TopBar verbatim |
+| Skip link | "Skip to content" → focuses `<main>` (id + tabIndex −1 + refocus on click) | OpenBao `@a11yRefocusSkipTo` pattern, re-implemented |
+| Responsive collapse | Sidebar hidden below `lg`, hamburger in TopBar opens it as drawer; breakpoint classes only (jsdom renders through them) | — |
+| Console drawer | Slide-in right panel, toggled from TopBar; **live session / recording inspector** (Decision 2) | see below |
+
+**Decision 2 — console drawer, honest scope:** no PTY/websocket/exec operation
+exists in `apis/openapi.yaml` (literal scan), so an interactive terminal would
+be fabricated. The drawer is the **recording inspector**: session list from
+`GET /api/v1/sessions` (existing `useSessionList` hook, 15 s poll, mounted only
+while open) → selecting one loads `GET /api/v1/sessions/{id}/events`
+(`useSessionEvents`) with the Teleport empty-state vocabulary (`No Sessions
+Found`). Interactive terminal is deferred until the contract adds an endpoint
+(`shortcut:` comment in code).
+
+**Decision 3 — navigation IA, the six groups (mapping pinned):**
+
+| Group (i18n key `nav.group.*`) | Routes |
+|--------------------------------|--------|
+| Access & Sessions | `/sessions`, `/jit`, `/break-glass`, `/vendor-access` |
+| Infrastructure | `/infrastructure`, `/topology` |
+| Identity & Access | `/users`, `/security` |
+| Policy & Compliance | `/policy`, `/compliance` |
+| Vault & Secrets | `/vault` |
+| Platform | `/command-center`, `/licensing`, `/settings` |
+
+All 14 `NAV_ITEMS` paths appear in exactly one group (contract test: coverage +
+no duplicates). Group membership is a **separate `NAV_GROUPS` export**, not a
+field inside the item literals: the topology extractor parses each item with a
+closing-brace-anchored regex (`scripts/topology.mjs:54-57`), so an added field
+would silently drop nav rows. Consequence: `topology.generated.ts`, the mermaid
+maps and the architecture explorer need **no regeneration** for this batch.
+Routes, hrefs, labels, icons and the strangler fallbacks are untouched
+(ADR-0005/0015 rules hold).
+
+**Test contract:** `AppShell.test.tsx` updated (groups render under one
+navigation landmark, identity chip + sign-out still present in the footer,
+skip link focuses main, filter narrows links); new `ConsoleDrawer.test.tsx`
+(list renders from the verbatim fixture, empty state, honest error state);
+axe clean as before. New i18n keys (English-first, ADR-0010): the six group
+labels, filter/skip/drawer labels, `shell.drawer.noSessions`. The unused
+`app.sectionLabel` ("Privileged Controls") is removed with the flat list.
+
+**Out of this batch (next):** Decision 4 copy vocabulary and Decision 5 token
+layer ship with the screen-by-screen polish batches — the shell reuses the
+existing F2 tokens unchanged so no screen restyles here.
+
 ## Consequences
 
 - Frontend work becomes a tracked workstream ordered: **11.9 commit (pending PG

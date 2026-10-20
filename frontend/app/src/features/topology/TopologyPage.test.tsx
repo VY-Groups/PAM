@@ -1,4 +1,4 @@
-import { fireEvent, screen, waitFor } from '@testing-library/react';
+import { fireEvent, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { expectNoAxeViolations } from '../../test/axe';
@@ -133,7 +133,11 @@ describe('TopologyPage (F4-native, ADR-0013)', () => {
     await openTab('Network');
 
     // Each card fails independently: self, cluster, integrations.
-    await waitFor(() => expect(screen.getAllByText('not connected').length).toBe(3));
+    // Scoped to main: the shell footer's cluster chip is a fourth honest
+    // "not connected" outside the page under test.
+    await waitFor(() =>
+      expect(within(screen.getByRole('main')).getAllByText('not connected').length).toBe(3),
+    );
   });
 
   it('shows all five workflows with contract operations and their proof', async () => {

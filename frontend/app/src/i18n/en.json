@@ -2,8 +2,7 @@
   "app": {
     "title": "VY-PAM Console",
     "subtitle": "Privileged access management",
-    "kicker": "ZERO-TRUST CORE",
-    "sectionLabel": "Privileged Controls"
+    "kicker": "ZERO-TRUST CORE"
   },
   "common": {
     "close": "Close dialog"
@@ -23,14 +22,39 @@
     "settings": "Settings",
     "users": "Users & Credentials",
     "security": "Security & MFA",
-    "topology": "System Maps"
+    "topology": "System Maps",
+    "group": {
+      "accessSessions": "Access & Sessions",
+      "infrastructure": "Infrastructure",
+      "identityAccess": "Identity & Access",
+      "policyCompliance": "Policy & Compliance",
+      "vaultSecrets": "Vault & Secrets",
+      "platform": "Platform"
+    }
   },
   "shell": {
     "signOut": "Sign out",
     "roleBadge": "Role: {{role}}",
     "breakGlassButton": "Break-Glass",
     "checkingSession": "Checking session…",
-    "backendDownTitle": "License server unreachable"
+    "backendDownTitle": "License server unreachable",
+    "skipToContent": "Skip to content",
+    "filterLabel": "Filter navigation",
+    "filterPlaceholder": "Filter pages",
+    "filterEmpty": "No pages match the filter.",
+    "navToggle": "Toggle navigation",
+    "consoleToggle": "Live session console",
+    "clusterContext": "Cluster context",
+    "drawer": {
+      "title": "Live session console",
+      "close": "Close console",
+      "loading": "Loading live sessions…",
+      "noSessions": "No Sessions Found",
+      "noEvents": "No recorded events for this session.",
+      "selectPrompt": "Select a session to inspect its recording.",
+      "withheld": "input content withheld by policy",
+      "error": "Session console unavailable: {{message}}"
+    }
   },
   "login": {
     "subtitle": "Privileged access management - sign in",
