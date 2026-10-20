@@ -426,9 +426,11 @@ def create_user(
 def update_user(
     user_id: int, *, actor: str, active: Optional[bool] = None,
     email: Optional[str] = None, display_name: Optional[str] = None,
+    must_change_password: Optional[bool] = None,
 ) -> Dict[str, Any]:
     """Admin edit: activate/deactivate (deactivation revokes every live
-    session immediately) and contact fields."""
+    session immediately), contact fields, and the force-change-at-next-login
+    flag (ADR-0017 batch 11.10)."""
     user = db.session.get(User, user_id)
     if user is None:
         raise NotFound(f"Unknown user {user_id}")
@@ -445,6 +447,23 @@ def update_user(
     if display_name is not None:
         user.display_name = str(display_name).strip()[:128] or user.username
         changed["display_name"] = True
+    if must_change_password is not None:
+        # The same refusals as the admin reset (the credentials live
+        # elsewhere): PAM must not pretend to force a change it cannot
+        # enforce. Scoped to this field only - the contact/active edits
+        # above stay available for every user kind.
+        if user.is_emergency:
+            raise Forbidden(
+                "The emergency admin's password is sealed - rotate it, never set it"
+            )
+        if user.source == "scim":
+            raise Forbidden(
+                "This user is managed by the identity provider (SCIM) - "
+                "reset the password there"
+            )
+        if bool(must_change_password) != user.must_change_password:
+            user.must_change_password = bool(must_change_password)
+            changed["must_change_password"] = user.must_change_password
     auth_event("auth.user.updated", actor=actor, subject=user.username, detail=changed)
     db.session.commit()
     return user.to_dict()

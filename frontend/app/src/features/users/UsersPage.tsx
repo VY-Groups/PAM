@@ -5,10 +5,19 @@ import { useTranslation } from 'react-i18next';
 
 import { isBackendDown } from '../../api/http';
 import { BackendDownNotice } from '../../app/error/BackendDownNotice';
-import { Button, Chip, DataTable, KpiCard, SectionHeader, Value } from '../../components';
+import {
+  Button,
+  Chip,
+  DataTable,
+  KpiCard,
+  SectionHeader,
+  Tabs,
+  Value,
+} from '../../components';
 import type { DataTableColumn } from '../../components';
 import { GetApiV1UsersSource } from '../../api/generated/models';
 import { settingsAgo } from '../settings/ago';
+import { AccessTab } from './AccessTab';
 import { isLocked } from './lockState';
 import { usersCreateSchema } from './schemas';
 import type { UsersCreateFormValues } from './schemas';
@@ -141,6 +150,30 @@ export function UsersPage() {
     });
   };
 
+  const doRequireChange = (user: ConsoleUser): void => {
+    const question = t('users.actions.confirmRequireChange', {
+      username: user.username,
+    });
+    if (!window.confirm(question)) return;
+    startAction();
+    update.mutate(
+      { userId: user.id, body: { must_change_password: true } },
+      { onSuccess: (data) => setStatus(data.message), onError: mutationError },
+    );
+  };
+
+  const doClearChange = (user: ConsoleUser): void => {
+    const question = t('users.actions.confirmClearChange', {
+      username: user.username,
+    });
+    if (!window.confirm(question)) return;
+    startAction();
+    update.mutate(
+      { userId: user.id, body: { must_change_password: false } },
+      { onSuccess: (data) => setStatus(data.message), onError: mutationError },
+    );
+  };
+
   const onCreateValid = (values: UsersCreateFormValues): void => {
     startAction();
     create.mutate(
@@ -264,6 +297,15 @@ export function UsersPage() {
           <Button type="button" variant="secondary" onClick={() => doReset(user)}>
             {t('users.actions.resetPassword')}
           </Button>
+          {user.must_change_password ? (
+            <Button type="button" variant="secondary" onClick={() => doClearChange(user)}>
+              {t('users.actions.clearChange')}
+            </Button>
+          ) : (
+            <Button type="button" variant="secondary" onClick={() => doRequireChange(user)}>
+              {t('users.actions.requireChange')}
+            </Button>
+          )}
           <Button type="button" variant="destructive" onClick={() => doRevoke(user)}>
             {t('users.actions.revokeSessions')}
           </Button>
@@ -289,203 +331,233 @@ export function UsersPage() {
         </p>
       ) : null}
 
-      {/* One-time reveal: the generated password is shown once, here only. */}
-      {secret !== null ? (
-        <div
-          role="status"
-          data-testid="user-secret"
-          className="flex flex-col gap-space-sm rounded-lg border border-outline-variant/40 bg-surface-container-low p-space-md"
-        >
-          <p className="font-label-md text-label-md text-on-surface">
-            {t(
-              secret.kind === 'generated'
-                ? 'users.secret.generatedTitle'
-                : 'users.secret.resetTitle',
-              {
-                username: secret.username,
-              },
-            )}
-          </p>
-          <div className="flex flex-wrap items-center gap-space-sm">
-            <code className="font-code-md text-code-md tracking-wider text-on-surface select-all">
-              {secret.value}
-            </code>
-            <Button type="button" variant="secondary" onClick={() => void copySecret()}>
-              {t('users.secret.copy')}
-            </Button>
-          </div>
-          <p
-            aria-live="polite"
-            className="font-body-sm text-body-sm text-on-surface-variant"
-          >
-            {copyState === 'copied'
-              ? t('users.secret.copied')
-              : copyState === 'failed'
-                ? t('users.secret.copyFailed')
-                : ''}
-          </p>
-        </div>
-      ) : null}
+      <Tabs
+        label={t('users.tabs.label')}
+        tabs={[
+          {
+            value: 'registry',
+            label: t('users.tabs.registry'),
+            content: (
+              <div className="flex flex-col gap-space-lg">
+                {/* One-time reveal: the generated password is shown once, here only. */}
+                {secret !== null ? (
+                  <div
+                    role="status"
+                    data-testid="user-secret"
+                    className="flex flex-col gap-space-sm rounded-lg border border-outline-variant/40 bg-surface-container-low p-space-md"
+                  >
+                    <p className="font-label-md text-label-md text-on-surface">
+                      {t(
+                        secret.kind === 'generated'
+                          ? 'users.secret.generatedTitle'
+                          : 'users.secret.resetTitle',
+                        {
+                          username: secret.username,
+                        },
+                      )}
+                    </p>
+                    <div className="flex flex-wrap items-center gap-space-sm">
+                      <code className="font-code-md text-code-md tracking-wider text-on-surface select-all">
+                        {secret.value}
+                      </code>
+                      <Button
+                        type="button"
+                        variant="secondary"
+                        onClick={() => void copySecret()}
+                      >
+                        {t('users.secret.copy')}
+                      </Button>
+                    </div>
+                    <p
+                      aria-live="polite"
+                      className="font-body-sm text-body-sm text-on-surface-variant"
+                    >
+                      {copyState === 'copied'
+                        ? t('users.secret.copied')
+                        : copyState === 'failed'
+                          ? t('users.secret.copyFailed')
+                          : ''}
+                    </p>
+                  </div>
+                ) : null}
 
-      {/* KPI quad: registry-wide counts (the filter only narrows the table). */}
-      <div className="grid gap-space-md sm:grid-cols-2 lg:grid-cols-4">
-        <KpiCard
-          label={t('users.kpi.total')}
-          value={list.data ? String(all.length) : '—'}
-          valueDataRole="users-tile-total"
-        />
-        <KpiCard
-          label={t('users.kpi.active')}
-          value={list.data ? String(all.filter((user) => user.is_active).length) : '—'}
-          valueDataRole="users-tile-active"
-        />
-        <KpiCard
-          label={t('users.kpi.locked')}
-          value={list.data ? String(all.filter(isLocked).length) : '—'}
-          valueDataRole="users-tile-locked"
-        />
-        <KpiCard
-          label={t('users.kpi.mustChange')}
-          value={
-            list.data ? String(all.filter((user) => user.must_change_password).length) : '—'
-          }
-          valueDataRole="users-tile-must-change"
-        />
-      </div>
+                {/* KPI quad: registry-wide counts (the filter only narrows the table). */}
+                <div className="grid gap-space-md sm:grid-cols-2 lg:grid-cols-4">
+                  <KpiCard
+                    label={t('users.kpi.total')}
+                    value={list.data ? String(all.length) : '—'}
+                    valueDataRole="users-tile-total"
+                  />
+                  <KpiCard
+                    label={t('users.kpi.active')}
+                    value={
+                      list.data ? String(all.filter((user) => user.is_active).length) : '—'
+                    }
+                    valueDataRole="users-tile-active"
+                  />
+                  <KpiCard
+                    label={t('users.kpi.locked')}
+                    value={list.data ? String(all.filter(isLocked).length) : '—'}
+                    valueDataRole="users-tile-locked"
+                  />
+                  <KpiCard
+                    label={t('users.kpi.mustChange')}
+                    value={
+                      list.data
+                        ? String(all.filter((user) => user.must_change_password).length)
+                        : '—'
+                    }
+                    valueDataRole="users-tile-must-change"
+                  />
+                </div>
 
-      {list.isPending ? (
-        <p className="font-body-sm text-body-sm text-on-surface-variant">
-          {t('users.states.loading')}
-        </p>
-      ) : list.isError ? (
-        isBackendDown(list.error) ? (
-          <BackendDownNotice body={t('errors.backendDown')} error={list.error} />
-        ) : (
-          <p role="alert" className="font-body-sm text-body-sm text-error">
-            {t('users.states.error', {
-              message:
-                list.error instanceof Error ? list.error.message : String(list.error),
-            })}
-          </p>
-        )
-      ) : (
-        <>
-          <div className="flex flex-wrap items-end gap-space-md">
-            <label className="flex flex-col gap-1">
-              <span className="font-label-md text-label-md text-on-surface-variant">
-                {t('users.filter.label')}
-              </span>
-              <input
-                type="search"
-                value={q}
-                onChange={(event) => setQ(event.target.value)}
-                placeholder={t('users.filter.placeholder')}
-                className={`${inputClass} min-w-64`}
-              />
-            </label>
-            <label className="flex flex-col gap-1">
-              <span className="font-label-md text-label-md text-on-surface-variant">
-                {t('users.filter.sourceLabel')}
-              </span>
-              <select
-                value={source}
-                onChange={(event) =>
-                  setSource(event.target.value as GetApiV1UsersSource | '')
-                }
-                className={inputClass}
-              >
-                <option value="">{t('users.filter.sourceAll')}</option>
-                <option value={GetApiV1UsersSource.local}>
-                  {GetApiV1UsersSource.local}
-                </option>
-                <option value={GetApiV1UsersSource.scim}>{GetApiV1UsersSource.scim}</option>
-                <option value={GetApiV1UsersSource.emergency}>
-                  {GetApiV1UsersSource.emergency}
-                </option>
-              </select>
-            </label>
-          </div>
+                {list.isPending ? (
+                  <p className="font-body-sm text-body-sm text-on-surface-variant">
+                    {t('users.states.loading')}
+                  </p>
+                ) : list.isError ? (
+                  isBackendDown(list.error) ? (
+                    <BackendDownNotice body={t('errors.backendDown')} error={list.error} />
+                  ) : (
+                    <p role="alert" className="font-body-sm text-body-sm text-error">
+                      {t('users.states.error', {
+                        message:
+                          list.error instanceof Error
+                            ? list.error.message
+                            : String(list.error),
+                      })}
+                    </p>
+                  )
+                ) : (
+                  <>
+                    <div className="flex flex-wrap items-end gap-space-md">
+                      <label className="flex flex-col gap-1">
+                        <span className="font-label-md text-label-md text-on-surface-variant">
+                          {t('users.filter.label')}
+                        </span>
+                        <input
+                          type="search"
+                          value={q}
+                          onChange={(event) => setQ(event.target.value)}
+                          placeholder={t('users.filter.placeholder')}
+                          className={`${inputClass} min-w-64`}
+                        />
+                      </label>
+                      <label className="flex flex-col gap-1">
+                        <span className="font-label-md text-label-md text-on-surface-variant">
+                          {t('users.filter.sourceLabel')}
+                        </span>
+                        <select
+                          value={source}
+                          onChange={(event) =>
+                            setSource(event.target.value as GetApiV1UsersSource | '')
+                          }
+                          className={inputClass}
+                        >
+                          <option value="">{t('users.filter.sourceAll')}</option>
+                          <option value={GetApiV1UsersSource.local}>
+                            {GetApiV1UsersSource.local}
+                          </option>
+                          <option value={GetApiV1UsersSource.scim}>
+                            {GetApiV1UsersSource.scim}
+                          </option>
+                          <option value={GetApiV1UsersSource.emergency}>
+                            {GetApiV1UsersSource.emergency}
+                          </option>
+                        </select>
+                      </label>
+                    </div>
 
-          <DataTable
-            columns={columns}
-            rows={rows}
-            rowKey={(user) => String(user.id)}
-            caption={t('users.caption')}
-            emptyMessage={t('users.empty')}
-            bodyDataRole="users-body"
-          />
-        </>
-      )}
+                    <DataTable
+                      columns={columns}
+                      rows={rows}
+                      rowKey={(user) => String(user.id)}
+                      caption={t('users.caption')}
+                      emptyMessage={t('users.empty')}
+                      bodyDataRole="users-body"
+                    />
+                  </>
+                )}
 
-      <section className="flex flex-col gap-space-md rounded-lg border border-outline-variant/30 p-space-md">
-        <div className="flex flex-col">
-          <h3 className="font-title-sm text-title-sm text-on-surface">
-            {t('users.create.title')}
-          </h3>
-          <p className="font-body-sm text-body-sm text-on-surface-variant">
-            {t('users.create.subtitle')}
-          </p>
-        </div>
-        <form
-          data-testid="create-user-form"
-          className="grid gap-space-md sm:grid-cols-2"
-          onSubmit={createForm.handleSubmit(onCreateValid, onCreateInvalid)}
-          noValidate
-        >
-          <label className="flex flex-col gap-1">
-            <span className="font-label-md text-label-md text-on-surface-variant">
-              {t('users.create.username')}
-            </span>
-            <input
-              {...createForm.register('username')}
-              autoComplete="off"
-              type="text"
-              className={inputClass}
-            />
-          </label>
-          <label className="flex flex-col gap-1">
-            <span className="font-label-md text-label-md text-on-surface-variant">
-              {t('users.create.displayName')}
-            </span>
-            <input
-              {...createForm.register('display_name')}
-              autoComplete="off"
-              type="text"
-              className={inputClass}
-            />
-          </label>
-          <label className="flex flex-col gap-1">
-            <span className="font-label-md text-label-md text-on-surface-variant">
-              {t('users.create.email')}
-            </span>
-            <input
-              {...createForm.register('email')}
-              autoComplete="off"
-              type="email"
-              className={inputClass}
-            />
-          </label>
-          <label className="flex flex-col gap-1">
-            <span className="font-label-md text-label-md text-on-surface-variant">
-              {t('users.create.password')}
-            </span>
-            <input
-              {...createForm.register('password')}
-              autoComplete="new-password"
-              type="password"
-              className={inputClass}
-            />
-          </label>
-          <p className="sm:col-span-2 font-body-sm text-body-sm text-on-surface-variant">
-            {t('users.create.passwordHint')}
-          </p>
-          <div className="sm:col-span-2">
-            <Button type="submit" disabled={create.isPending}>
-              {t('users.create.submit')}
-            </Button>
-          </div>
-        </form>
-      </section>
+                <section className="flex flex-col gap-space-md rounded-lg border border-outline-variant/30 p-space-md">
+                  <div className="flex flex-col">
+                    <h3 className="font-title-sm text-title-sm text-on-surface">
+                      {t('users.create.title')}
+                    </h3>
+                    <p className="font-body-sm text-body-sm text-on-surface-variant">
+                      {t('users.create.subtitle')}
+                    </p>
+                  </div>
+                  <form
+                    data-testid="create-user-form"
+                    className="grid gap-space-md sm:grid-cols-2"
+                    onSubmit={createForm.handleSubmit(onCreateValid, onCreateInvalid)}
+                    noValidate
+                  >
+                    <label className="flex flex-col gap-1">
+                      <span className="font-label-md text-label-md text-on-surface-variant">
+                        {t('users.create.username')}
+                      </span>
+                      <input
+                        {...createForm.register('username')}
+                        autoComplete="off"
+                        type="text"
+                        className={inputClass}
+                      />
+                    </label>
+                    <label className="flex flex-col gap-1">
+                      <span className="font-label-md text-label-md text-on-surface-variant">
+                        {t('users.create.displayName')}
+                      </span>
+                      <input
+                        {...createForm.register('display_name')}
+                        autoComplete="off"
+                        type="text"
+                        className={inputClass}
+                      />
+                    </label>
+                    <label className="flex flex-col gap-1">
+                      <span className="font-label-md text-label-md text-on-surface-variant">
+                        {t('users.create.email')}
+                      </span>
+                      <input
+                        {...createForm.register('email')}
+                        autoComplete="off"
+                        type="email"
+                        className={inputClass}
+                      />
+                    </label>
+                    <label className="flex flex-col gap-1">
+                      <span className="font-label-md text-label-md text-on-surface-variant">
+                        {t('users.create.password')}
+                      </span>
+                      <input
+                        {...createForm.register('password')}
+                        autoComplete="new-password"
+                        type="password"
+                        className={inputClass}
+                      />
+                    </label>
+                    <p className="sm:col-span-2 font-body-sm text-body-sm text-on-surface-variant">
+                      {t('users.create.passwordHint')}
+                    </p>
+                    <div className="sm:col-span-2">
+                      <Button type="submit" disabled={create.isPending}>
+                        {t('users.create.submit')}
+                      </Button>
+                    </div>
+                  </form>
+                </section>
+              </div>
+            ),
+          },
+          {
+            value: 'access',
+            label: t('users.tabs.access'),
+            content: <AccessTab usernames={all.map((user) => user.username)} />,
+          },
+        ]}
+      />
     </div>
   );
 }

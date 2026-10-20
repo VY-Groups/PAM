@@ -753,7 +753,7 @@ export const BACKEND_PACKAGES: BackendPackageView[] = [
       },
       {
         path: 'identity.py',
-        lines: 1481,
+        lines: 1500,
         imports: [
           'backend/phase2_license_server/errors.py',
           'backend/phase2_license_server/extensions.py',
@@ -831,7 +831,7 @@ export const BACKEND_PACKAGES: BackendPackageView[] = [
       },
       {
         path: 'routes.py',
-        lines: 3944,
+        lines: 3948,
         imports: [
           'backend/phase2_license_server/config.py',
           'backend/phase2_license_server/errors.py',

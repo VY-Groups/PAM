@@ -27,4 +27,6 @@ export type PatchApiV1UsersUserIdBody = {
   email?: string;
   /** @maxLength 128 */
   display_name?: string;
+  /** Mark (true) or clear (false) change-password-at-next-sign-in without resetting anything. The sealed emergency admin and SCIM-managed users are refused - their credentials live elsewhere. */
+  must_change_password?: boolean;
 };

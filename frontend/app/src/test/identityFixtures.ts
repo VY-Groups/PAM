@@ -243,6 +243,82 @@ export const USER_PATCH_ACTIVATE_RESPONSE = {
   },
 };
 
+/**
+ * `PATCH /api/v1/users/{id}` `{must_change_password:true}` - verbatim from
+ * the 11.10 throwaway rig (`Temp/opencode/capture-1110/patch-mark.json`,
+ * uid 2 on that rig's fresh database). The fresh-DB row is the probe's own
+ * user (`capture-1110`), not the registry fixture's `ops.user`; tests
+ * assert only the server's `message`, and the screen re-renders from the
+ * list capture.
+ */
+export const USER_PATCH_MUST_CHANGE_RESPONSE = {
+  status: 200,
+  body: {
+    message: 'User updated',
+    user: {
+      created_at: '2026-10-20T19:57:51.389471',
+      created_by: 'admin',
+      display_name: 'capture-1110',
+      email: '',
+      failed_logins: 0,
+      has_password: true,
+      id: 2,
+      is_active: true,
+      is_emergency: false,
+      last_login_at: null,
+      locked_until: null,
+      lockout_streak: 0,
+      must_change_password: true,
+      password_changed_at: '2026-10-20T19:57:51.387995',
+      source: 'local',
+      username: 'capture-1110',
+    },
+  },
+};
+
+/**
+ * `PATCH /api/v1/users/{id}` `{must_change_password:false}` - verbatim
+ * (`Temp/opencode/capture-1110/patch-clear.json`, same probe user; the
+ * flag reads `false` in the echoed row).
+ */
+export const USER_PATCH_CLEAR_RESPONSE = {
+  status: 200,
+  body: {
+    message: 'User updated',
+    user: {
+      created_at: '2026-10-20T19:57:51.389471',
+      created_by: 'admin',
+      display_name: 'capture-1110',
+      email: '',
+      failed_logins: 0,
+      has_password: true,
+      id: 2,
+      is_active: true,
+      is_emergency: false,
+      last_login_at: null,
+      locked_until: null,
+      lockout_streak: 0,
+      must_change_password: false,
+      password_changed_at: '2026-10-20T19:57:51.387995',
+      source: 'local',
+      username: 'capture-1110',
+    },
+  },
+};
+
+/**
+ * `PATCH /api/v1/users/{id}` `{must_change_password:true}` on the sealed
+ * emergency admin - the 403 verbatim (`Temp/opencode/capture-1110/
+ * patch-emergency-sealed.json`), byte-identical to the admin-reset
+ * refusal the backend test pins (`identity.py` update path).
+ */
+export const USER_PATCH_MUST_CHANGE_SEALED_RESPONSE = {
+  status: 403,
+  body: {
+    error: "The emergency admin's password is sealed - rotate it, never set it",
+  },
+};
+
 /** `POST /api/v1/users/{id}/unlock` - verbatim. */
 export const USER_UNLOCK_RESPONSE = {
   status: 200,

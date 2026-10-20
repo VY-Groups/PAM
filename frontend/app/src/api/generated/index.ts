@@ -12893,6 +12893,11 @@ export type patchApiV1UsersUserIdResponse401 = {
   status: 401
 }
 
+export type patchApiV1UsersUserIdResponse403 = {
+  data: ForbiddenResponse
+  status: 403
+}
+
 export type patchApiV1UsersUserIdResponse404 = {
   data: NotFoundResponse
   status: 404
@@ -12901,7 +12906,7 @@ export type patchApiV1UsersUserIdResponse404 = {
 export type patchApiV1UsersUserIdResponseSuccess = (patchApiV1UsersUserIdResponse200) & {
   headers: Headers;
 };
-export type patchApiV1UsersUserIdResponseError = (patchApiV1UsersUserIdResponse400 | patchApiV1UsersUserIdResponse401 | patchApiV1UsersUserIdResponse404) & {
+export type patchApiV1UsersUserIdResponseError = (patchApiV1UsersUserIdResponse400 | patchApiV1UsersUserIdResponse401 | patchApiV1UsersUserIdResponse403 | patchApiV1UsersUserIdResponse404) & {
   headers: Headers;
 };
 

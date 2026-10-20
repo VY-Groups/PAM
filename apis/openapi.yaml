@@ -6143,6 +6143,13 @@ paths:
                 active: {type: boolean}
                 email: {type: string, maxLength: 255}
                 display_name: {type: string, maxLength: 128}
+                must_change_password:
+                  type: boolean
+                  description: >
+                    Mark (true) or clear (false) change-password-at-next-sign-in
+                    without resetting anything. The sealed emergency admin and
+                    SCIM-managed users are refused - their credentials live
+                    elsewhere.
       responses:
         "200":
           description: User updated
@@ -6151,6 +6158,7 @@ paths:
               schema: {type: object, additionalProperties: true}
         "400": {$ref: "#/components/responses/BadRequest"}
         "401": {$ref: "#/components/responses/Unauthorized"}
+        "403": {$ref: "#/components/responses/Forbidden"}
         "404": {$ref: "#/components/responses/NotFound"}
 
   /api/v1/users/{user_id}/unlock:

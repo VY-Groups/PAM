@@ -2305,8 +2305,50 @@
       "unlock": "Unlock",
       "resetPassword": "Reset password",
       "revokeSessions": "Revoke sessions",
+      "requireChange": "Require password change",
+      "clearChange": "Clear",
       "confirmDeactivate": "Deactivate {{username}}? Every live session of this account is revoked.",
-      "confirmRevoke": "Revoke every live session of {{username}}?"
+      "confirmRevoke": "Revoke every live session of {{username}}?",
+      "confirmRequireChange": "Require {{username}} to change their password at the next sign-in?",
+      "confirmClearChange": "Clear the must-change-password flag on {{username}}?"
+    },
+    "tabs": {
+      "label": "User administration views",
+      "registry": "Registry",
+      "access": "Access"
+    },
+    "access": {
+      "title": "Role bindings",
+      "subtitle": "Who holds which role and on which targets - the human-facing view of the role-bindings surface; machine-facing token grants stay in Settings.",
+      "columns": {
+        "principal": "Principal",
+        "role": "Role",
+        "kind": "Kind",
+        "scope": "Targets",
+        "created": "Created",
+        "actions": "Actions"
+      },
+      "everywhere": "Everywhere",
+      "scopeItems": "vault items: {{items}}",
+      "caption": "Active role bindings: who holds which role and on which targets.",
+      "empty": "No Role Bindings Found",
+      "loading": "Loading role bindings…",
+      "error": "Could not load role bindings: {{message}}",
+      "revoke": "Revoke",
+      "confirmRevoke": "Revoke the {{role}} binding for {{principal}}? The token stops working immediately; the row stays as evidence.",
+      "form": {
+        "title": "Grant a role to a console user",
+        "principal": "Console user",
+        "principalPlaceholder": "Pick a user or type a username",
+        "principalRequired": "Pick or type a username.",
+        "role": "Role",
+        "targets": "Target patterns",
+        "targetsPlaceholder": "db-prod-*:22, web-*",
+        "targetsHint": "fnmatch patterns over the session target (\"db-prod-*:22\" style); leave empty for everywhere.",
+        "pickerLabel": "Add from discovered targets",
+        "pickerEmpty": "No discovered targets",
+        "submit": "Grant access"
+      }
     },
     "create": {
       "title": "Create a console user",

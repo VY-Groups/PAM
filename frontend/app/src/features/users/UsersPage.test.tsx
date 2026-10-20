@@ -5,7 +5,10 @@ import { expectNoAxeViolations } from '../../test/axe';
 import {
   USER_LOCKED_ROW,
   USER_PATCH_ACTIVATE_RESPONSE,
+  USER_PATCH_CLEAR_RESPONSE,
   USER_PATCH_DEACTIVATE_RESPONSE,
+  USER_PATCH_MUST_CHANGE_RESPONSE,
+  USER_PATCH_MUST_CHANGE_SEALED_RESPONSE,
   USERS_CREATE_CONFLICT_RESPONSE,
   USERS_CREATE_GENERATED_RESPONSE,
   USERS_CREATE_WEAK_RESPONSE,
@@ -196,6 +199,71 @@ describe('UsersPage (ADR-0016 batch 11.7, contract-shaped)', () => {
       (call) => String(call[0]).includes('/users/2') && call[1]?.method === 'PATCH',
     );
     expect(JSON.parse(String(patchCalls[0][1]?.body))).toEqual({ active: true });
+  });
+
+  it('offers Require password change on a normal row, asks and PATCHes the flag (captured)', async () => {
+    const confirm = vi.spyOn(window, 'confirm').mockReturnValue(true);
+    const fetchMock = stubFetch([
+      ...usersPageRoutes(),
+      userPatchRoute(3, USER_PATCH_MUST_CHANGE_RESPONSE),
+    ]);
+    renderApp('/users');
+    const row = await rowOf('audit.readonly');
+
+    fireEvent.click(within(row).getByRole('button', { name: 'Require password change' }));
+    expect(confirm).toHaveBeenCalledWith(
+      'Require audit.readonly to change their password at the next sign-in?',
+    );
+    expect(await screen.findByText('User updated')).toBeInTheDocument();
+    const patchCalls = fetchMock.mock.calls.filter(
+      (call) => String(call[0]).includes('/users/3') && call[1]?.method === 'PATCH',
+    );
+    expect(patchCalls).toHaveLength(1);
+    expect(JSON.parse(String(patchCalls[0][1]?.body))).toEqual({
+      must_change_password: true,
+    });
+  });
+
+  it('offers Clear on a must-change row and PATCHes the flag off (captured)', async () => {
+    const confirm = vi.spyOn(window, 'confirm').mockReturnValue(true);
+    const fetchMock = stubFetch(
+      usersPageRoutes(undefined, undefined, USER_PATCH_CLEAR_RESPONSE),
+    );
+    renderApp('/users');
+    const row = await rowOf('ops.user');
+    await within(row).findByText('Must change password');
+
+    fireEvent.click(within(row).getByRole('button', { name: 'Clear' }));
+    expect(confirm).toHaveBeenCalledWith(
+      'Clear the must-change-password flag on ops.user?',
+    );
+    expect(await screen.findByText('User updated')).toBeInTheDocument();
+    const patchCalls = fetchMock.mock.calls.filter(
+      (call) => String(call[0]).includes('/users/2') && call[1]?.method === 'PATCH',
+    );
+    expect(patchCalls).toHaveLength(1);
+    expect(JSON.parse(String(patchCalls[0][1]?.body))).toEqual({
+      must_change_password: false,
+    });
+  });
+
+  it('renders the captured sealed-emergency 403 verbatim on Require (captured)', async () => {
+    const confirm = vi.spyOn(window, 'confirm').mockReturnValue(true);
+    stubFetch([
+      ...usersPageRoutes(),
+      userPatchRoute(1, USER_PATCH_MUST_CHANGE_SEALED_RESPONSE),
+    ]);
+    renderApp('/users');
+    const row = await rowOf('emergency-admin');
+
+    fireEvent.click(within(row).getByRole('button', { name: 'Require password change' }));
+    expect(confirm).toHaveBeenCalledWith(
+      'Require emergency-admin to change their password at the next sign-in?',
+    );
+    const failure = await screen.findByRole('alert');
+    expect(failure).toHaveTextContent(
+      "The emergency admin's password is sealed - rotate it, never set it",
+    );
   });
 
   it('password reset shows the one-time secret, copies it and answers verbatim', async () => {

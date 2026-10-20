@@ -712,6 +712,97 @@ def test_deactivating_a_user_revokes_sessions_and_blocks_login(client, app):
     assert blocked.get_json() == {"error": "Invalid username or password"}
 
 
+def test_admin_can_require_then_clear_the_password_change(client, app):
+    created = create_user(client)
+    user_id = created["user"]["id"]
+
+    marked = client.patch(
+        f"/api/v1/users/{user_id}", json={"must_change_password": True}, headers=ADMIN
+    )
+    assert marked.status_code == 200
+    assert marked.get_json()["message"] == "User updated"
+    assert marked.get_json()["user"]["must_change_password"] is True
+
+    # the mark is live: the next sign-in demands the change (contract 403)
+    disable_mfa(client)
+    blocked = login(client, "alice", GOOD_PASSWORD)
+    assert blocked.status_code == 403
+    assert blocked.get_json()["details"]["reason"] == "password-change-required"
+
+    # the diff lands on the existing user trail (ADR-0017 batch 11.10)
+    with app.app_context():
+        event = (
+            AuthEvent.query.filter(
+                AuthEvent.action == "auth.user.updated", AuthEvent.subject == "alice"
+            )
+            .order_by(AuthEvent.id.desc())
+            .first()
+        )
+        assert event is not None
+        assert event.detail["must_change_password"] is True
+
+    cleared = client.patch(
+        f"/api/v1/users/{user_id}", json={"must_change_password": False}, headers=ADMIN
+    )
+    assert cleared.status_code == 200
+    assert cleared.get_json()["user"]["must_change_password"] is False
+
+    # cleared: the untouched password signs in with no forced change
+    resumed = login(client, "alice", GOOD_PASSWORD)
+    assert resumed.status_code == 200, resumed.get_json()
+    assert resumed.get_json()["session_id"]
+
+
+def test_scim_user_is_refused_the_force_change_flag_only(client, app):
+    created = create_user(client)
+    user_id = created["user"]["id"]
+    with app.app_context():
+        user = db.session.get(User, user_id)
+        user.source = "scim"
+        db.session.commit()
+
+    refused = client.patch(
+        f"/api/v1/users/{user_id}", json={"must_change_password": True}, headers=ADMIN
+    )
+    assert refused.status_code == 403
+    assert refused.get_json()["error"] == (
+        "This user is managed by the identity provider (SCIM) - "
+        "reset the password there"
+    )
+
+    # the refusal is scoped to the flag: contact edits still work
+    editable = client.patch(
+        f"/api/v1/users/{user_id}",
+        json={"display_name": "Directory Person"},
+        headers=ADMIN,
+    )
+    assert editable.status_code == 200
+    assert editable.get_json()["user"]["display_name"] == "Directory Person"
+
+
+def test_emergency_admin_is_refused_the_force_change_flag(client):
+    listed = client.get("/api/v1/users", headers=ADMIN).get_json()["users"]
+    emergency_id = next(
+        row["id"] for row in listed if row["username"] == "emergency-admin"
+    )
+
+    refused = client.patch(
+        f"/api/v1/users/{emergency_id}",
+        json={"must_change_password": True},
+        headers=ADMIN,
+    )
+    assert refused.status_code == 403
+    assert refused.get_json()["error"] == (
+        "The emergency admin's password is sealed - rotate it, never set it"
+    )
+
+    # unknown user still 404s unchanged
+    missing = client.patch(
+        "/api/v1/users/999999", json={"must_change_password": True}, headers=ADMIN
+    )
+    assert missing.status_code == 404
+
+
 def test_admin_password_reset_forces_change_and_kills_sessions(client, app):
     created = create_user(client)
     disable_mfa(client)

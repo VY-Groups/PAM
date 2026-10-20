@@ -113,3 +113,84 @@ surfaces - `PUT /settings/{group}`, `POST/PATCH /users*`,
 Cross-reference: ADR-0018 (first-run setup) reuses Decision 1's forced
 change card for the bootstrap officers and Decision 3's two-officer rule
 for everything after setup.
+
+### Batch 11.10 contract — pre-implementation (2026-10-21)
+
+Every fact below was checked read-only in the tree before any edit
+(contract first; no code was written before these anchors were captured).
+
+**Half A — `PATCH /users/{id}.must_change_password`**
+
+| Fact | Evidence |
+|---|---|
+| route `@api.patch("/users/<int:user_id>")`, `@require_admin`, passes `active/email/display_name` through | backend/phase2_license_server/routes.py:3487-3500 |
+| `identity.update_user` raises only `NotFound` today; audits `auth_event("auth.user.updated", …, detail=changed)` with a value-diff dict | identity.py:426-450 (changed dict :435-447, audit :448) |
+| the SCIM/emergency 403 **verbatim texts** live on `admin_reset_password`, not on the PATCH route | identity.py:471-477 |
+| flag mechanics: set on reset (identity.py:481), login 403 `password-change-required` (:909), cleared on password change (:1106, :1132) | as cited |
+| openapi requestBody accepts only `active/email/display_name`; responses 200/400/401/404 — **no 403 yet** | apis/openapi.yaml:6140-6154 |
+| 403 declaration pattern to copy | openapi.yaml:6214 (`"403": {$ref: "#/components/responses/Forbidden"}`) |
+| route-level PATCH tests exist (deactivate-only) — extend, don't restructure | tests/test_identity.py:275, :663, :702; "users admin surface" section :675+ |
+| console already renders the flag read-side (chip + KPI tile) | frontend UsersPage.tsx:228-230, :347-353 |
+| the mutation is typed by the generated body — regenerate after the yaml edit (`pnpm openapi`) | frontend users/queries.ts:74-91 (`PatchApiV1UsersUserIdBody`) |
+
+**Decided shape (smallest complete):**
+
+- `identity.update_user` gains `must_change_password: Optional[bool] = None`.
+  When present: emergency user → `Forbidden` with the reset route's verbatim
+  text; SCIM user → `Forbidden` with its verbatim text; on actual change,
+  `changed["must_change_password"] = user.must_change_password` lands on the
+  same `auth.user.updated` trail. **The two 403s scope to the new field
+  only** — `active/email/display_name` behaviour is untouched (the three
+  existing deactivate tests :275/:663/:702 must keep passing unchanged).
+  Rationale: the ADR row says "refusals mirror the route's existing ones",
+  but the route today has only the 404; the 403 precedents are the password
+  reset route's (identity.py:471-477) and apply here because PAM must not
+  pretend to force a password change on credentials it does not own.
+- route passes the field through; openapi adds the property + the 403
+  response; `pnpm openapi` regenerates the client.
+- Users actions column gains one **contextual** button — "Require password
+  change" (flag false) / "Clear" (flag true), `window.confirm`-gated with
+  new verbatim i18n questions, same `useUpdateUser` mutation, server message
+  rendered verbatim like every other write on the screen.
+- backend tests: set → login 403 → change → flag cleared; clear; SCIM 403
+  verbatim; emergency 403 verbatim; 404 unchanged; audit detail carries the
+  diff. Frontend: both buttons render by state, confirm gate, verbatim
+  refusal rendering, axe.
+
+**Half B — Access tab on `/users`**
+
+| Fact | Evidence |
+|---|---|
+| bindings surface: GET list / POST create / DELETE revoke, all `@require_admin` | routes.py:2785-2826 |
+| `kind` values `("local","ldap","sso","user")`; only `local` mints a token, so a `user` create needs no once-reveal | models.py:2653; service.py:11594-11598 |
+| create validations: principal 1-128 chars, role must exist (400 + `allowed` list), kind checked, scope validated; 409 on an active duplicate principal | service.py:11551-11587 |
+| scope validator: `{targets: [≤20 fnmatch patterns, 1-128 chars], vault_items: [≤100 ids]}`; unknown keys refused, not ignored | service.py:11499-11538; models.py:2654-2655 |
+| enforcement: plain `fnmatch` over the session target string; empty scope = unrestricted | routes.py:206-230 |
+| binding row shape (list = same + `has_token`) | models.py:2709-2723 |
+| target-picker source: `GET /discovery/assets` → `{assets, total, limit, offset}` with `q/type/risk/pam_status` filters | routes.py:1394-1417 |
+| roles list for the dropdown | generated client index.ts:9937; bindings calls :9988/:10042/:10110; assets :4179 |
+| a house `Tabs` component exists | components/Tabs.tsx:22 |
+
+**Decided shape:** a second `Tabs` tab "Access" beside the registry view:
+
+- table of **active bindings** (principal, role, kind, scope.targets or
+  "everywhere", created) — all kinds visible with the kind column, because
+  an admin must see a user's machine bindings too; revoke is
+  confirm-gated and keeps the row as evidence server-side.
+- create form always sends `kind: "user"`: principal = select over the
+  registry usernames (+ free-text fallback), role = dropdown from
+  `GET /roles`, targets = free text (comma-separated fnmatch patterns)
+  plus a picker that appends `GET /discovery/assets` addresses; the
+  fnmatch contract documented inline ("`db-prod-*:22` style; empty scope
+  = everywhere"). 409/400 refusals render the server's message verbatim
+  (house rule).
+- the Settings RBAC section keeps its machine-facing one-time-token flow
+  untouched (ADR-0017 Decision 2 last line).
+- new empty states on this tab follow ADR-0020 Decision 4's `No <thing>
+  Found` pattern as new i18n keys; no existing key is reworded (they are
+  test-asserted verbatim across the suite). No token work (Decision 5):
+  the tab uses existing semantic tokens — the tree carries zero hardcoded
+  colors (verified by literal scan).
+
+**Evidence bar for the batch** (ADR-0017 batch table): backend
+contract+route tests, vitest+axe, capture on a throwaway rig.

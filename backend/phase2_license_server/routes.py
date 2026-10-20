@@ -3487,8 +3487,9 @@ def create_user_route():
 @api.patch("/users/<int:user_id>")
 @require_admin
 def patch_user_route(user_id: int):
-    """Activate/deactivate (deactivation revokes every live session) and
-    edit contact fields."""
+    """Activate/deactivate (deactivation revokes every live session), edit
+    contact fields, and mark/clear change-password-at-next-sign-in
+    (ADR-0017 batch 11.10)."""
     body = _json_body()
     data = identity.update_user(
         user_id,
@@ -3496,6 +3497,9 @@ def patch_user_route(user_id: int):
         active=body.get("active") if "active" in body else None,
         email=body.get("email") if "email" in body else None,
         display_name=body.get("display_name") if "display_name" in body else None,
+        must_change_password=(
+            body.get("must_change_password") if "must_change_password" in body else None
+        ),
     )
     return jsonify({"user": data, "message": "User updated"})
 

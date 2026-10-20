@@ -297,6 +297,36 @@ export const ROLE_BINDING_CREATE_SSO_RESPONSE = {
 };
 
 /**
+ * `POST /api/v1/role-bindings` for a `user` principal - verbatim from the
+ * 11.10 throwaway rig (`Temp/opencode/capture-1110/binding-create-user.json`,
+ * the Access tab's grant). Like `sso`, NO `token` lands in the 201 (only a
+ * `local` principal mints one), `has_token` is false and `token_prefix` is
+ * empty; unlike the SSO probe this row carries a real fnmatch scope
+ * (`db-prod-*:22`), the exact target contract the tab documents inline.
+ */
+export const ROLE_BINDING_CREATE_USER_RESPONSE = {
+  status: 201,
+  body: {
+    binding: {
+      created_at: '2026-10-20T19:57:18.630487',
+      created_by: 'admin',
+      has_token: false,
+      id: 1,
+      kind: 'user',
+      last_used_at: null,
+      principal: 'capture-1110',
+      revoked_at: null,
+      role: 'operator',
+      scope: {
+        targets: ['db-prod-*:22'],
+      },
+      token_prefix: '',
+    },
+    message: 'Role binding created',
+  },
+};
+
+/**
  * `GET /api/v1/role-bindings` re-read immediately after the probe
  * grant (verbatim): the table now carries the created row - the page
  * reloads the list after a successful grant, and this is what it sees.
