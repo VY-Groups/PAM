@@ -197,6 +197,12 @@ product documentation instead (§6, every claim source-labelled).
 - **VY-PAM takeaway:** a second independent market artefact shipping **PostgreSQL and
   embedded storage side by side**; also the cleanest reproducible-build template observed
   so far (ldflags version stamp + VCS stamp + `CGO_ENABLED=0`).
+- **Follow-up lane (`inspect_pe_resources`, same artefact):** evidence
+  `ev_91968000877cbb4490f40f45524889fe0a4597a72924d11e6c8f315587d37c73`,
+  coverage **complete**: PE32+ resource table holds **0 entries** — an honest
+  negative proving the `-tags ui` console lives in Go embed sections, not PE
+  resources; the shipped-console JS lane stays unavailable from this artefact
+  without carving (limitation recorded, not worked around).
 
 ---
 

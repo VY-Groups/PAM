@@ -143,8 +143,10 @@ the matrix:
   (with `--shm-size 1g`), `PAM_TEST_DATABASE_URI` always set;
 - `docker-tests` drops `--no-deps` so the compose `postgres` dependency
   starts, and passes the same variable in-container;
-- the Windows standing-gate rig boots start a `postgres:16` container on
-  the runner (fresh database per rig: `pam_ci_open` / `pam_ci_token`);
+- the Windows standing-gate rig boots run against a runner-local PostgreSQL 16
+  installed natively in the job (choco `postgresql16` - the windows runner's
+  Docker engine is Windows-container-only and cannot pull `postgres:16`;
+  fresh database per rig: `pam_ci_open` / `pam_ci_token`);
 - the local standing gate's own server boot
   (`shots_tool/__verify_discovery.mjs`) creates a fresh dedicated database
   on the developer's PostgreSQL before spawning `python app.py`.
@@ -319,7 +321,7 @@ scope, since `pytest tests` runs phase2's `tests/` only and 752 + the 82
 
 | Batch | Surface | Contract delta | Evidence bar |
 |---|---|---|---|
-| 11.9 | backend + CI + deploy + API copy | storage-engine contract: PostgreSQL **only** - inspector `ensure_schema`, PG append-only triggers (verbatim message), advisory-lock id allocation, PG-native logical backup bundle, required-env fail-fast config, single production-shape compose, zero test skips, SQLite removed from code/tests/CI/copy/docs (D10) | full backend suite green **on PostgreSQL**: **834 passed, 0 failed, 0 skipped** (printed 2026-10-20), `pam_master` **46**, standing gate green in both modes on PG-backed rigs, frontend battery green (prettier/eslint/tsc/vitest **450**/build/storybook), bandit + ruff clean, gitleaks clean, CI **6 checks** |
+| 11.9 | backend + CI + deploy + API copy | storage-engine contract: PostgreSQL **only** - inspector `ensure_schema`, PG append-only triggers (verbatim message), advisory-lock id allocation, PG-native logical backup bundle, required-env fail-fast config, single production-shape compose, zero test skips, SQLite removed from code/tests/CI/copy/docs (D10) | full backend suite green **on PostgreSQL**: **834 passed, 0 failed, 0 skipped** (printed 2026-10-20), `pam_master` **46**, standing gate green in both modes on PG-backed rigs, frontend battery green (prettier/eslint/tsc/vitest **450**/build/storybook), bandit + ruff clean, gitleaks clean, CI **6 checks green** (run `39407092729`, 2026-10-20) |
 
 Cross-references: the 75-table/175-index baseline the port must reproduce is
 the REA shipped-schema audit (`docs/REVERSE_ENGINEERING_TOOLING.md` §5.2);

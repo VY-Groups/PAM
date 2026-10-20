@@ -26,3 +26,7 @@ license_ed25519_public.pem
 
 *storybook.log
 storybook-static
+
+# Machine-local GitHub PAT (user directive 2026-10-20: stored on disk for
+# pushes; never committed - the ignore entry ships in the docs batch).
+.pam_github_pat

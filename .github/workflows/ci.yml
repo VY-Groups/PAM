@@ -29,8 +29,9 @@
 #                   __verify_agent.mjs (playwright, msedge preinstalled) in
 #                   open mode and __verify_live.mjs over the wired screens,
 #                   then a token-mode rig with GATE_ADMIN_TOKEN. Both rigs
-#                   are PostgreSQL-backed (the job's own postgres:16
-#                   container, ADR-0019). Every command was executed
+#                   are PostgreSQL-backed (the job installs PostgreSQL 16
+#                   natively - the windows runner's docker engine is
+#                   Windows-container-only, ADR-0019 D5). Every command was executed
 #                   locally on the same toolchain first (the demo seed and
 #                   both gate modes ran against PG-backed rigs on this
 #                   Windows box before the YAML shipped).
