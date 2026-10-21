@@ -96,7 +96,7 @@ describe('RBAC / ABAC section (screen 11, ADR-0015) - 11.2', () => {
     );
     // The computed operation counts, verbatim from the rig: the page
     // reads what the server seeded, it never hardcodes the numbers.
-    for (const operations of ['144', '13', '34', '31', '48']) {
+    for (const operations of ['145', '13', '34', '31', '48']) {
       expect(document.querySelector('[data-role="rbac-role-rows"]')?.textContent).toContain(
         operations,
       );
@@ -383,7 +383,7 @@ describe('RBAC / ABAC section (screen 11, ADR-0015) - 11.2', () => {
     expect(ROLES_RESPONSE.status).toBe(200);
     expect(ROLES_RESPONSE.body.roles).toHaveLength(5);
     expect(ROLES_RESPONSE.body.roles.map((role) => role.operations)).toEqual([
-      144, 13, 34, 31, 48,
+      145, 13, 34, 31, 48,
     ]);
     expect(ROLE_BINDINGS_RESPONSE.body.bindings).toHaveLength(3);
     expect(ROLE_BINDING_CREATE_RESPONSE.status).toBe(201);

@@ -37,6 +37,40 @@ function loginRoute(respond: (init?: RequestInit) => Response | Promise<Response
 
 const MINT_200 = { session_token: 'tok-1', csrf_token: 'csrf-1' };
 
+/** The first-sign-in 403 that carries the forced-enrolment ticket (ADR-0018). */
+function enrolLoginRoute() {
+  return loginRoute(() =>
+    jsonResponse(403, {
+      error: 'Factor enrolment required',
+      status: 'enrolment_required',
+      enrol_ticket: 'vypam-enr1.chal1.secretsalt',
+      methods_allowed: ['totp', 'webauthn', 'email'],
+    }),
+  );
+}
+
+function enrolSeedRoute(status: number, body: unknown) {
+  return {
+    match: (url: string) => url.endsWith('/auth/mfa/enroll/totp'),
+    respond: () => jsonResponse(status, body),
+  };
+}
+
+function enrolVerifyRoute(status: number, body: unknown) {
+  return {
+    match: (url: string) => url.endsWith('/auth/mfa/enroll/totp/verify'),
+    respond: () => jsonResponse(status, body),
+  };
+}
+
+const ENROL_SEED_201 = {
+  factor: { id: 1, kind: 'totp', active: true, name: 'Authenticator app' },
+  otpauth_uri:
+    'otpauth://totp/VY-PAM%3Avypam-maker?secret=fixture-TotpSecret-0001&issuer=VY-PAM',
+  secret: 'fixture-TotpSecret-0001',
+  shown_once: true,
+};
+
 beforeEach(() => {
   sessionStorage.clear();
 });
@@ -169,6 +203,93 @@ describe('LoginPage (F3 login flow, contract-shaped)', () => {
     expect(
       await screen.findByText(/not yet enrolled \(totp, webauthn\)/),
     ).toBeInTheDocument();
+  });
+
+  it('completes first sign-in through the enrolment arm (ticket -> seed -> verify mints)', async () => {
+    let whoamiCalls = 0;
+    const fetchMock = stubFetch([
+      {
+        match: (url: string) => url.includes('/auth/whoami'),
+        respond: () => {
+          whoamiCalls += 1;
+          return whoamiCalls === 1
+            ? jsonResponse(401, UNAUTHENTICATED_BODY)
+            : jsonResponse(200, WHOAMI_OPEN_BODY);
+        },
+      },
+      enrolLoginRoute(),
+      enrolSeedRoute(201, ENROL_SEED_201),
+      enrolVerifyRoute(200, MINT_200),
+      healthRoute(),
+    ]);
+    const { container } = renderApp('/login');
+
+    fireEvent.change(await screen.findByLabelText('Username'), {
+      target: { value: 'vypam-maker' },
+    });
+    fireEvent.change(screen.getByLabelText('Password'), {
+      target: { value: 'boot-pw-123456' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Sign in' }));
+
+    // the 403's ticket opens the arm - the fail-closed one-liner is gone
+    expect(
+      await screen.findByText(/First sign-in: this account has no sign-in factor yet/),
+    ).toBeInTheDocument();
+    expect(screen.queryByText(/not yet enrolled/)).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Set up an authenticator app' }));
+    expect(await screen.findByTestId('enrol-secret')).toHaveTextContent(
+      'fixture-TotpSecret-0001',
+    );
+
+    fireEvent.change(screen.getByLabelText('Verification code'), {
+      target: { value: '123456' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Verify' }));
+
+    expect(await screen.findByRole('button', { name: /Sign out/ })).toBeInTheDocument();
+    // the verify call carried the same ticket + the live code; the mint
+    // stored the session and the shell took over (no sign-in button left)
+    const verifyCall = fetchMock.mock.calls.find(([u]) =>
+      String(u).includes('/auth/mfa/enroll/totp/verify'),
+    );
+    expect(JSON.parse(String(verifyCall?.[1]?.body))).toMatchObject({
+      enrol_ticket: 'vypam-enr1.chal1.secretsalt',
+      code: '123456',
+    });
+    await expectNoAxeViolations(container);
+  });
+
+  it('renders the enrol verify refusal verbatim and keeps the secret on screen', async () => {
+    stubFetch([
+      whoamiRoute(UNAUTHENTICATED_BODY, 401),
+      enrolLoginRoute(),
+      enrolSeedRoute(201, ENROL_SEED_201),
+      enrolVerifyRoute(401, { error: 'TOTP code invalid' }),
+      healthRoute(),
+    ]);
+    renderApp('/login');
+
+    fireEvent.change(await screen.findByLabelText('Username'), {
+      target: { value: 'vypam-maker' },
+    });
+    fireEvent.change(screen.getByLabelText('Password'), {
+      target: { value: 'boot-pw-123456' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Sign in' }));
+    fireEvent.click(
+      await screen.findByRole('button', { name: 'Set up an authenticator app' }),
+    );
+    // the code field only renders once the one-time seed has landed
+    await screen.findByRole('button', { name: 'Verify' });
+    fireEvent.change(screen.getByLabelText('Verification code'), {
+      target: { value: '000000' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Verify' }));
+
+    expect(await screen.findByText('TOTP code invalid')).toBeInTheDocument();
+    expect(screen.getByTestId('enrol-secret')).toBeInTheDocument();
   });
 
   it("surfaces the server's honest 401 refusal text", async () => {

@@ -139,3 +139,126 @@ still lands after identity hardening)*
 |---|---|---|---|
 | 11.11 | openapi + backend + console | `/setup` state/profile/complete + bootstrap first-boot hook | backend tests (bootstrap idempotence, complete refusals, dual passwords), clean-install rig walkthrough captured verbatim, vitest+axe wizard, branding live on the rig |
 | (deps) | - | forced change card (ADR-0017 D1) reused for the officers' first sign-in | batch 11.8 |
+
+### Batch 11.11 contract — pre-implementation (2026-10-21)
+
+Every fact below was checked read-only in the tree before any edit.
+
+**Backend (Decisions 1 + 2)**
+
+| Fact | Evidence |
+|---|---|
+| boot sequence the hook joins: `create_all` → `ensure_schema` → command rules → audit chain → cluster self → `ensure_rbac_seed` → `ensure_emergency_admin` | app.py:259-303 |
+| one-shot seed pattern to copy (`ensure_*` returns the created thing or None, logs once) | service.py:11455; identity.py `ensure_emergency_admin` |
+| **the sealed emergency admin is already a user row** - the "users table empty" test must therefore read "no users other than the emergency admin" (the seal grants nothing and is infrastructure, not a company identity) | app.py:284-293; identity.py:133 test |
+| console-session gate for the officer check: `@require_console` sets `g.console_user` / `g.console_session` | routes.py:3049-3065 |
+| admin gate for post-setup profile writes: `@require_admin` → `_require_admin_credential` (console session with an admin-role binding counts - the ADR's own premise for the officers) | routes.py:233-242; ADR-0018:47-49 |
+| public routes carry no decorator (openapi's `- {}` security arm) | openapi.yaml convention; `/health` |
+| the one-time disclosure machinery to reuse: `pysecrets.token_urlsafe(18)` + NIST-14 check + "Shown once" | identity.py:465-493; routes.py:3522-3524 |
+| constant-time password verifier for the dual attestation | identity.py:226-245 (`verify_password`) |
+| uniform login refusal (the 401 text the dual attestation must not deviate from - no oracle for which password failed) | tests/test_identity.py:284 |
+| SMTP step needs no new backend: the wizard writes through `PUT /settings/smtp` + `POST /settings/smtp/test` | openapi:6281; ADR-0018:68-70 |
+| admins step needs no new backend: `POST /users` + `POST /role-bindings {kind:user}` | routes.py:3459+; :2800 |
+| audit events: `auth_event(action, actor, subject, detail)` on the auth trail | identity.py:448; models.py:3207-3231 |
+
+**Decided shape:** a new `setup.py` module (identity.py is already ~1.5k
+lines; the model lives in models.py per house convention, routes in
+routes.py):
+
+- `InstanceProfile` singleton row (id 1: `company_name`,
+  `logo_data_uri`, `contact_email`, `setup_completed_at` nullable) - a
+  new table, so `db.create_all()` needs no `ensure_schema` column
+  migration.
+- `ensure_bootstrap_officers()` called from app.py after the
+  emergency-admin block: runs only when setup is not completed AND no
+  user exists other than the emergency admin; creates `vypam-maker` +
+  `vypam-checker` (source local, active, `must_change_password=True`,
+  generated `token_urlsafe(18)` NIST-checked), binds each to `admin`
+  through the normal `kind: user` path, audits
+  `auth.bootstrap.created` (actor `system:bootstrap`), and prints both
+  plaintexts once with the "Shown once - store it now." notice to the
+  server log. Idempotent: a second boot is a no-op.
+- routes: `GET /setup/state` public -
+  `{configured, company_name, logo_data_uri, contact_email,
+  smtp_configured, bootstrap:{maker, checker}}`, no secrets ever.
+  `PUT /setup/profile` - an admin operation in both phases (the
+  `service.ADMIN_OPERATIONS` entry + `@require_admin`; the spec declares
+  the standard admin-op security triple): while `configured=false` the
+  handler then requires one of the two bootstrap officers' own console
+  sessions (`ensure_console_session()` extracted from `@require_console`
+  + a username allowlist, 403 verbatim otherwise - the gate the pinned
+  `@require_console` sketch carried, expressed inside the handler so the
+  decorator keeps enforcing the admin credential); once configured it is
+  a plain admin write - the company may rebrand. Logo:
+  `data:image/(png|jpeg);base64` decoding
+  to <= 64 KB, honest 400 beyond. `POST /setup/complete
+  {maker_password, checker_password}` - public (the two passwords ARE
+  the credential), both verified with `identity.verify_password`
+  against the officers' rows; either wrong -> the uniform login 401
+  text; already completed -> 409 "Setup already completed"; on success
+  `setup_completed_at` stamped, audited `setup.completed` with both
+  officers recorded.
+- openapi: the three paths under a new `setup` tag; backend tests
+  cover bootstrap idempotence + the no-fallback condition, the
+  officer/admin gates on the profile in both phases, the logo bound,
+  the dual attestation (both wrong / one wrong / both right / repeat
+  409), and the state redaction (no password fields in any response).
+
+**Known fallout absorbed in-batch:** the hook runs on every fresh boot,
+including each per-test database the backend suite creates - tests that
+assert exact user sets, binding lists or fresh-ledger contents must
+expect the two officers (the honest product behaviour; suppressing the
+seed under test would fork the boot path, which the house rules
+forbid).
+
+**Frontend (Decision 3)**
+
+| Fact | Evidence |
+|---|---|
+| route table: `/login` is the only top-level (unauthenticated) route; `/setup` joins it beside `RequireAuth` | app/router.tsx:62-99 |
+| the login card to brand | features/auth/pages/LoginPage.tsx (11.8 batch) |
+| the shell mark to brand | app/layout/Sidebar.tsx + TopBar (shell batch 533e791) |
+| generated client regenerates from the edited spec | `pnpm openapi` (orval) |
+| the wizard's SMTP/admin steps write through existing mutations (settings + users hooks) | features/settings/queries.ts; features/users/queries.ts |
+
+**Decided shape:** `features/setup/` (SetupPage + queries + tests):
+the wizard mounts at `/setup` (top-level route, honest redirect to
+sign-in once `configured=true`), multi-step (profile -> SMTP with the
+server's own test answer -> company admins -> complete), every step
+rendering the server's verbatim answers (no optimistic "done").
+Branding: a public setup-state query consumed by the login card and the
+shell - unbranded shows the honest default "VY-PAM by VY-Groups",
+branded shows the logo plus "VY-PAM by VY-Groups for <company_name>".
+New fetchMock route helper `setupStateRoute` (public answer, no
+session); the wizard and branding tests run against it plus the
+verbatim rig captures of the walkthrough.
+
+**Shipped addition (rig-evidence-driven, same batch): the login card's
+forced-enrolment arm.** The clean-install walkthrough proved the gap
+the pinned flow hid: on a default install (`auth.mfa_required` true)
+the officers' first sign-in stops at 403 `enrolment_required` - the
+card only printed the fail-closed one-liner, so the wizard was
+unreachable from a browser. The backend already completed that ladder
+(`POST /auth/mfa/enroll/totp` + `/verify` with the 403's own
+`vypam-enr1` ticket; the verify consumes the ticket and mints the
+session - routes.py enrolment-mint arm; the spec already types that
+200 as `ConsoleSessionMint`), so 11.11 finishes the card: the ticket
+opens an enrolment step (one-time TOTP secret, shown once), the live
+code's verify reply is stored exactly like a login mint, and later
+sign-ins continue through the existing `mfa_required` TOTP step.
+An `enrolment_required` body without a ticket still renders the honest
+fail-closed line (captured test).
+
+**Evidence bar for the batch** (ADR-0018 batch table): backend tests as
+above; a clean-install rig walkthrough captured verbatim (boot with no
+demo seed -> bootstrap credentials from `docker logs` -> officer signs
+in through the forced-change card and the TOTP enrolment arm -> profile
+-> SMTP honest failure -> company admin created -> `POST
+/setup/complete` -> company admin signs in); vitest+axe wizard;
+branding live on the rig.
+
+**Explicitly out of this batch** (ADR-0018 Decision 4, later): the
+Temp/ compose fleet of real Linux sshd targets proving the
+least-privilege scope on real endpoints, and real-provider SMTP e2e -
+both need infrastructure this batch does not build; the Windows-target
+note stays as written (no fake "windows tested" claims).

@@ -472,6 +472,23 @@ class SettingsEvent(db.Model):
         }
 
 
+class InstanceProfile(db.Model):
+    """First-run setup (ADR-0018): this install's own identity - company
+    name / logo / contact - and the one-way `setup_completed_at` stamp.
+    Singleton id 1; the row may not exist yet at all (a public state read
+    must not write), so every reader treats a missing row as unconfigured."""
+
+    __tablename__ = "instance_profile"
+
+    id = db.Column(db.Integer, primary_key=True)
+    company_name = db.Column(db.String(128), nullable=False, default="")
+    logo_data_uri = db.Column(db.Text, nullable=False, default="")
+    contact_email = db.Column(db.String(255), nullable=False, default="")
+    setup_completed_at = db.Column(db.DateTime, nullable=True)
+    updated_at = db.Column(db.DateTime, nullable=False, default=datetime.now)
+    updated_by = db.Column(db.String(64), nullable=False, default="admin")
+
+
 # ---------------------------------------------------------------------------
 # credential vault (Credential Vault screen: inventory, rotation, checkouts)
 # ---------------------------------------------------------------------------

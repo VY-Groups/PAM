@@ -325,9 +325,15 @@ def test_duplicate_active_principal_is_409_revoked_can_be_bound_again(client):
         headers=ADMIN,
     )
     assert response.status_code == 409
-    binding_id = client.get("/api/v1/role-bindings", headers=ADMIN).get_json()[
-        "bindings"
-    ][0]["id"]
+    # a fresh install already carries the two first-run officer bindings
+    # (ADR-0018), so this test tracks its own principal, never list order
+    binding_id = next(
+        row["id"]
+        for row in client.get("/api/v1/role-bindings", headers=ADMIN).get_json()[
+            "bindings"
+        ]
+        if row["principal"] == "op-carla"
+    )
     assert (
         client.delete(f"/api/v1/role-bindings/{binding_id}", headers=ADMIN).status_code
         == 200
@@ -336,11 +342,15 @@ def test_duplicate_active_principal_is_409_revoked_can_be_bound_again(client):
     again, token = bind(client, "op-carla", "auditor")
     assert again["id"] != binding_id
     assert token
-    all_rows = client.get(
-        "/api/v1/role-bindings?include_revoked=1", headers=ADMIN
-    ).get_json()["bindings"]
-    assert len(all_rows) == 2
-    assert sum(1 for row in all_rows if row["revoked_at"]) == 1
+    op_carla_rows = [
+        row
+        for row in client.get(
+            "/api/v1/role-bindings?include_revoked=1", headers=ADMIN
+        ).get_json()["bindings"]
+        if row["principal"] == "op-carla"
+    ]
+    assert len(op_carla_rows) == 2
+    assert sum(1 for row in op_carla_rows if row["revoked_at"]) == 1
 
 
 def test_role_and_kind_validation(client):
@@ -560,10 +570,19 @@ def test_binding_actions_reach_the_ledger_without_the_token(client):
 
 
 def test_seeding_writes_no_trail_row(client):
-    """The role registry is configuration: seeding produces no action."""
+    """The role registry is configuration: seeding produces no action. The
+    only rbac rows on a fresh install are the two first-run officer grants
+    - real bindings, honestly audited through the normal service path
+    (ADR-0018); the five built-in roles themselves write nothing."""
     response = client.get("/api/v1/audit/export")
     rows = [json.loads(line) for line in response.get_data(as_text=True).splitlines()]
-    assert all(row["source"] != "rbac" for row in rows)
+    rbac_rows = [row for row in rows if row["source"] == "rbac"]
+    assert len(rbac_rows) == 2
+    assert all(
+        row["action"] == "rbac.binding.created"
+        and row["actor"] == "system:bootstrap"
+        for row in rbac_rows
+    )
 
 
 def test_bound_principal_acts_as_itself_on_the_trail(client):

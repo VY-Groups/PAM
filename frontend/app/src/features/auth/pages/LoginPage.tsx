@@ -8,15 +8,19 @@ import { Navigate, useNavigate } from 'react-router';
 import { ApiError, expectOk, isBackendDown } from '../../../api/http';
 import {
   getHealth,
+  postApiV1AuthMfaEnrollTotp,
+  postApiV1AuthMfaEnrollTotpVerify,
   postApiV1AuthOtpStart,
   postApiV1AuthPassword,
   postApiV1AuthRecoveryReset,
   postApiV1AuthRecoveryStart,
 } from '../../../api/generated';
+import { storeSession } from '../../../api/session';
 import { queryKeys } from '../../../api/queryKeys';
 import { useAuth } from '../../../app/providers/useAuth';
 import {
   changePasswordSchema,
+  enrolSchema,
   loginSchema,
   mfaSchema,
   recoveryResetSchema,
@@ -24,17 +28,22 @@ import {
 } from '../schemas';
 import type {
   ChangePasswordFormValues,
+  EnrolFormValues,
   LoginFormValues,
   MfaFormValues,
   RecoveryResetFormValues,
   RecoveryStartFormValues,
 } from '../schemas';
+import { useSetupState } from '../../setup/queries';
 
 /**
  * Console login (plan F3: "login screen once identity work exists").
  * Flow mirrors the contract and the legacy screen exactly: password ->
  * session, 403 `mfa_required` -> TOTP step, 403 `enrolment_required` ->
- * honest fail-closed message, network failure -> honest backend-down.
+ * the enrolment arm (ADR-0018 batch 11.11: the 403's own ticket enrols
+ * TOTP and the verify mints the session - without it the first-run
+ * officers could never sign in on a default MFA-required install),
+ * network failure -> honest backend-down.
  * Fields validated client-side (ADR-0006), server always authoritative;
  * submit disables in-flight (duplicate-submission protection).
  *
@@ -49,8 +58,12 @@ import type {
  */
 export function LoginPage() {
   const { t } = useTranslation();
-  const { status, login } = useAuth();
+  const { status, login, refresh } = useAuth();
   const navigate = useNavigate();
+  // ADR-0018 batch 11.11: the login card carries the instance branding
+  // (company name / logo from the public setup state) - absent on a
+  // virgin install, the exact VY-PAM card as before.
+  const setup = useSetupState();
 
   const [challenge, setChallenge] = useState<string | null>(null);
   const [changeUser, setChangeUser] = useState<string | null>(null);
@@ -58,6 +71,13 @@ export function LoginPage() {
   const [recovery, setRecovery] = useState<
     null | { step: 1 } | { step: 2; username: string; challengeId: string }
   >(null);
+  // ADR-0018 batch 11.11: the forced-enrolment arm - the login 403's own
+  // ticket authorises the TOTP enrolment; the verify mints the session.
+  const [enrol, setEnrol] = useState<{ ticket: string; methods: string[] } | null>(null);
+  const [enrolSeed, setEnrolSeed] = useState<{
+    secret: string;
+    otpauth_uri: string;
+  } | null>(null);
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
   const [busy, setBusy] = useState(false);
@@ -81,6 +101,10 @@ export function LoginPage() {
   });
   const changeForm = useForm<ChangePasswordFormValues>({
     resolver: zodResolver(changePasswordSchema),
+    mode: 'onSubmit',
+  });
+  const enrolForm = useForm<EnrolFormValues>({
+    resolver: zodResolver(enrolSchema),
     mode: 'onSubmit',
   });
 
@@ -139,11 +163,21 @@ export function LoginPage() {
         setError(t('auth.backendDownLogin', { message: err.message }));
       } else if (err instanceof ApiError) {
         if (err.statusField === 'enrolment_required') {
-          setError(
-            t('login.enrolmentRequired', {
-              methods: err.body?.methods_allowed?.join(', ') ?? '',
-            }),
-          );
+          // The same 403 carries the enrol ticket - open the arm that
+          // enrols TOTP against it (fail-closed until a factor exists).
+          const ticket = err.body?.enrol_ticket ?? '';
+          if (ticket !== '') {
+            setCreds({ username, password });
+            setEnrolSeed(null);
+            setEnrol({ ticket, methods: err.body?.methods_allowed ?? [] });
+            setError('');
+          } else {
+            setError(
+              t('login.enrolmentRequired', {
+                methods: err.body?.methods_allowed?.join(', ') ?? '',
+              }),
+            );
+          }
         } else if (
           err.status === 403 &&
           (err.details as { reason?: string } | null)?.reason === 'password-change-required'
@@ -321,6 +355,57 @@ export function LoginPage() {
   };
   const onRecoveryResetInvalid = (): void => setError(t('login.recoveryEnterAll'));
 
+  /** Mint the TOTP seed against the enrol ticket (shown exactly once). */
+  const startEnrol = (): void => {
+    if (enrol === null) return;
+    setBusy(true);
+    setError('');
+    (async () => {
+      try {
+        const reply = expectOk(
+          await postApiV1AuthMfaEnrollTotp({ enrol_ticket: enrol.ticket }),
+        );
+        const data = reply.data as unknown as { secret: string; otpauth_uri: string };
+        setEnrolSeed({ secret: data.secret, otpauth_uri: data.otpauth_uri });
+      } catch (err) {
+        recoveryFailure(err);
+      } finally {
+        setBusy(false);
+      }
+    })();
+  };
+
+  /** Verify the first live code: the ticket is consumed and the session
+   * is minted by the same reply (routes.py: the enrolment-mint arm). */
+  const onEnrolValid = (values: EnrolFormValues): void => {
+    if (enrol === null) return;
+    setBusy(true);
+    setError('');
+    (async () => {
+      try {
+        const mint = expectOk(
+          await postApiV1AuthMfaEnrollTotpVerify({
+            enrol_ticket: enrol.ticket,
+            code: values.code,
+          }),
+        ).data;
+        if (!mint.session_token) {
+          // Honest refusal: a 200 without a minted session is a contract
+          // violation - never store half a login (AuthProvider rule).
+          throw new ApiError(200, 'Enrolment reply carried no session token.');
+        }
+        storeSession(mint.session_token, mint.csrf_token);
+        await refresh();
+        navigate('/', { replace: true });
+      } catch (err) {
+        recoveryFailure(err);
+      } finally {
+        setBusy(false);
+      }
+    })();
+  };
+  const onEnrolInvalid = (): void => setError(t('login.mfaPrompt'));
+
   const inputClass =
     'w-full px-3 py-2 rounded bg-surface-container-lowest text-on-surface font-body-md text-body-md border border-outline-variant/40 focus:outline-none focus:ring-1 focus:ring-primary-container';
 
@@ -328,15 +413,27 @@ export function LoginPage() {
     <div className="min-h-screen flex items-center justify-center px-space-xl bg-surface font-body-md text-body-md">
       <div className="w-full max-w-md bg-surface-container-lowest rounded-xl shadow-sm border border-outline-variant/30 p-space-xl flex flex-col gap-space-lg">
         <div className="flex items-center gap-3">
-          <span
-            className="material-symbols-outlined text-primary text-[28px]"
-            aria-hidden="true"
-          >
-            shield_lock
-          </span>
+          {setup.data?.logo_data_uri ? (
+            <img
+              alt={
+                setup.data.company_name !== ''
+                  ? `${setup.data.company_name} logo`
+                  : 'Instance logo'
+              }
+              className="h-8 w-8 shrink-0 rounded object-contain"
+              src={setup.data.logo_data_uri}
+            />
+          ) : (
+            <span
+              className="material-symbols-outlined text-primary text-[28px]"
+              aria-hidden="true"
+            >
+              shield_lock
+            </span>
+          )}
           <div className="flex flex-col">
             <h1 className="font-headline-sm text-headline-sm text-on-surface">
-              {t('app.title')}
+              {setup.data?.company_name ? setup.data.company_name : t('app.title')}
             </h1>
             <p className="font-body-sm text-body-sm text-on-surface-variant">
               {t('login.subtitle')}
@@ -344,7 +441,75 @@ export function LoginPage() {
           </div>
         </div>
 
-        {changeUser !== null ? (
+        {enrol !== null ? (
+          <form
+            className="flex flex-col gap-space-md"
+            onSubmit={enrolForm.handleSubmit(onEnrolValid, onEnrolInvalid)}
+            noValidate
+          >
+            <p className="font-body-sm text-body-sm text-on-surface-variant">
+              {t('login.enrolTitle')}
+            </p>
+            <p className="font-body-sm text-body-sm text-on-surface-variant">
+              {t('login.enrolMethods', { methods: enrol.methods.join(', ') })}
+            </p>
+            {enrolSeed === null ? (
+              <button
+                type="button"
+                disabled={busy}
+                onClick={startEnrol}
+                className="w-full py-2 rounded-lg bg-primary text-on-primary font-label-md text-label-md font-semibold hover:bg-primary-container transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {t('login.enrolSetUp')}
+              </button>
+            ) : (
+              <>
+                <p className="font-body-sm text-body-sm text-on-surface-variant">
+                  {t('login.enrolSeedHint')}
+                </p>
+                <p
+                  className="font-code-sm text-code-sm text-on-surface break-all select-all bg-surface-container rounded p-2"
+                  data-testid="enrol-secret"
+                >
+                  {enrolSeed.secret}
+                </p>
+                <label className="flex flex-col gap-1">
+                  <span className="font-label-md text-label-md text-on-surface-variant">
+                    {t('login.mfaCode')}
+                  </span>
+                  <input
+                    {...enrolForm.register('code')}
+                    type="text"
+                    inputMode="numeric"
+                    autoComplete="one-time-code"
+                    placeholder={t('login.mfaPlaceholder')}
+                    className={`${inputClass} font-code-md text-code-md tracking-widest`}
+                  />
+                </label>
+                <button
+                  type="submit"
+                  disabled={busy}
+                  className="w-full py-2 rounded-lg bg-primary text-on-primary font-label-md text-label-md font-semibold hover:bg-primary-container transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  {t('login.verify')}
+                </button>
+              </>
+            )}
+            <button
+              type="button"
+              onClick={() => {
+                setEnrol(null);
+                setEnrolSeed(null);
+                setCreds(null);
+                setError('');
+                enrolForm.reset();
+              }}
+              className="w-full py-1.5 rounded-lg bg-surface-container text-on-surface font-label-md text-label-md font-semibold hover:bg-surface-container-high transition-colors"
+            >
+              {t('login.back')}
+            </button>
+          </form>
+        ) : changeUser !== null ? (
           <form
             className="flex flex-col gap-space-md"
             onSubmit={changeForm.handleSubmit(onChangeValid, onChangeInvalid)}

@@ -142,7 +142,7 @@ export const ROLES_RESPONSE = {
         description: 'Every admin operation - the admin token equivalent.',
         id: 1,
         name: 'admin',
-        operations: 144,
+        operations: 145,
       },
       {
         created_at: '2026-10-14T20:35:37.440975',

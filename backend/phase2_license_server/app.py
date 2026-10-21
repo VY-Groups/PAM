@@ -301,6 +301,18 @@ def create_app(config: Optional[Config] = None) -> Flask:
             logger.warning(
                 "Identity: emergency admin not seeded this boot - %s", exc
             )
+        # first-run setup (ADR-0018): the two bootstrap officers are created
+        # only on an instance that has never completed setup and has no
+        # console identity yet (the sealed emergency admin above grants
+        # nothing and does not count) - their generated passwords print
+        # once, right above this line, in this boot log.
+        import setup as setup_module
+
+        if setup_module.ensure_bootstrap_officers() is not None:
+            logger.info(
+                "Setup: bootstrap officers created - password pair above, "
+                "shown once"
+            )
 
     # Optional real-clock rotation scheduler (ROTATION_SCHEDULER=1); off in
     # tests and dev unless explicitly enabled, never fabricated when quiet.

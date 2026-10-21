@@ -19,6 +19,7 @@ import otp
 import radius_client
 import scim
 import service
+import setup
 import sso
 import webauthn
 from config import Config
@@ -2827,6 +2828,58 @@ def delete_role_binding_route(binding_id: int):
 
 
 # ---------------------------------------------------------------------------
+# first-run setup (ADR-0018): the public state, the officers' profile
+# write, and the two-password completion
+# ---------------------------------------------------------------------------
+@api.get("/setup/state")
+def setup_get_state():
+    """First-run state for the login card and the /setup wizard: the
+    branding this instance presents, whether the wizard is still open,
+    whether SMTP has a host, and the two officer names. Public before
+    sign-in, secret-free by construction - no password field ever lands
+    in this reply, whoever asks."""
+    return jsonify(setup.setup_state())
+
+
+@api.put("/setup/profile")
+@require_admin
+def setup_put_profile():
+    """Company name / logo / contact. While setup runs the instance
+    belongs to the two bootstrap officers: their own console session,
+    checked here, is the only key (in open mode the decorator above is a
+    no-op, so this branch does the refusing). Once configured it is a
+    normal admin write - the company may rebrand (ADR-0018 Decision 2)."""
+    if not setup.instance_configured():
+        ensure_console_session()
+        user = g.console_user
+        if user.username not in setup.BOOTSTRAP_OFFICERS:
+            raise Forbidden(
+                "Setup is still running - only the VY-PAM bootstrap officers "
+                "may configure this instance",
+                {"phase": "first-run", "officers": list(setup.BOOTSTRAP_OFFICERS)},
+            )
+        actor = user.username
+    else:
+        actor = _actor()
+    return jsonify(setup.update_profile(_json_body(), actor=actor))
+
+
+@api.post("/setup/complete")
+def setup_post_complete():
+    """The maker-checker attestation that ends first-run setup: BOTH
+    bootstrap passwords verified in one request (two humans, two live
+    authentications). Public by design - the passwords are the
+    credential - and 409 forever afterwards (ADR-0018 Decision 2)."""
+    body = _json_body()
+    return jsonify(
+        setup.complete(
+            maker_password=str(body.get("maker_password") or ""),
+            checker_password=str(body.get("checker_password") or ""),
+        )
+    )
+
+
+# ---------------------------------------------------------------------------
 # real identity & login security (phase 7, Addendum C)
 # ---------------------------------------------------------------------------
 SESSION_COOKIE = "vypam_session"
@@ -2847,17 +2900,22 @@ def _cookie_for_session(session) -> Response:
     return response
 
 
+def ensure_console_session() -> None:
+    """Populate g.console_session / g.console_user from the presented
+    credential when the cookie CSRF middleware has not already done it."""
+    if getattr(g, "console_session", None) is None:
+        user, session = identity.verify_console_session(_presented_credential())
+        g.console_session = session
+        g.console_user = user
+
+
 def require_console(view):
     """The route needs a live console session (own-actions surface; role
     bindings decide the admin surface, not this decorator)."""
 
     @wraps(view)
     def wrapped(*args, **kwargs):
-        session = getattr(g, "console_session", None)
-        if session is None:
-            user, session = identity.verify_console_session(_presented_credential())
-            g.console_session = session
-            g.console_user = user
+        ensure_console_session()
         return view(*args, **kwargs)
 
     return wrapped

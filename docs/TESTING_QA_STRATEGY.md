@@ -52,12 +52,12 @@ Every number below was collected from the real suite at this commit.
 | └ vendor OpenAPI contract | `pam_master/tests/test_openapi_contract.py` | 6 |
 
 Contract test asserts (9): valid OpenAPI 3.1, documented ⇄ implemented
-routes both directions, security schemes on **144** admin operations, the
+routes both directions, security schemes on **145** admin operations, the
 documented admin set ⇄ runtime (`service.ADMIN_OPERATIONS` ∪ `whoami`),
 per-op role lists ⇄ `ROLE_OPERATIONS`, the `rbacToken`/`ldapTicket`/
 `nodeToken` schemes + `/auth/whoami` documenting every credential, enums ⇄
-code constants, required `info`/tags (24), and live response shapes ⇄
-schemas — currently **209 paths / 250 operations** (the 4 node-token ops
+code constants, required `info`/tags (25), and live response shapes ⇄
+schemas — currently **212 paths / 253 operations** (the 4 node-token ops
 are intentionally outside the admin set).
 
 The 8a gateway layer (`test_gateway.py`, 35, all passing) runs a **real

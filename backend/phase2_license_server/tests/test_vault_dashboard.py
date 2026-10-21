@@ -396,7 +396,7 @@ def test_overview_shape_and_defaults(client):
     assert data["settings"]["worm_retention_days"] == 2555
     assert data["settings"]["zsp_quorum_approvers"] == 2
     assert data["settings"]["sso_provider"] == "okta"
-    assert data["counters"]["total_events"] == 1  # the startup seed
+    assert data["counters"]["total_events"] == 6  # boot: seed + officers
 
     posture = data["posture"]
     ids = [control["id"] for control in posture["controls"]]
@@ -409,8 +409,8 @@ def test_overview_shape_and_defaults(client):
     assert by_id["quantum_safe"]["passed"] is True    # RSA-PSS + Ed25519
     assert by_id["worm_retention"]["passed"] is True  # 2555d COMPLIANCE lock
     assert by_id["rotation_sla"]["passed"] is True    # nothing overdue yet
-    assert by_id["audit_evidence"]["passed"] is True   # the startup seed
-    assert by_id["audit_evidence"]["evidence"] == "1 records"
+    assert by_id["audit_evidence"]["passed"] is True   # the boot ledger
+    assert by_id["audit_evidence"]["evidence"] == "6 records"
     assert 0 <= posture["score"] <= 100
 
 
@@ -481,10 +481,15 @@ def test_overview_flags_open_auth_mode(tmp_path: Path):
 # ---------------------------------------------------------------------------
 def test_events_fresh_database_holds_only_the_startup_seed(client):
     data = client.get("/api/v1/events").get_json()
-    assert data["total"] == 1
+    assert data["total"] == 6  # emergency seed + the two officers (11.11)
     assert data["limit"] == 20 and data["source"] == "all"
     assert [event["action"] for event in data["events"]] == [
-        "auth.emergency.seeded"
+        "auth.bootstrap.created",
+        "rbac.binding.created",
+        "auth.user.created",
+        "rbac.binding.created",
+        "auth.user.created",
+        "auth.emergency.seeded",
     ]
     assert data["events"][0]["source"] == "auth"
 
@@ -496,9 +501,10 @@ def test_unified_feed_merges_all_sources_newest_first(client):
     install(client)
 
     data = client.get("/api/v1/events").get_json()
-    assert data["total"] == 4
+    assert data["total"] == 9  # 3 test actions + the 6 boot events
     assert [event["source"] for event in data["events"]] == [
-        "license", "settings", "vault", "auth",
+        "license", "settings", "vault",
+        "auth", "rbac", "auth", "rbac", "auth", "auth",
     ]
     newest = data["events"][0]
     assert newest["action"] == "imported"
@@ -506,7 +512,8 @@ def test_unified_feed_merges_all_sources_newest_first(client):
     assert settings_event["actor"] == "tester"
     assert "tier0_quorum_approvers" in settings_event["detail"]
     assert data["events"][2]["action"] == "onboarded"
-    assert data["events"][3]["action"] == "auth.emergency.seeded"  # oldest
+    assert data["events"][3]["action"] == "auth.bootstrap.created"
+    assert data["events"][8]["action"] == "auth.emergency.seeded"  # oldest
 
 
 def test_events_source_filter_and_validation(client):
@@ -553,4 +560,4 @@ def test_events_source_filter_and_validation(client):
 
     limited = client.get("/api/v1/events", query_string={"limit": 1}).get_json()
     assert len(limited["events"]) == 1
-    assert limited["total"] == 3
+    assert limited["total"] == 8  # 2 test actions + the 6 boot events

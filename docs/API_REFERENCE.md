@@ -1,7 +1,7 @@
 # VY-PAM — API Reference
 
 **Status:** as-built for Phase 8a
-**Contract:** `apis/openapi.yaml` (OpenAPI 3.1) - **209 paths / 250
+**Contract:** `apis/openapi.yaml` (OpenAPI 3.1) - **212 paths / 253
 operations**, enforced in both directions by
 `backend/phase2_license_server/tests/test_openapi_contract.py`. If this page
 and the YAML ever disagree, the YAML wins.
@@ -15,13 +15,13 @@ and the YAML ever disagree, the YAML wins.
 | Base URL (dev) | `http://127.0.0.1:5000` (`LICENSE_SERVER_HOST`/`LICENSE_SERVER_PORT`) |
 | Version | `/api/v1/…` (`/health`, `/api/v1/meta` unversioned) |
 | Content type | `application/json` (license import also accepts multipart upload / raw body) |
-| Auth | When `LICENSE_ADMIN_TOKEN` is set: `Authorization: Bearer <token>` **or** `X-Admin-Token: <token>` on the **144 admin operations**. When unset: open dev mode - responses carry `X-Auth-Mode: open` (explicit, never silent). Pipeline `/broker` operations require the broker API token and AI-agent `/agent-access` operations require the agent API token - neither is ever waived, even in open dev mode. Gateway node routes (`…/heartbeat`, `…/work`, `…/connect-args`, `…/progress`) are a **separate** credential: the `nodeToken` security scheme, `Authorization: Bearer vypam-gwn1.<node_id>.<secret>` (shown once at registration, sha256 at rest, constant-time compare) - never waived in open dev mode, and the 4 node-token operations are intentionally **not** admin operations. In token mode, `admin-token` (kind admin) may call everything; a bound principal (API token or LDAP ticket) may call only its role's operations and only its ABAC scope - see §2 `rbac`. Console sessions (`/api/v1/auth/…`) are a **separate** credential: `vypam-ui1` bearer + HttpOnly `vypam_session` cookie, with `X-CSRF-Token` double-submit on cookie-authenticated mutations (credential headers skip CSRF); the admin token alone holds no console session. |
+| Auth | When `LICENSE_ADMIN_TOKEN` is set: `Authorization: Bearer <token>` **or** `X-Admin-Token: <token>` on the **145 admin operations**. When unset: open dev mode - responses carry `X-Auth-Mode: open` (explicit, never silent). Pipeline `/broker` operations require the broker API token and AI-agent `/agent-access` operations require the agent API token - neither is ever waived, even in open dev mode. Gateway node routes (`…/heartbeat`, `…/work`, `…/connect-args`, `…/progress`) are a **separate** credential: the `nodeToken` security scheme, `Authorization: Bearer vypam-gwn1.<node_id>.<secret>` (shown once at registration, sha256 at rest, constant-time compare) - never waived in open dev mode, and the 4 node-token operations are intentionally **not** admin operations. In token mode, `admin-token` (kind admin) may call everything; a bound principal (API token or LDAP ticket) may call only its role's operations and only its ABAC scope - see §2 `rbac`. Console sessions (`/api/v1/auth/…`) are a **separate** credential: `vypam-ui1` bearer + HttpOnly `vypam_session` cookie, with `X-CSRF-Token` double-submit on cookie-authenticated mutations (credential headers skip CSRF); the admin token alone holds no console session. |
 | Actor | `X-Actor: <name>` recorded verbatim in the audit ledger on every audited write |
 | Errors | `{"error": "<message>", "details"?: {…}}` — 400 validation · 401 auth · 403 policy refusal (risk gate) · 404 · 409 conflict/state · 422 unprocessable shape · 503 fail-closed dependency |
 | Pagination | `limit` (≤200) + `offset`, newest first |
 | Ordering | Ledger/session streams ascending `seq`; listings newest-first |
 
-## 2. Operations by tag (24 tags)
+## 2. Operations by tag (25 tags)
 
 ### `ops` — unversioned
 | Method | Path | Summary |
@@ -263,7 +263,7 @@ runs - `details.promote` names the way back. `/health` carries this node's
 
 | Method | Path | Summary |
 |---|---|---|
-| GET | `/api/v1/roles` | the five built-in roles with their computed operation counts (admin 144 / operator 48 / auditor 34 / auditor-read-only 31 / approver 13) |
+| GET | `/api/v1/roles` | the five built-in roles with their computed operation counts (admin 145 / operator 48 / auditor 34 / auditor-read-only 31 / approver 13) |
 | GET | `/api/v1/role-bindings` | who holds a role (active bindings; revoked ones are ledger evidence, not rows) |
 | POST | `/api/v1/role-bindings` | create a binding (201): `principal` + `role` (+ `kind` `api`\|`ldap`, optional ABAC `scope`); an API token binding returns its `token` **once** - sha256 at rest, never retrievable again |
 | DELETE | `/api/v1/role-bindings/{binding_id}` | revoke a binding; its tokens stop working immediately (401) and `rbac` ledger evidence stays |
@@ -406,6 +406,13 @@ Session surfaces carry the data plane too: `POST /sessions` answers with a
 `gateway` broker-verdict block (the node it dispatched to, or the honest
 reason it did not), and `GET /sessions/{session_id}` returns the enriched
 gateway object; session list rows carry the same compact state.
+
+### `setup` — first-run setup & instance profile (ADR-0018, 3 paths / 3 operations)
+| Method | Path | Summary |
+|---|---|---|
+| GET | `/api/v1/setup/state` | public first-run state: `{configured, company_name, logo_data_uri, contact_email, smtp_configured, bootstrap:{maker, checker}}` - no secrets, whoever asks |
+| PUT | `/api/v1/setup/profile` | company name / logo / contact (admin op; while `configured=false` only the two bootstrap officers' own console sessions pass the in-handler gate, 403 verbatim otherwise) |
+| POST | `/api/v1/setup/complete` | maker-checker attestation: both bootstrap passwords in one request → one-way 409 afterwards |
 
 ### Ledger (Compliance feeds)
 | Method | Path | Summary |

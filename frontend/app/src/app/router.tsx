@@ -19,6 +19,7 @@ import { BreakGlassPage } from '../features/break-glass/BreakGlassPage';
 import { LicensingPage } from '../features/licensing/LicensingPage';
 import { TopologyPage } from '../features/topology/TopologyPage';
 import { LoginPage } from '../features/auth/pages/LoginPage';
+import { SetupPage } from '../features/setup/SetupPage';
 import { SettingsPage } from '../features/settings/SettingsPage';
 import { UsersPage } from '../features/users/UsersPage';
 import { SecurityPage } from '../features/security/SecurityPage';
@@ -61,6 +62,10 @@ const F4_LIVE_ROUTES = new Set([
 
 export const routes: RouteObject[] = [
   { path: '/login', element: <LoginPage /> },
+  // ADR-0018 batch 11.11: first-run setup sits beside /login - the wizard
+  // is reachable before any company admin exists, and the backend keeps
+  // every write officer-gated (the route itself carries no guard).
+  { path: '/setup', element: <SetupPage /> },
   {
     element: (
       <RequireAuth>

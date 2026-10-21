@@ -9,7 +9,7 @@ is the CI drift gate; every figure below is extracted from:
 -->
 
 # Backend package map
-3 packages, 43 modules, 140 drawn intra-package import edges.
+3 packages, 44 modules, 147 drawn intra-package import edges.
 
 ```mermaid
 flowchart TD
@@ -29,7 +29,7 @@ flowchart TD
   b0_12["pam_master/routes.py - 208 lines"]
   end
   subgraph p1["phase2_license_server (backend/phase2_license_server)"]
-  b1_0["app.py - 334 lines"]
+  b1_0["app.py - 346 lines"]
   b1_1["audit.py - 1114 lines"]
   b1_2["cluster_monitor.py - 73 lines"]
   b1_3["config.py - 147 lines"]
@@ -44,17 +44,18 @@ flowchart TD
   b1_12["keys.py - 95 lines"]
   b1_13["licensing_bridge.py - 102 lines"]
   b1_14["mfa.py - 309 lines"]
-  b1_15["models.py - 3745 lines"]
+  b1_15["models.py - 3762 lines"]
   b1_16["otp.py - 431 lines"]
   b1_17["radius_client.py - 218 lines"]
   b1_18["rotation_scheduler.py - 67 lines"]
-  b1_19["routes.py - 3948 lines"]
+  b1_19["routes.py - 4006 lines"]
   b1_20["scim.py - 366 lines"]
   b1_21["secrets_store.py - 294 lines"]
-  b1_22["service.py - 12833 lines"]
-  b1_23["sso.py - 1313 lines"]
-  b1_24["webauthn.py - 615 lines"]
-  b1_25["wsgi.py - 13 lines"]
+  b1_22["service.py - 12834 lines"]
+  b1_23["setup.py - 249 lines"]
+  b1_24["sso.py - 1313 lines"]
+  b1_25["webauthn.py - 615 lines"]
+  b1_26["wsgi.py - 13 lines"]
   end
   subgraph p2["ipam_licensing (backend/ipam_licensing)"]
   b2_0["license_tool.py - 544 lines"]
@@ -103,6 +104,7 @@ flowchart TD
   b1_0 --> b1_18
   b1_0 --> b1_19
   b1_0 --> b1_22
+  b1_0 --> b1_23
   b1_1 --> b1_5
   b1_1 --> b1_11
   b1_1 --> b1_15
@@ -166,6 +168,7 @@ flowchart TD
   b1_19 --> b1_22
   b1_19 --> b1_23
   b1_19 --> b1_24
+  b1_19 --> b1_25
   b1_20 --> b1_4
   b1_20 --> b1_5
   b1_20 --> b1_10
@@ -187,17 +190,22 @@ flowchart TD
   b1_22 --> b1_15
   b1_22 --> b1_16
   b1_22 --> b1_21
-  b1_22 --> b1_23
-  b1_23 --> b1_1
+  b1_22 --> b1_24
   b1_23 --> b1_4
   b1_23 --> b1_5
+  b1_23 --> b1_10
   b1_23 --> b1_15
+  b1_23 --> b1_22
+  b1_24 --> b1_1
   b1_24 --> b1_4
   b1_24 --> b1_5
-  b1_24 --> b1_10
-  b1_24 --> b1_14
   b1_24 --> b1_15
-  b1_25 --> b1_0
+  b1_25 --> b1_4
+  b1_25 --> b1_5
+  b1_25 --> b1_10
+  b1_25 --> b1_14
+  b1_25 --> b1_15
+  b1_26 --> b1_0
   b2_0 --> b2_2
   b2_0 --> b2_3
   b2_1 --> b2_2

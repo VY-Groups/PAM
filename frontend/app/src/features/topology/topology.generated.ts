@@ -556,6 +556,8 @@ export const FRONTEND_ROUTES: FrontendRouteView[] = [
     feature: 'auth',
     clientFunctions: [
       'getHealth',
+      'postApiV1AuthMfaEnrollTotp',
+      'postApiV1AuthMfaEnrollTotpVerify',
       'postApiV1AuthOtpStart',
       'postApiV1AuthPassword',
       'postApiV1AuthRecoveryReset',
@@ -563,10 +565,32 @@ export const FRONTEND_ROUTES: FrontendRouteView[] = [
     ],
     endpoints: [
       'GET /health',
+      'POST /api/v1/auth/mfa/enroll/totp',
+      'POST /api/v1/auth/mfa/enroll/totp/verify',
       'POST /api/v1/auth/otp/start',
       'POST /api/v1/auth/password',
       'POST /api/v1/auth/recovery/reset',
       'POST /api/v1/auth/recovery/start',
+    ],
+  },
+  {
+    path: '/setup',
+    labelKey: null,
+    icon: null,
+    legacyHref: null,
+    danger: false,
+    state: 'live',
+    component: 'SetupPage',
+    feature: 'setup',
+    clientFunctions: [
+      'getApiV1SetupState',
+      'postApiV1SetupComplete',
+      'putApiV1SetupProfile',
+    ],
+    endpoints: [
+      'GET /api/v1/setup/state',
+      'POST /api/v1/setup/complete',
+      'PUT /api/v1/setup/profile',
     ],
   },
 ];
@@ -670,7 +694,7 @@ export const BACKEND_PACKAGES: BackendPackageView[] = [
     files: [
       {
         path: 'app.py',
-        lines: 334,
+        lines: 346,
         imports: [
           'backend/phase2_license_server/audit.py',
           'backend/phase2_license_server/cluster_monitor.py',
@@ -684,6 +708,7 @@ export const BACKEND_PACKAGES: BackendPackageView[] = [
           'backend/phase2_license_server/rotation_scheduler.py',
           'backend/phase2_license_server/routes.py',
           'backend/phase2_license_server/service.py',
+          'backend/phase2_license_server/setup.py',
         ],
       },
       {
@@ -795,7 +820,7 @@ export const BACKEND_PACKAGES: BackendPackageView[] = [
       },
       {
         path: 'models.py',
-        lines: 3745,
+        lines: 3762,
         imports: [
           'backend/phase2_license_server/extensions.py',
           'backend/phase2_license_server/licensing_bridge.py',
@@ -831,7 +856,7 @@ export const BACKEND_PACKAGES: BackendPackageView[] = [
       },
       {
         path: 'routes.py',
-        lines: 3948,
+        lines: 4006,
         imports: [
           'backend/phase2_license_server/config.py',
           'backend/phase2_license_server/errors.py',
@@ -846,6 +871,7 @@ export const BACKEND_PACKAGES: BackendPackageView[] = [
           'backend/phase2_license_server/radius_client.py',
           'backend/phase2_license_server/scim.py',
           'backend/phase2_license_server/service.py',
+          'backend/phase2_license_server/setup.py',
           'backend/phase2_license_server/sso.py',
           'backend/phase2_license_server/webauthn.py',
         ],
@@ -873,7 +899,7 @@ export const BACKEND_PACKAGES: BackendPackageView[] = [
       },
       {
         path: 'service.py',
-        lines: 12833,
+        lines: 12834,
         imports: [
           'backend/phase2_license_server/audit.py',
           'backend/phase2_license_server/config.py',
@@ -888,6 +914,17 @@ export const BACKEND_PACKAGES: BackendPackageView[] = [
           'backend/phase2_license_server/otp.py',
           'backend/phase2_license_server/secrets_store.py',
           'backend/phase2_license_server/sso.py',
+        ],
+      },
+      {
+        path: 'setup.py',
+        lines: 249,
+        imports: [
+          'backend/phase2_license_server/errors.py',
+          'backend/phase2_license_server/extensions.py',
+          'backend/phase2_license_server/identity.py',
+          'backend/phase2_license_server/models.py',
+          'backend/phase2_license_server/service.py',
         ],
       },
       {
@@ -1075,6 +1112,27 @@ export const API_TAGS: ApiTagView[] = [
         method: 'POST',
         path: '/api/v1/settings/scim/rotate',
         summary: 'Mint a fresh SCIM bearer token for the identity provider',
+      },
+    ],
+  },
+  {
+    name: 'setup',
+    operations: [
+      {
+        method: 'GET',
+        path: '/api/v1/setup/state',
+        summary: 'First-run state - branding, wizard phase, bootstrap officers (public)',
+      },
+      {
+        method: 'PUT',
+        path: '/api/v1/setup/profile',
+        summary: 'Set the instance profile (company name / logo / contact)',
+      },
+      {
+        method: 'POST',
+        path: '/api/v1/setup/complete',
+        summary:
+          'Finish first-run setup - both bootstrap passwords in one request (maker-checker)',
       },
     ],
   },
@@ -2332,16 +2390,16 @@ export const API_TAGS: ApiTagView[] = [
 ];
 
 export const API_METHOD_COUNTS: Record<string, number> = {
-  GET: 101,
-  POST: 120,
-  PUT: 5,
+  GET: 102,
+  POST: 121,
+  PUT: 6,
   DELETE: 15,
   PATCH: 9,
 };
 
-export const API_PATH_COUNT = 209;
+export const API_PATH_COUNT = 212;
 
-export const API_OPERATION_COUNT = 250;
+export const API_OPERATION_COUNT = 253;
 
 /** Every operation as "METHOD /path" - the workflow contract-check set. */
 export const API_OPERATIONS: string[] = [
@@ -2359,6 +2417,9 @@ export const API_OPERATIONS: string[] = [
   'GET /api/v1/settings',
   'GET /api/v1/settings/audit',
   'PUT /api/v1/settings/{group}',
+  'GET /api/v1/setup/state',
+  'PUT /api/v1/setup/profile',
+  'POST /api/v1/setup/complete',
   'GET /api/v1/overview',
   'GET /api/v1/events',
   'GET /api/v1/audit/stats',

@@ -45,8 +45,22 @@ export const changePasswordSchema = z.object({
   new_password: z.string().min(14).max(200),
 });
 
+/**
+ * ADR-0018 batch 11.11 - the forced-enrolment arm: first sign-in answers
+ * 403 `enrolment_required` + a `vypam-enr1` ticket; the login card enrols
+ * TOTP against that ticket and the verify mints the session. The code is
+ * the authenticator app's live 6 digits (server validates, ADR-0006).
+ */
+export const enrolSchema = z.object({
+  code: z
+    .string()
+    .trim()
+    .regex(/^\d{6}$/),
+});
+
 export type LoginFormValues = z.infer<typeof loginSchema>;
 export type MfaFormValues = z.infer<typeof mfaSchema>;
 export type RecoveryStartFormValues = z.infer<typeof recoveryStartSchema>;
 export type RecoveryResetFormValues = z.infer<typeof recoveryResetSchema>;
 export type ChangePasswordFormValues = z.infer<typeof changePasswordSchema>;
+export type EnrolFormValues = z.infer<typeof enrolSchema>;

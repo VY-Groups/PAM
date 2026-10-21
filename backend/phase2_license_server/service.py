@@ -11143,6 +11143,7 @@ ADMIN_OPERATIONS = [
     ("post", "/api/v1/licenses/{license_key}/restore"),
     ("post", "/api/v1/licenses/{license_key}/usage"),
     ("put", "/api/v1/settings/{group}"),
+    ("put", "/api/v1/setup/profile"),
     ("post", "/api/v1/vault/items"),
     ("post", "/api/v1/vault/items/{item_id}/checkout"),
     ("post", "/api/v1/vault/items/{item_id}/revoke"),

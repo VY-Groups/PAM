@@ -5,7 +5,7 @@ Status: Accepted (user directive, 2026-10-19 overnight: "close the backend↔fro
 
 ## Context — the gap, with evidence
 
-`apis/openapi.yaml` declares **250 operations across 24 tags**; the generated
+`apis/openapi.yaml` declares **253 operations across 25 tags**; the generated
 client (`frontend/app/src/api/generated/`) types every one of them; the console
 serves 13 routes. Most tags map to a screen. The `identity` tag (49 operations)
 barely does — two subsystems are fully built and tested in the backend with **no

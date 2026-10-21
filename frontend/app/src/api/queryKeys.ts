@@ -151,4 +151,10 @@ export const queryKeys = {
   // retry-once flow).
   securityFactors: ['security', 'factors'] as const,
   securityRoot: ['security'] as const,
+  // First-run setup (ADR-0018 batch 11.11): one ['setup', 'state'] key -
+  // the public state is a single read (branding + wizard phase + SMTP
+  // posture); a profile save answers the fresh state (setQueryData) and
+  // the completion invalidates it, so the login card, the shell banner
+  // and the wizard are all views of the same row.
+  setupState: ['setup', 'state'] as const,
 } as const;

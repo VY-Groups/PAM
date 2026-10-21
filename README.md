@@ -24,7 +24,7 @@ PAM/
 │   ├── screens/<name>/          #   one folder per screen: code.html + screen.png
 │   └── README.md                #   layout + how to add a screen (the contract)
 ├── apis/                            # HTTP contract for every backend service
-│   ├── openapi.yaml             #   OpenAPI 3.1: all 209 paths (synced by a test)
+│   ├── openapi.yaml             #   OpenAPI 3.1: all 212 paths (synced by a test)
 │   └── README.md                #   conventions + how to view
 ├── backend/
 │   ├── ipam_licensing/              # Phase 1: library + CLIs

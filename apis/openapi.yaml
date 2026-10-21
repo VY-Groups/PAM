@@ -30,6 +30,8 @@ tags:
     description: Offline-parity validation and entitlement checks
   - name: settings
     description: Platform Settings screen (SSO / HSM / ZSP / WORM)
+  - name: setup
+    description: First-run setup - instance profile, the VY-PAM bootstrap officers and the two-password completion (ADR-0018)
   - name: vault
     description: Credential vault inventory, rotation and checkouts
   - name: rotation
@@ -435,6 +437,118 @@ paths:
         "400": {$ref: "#/components/responses/BadRequest"}
         "401": {$ref: "#/components/responses/Unauthorized"}
         "404": {$ref: "#/components/responses/NotFound"}
+
+  /api/v1/setup/state:
+    get:
+      tags: [setup]
+      summary: First-run state - branding, wizard phase, bootstrap officers (public)
+      description: >
+        What the login card and the /setup wizard need before anyone signs
+        in: the instance's company name / logo / contact as the branding it
+        presents, whether first-run setup is still open (`configured:
+        false`), whether SMTP has a host, and the two bootstrap officer
+        names (`bootstrap.maker` / `bootstrap.checker` - the identities
+        VY-PAM ships with the install, ADR-0018). Public by design and
+        secret-free by construction: no password, hash or token field ever
+        appears in this reply, whoever asks.
+      responses:
+        "200":
+          description: The public first-run state
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/SetupState"}
+
+  /api/v1/setup/profile:
+    put:
+      tags: [setup]
+      summary: Set the instance profile (company name / logo / contact)
+      description: >
+        While first-run setup is open only the two bootstrap officers may
+        call this - their own console session, checked after the admin
+        credential (in open mode every credential passes, so the officer
+        check is what refuses). Once `configured: true` it is a normal
+        admin write: the company may rebrand (ADR-0018 Decision 2).
+        Partial update; `company_name` may never end up blank; the logo is
+        a bounded PNG/JPEG data URI (at most 64 KB decoded) or `""` to
+        clear. A write that changes nothing records nothing and answers
+        the current state.
+      security:
+        - bearerAuth: []
+        - adminTokenHeader: []
+        - {}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              minProperties: 1
+              properties:
+                company_name: {type: string, minLength: 1, maxLength: 128}
+                logo_data_uri:
+                  type: string
+                  description: 'A `data:image/png;base64,...` or `data:image/jpeg;base64,...` URI of at most 64 KB decoded, or `""` to clear.'
+                contact_email: {type: string, maxLength: 255}
+      responses:
+        "200":
+          description: Stored (the fresh state), or the unchanged state on a no-op write
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/SetupState"}
+        "400": {$ref: "#/components/responses/BadRequest"}
+        "401": {$ref: "#/components/responses/Unauthorized"}
+        "403":
+          description: Setup is still running and the caller is not one of the two bootstrap officers
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/Error"}
+
+  /api/v1/setup/complete:
+    post:
+      tags: [setup]
+      summary: Finish first-run setup - both bootstrap passwords in one request (maker-checker)
+      description: >
+        The two-officer attestation (ADR-0018 Decision 2): both bootstrap
+        passwords verified against their rows in this single request - two
+        humans, two live authentications, never one password twice. Either
+        wrong answers the uniform login 401 (`Invalid username or
+        password`), so no reply reveals which one failed. On success
+        `setup_completed_at` is stamped (one-way): the instance reports
+        `configured: true` from then on and this endpoint answers 409
+        forever. Public by design - the passwords are the credential -
+        and the password that counts is the one the officer set at first
+        sign-in (the forced-change card).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [maker_password, checker_password]
+              properties:
+                maker_password: {type: string, maxLength: 200}
+                checker_password: {type: string, maxLength: 200}
+      responses:
+        "200":
+          description: Setup completed (the instance is configured from now on)
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [message]
+                properties:
+                  message: {type: string, description: Verbatim completion line the wizard renders.}
+        "400": {$ref: "#/components/responses/BadRequest"}
+        "401":
+          description: Either password wrong - the uniform login refusal, never says which
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/Error"}
+        "409":
+          description: Setup already completed (the completion stamp is one-way)
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/Error"}
 
   /api/v1/overview:
     get:
@@ -7430,6 +7544,29 @@ components:
           type: string
           description: "Remembered-device token (`vypam-dev1...`, sha256 at rest, shown once) - only present when `remember_device` was asked for and policy allows (never approver/admin bindings)."
         device_expires_at: {type: string, format: date-time, description: When the remembered device expires.}
+    SetupState:
+      type: object
+      description: >-
+        The public first-run state (GET /api/v1/setup/state; also the reply
+        of PUT /api/v1/setup/profile): branding, wizard phase, SMTP posture
+        and the two officer usernames. Secret-free by construction - it
+        never carries a password, hash or token.
+      required: [configured, company_name, logo_data_uri, contact_email, smtp_configured, bootstrap]
+      properties:
+        configured: {type: boolean, description: True once POST /api/v1/setup/complete succeeded (one-way stamp).}
+        company_name: {type: string, maxLength: 128, description: The branding name ("" before the profile step).}
+        logo_data_uri:
+          type: string
+          description: 'Branding logo as a base64 PNG/JPEG data URI of at most 64 KB decoded ("" when none).'
+        contact_email: {type: string, maxLength: 255, description: Instance contact ("" when unset).}
+        smtp_configured: {type: boolean, description: The SMTP group is enabled with a host.}
+        bootstrap:
+          type: object
+          description: The two VY-PAM bootstrap officers the install ships with (usernames only, never their passwords).
+          required: [maker, checker]
+          properties:
+            maker: {type: string, enum: [vypam-maker]}
+            checker: {type: string, enum: [vypam-checker]}
     Error:
       type: object
       required: [error]

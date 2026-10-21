@@ -10,7 +10,7 @@ is the CI drift gate; every figure below is extracted from:
 -->
 
 # Frontend route map
-15 console routes (14 sidebar items + 1 non-sidebar) joined with the contract operations their generated-client calls resolve to.
+16 console routes (14 sidebar items + 2 non-sidebar) joined with the contract operations their generated-client calls resolve to.
 
 ```mermaid
 flowchart TD
@@ -30,6 +30,7 @@ flowchart TD
   r12["/settings - Settings"]
   r13["/topology - System Maps"]
   r14["/login (LoginPage)"]
+  r15["/setup (SetupPage)"]
   end
   e0["GET /api/v1/bypass/incidents"]
   r0 --> e0
@@ -331,6 +332,8 @@ flowchart TD
   r13 --> e82
   r13 --> e4
   r14 --> e4
+  r14 --> e121
+  r14 --> e122
   e143["POST /api/v1/auth/otp/start"]
   r14 --> e143
   e144["POST /api/v1/auth/password"]
@@ -339,4 +342,10 @@ flowchart TD
   r14 --> e145
   e146["POST /api/v1/auth/recovery/start"]
   r14 --> e146
+  e147["GET /api/v1/setup/state"]
+  r15 --> e147
+  e148["POST /api/v1/setup/complete"]
+  r15 --> e148
+  e149["PUT /api/v1/setup/profile"]
+  r15 --> e149
 ```

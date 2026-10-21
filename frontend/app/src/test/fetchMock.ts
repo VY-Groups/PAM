@@ -308,6 +308,31 @@ export function healthRoute() {
 }
 
 /**
+ * Contract fixture (ADR-0018 batch 11.11): GET /setup/state on a virgin
+ * install - unconfigured, no branding, SMTP unconfigured, the two
+ * bootstrap officer usernames. Secret-free by construction.
+ */
+export const SETUP_STATE_OPEN_BODY = {
+  configured: false,
+  company_name: '',
+  logo_data_uri: '',
+  contact_email: '',
+  smtp_configured: false,
+  bootstrap: { maker: 'vypam-maker', checker: 'vypam-checker' },
+};
+
+/**
+ * Ready-made route: GET /api/v1/setup/state answers `body`
+ * (default: the virgin-install posture above).
+ */
+export function setupStateRoute(body: unknown = SETUP_STATE_OPEN_BODY, status = 200) {
+  return {
+    match: (url: string) => url.includes('/setup/state'),
+    respond: () => jsonResponse(status, body),
+  };
+}
+
+/**
  * Contract-shaped Command Center fixtures (F4 screen tests). The values
  * mirror real rig payloads - never invented display strings.
  */

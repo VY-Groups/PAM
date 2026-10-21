@@ -299,6 +299,8 @@ import type {
   PostApiV1SettingsScimRotate200,
   PostApiV1SettingsSmtpTest200,
   PostApiV1SettingsSmtpTestBody,
+  PostApiV1SetupComplete200,
+  PostApiV1SetupCompleteBody,
   PostApiV1Users201,
   PostApiV1UsersBody,
   PostApiV1UsersUserIdPasswordReset200,
@@ -314,6 +316,7 @@ import type {
   PutApiV1ScimV2UsersScimId200,
   PutApiV1ScimV2UsersScimIdBody,
   PutApiV1SettingsGroupBody,
+  PutApiV1SetupProfileBody,
   RiskEvaluateRequest,
   RiskEvaluateResponse,
   RiskEvaluationList,
@@ -340,6 +343,7 @@ import type {
   SettingsAuditResponse,
   SettingsResponse,
   SettingsWriteResponse,
+  SetupState,
   SsoLogin,
   SsoSession,
   SsoSessionList,
@@ -385,6 +389,9 @@ import postApiV1LicensesLicenseKeyCheckMutator from '../http';
 import getApiV1SettingsMutator from '../http';
 import getApiV1SettingsAuditMutator from '../http';
 import putApiV1SettingsGroupMutator from '../http';
+import getApiV1SetupStateMutator from '../http';
+import putApiV1SetupProfileMutator from '../http';
+import postApiV1SetupCompleteMutator from '../http';
 import getApiV1OverviewMutator from '../http';
 import getApiV1EventsMutator from '../http';
 import getApiV1AuditStatsMutator from '../http';
@@ -1398,6 +1405,179 @@ return putApiV1SettingsGroupMutator<putApiV1SettingsGroupResponse>(getPutApiV1Se
     method: 'PUT',
     headers: { 'Content-Type': 'application/json', ...getHeaders(options?.headers) },
     body: JSON.stringify(putApiV1SettingsGroupBody)
+  }
+);}
+
+
+
+export type getApiV1SetupStateResponse200 = {
+  data: SetupState
+  status: 200
+}
+
+export type getApiV1SetupStateResponseSuccess = (getApiV1SetupStateResponse200) & {
+  headers: Headers;
+};
+;
+
+export type getApiV1SetupStateResponse = (getApiV1SetupStateResponseSuccess)
+
+export const getGetApiV1SetupStateUrl = () => {
+
+
+
+
+  return `/api/v1/setup/state`
+}
+
+/**
+ * What the login card and the /setup wizard need before anyone signs in: the instance's company name / logo / contact as the branding it presents, whether first-run setup is still open (`configured: false`), whether SMTP has a host, and the two bootstrap officer names (`bootstrap.maker` / `bootstrap.checker` - the identities VY-PAM ships with the install, ADR-0018). Public by design and secret-free by construction: no password, hash or token field ever appears in this reply, whoever asks.
+ * @summary First-run state - branding, wizard phase, bootstrap officers (public)
+ */
+export const getApiV1SetupState = async ( options?: Parameters<typeof getApiV1SetupStateMutator>[1]): Promise<getApiV1SetupStateResponse> => {
+
+  return getApiV1SetupStateMutator<getApiV1SetupStateResponse>(getGetApiV1SetupStateUrl(),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+export type putApiV1SetupProfileResponse200 = {
+  data: SetupState
+  status: 200
+}
+
+export type putApiV1SetupProfileResponse400 = {
+  data: BadRequestResponse
+  status: 400
+}
+
+export type putApiV1SetupProfileResponse401 = {
+  data: UnauthorizedResponse
+  status: 401
+}
+
+export type putApiV1SetupProfileResponse403 = {
+  data: Error
+  status: 403
+}
+
+export type putApiV1SetupProfileResponseSuccess = (putApiV1SetupProfileResponse200) & {
+  headers: Headers;
+};
+export type putApiV1SetupProfileResponseError = (putApiV1SetupProfileResponse400 | putApiV1SetupProfileResponse401 | putApiV1SetupProfileResponse403) & {
+  headers: Headers;
+};
+
+export type putApiV1SetupProfileResponse = (putApiV1SetupProfileResponseSuccess | putApiV1SetupProfileResponseError)
+
+export const getPutApiV1SetupProfileUrl = () => {
+
+
+
+
+  return `/api/v1/setup/profile`
+}
+
+/**
+ * While first-run setup is open only the two bootstrap officers may call this - their own console session, checked after the admin credential (in open mode every credential passes, so the officer check is what refuses). Once `configured: true` it is a normal admin write: the company may rebrand (ADR-0018 Decision 2). Partial update; `company_name` may never end up blank; the logo is a bounded PNG/JPEG data URI (at most 64 KB decoded) or `""` to clear. A write that changes nothing records nothing and answers the current state.
+ * @summary Set the instance profile (company name / logo / contact)
+ */
+export const putApiV1SetupProfile = async (putApiV1SetupProfileBody: PutApiV1SetupProfileBody, options?: Parameters<typeof putApiV1SetupProfileMutator>[1]): Promise<putApiV1SetupProfileResponse> => {
+
+    const getHeaders = (h?: NonNullable<RequestInit['headers']>): Record<string, string | readonly string[]> => {
+    if (!h) return {};
+    if (h instanceof Headers) return Object.fromEntries(h.entries());
+    if (Symbol.iterator in h) {
+      return Object.fromEntries(
+        Array.from(h as Iterable<Iterable<string>>, (entry) => Array.from(entry) as [string, string]),
+      );
+    }
+    const headers: Record<string, string | readonly string[]> = {};
+    for (const [name, value] of Object.entries<string | readonly string[] | undefined>(h)) {
+      if (value !== undefined) headers[name] = value;
+    }
+    return headers;
+  };
+return putApiV1SetupProfileMutator<putApiV1SetupProfileResponse>(getPutApiV1SetupProfileUrl(),
+  {
+    ...options,
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json', ...getHeaders(options?.headers) },
+    body: JSON.stringify(putApiV1SetupProfileBody)
+  }
+);}
+
+
+
+export type postApiV1SetupCompleteResponse200 = {
+  data: PostApiV1SetupComplete200
+  status: 200
+}
+
+export type postApiV1SetupCompleteResponse400 = {
+  data: BadRequestResponse
+  status: 400
+}
+
+export type postApiV1SetupCompleteResponse401 = {
+  data: Error
+  status: 401
+}
+
+export type postApiV1SetupCompleteResponse409 = {
+  data: Error
+  status: 409
+}
+
+export type postApiV1SetupCompleteResponseSuccess = (postApiV1SetupCompleteResponse200) & {
+  headers: Headers;
+};
+export type postApiV1SetupCompleteResponseError = (postApiV1SetupCompleteResponse400 | postApiV1SetupCompleteResponse401 | postApiV1SetupCompleteResponse409) & {
+  headers: Headers;
+};
+
+export type postApiV1SetupCompleteResponse = (postApiV1SetupCompleteResponseSuccess | postApiV1SetupCompleteResponseError)
+
+export const getPostApiV1SetupCompleteUrl = () => {
+
+
+
+
+  return `/api/v1/setup/complete`
+}
+
+/**
+ * The two-officer attestation (ADR-0018 Decision 2): both bootstrap passwords verified against their rows in this single request - two humans, two live authentications, never one password twice. Either wrong answers the uniform login 401 (`Invalid username or password`), so no reply reveals which one failed. On success `setup_completed_at` is stamped (one-way): the instance reports `configured: true` from then on and this endpoint answers 409 forever. Public by design - the passwords are the credential - and the password that counts is the one the officer set at first sign-in (the forced-change card).
+ * @summary Finish first-run setup - both bootstrap passwords in one request (maker-checker)
+ */
+export const postApiV1SetupComplete = async (postApiV1SetupCompleteBody: PostApiV1SetupCompleteBody, options?: Parameters<typeof postApiV1SetupCompleteMutator>[1]): Promise<postApiV1SetupCompleteResponse> => {
+
+    const getHeaders = (h?: NonNullable<RequestInit['headers']>): Record<string, string | readonly string[]> => {
+    if (!h) return {};
+    if (h instanceof Headers) return Object.fromEntries(h.entries());
+    if (Symbol.iterator in h) {
+      return Object.fromEntries(
+        Array.from(h as Iterable<Iterable<string>>, (entry) => Array.from(entry) as [string, string]),
+      );
+    }
+    const headers: Record<string, string | readonly string[]> = {};
+    for (const [name, value] of Object.entries<string | readonly string[] | undefined>(h)) {
+      if (value !== undefined) headers[name] = value;
+    }
+    return headers;
+  };
+return postApiV1SetupCompleteMutator<postApiV1SetupCompleteResponse>(getPostApiV1SetupCompleteUrl(),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...getHeaders(options?.headers) },
+    body: JSON.stringify(postApiV1SetupCompleteBody)
   }
 );}
 

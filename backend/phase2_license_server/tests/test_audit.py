@@ -383,32 +383,41 @@ def test_chain_links_from_genesis_and_verifies(client):
 
 
 def test_fresh_ledger_holds_only_the_startup_seed(client):
-    # a brand-new deployment is not event-free: boot records the one
-    # honest event - the sealed emergency admin being seeded - and
+    # a brand-new deployment is not event-free: boot records the sealed
+    # emergency admin, then the two bootstrap officers (user row + admin
+    # binding each, plus the one-time summary - ADR-0018 batch 11.11) and
     # nothing else exists yet; the stats must say exactly that
     state = stats(client)
-    assert state["total"] == 1 and state["last_seq"] == 1
+    assert state["total"] == 6 and state["last_seq"] == 6
     assert state["head_hash"]
     assert state["oldest_at"] and state["newest_at"]
     assert set(state["by_source"]) == set(audit.AUDIT_SOURCES)
-    assert state["by_source"]["auth"] == 1
+    assert state["by_source"]["auth"] == 4 and state["by_source"]["rbac"] == 2
     assert all(
         count == 0
         for source, count in state["by_source"].items()
-        if source != "auth"
+        if source not in ("auth", "rbac")
     )
     assert state["trigger_protection"] is True
 
     verified = verify(client)
     assert verified["intact"] is True
-    assert verified["checked"] == 1 and verified["total"] == 1
-    assert verified["last_seq"] == 1 and verified["head_hash"]
+    assert verified["checked"] == 6 and verified["total"] == 6
+    assert verified["last_seq"] == 6 and verified["head_hash"]
     assert verified["broken_at"] is None and verified["reason"] is None
 
     feed = client.get("/api/v1/events").get_json()
-    assert feed["total"] == 1
+    assert feed["total"] == 6
+    assert [event["action"] for event in feed["events"]] == [
+        "auth.bootstrap.created",
+        "rbac.binding.created",
+        "auth.user.created",
+        "rbac.binding.created",
+        "auth.user.created",
+        "auth.emergency.seeded",
+    ]
     assert feed["events"][0]["source"] == "auth"
-    assert feed["events"][0]["action"] == "auth.emergency.seeded"
+    assert feed["events"][0]["actor"] == "system:bootstrap"
 
 
 def test_stats_report_real_ledger_state(client):
@@ -419,7 +428,8 @@ def test_stats_report_real_ledger_state(client):
     assert state["total"] == (
         state["by_source"]["license"]
         + state["by_source"]["vault"]
-        + state["by_source"]["auth"]  # the startup seed
+        + state["by_source"]["auth"]  # seed + bootstrap officers (11.11)
+        + state["by_source"]["rbac"]  # the officers' admin bindings
     )
     assert state["last_seq"] == state["total"]
     assert state["trigger_protection"] is True
@@ -540,17 +550,17 @@ def test_backfill_chains_preexisting_history_once(app):
             {"created_at": (datetime.now() - timedelta(days=2)).isoformat(sep=" ")},
         )
         db.session.commit()
-        assert AuditEvent.query.count() == 1  # only the startup seed
+        assert AuditEvent.query.count() == 6  # boot ledger: seed + officers
 
         assert audit.ensure_audit_chain() == 1
         rows = ledger_rows()
-        assert len(rows) == 2  # the startup seed, then the backfilled row
+        assert len(rows) == 7  # six boot events, then the backfilled row
         assert rows[0].seq == 1
         assert rows[0].source == "auth"  # the sealed-admin seed
-        backfill = rows[1]
-        assert backfill.seq == 2
+        backfill = rows[-1]
+        assert backfill.seq == 7
         assert backfill.event_ref == "license:1"
-        assert backfill.prev_hash == rows[0].event_hash
+        assert backfill.prev_hash == rows[-2].event_hash  # chains the head
         assert backfill.detail == {"via": "raw"}
         # already-current ledger: nothing to add, nothing to renumber
         assert audit.ensure_audit_chain() == 0
