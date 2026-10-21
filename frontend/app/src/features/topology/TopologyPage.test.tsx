@@ -88,10 +88,10 @@ describe('TopologyPage (F4-native, ADR-0013)', () => {
     renderApp('/topology');
     await openTab('API');
 
-    expect(screen.getByText(/^209 paths$/)).toBeDefined();
-    expect(screen.getByText(/^250 operations$/)).toBeDefined();
-    expect(screen.getByText(/^24 tags$/)).toBeDefined();
-    expect(screen.getByText(/^POST 120$/)).toBeDefined();
+    expect(screen.getByText(/^212 paths$/)).toBeDefined();
+    expect(screen.getByText(/^253 operations$/)).toBeDefined();
+    expect(screen.getByText(/^25 tags$/)).toBeDefined();
+    expect(screen.getByText(/^POST 121$/)).toBeDefined();
     // Tag groups carry the contract's own operations and summaries.
     expect(screen.getByText('identity')).toBeDefined();
     expect(screen.getAllByText('/api/v1/licenses').length).toBeGreaterThanOrEqual(1);

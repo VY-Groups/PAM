@@ -827,7 +827,7 @@ const EXPLORER_DOMAINS = [
     'Access',
     'vault,jit,sessions,command-control,break-glass,vendors,broker,agent,rotation',
   ],
-  ['Identity & trust', 'identity,rbac,sso,hsm,integrations'],
+  ['Identity & trust', 'identity,rbac,sso,hsm,integrations,setup'],
   ['Platform', 'cluster,gateway,discovery,cloud,settings,ops'],
   ['Risk & evidence', 'risk,bypass'],
   ['Licensing', 'licenses,validation'],
