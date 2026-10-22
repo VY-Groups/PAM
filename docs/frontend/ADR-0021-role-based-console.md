@@ -401,6 +401,45 @@ each is given the role its own page needs, by the same brief-row method.
   five-role whoami + 403 probe, and REA captures of the widened nav sets
   and the newly gate-able buttons), and the docs-count lockstep check.
 
+**How the promotion lands, measured (12.RB.2).** The read map above
+names 39 reads; promoting them is a table change with three moving parts
+and one real cost:
+
+1. **The policy.** 31 of the 39 are new admin operations
+   (`ADMIN_OPERATIONS` 145 -> **184**); the other 8 were already admin
+   operations and only their role lists change. The grants follow the
+   brief's rows, so the counts land at **admin 184 / operator 85 /
+   approver 17 / auditor 27 / auditor-read-only 24** (the auditors lose
+   the six grants they held only because the builder gave every GET to
+   them). The admin-only surfaces' own reads need one new set
+   (`_RBAC_ADMIN_ONLY_READS`) so the builder's default does not hand
+   them to the auditors.
+2. **The routes and the document.** Each promoted read carries the
+   `@require_admin` guard and a security block in `apis/openapi.yaml`
+   (the house's five lines: bearerAuth, adminTokenHeader, the two role
+   scope lists, `{}`). The scope lists are the `ROLE_OPERATIONS`
+   mirror, enforced both ways, so the policy and the document cannot
+   drift; the document's blocks are the only place this is checked, so
+   the block must land on the `get:` operation and not on a sibling
+   `post:` of the same path.
+3. **The test migration (the real cost).** Those reads were open, so
+   the suite called them **without a credential**; once they are
+   guarded, every such call in the token-mode test files must present
+   the admin credential, the house's own pattern
+   (`headers=ADMIN`). Measured: **~120 call sites across 16 token-mode
+   test files** (the largest: test_command_control 30,
+   test_sessions 27, test_rotation 24, test_vault_dashboard 21,
+   test_vendor_pam 19, test_cloud 14, test_jit 14, test_risk 12). The
+   first suite run after the promotion failed eight files in a row for
+   exactly this reason. This is why the promotion is its own batch and
+   not a follow-up line: it is a mechanical migration, and it is done
+   with the credential, never by widening a grant.
+
+The counts above are the doc lockstep for that batch: PRD, TRD,
+API_REFERENCE, BACKEND_SCHEMA, SECURITY_COMPLIANCE, TESTING_QA_STRATEGY
+and `tests/test_sso.py:858,860` all print them, and the generated map
+follows the changed backend line counts.
+
 **Open item (one, and it is a text conflict, not a guess):** the per-role
 read matrix is the brief's read-only-views row, read column by column —
 but two in-repo texts disagree on one cell. The brief (§1.3) lists the
