@@ -732,7 +732,7 @@ export const BACKEND_PACKAGES: BackendPackageView[] = [
     files: [
       {
         path: 'app.py',
-        lines: 346,
+        lines: 354,
         imports: [
           'backend/phase2_license_server/audit.py',
           'backend/phase2_license_server/cluster_monitor.py',
@@ -894,7 +894,7 @@ export const BACKEND_PACKAGES: BackendPackageView[] = [
       },
       {
         path: 'routes.py',
-        lines: 4006,
+        lines: 4007,
         imports: [
           'backend/phase2_license_server/config.py',
           'backend/phase2_license_server/errors.py',
@@ -956,7 +956,7 @@ export const BACKEND_PACKAGES: BackendPackageView[] = [
       },
       {
         path: 'setup.py',
-        lines: 249,
+        lines: 270,
         imports: [
           'backend/phase2_license_server/errors.py',
           'backend/phase2_license_server/extensions.py',
