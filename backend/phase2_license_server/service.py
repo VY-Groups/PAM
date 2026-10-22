@@ -11309,6 +11309,10 @@ _RBAC_APPROVER_OPERATIONS = frozenset(
         # phase 8a: registering a gateway node is maker-checker - the
         # checker half is the approver role (never the requester)
         ("post", "/api/v1/gateway/nodes/{node_id}/approve"),
+        # 12.RB: the approver's own approvals inbox reads the broker
+        # credential list (one of its four queues) - the read follows the
+        # screen the role keeps, so the grant is named here
+        ("get", "/api/v1/broker/credentials"),
     }
 )
 
@@ -11322,6 +11326,10 @@ _RBAC_OPERATOR_OPERATIONS = frozenset(
         ("post", "/api/v1/vault/items/{item_id}/revoke"),
         ("post", "/api/v1/vault/items/{item_id}/rotate"),
         ("get", "/api/v1/vault/items/{item_id}/secret"),
+        # 12.RB: the operator's JIT screen lists the broker credential
+        # queue it also files requests for - the read follows the screen
+        # the role keeps
+        ("get", "/api/v1/broker/credentials"),
         ("post", "/api/v1/rotation/run"),
         ("post", "/api/v1/rotation/session-end"),
         ("post", "/api/v1/jit/requests"),

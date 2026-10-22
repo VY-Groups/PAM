@@ -104,10 +104,15 @@ def test_five_roles_seeded_once_with_operation_counts(client, app):
 def test_policy_shape_approver_never_operator(client):
     """Separation of duties: the approver's decision set and the operator's
     action set do not overlap, the reveal is never an auditor read, and the
-    evidence exports are the auditor's, not the read-only auditor's."""
+    evidence exports are the auditor's, not the read-only auditor's.
+    (12.RB: the read grants make the two roles share one READ - the broker
+    list, read by the approver's inbox and the operator's JIT page - so the
+    separation is asserted on the decisions; the shared reads are pinned
+    in the test below.)"""
     approver = set(service_module.operations_for_role("approver"))
     operator = set(service_module.operations_for_role("operator"))
-    assert approver and operator and not (approver & operator)
+    assert approver and operator
+    assert not {op for op in approver & operator if op.startswith("post")}
     assert "get /api/v1/vault/items/{item_id}/secret" in operator
     assert "get /api/v1/vault/items/{item_id}/secret" not in approver
     for export in (
@@ -130,6 +135,64 @@ def test_admin_only_operations_default_to_admin(client):
         )
         assert not service_module.role_allows("operator", *key)
         assert not service_module.role_allows("auditor", *key)
+
+
+# ---------------------------------------------------------------------------
+# 12.RB: the read contract - who may read the screens a role keeps
+# ---------------------------------------------------------------------------
+def test_the_broker_list_is_readable_by_the_two_roles_that_read_it(client):
+    """The broker credential list is read by the approver's approvals
+    inbox and by the operator's JIT page - both must be able to call it.
+    The roles that keep no screen reading it must not (least privilege:
+    the grant follows the surface, not "every GET goes to the auditors")."""
+    for role in ("approver", "operator"):
+        assert service_module.role_allows(
+            role, "get", "/api/v1/broker/credentials"
+        ), f"{role} reads the broker list on a screen it keeps"
+    for role in ("auditor", "auditor-read-only"):
+        assert not service_module.role_allows(
+            role, "get", "/api/v1/broker/credentials"
+        ), f"{role} keeps no screen that reads the broker list"
+
+
+def test_the_approver_and_the_operator_share_only_the_pinned_reads(client):
+    """Separation of duties, as its own docstring states it: the approver's
+    decision set and the operator's action set do not overlap. The read
+    grants (12.RB) make the two roles share reads, so the intersection is
+    pinned exactly - a new overlap fails here instead of slipping in."""
+    approver = set(service_module.operations_for_role("approver"))
+    operator = set(service_module.operations_for_role("operator"))
+    assert approver and operator
+    assert approver & operator == {"get /api/v1/broker/credentials"}
+    # no decision may be shared, and no reveal may be an operator's
+    for decision in (
+        "post /api/v1/jit/requests/{request_id}/approve",
+        "post /api/v1/break-glass/requests/{request_id}/approve",
+        "post /api/v1/vendors/{vendor_id}/approve",
+    ):
+        assert decision not in operator
+        assert decision not in approver or decision.startswith("post")
+
+
+def test_the_reveal_and_the_exports_keep_their_auditor_only_rule(client):
+    """The reveal is the operator's day-2 read - never the approver's and
+    never an auditor's; the evidence exports are the auditor's, not the
+    read-only auditor's (12.RB promotes the reads behind the screens a
+    role keeps - it never widens these)."""
+    operator = set(service_module.operations_for_role("operator"))
+    approver = set(service_module.operations_for_role("approver"))
+    reveal = "get /api/v1/vault/items/{item_id}/secret"
+    assert reveal in operator
+    assert reveal not in approver
+    for role in ("auditor", "auditor-read-only"):
+        assert reveal not in service_module.operations_for_role(role)
+    for export in (
+        "get /api/v1/licenses/{license_key}/file",
+        "get /api/v1/cluster/export/vault",
+        "get /api/v1/cluster/export/sessions",
+    ):
+        assert export in service_module.operations_for_role("auditor")
+        assert export not in service_module.operations_for_role("auditor-read-only")
 
 
 # ---------------------------------------------------------------------------

@@ -325,6 +325,20 @@ honest:
   /api/v1/command-control/evaluate` → the operator and the admin (the
   session console the operator keeps). After that all four become
   client-gate-able — which is what Amendment 2 said 12.RB would do.
+- **The separation of duties is restated, because the read grants make
+  the two roles share reads.** The shipped test asserts the approver and
+  the operator share **no operation at all**
+  (tests/test_rbac.py:104-112), and that is stricter than its own
+  docstring ("the approver's **decision** set and the operator's
+  **action** set do not overlap"). The read grants make them share
+  reads — `get /api/v1/broker/credentials` is read by the approver's
+  inbox **and** by the operator's JIT page, and today **neither** may
+  call it (both queues are broken in the shipped console: the approver
+  403s on the inbox's broker queue, and the operator's JIT page reads a
+  queue it may not call either). So the batch restates that test as
+  its docstring says it — no shared **decision** operation — and pins
+  the shared **reads** explicitly, so a new overlap cannot slip in
+  unnoticed.
 
 So the batch's backend delta is **the reads behind the operator's and the
 approver's own screens** — the seven list reads named above plus the

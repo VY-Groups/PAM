@@ -3526,8 +3526,11 @@ paths:
       security:
         - bearerAuth: []
         - adminTokenHeader: []
-        - rbacToken: [auditor, auditor-read-only]
-        - ldapTicket: [auditor, auditor-read-only]
+        # 12.RB: the read follows the screens that read it - the operator's
+        # JIT page and the approver's approvals inbox. The auditors keep no
+        # screen that reads this list, so they do not hold it.
+        - rbacToken: [operator, approver]
+        - ldapTicket: [operator, approver]
         - {}
       parameters:
         - name: status

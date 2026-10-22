@@ -51,7 +51,7 @@ flowchart TD
   b1_19["routes.py - 4007 lines"]
   b1_20["scim.py - 366 lines"]
   b1_21["secrets_store.py - 294 lines"]
-  b1_22["service.py - 12834 lines"]
+  b1_22["service.py - 12842 lines"]
   b1_23["setup.py - 270 lines"]
   b1_24["sso.py - 1313 lines"]
   b1_25["webauthn.py - 615 lines"]

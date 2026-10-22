@@ -937,7 +937,7 @@ export const BACKEND_PACKAGES: BackendPackageView[] = [
       },
       {
         path: 'service.py',
-        lines: 12834,
+        lines: 12842,
         imports: [
           'backend/phase2_license_server/audit.py',
           'backend/phase2_license_server/config.py',

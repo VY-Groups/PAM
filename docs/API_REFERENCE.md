@@ -263,7 +263,7 @@ runs - `details.promote` names the way back. `/health` carries this node's
 
 | Method | Path | Summary |
 |---|---|---|
-| GET | `/api/v1/roles` | the five built-in roles with their computed operation counts (admin 145 / operator 48 / auditor 34 / auditor-read-only 31 / approver 13) |
+| GET | `/api/v1/roles` | the five built-in roles with their computed operation counts (admin 145 / operator 49 / auditor 33 / auditor-read-only 30 / approver 14) |
 | GET | `/api/v1/role-bindings` | who holds a role (active bindings; revoked ones are ledger evidence, not rows) |
 | POST | `/api/v1/role-bindings` | create a binding (201): `principal` + `role` (+ `kind` `api`\|`ldap`, optional ABAC `scope`); an API token binding returns its `token` **once** - sha256 at rest, never retrievable again |
 | DELETE | `/api/v1/role-bindings/{binding_id}` | revoke a binding; its tokens stop working immediately (401) and `rbac` ledger evidence stays |
