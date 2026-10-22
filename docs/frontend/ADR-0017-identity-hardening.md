@@ -194,3 +194,69 @@ Every fact below was checked read-only in the tree before any edit
 
 **Evidence bar for the batch** (ADR-0017 batch table): backend
 contract+route tests, vitest+axe, capture on a throwaway rig.
+
+### Batch 12.0 contract — pre-implementation (2026-10-22)
+
+Decision 3's batch, queued. Every fact below was read in the tree at
+`c754851`; nothing is estimated.
+
+| Fact | Evidence |
+|---|---|
+| no change-request model, table, endpoint or route exists today | no `ChangeRequest` / `change_request` / `change-request` anywhere in `backend/` |
+| the house maker-checker precedent: pending-state gate → `Conflict`; decision validation → `ValidationFailed`; **self-approval refused** by `hmac.compare_digest` on the requester → `Forbidden` with the requester in `details`; the decision is audited by a domain event | gateway.py:465-504 (:479-482, :483-487, :497-504) |
+| the quorum knob already exists and is already reported — but only as a **posture metric**, never enforced | service.py:1001 (`tier0_quorum_approvers`, default 2), :4672-4673 (`"passed": … >= 2`), :4734 |
+| the three surfaces are **single-actor and immediate-effect** today: all `@require_admin`, all applied at once | routes.py:529-535 (`PUT /settings/<group>`), :2801-2808 (`POST /role-bindings`), :2821-2827 (`DELETE /role-bindings/<id>`), :3526-3538 (`POST /users`), :3546-3555 (`PATCH /users/<id>`) |
+| a new table needs no migration tool: the schema is created at boot (`db.create_all()`); column additions have their own DDL helper | app.py:259; models.py:117 |
+| the console already owns an approvals inbox with four queues and a thin per-feature hooks layer (features never import each other) | frontend/app/src/features/approvals/queries.ts:62-101 (reads), :105-287 (writes) |
+| who sees that inbox is the nav contract's any-of list; the new approve operation must join it, or the approver role loses the inbox | ADR-0021:181; `nav.ts` `NAV_JOB_OPS` |
+| role grants live in `ROLE_OPERATIONS` and are mirrored in the openapi scopes by one test, both directions | service.py:11411; tests/test_openapi_contract.py:133-147 |
+
+**Decided shape (smallest complete):**
+
+- **Two tables:** `ChangeRequest` (kind `settings|user|binding`, the
+  payload snapshot + a human summary, `requested_by`, status
+  `pending|approved|applied|rejected|expired`, `approved_by`, timestamps)
+  and `ChangeRequestApproval` (one row per distinct approver) — the
+  distinct-approver count and the applied-by identity both need rows,
+  not a JSON list.
+- **Three endpoints:** `POST /api/v1/change-requests` (creates `pending`;
+  the maker's own console session is the requester), `GET
+  /api/v1/change-requests` (the queue, pending first — the inbox's fifth
+  queue), `POST /api/v1/change-requests/{id}/approve` (records the
+  approval and applies the change **once the quorum is reached**).
+  The self-approval refusal is the gateway.py text, verbatim.
+- **The quorum becomes the enforcement knob:** `zsp.tier0_quorum_approvers`
+  (default 2) is read as the number of **distinct** approvals required,
+  the requester can never be one of them, and the change applies only
+  when the count is reached — until then the request stays `pending` and
+  the three surfaces show "needs a second officer" instead of pretending
+  the write landed.
+- **The direct write path is the one that changes:** for the three
+  surfaces the write becomes request-then-apply (the direct call answers
+  409 + "needs a second officer"), so no admin can land a routine
+  settings/user/binding change alone. Emergency paths are untouched
+  (Decision 3: break-glass/emergency-open keep their own flows).
+- **The console reuses what 12.RC shipped:** the inbox gains a fifth
+  queue in the same feature (no new page, no new navigation entry — the
+  `/approvals` any-of list simply gains the new approve operation, and
+  the drift test pins it); the three admin surfaces render the pending
+  state and the server's own refusals verbatim, as everywhere else.
+- **Evidence bar (batch table):** backend dual-control tests — the
+  self-approval refusal verbatim, "quorum not reached → still pending",
+  "quorum reached → applied", the request path of each of the three
+  surfaces, expiry — plus the openapi contract tests for the new
+  operations and their role scopes, vitest+axe on the inbox's fifth queue
+  and the pending states, both gate modes (open and token), and a rig
+  capture of the inbox with a pending request.
+
+**Open items (two, both decisions a human must make before code):**
+
+1. **Who applies.** This batch's rule is "the approver whose approval
+   reaches the quorum applies it" (Decision 3's wording); the
+   architecture's stricter tier rule demands author ≠ approver ≠
+   applier (IMPLEMENTATION_PLAN §12). Which one ships is a call, not a
+   default.
+2. **Refuse or warn.** Whether the direct write on the three surfaces is
+   refused (409, as written above) or merely answered with the pending
+   state is the second call; the ADR text ("instead of pretending the
+   write landed") points at refusal.

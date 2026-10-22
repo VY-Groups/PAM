@@ -249,3 +249,91 @@ Implementation notes against the approved contract; no decision changes.
   `ROLE_OPERATIONS`, pinned by `tests/test_openapi_contract.py`); the
   navigation sections of the UI brief (§1.3) and PAM_FLOW (§1.1) describe
   the same contract in job terms and link the generated matrix.
+
+## Amendment 3 — batch 12.RB contract, queued (2026-10-22)
+
+The read half of D2: make `whoami.operations`, the nav filter and the
+server's own 403s tell **one** story, so the console can gate what the
+server would refuse. Scope fixed by Amendment 1 (D2): read grants in
+`ROLE_OPERATIONS` + `apis/openapi.yaml` security scopes + docs-count
+lockstep + rig re-audit. Every fact below was read in the tree at
+`c754851`; nothing is estimated.
+
+| Fact | Evidence |
+|---|---|
+| `whoami` reports only **admin operations** a role may call; the admin role holds all of them | service.py:11423-11433 (`operations_for_role`), :11139 (`ADMIN_OPERATIONS`) |
+| the role grants are built rule-wise: every admin GET goes to `auditor` + `auditor-read-only`, **except** the secret reveal (nobody) and the evidence exports (`auditor` only — which is why the read-only auditor does not hold `/licensing`); `approver`/`operator` get only their explicit sets, so their lists carry **no read op at all** | service.py:11386-11408 (`_build_role_operations`), :11376-11383 (the two exception sets) |
+| the vault **list** read is not an admin operation at all (`get .../secret` is; `get /api/v1/vault/items` is not) → it is self-service: any authenticated session answers 200 and no role grant can ever describe it | service.py:11147-11151; the step-1 audit's approver `GET /api/v1/vault/items` = 200 |
+| the openapi scope lists (`rbacToken`/`ldapTicket`) are the `ROLE_OPERATIONS` mirror, enforced **both ways** — every admin operation's scopes must equal its role set | tests/test_openapi_contract.py:133-147 |
+| promoting a read to an admin operation changes the document: the documented admin operations must equal `ADMIN_OPERATIONS` (+ whoami), so its `security` gains the admin header | tests/test_openapi_contract.py:120-130; openapi.yaml:192, :4735 (`rbacToken: []` = admin-only) |
+| the four operations no role holds (admin included) are why their buttons stay ungated | Amendment 2 above (:239-245) |
+| the approved nav contract and the one recorded narrowing (operator's `/compliance` — "no job read op exists") | Amendment 1: the table :178-194, the note :196-198 |
+| 12.RC's shipped baseline to re-run and widen | `Temp/role-403-12rc.md` (ops 145/48/13/34/31, verbatim 403s), `Temp/captures-12rc-summary.md` (per-role nav sets, gate strings, disabled-with-reason) |
+
+**The read matrix, as the brief's row and the shipped role data imply**
+(brief §1.3 per role; `service.ROLE_OPERATIONS` / `service.ADMIN_OPERATIONS`
+read straight out of the shipped module, cross-checked against the nav sets
+12.RC captured live):
+
+| role (the brief's row) | route it keeps | the read that route needs | state in the shipped tree |
+|---|---|---|---|
+| operator (Access group, Sessions, Infrastructure, Policy) | /vault | `get /api/v1/vault/items` | not an admin operation — self-service |
+| | /jit | `get /api/v1/jit/requests` | not an admin operation — self-service |
+| | /break-glass | `get /api/v1/break-glass/requests` | not an admin operation — self-service |
+| | /vendor-access | `get /api/v1/vendors` | not an admin operation — self-service |
+| | /sessions | `get /api/v1/sessions` | not an admin operation — self-service |
+| | /infrastructure | `get /api/v1/discovery/assets` | not an admin operation — self-service |
+| | /policy | `get /api/v1/command-control/rules` | not an admin operation — self-service |
+| approver (the Approvals inbox) | /approvals | `get /api/v1/jit/requests`, `get /api/v1/break-glass/requests`, `get /api/v1/vendors` | not admin operations — self-service |
+| | /approvals | `get /api/v1/broker/credentials` | **an admin operation granted to `auditor`/`auditor-read-only` only — the approver is refused (403)**, and 12.RC's inbox reads exactly this queue (frontend/app/src/features/approvals/queries.ts:95) |
+| auditor (Evidence, Users, Security, Licensing) | /compliance, /users, /security, /licensing | `get /api/v1/auth/report`, `get /api/v1/users`, `get /api/v1/auth/sso/sessions`, `get /api/v1/licenses/{license_key}/file` | all four already admin operations, and the grants already match the brief (the licence file is an evidence export → `auditor` only — which is why the read-only auditor does not see /licensing) |
+| auditor-read-only (Evidence, Users, Security) | /compliance, /users, /security | the same three, minus the licence file | already granted |
+
+So the batch's backend delta is **seven self-service reads to promote**
+(operator's seven; the approver shares three of them for its inbox) **plus
+one missing grant** (the approver on the broker list, which is the one
+queue its own inbox cannot read today) — the auditors need nothing new.
+The four operations no role holds (Amendment 2) get the same treatment:
+each is given the role its own page needs, by the same brief-row method.
+
+**Decided shape (smallest complete):**
+
+- **One grant rule, no arithmetic in the client:** each nav route's
+  declared read operation is granted to exactly the roles the brief's
+  read-only-views row lists (Amendment 1:169-171), and the same list
+  lands in that operation's `rbacToken`/`ldapTicket` scopes — the
+  contract test enforces the mirror, so the two cannot drift.
+- **A read behind an admin surface is promoted into
+  `ADMIN_OPERATIONS`** with its documented security, which makes it
+  **guarded, not self-service**: the operations carrying the admin
+  credential in the document are exactly the ones the runtime guards
+  (tests/test_openapi_contract.py:120-130), so promoting a read closes
+  the open call it was (today `get /api/v1/vault/items`,
+  `get /api/v1/sessions`, `get /api/v1/discovery/assets`,
+  `get /api/v1/command-control/rules` and `get /api/v1/settings` are
+  **not** admin operations at all - any session gets 200) and lets the
+  role grants say who may read it. The four ungated operations
+  (Amendment 2) are promoted the same way, which is what makes them
+  client-gate-able. That moves the admin-operation count and every
+  per-role count, so every number that prints them (PRD, the READMEs,
+  the generated `role-console.md`) updates in the same commit — the
+  docs-count lockstep of the batch scope.
+- **The nav contract widens, the drift rules do not:** `NAV_JOB_OPS`'s
+  any-of lists gain the read operations the widened grants carry; the
+  existing drift tests (`nav.test.ts`, `RoleGate.test.tsx` against
+  `API_OPERATIONS`) must pass unchanged, and no role name appears in
+  either file.
+- **Evidence bar:** backend contract tests (the two openapi contract
+  tests plus a per-role whoami/403 matrix), the rig re-audit (fresh
+  five-role whoami + 403 probe, and REA captures of the widened nav sets
+  and the newly gate-able buttons), and the docs-count lockstep check.
+
+**Open item (one, and it is a text conflict, not a guess):** the per-role
+read matrix is the brief's read-only-views row, read column by column —
+but two in-repo texts disagree on one cell. The brief (§1.3) lists the
+operator as keeping "the Access group, Sessions, Infrastructure and
+Policy" and does **not** list Compliance, while this ADR's own note
+(:196-198) calls the operator's ✗ on `/compliance` "the 'no job read op
+exists' narrowing resolved by 12.RB". One of the two is stale. 12.RB
+settles it explicitly in its own contract record before any code is
+written; the matrix is never inferred at runtime.
