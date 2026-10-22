@@ -32,15 +32,29 @@ export default defineConfig({
       {
         extends: true,
         test: {
+          // The name makes this project selectable on its own
+          // (`vitest run --project=console`): under Storybook 10.6.2 the
+          // browser project's Vite server and this project's files compete
+          // for the same CPU in one invocation, and the browser project's
+          // orchestrator then loses its port race (ERR_CONNECTION_REFUSED
+          // on /__vitest_test__/). The two projects run as two invocations
+          // instead, the browser one first because it needs the machine to
+          // itself - see the "test" script.
+          name: 'console',
           environment: 'jsdom',
           setupFiles: './src/test/setup.ts',
           css: false,
           // Full-suite runs contend with per-file jsdom setup on this
           // constrained machine (the suite's own hint: ~6 s of env creation
           // per file); the default 5 s hang guard started flaking the JIT
-          // screen's first test once screen 5 joined the suite. Content
-          // assertions are unchanged - only the guard window.
-          testTimeout: 10_000,
+          // screen's first test once screen 5 joined the suite. The window
+          // moved again with the Storybook 10.6.2 / vitest 5.0.5 bump: the
+          // first run of a fresh checkout also pays Vite's dependency
+          // optimization, and the files that wait for it exceeded 10 s
+          // (cold local run: 15 files, all of them the guard, no
+          // assertion change). Content assertions are unchanged - only the
+          // guard window.
+          testTimeout: 20_000,
         },
       },
       {
