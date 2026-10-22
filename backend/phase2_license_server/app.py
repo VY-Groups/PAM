@@ -308,11 +308,19 @@ def create_app(config: Optional[Config] = None) -> Flask:
         # once, right above this line, in this boot log.
         import setup as setup_module
 
-        if setup_module.ensure_bootstrap_officers() is not None:
-            logger.info(
-                "Setup: bootstrap officers created - password pair above, "
-                "shown once"
-            )
+        try:
+            if setup_module.ensure_bootstrap_officers() is not None:
+                logger.info(
+                    "Setup: bootstrap officers created - password pair above, "
+                    "shown once"
+                )
+        except Exception:
+            # fail-open for the boot, exactly like the /health DB guards
+            # above: a transient DB error (or a duplicate-key when two
+            # gunicorn workers race a virgin database) must not abort
+            # create_app - neither raises ServiceUnavailable, which is why
+            # this guard is broad. The officers seed on the next boot.
+            logger.exception("Setup: bootstrap officers not seeded this boot")
 
     # Optional real-clock rotation scheduler (ROTATION_SCHEDULER=1); off in
     # tests and dev unless explicitly enabled, never fabricated when quiet.

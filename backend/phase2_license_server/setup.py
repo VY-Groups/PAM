@@ -26,10 +26,13 @@ from datetime import datetime
 from typing import Any, Dict, Optional
 
 import service
-from errors import Conflict, Unauthorized, ValidationFailed
+from errors import Conflict, Forbidden, Unauthorized, ValidationFailed
 from extensions import db
+import identity
 from identity import (
     EMERGENCY_USERNAME,
+    RATE_LIMIT_PER_IP_DEFAULT as RATE_LIMIT_PER_IP_SETUP,
+    RATE_LIMIT_WINDOW_MINUTES,
     auth_event,
     create_user,
     get_user,
@@ -209,13 +212,31 @@ def update_profile(payload: Any, *, actor: str) -> Dict[str, Any]:
     return setup_state()
 
 
-def complete(*, maker_password: str, checker_password: str) -> Dict[str, Any]:
+def complete(
+    *, maker_password: str, checker_password: str, source_ip: str = ""
+) -> Dict[str, Any]:
     """The two-officer attestation (ADR-0018 Decision 2): BOTH bootstrap
     passwords verified against their rows in one request. Either wrong
     answers the uniform login 401 - no oracle for which one failed - and
     a completed instance answers 409 forever (the stamp is one-way)."""
     if instance_configured():
         raise Conflict("Setup already completed")
+    if not identity.WINDOWS.hit(
+        f"setup-ip:{source_ip}",
+        RATE_LIMIT_WINDOW_MINUTES * 60,
+        RATE_LIMIT_PER_IP_SETUP,
+    ):
+        auth_event(
+            "auth.rate-limited",
+            actor="system",
+            subject="setup",
+            detail={"scope": "setup-ip", "source_ip": source_ip},
+        )
+        db.session.commit()
+        raise Forbidden(
+            "Too many setup attempts from this address",
+            {"retry_after_seconds": RATE_LIMIT_WINDOW_MINUTES * 60},
+        )
     maker = get_user(BOOTSTRAP_MAKER)
     checker = get_user(BOOTSTRAP_CHECKER)
     ok = (

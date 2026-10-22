@@ -419,6 +419,56 @@ def test_complete_needs_both_passwords_and_stamps_once(client, app):
     assert repeat.get_json() == {"error": "Setup already completed"}
 
 
+def test_complete_is_rate_limited_after_the_ip_budget(client, app, monkeypatch):
+    """/setup/complete is public by design (the two passwords ARE the
+    credential), so it carries the same per-IP budget the login path
+    carries - without it a virgin, reachable install is an unthrottled
+    two-hash-per-request brute-force surface. After the budget the route
+    answers the login path's 403 + retry_after_seconds and records the
+    auth.rate-limited event, exactly like identity.login does."""
+    _set_password(app, "vypam-maker", MAKER_PW)
+    _set_password(app, "vypam-checker", CHECKER_PW)
+    budget = 3
+    monkeypatch.setattr(first_run, "RATE_LIMIT_PER_IP_SETUP", budget, raising=False)
+
+    wrong = {"maker_password": "not-the-makers-phrase", "checker_password": CHECKER_PW}
+    for _ in range(budget):
+        assert (
+            client.post("/api/v1/setup/complete", json=wrong).status_code == 401
+        )
+
+    refused = client.post("/api/v1/setup/complete", json=wrong)
+    assert refused.status_code == 403, refused.get_json()
+    assert refused.get_json()["error"] == "Too many setup attempts from this address"
+    assert refused.get_json()["details"]["retry_after_seconds"] > 0
+
+    with app.app_context():
+        event = AuthEvent.query.filter(
+            AuthEvent.action == "auth.rate-limited"
+        ).one()
+        assert event.detail["scope"] == "setup-ip"
+
+    # the budget exhaustion never stamped anything
+    assert client.get("/api/v1/setup/state").get_json()["configured"] is False
+
+
+def test_boot_survives_a_transient_officer_seeding_failure(tmp_path, monkeypatch):
+    """ensure_bootstrap_officers() is the one boot seed with no guard: a
+    transient DB error (or a duplicate key when two gunicorn workers race a
+    virgin database) must not abort create_app, mirroring the fail-open
+    guard the emergency-admin seed above it already carries. The officers
+    seed on the next boot, once the condition clears."""
+    config = _config(tmp_path, db_name="boot-guard.db")
+
+    def _boom():
+        raise RuntimeError("transient while seeding officers")
+
+    monkeypatch.setattr(first_run, "ensure_bootstrap_officers", _boom)
+    application = create_app(config)
+    application.config["TESTING"] = True
+    assert application.name
+
+
 def test_after_setup_the_profile_is_a_normal_admin_write(client, app):
     disable_mfa(client)
     _set_password(app, "vypam-maker", MAKER_PW)

@@ -2875,6 +2875,7 @@ def setup_post_complete():
         setup.complete(
             maker_password=str(body.get("maker_password") or ""),
             checker_password=str(body.get("checker_password") or ""),
+            source_ip=request.remote_addr or "",
         )
     )
 
