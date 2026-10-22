@@ -263,7 +263,7 @@ lockstep + rig re-audit. Every fact below was read in the tree at
 |---|---|
 | `whoami` reports only **admin operations** a role may call; the admin role holds all of them | service.py:11423-11433 (`operations_for_role`), :11139 (`ADMIN_OPERATIONS`) |
 | the role grants are built rule-wise: every admin GET goes to `auditor` + `auditor-read-only`, **except** the secret reveal (nobody) and the evidence exports (`auditor` only — which is why the read-only auditor does not hold `/licensing`); `approver`/`operator` get only their explicit sets, so their lists carry **no read op at all** | service.py:11386-11408 (`_build_role_operations`), :11376-11383 (the two exception sets) |
-| the vault **list** read is not an admin operation at all (`get .../secret` is; `get /api/v1/vault/items` is not) → it is self-service: any authenticated session answers 200 and no role grant can ever describe it | service.py:11147-11151; the step-1 audit's approver `GET /api/v1/vault/items` = 200 |
+| the vault **list** read is not an admin operation at all (`get .../secret` is; `get /api/v1/vault/items` is not) and its route carries **no guard** → it is self-service: any authenticated session answers 200 and no role grant can ever describe it | service.py:11147-11151; routes.py:876 (no `@require_admin`); the step-1 audit's approver `GET /api/v1/vault/items` = 200 |
 | the openapi scope lists (`rbacToken`/`ldapTicket`) are the `ROLE_OPERATIONS` mirror, enforced **both ways** — every admin operation's scopes must equal its role set | tests/test_openapi_contract.py:133-147 |
 | promoting a read to an admin operation changes the document: the documented admin operations must equal `ADMIN_OPERATIONS` (+ whoami), so its `security` gains the admin header | tests/test_openapi_contract.py:120-130; openapi.yaml:192, :4735 (`rbacToken: []` = admin-only) |
 | the four operations no role holds (admin included) are why their buttons stay ungated | Amendment 2 above (:239-245) |
@@ -285,14 +285,59 @@ read straight out of the shipped module, cross-checked against the nav sets
 | | /infrastructure | `get /api/v1/discovery/assets` | not an admin operation — self-service |
 | | /policy | `get /api/v1/command-control/rules` | not an admin operation — self-service |
 | approver (the Approvals inbox) | /approvals | `get /api/v1/jit/requests`, `get /api/v1/break-glass/requests`, `get /api/v1/vendors` | not admin operations — self-service |
-| | /approvals | `get /api/v1/broker/credentials` | **an admin operation granted to `auditor`/`auditor-read-only` only — the approver is refused (403)**, and 12.RC's inbox reads exactly this queue (frontend/app/src/features/approvals/queries.ts:95) |
+| | /approvals | `get /api/v1/broker/credentials` | **an admin operation granted to `auditor`/`auditor-read-only` only — the approver is refused (403)**, and 12.RC's inbox reads exactly this queue (frontend/app/src/features/approvals/queries.ts:95). Observed live on the rig: `GET /api/v1/broker/credentials` -> **403** `{"details":{"operation":"get /api/v1/broker/credentials","role":"approver"},"error":"Role 'approver' may not call GET /api/v1/broker/credentials"}`, while the inbox's other three queues answer 200 — and the approver's whoami carries 13 operations, **all of them writes, no read at all** (Temp/inbox-approver-12rc.md) |
 | auditor (Evidence, Users, Security, Licensing) | /compliance, /users, /security, /licensing | `get /api/v1/auth/report`, `get /api/v1/users`, `get /api/v1/auth/sso/sessions`, `get /api/v1/licenses/{license_key}/file` | all four already admin operations, and the grants already match the brief (the licence file is an evidence export → `auditor` only — which is why the read-only auditor does not see /licensing) |
 | auditor-read-only (Evidence, Users, Security) | /compliance, /users, /security | the same three, minus the licence file | already granted |
 
-So the batch's backend delta is **seven self-service reads to promote**
-(operator's seven; the approver shares three of them for its inbox) **plus
-one missing grant** (the approver on the broker list, which is the one
-queue its own inbox cannot read today) — the auditors need nothing new.
+**The reads, taken from the pages themselves.** The reads a surface
+needs are not a guess: they are what that page's own query hooks call
+(`frontend/app/src/features/<page>/queries.ts`), read out of the shipped
+tree. Per the brief's rows:
+
+| surface (the role that keeps it) | the reads its page calls |
+|---|---|
+| /vault, /jit, /break-glass, /vendor-access (operator) | `get /api/v1/vault/items` + `/vault/items/{id}` + `/vault/stats` + `/vault/events`, `/jit/requests` + `/jit/requests/{id}` + `/jit/stats`, `/break-glass/requests` + `/break-glass/requests/{id}` + `/break-glass/stats`, `/vendors` + `/vendors/{id}`, `/agents` + `/agents/{id}` + `/agent-access/requests` + `/agent-access/stats`, `/broker/policies` + `/broker/stats` + `/broker/credentials` |
+| /sessions (operator) | `/sessions` + `/sessions/{id}` + `/sessions/{id}/events` + `/sessions/stats` |
+| /infrastructure (operator) | `/discovery/assets` + `/discovery/accounts` + `/discovery/scans` + `/discovery/stats`, `/cloud/connectors` + `/cloud/stats` |
+| /policy (operator) | `/command-control/rules` + `/command-control/incidents` + `/command-control/stats` + `/command-control/approvals`, `/risk/anomalies` + `/risk/baselines` + `/risk/evaluations` + `/risk/stats` |
+| /approvals (approver) | `/jit/requests`, `/break-glass/requests`, `/vendors`, `/broker/credentials` |
+| /compliance, /users, /security, /licensing (auditors) | `/audit/export` + `/audit/verify` + `/audit/stats`, `/users`, `/auth/mfa/factors`, `/licenses` + `/licenses/{key}` + `/licenses/{key}/file` |
+| /settings (admin only) | `/settings` + `/settings/audit`, `/roles` + `/role-bindings`, `/cluster` + `/cluster/backups`, `/hsm/status`, `/auth/emergency` + `/auth/sso/status` |
+
+**What is excluded, and why** — the decisions that keep the promotion
+honest:
+
+- **The passive three stay open**: `GET /health`, `GET /api/v1/cluster`,
+  `GET /api/v1/integrations/status` are the shipped passive reads (the
+  shell reads them before a session exists); they are not admin
+  operations by design and this batch does not touch them.
+- **The secret reveal stays admin-only**: `get
+  /api/v1/vault/items/{id}/secret` is in neither the operator's nor the
+  approver's set (the house rule: the reveal is never a day-2 read).
+- **The evidence exports keep their rule**: `get
+  /api/v1/licenses/{key}/file` and the cluster exports stay the
+  auditor's, never the read-only auditor's (service.py:11374-11383).
+- **The four operations no role holds** (Amendment 2) are promoted with
+  the role their own page needs: `get /api/v1/audit/export` → the
+  auditor (the export rule), `get /api/v1/audit/verify` → both
+  auditors, `post /api/v1/licenses/validate` → the auditor and the
+  admin (the licensing page the auditor keeps), `post
+  /api/v1/command-control/evaluate` → the operator and the admin (the
+  session console the operator keeps). After that all four become
+  client-gate-able — which is what Amendment 2 said 12.RB would do.
+
+So the batch's backend delta is **the reads behind the operator's and the
+approver's own screens** — the seven list reads named above plus the
+detail reads behind them (`/vault/items/<id>` routes.py:897,
+`/jit/requests/<id>` :1022, `/sessions/<id>` :1127 and its events :1133,
+`/vendors/<id>` :1907, `/break-glass/requests/<id>` :1773 - all of them
+unguarded too) — **plus one missing grant** (the approver on the broker
+list, which is the one queue its own inbox cannot read today); the
+auditors need nothing new. The exact list is settled in the batch's own
+contract record before any code is written, because the count moves
+every printed number. The admin-only surfaces' own reads
+(`/settings` routes.py:514, `/settings/audit` :522) are in the same
+class — unguarded reads of a surface no other role keeps.
 The four operations no role holds (Amendment 2) get the same treatment:
 each is given the role its own page needs, by the same brief-row method.
 
@@ -305,19 +350,33 @@ each is given the role its own page needs, by the same brief-row method.
   contract test enforces the mirror, so the two cannot drift.
 - **A read behind an admin surface is promoted into
   `ADMIN_OPERATIONS`** with its documented security, which makes it
-  **guarded, not self-service**: the operations carrying the admin
-  credential in the document are exactly the ones the runtime guards
-  (tests/test_openapi_contract.py:120-130), so promoting a read closes
-  the open call it was (today `get /api/v1/vault/items`,
-  `get /api/v1/sessions`, `get /api/v1/discovery/assets`,
-  `get /api/v1/command-control/rules` and `get /api/v1/settings` are
-  **not** admin operations at all - any session gets 200) and lets the
-  role grants say who may read it. The four ungated operations
-  (Amendment 2) are promoted the same way, which is what makes them
-  client-gate-able. That moves the admin-operation count and every
-  per-role count, so every number that prints them (PRD, the READMEs,
-  the generated `role-console.md`) updates in the same commit — the
-  docs-count lockstep of the batch scope.
+  **guarded, not self-service**. The guard is a decorator, so the
+  promotion is three things together, not one: the route carries
+  `@require_admin` (routes.py:234, the gate at :198-204), the
+  (method, path) joins `ADMIN_OPERATIONS` (the policy, and the count),
+  and the operation's `rbacToken`/`ldapTicket` scopes list the roles
+  that may read it - the document's security entries and the runtime
+  guards are the same set, enforced both ways
+  (tests/test_openapi_contract.py:120-130, :133-147). Today the reads
+  behind the operator's and the approver's screens have **no guard at
+  all** - `get /api/v1/vault/items` (routes.py:876),
+  `/jit/requests` (:993), `/sessions` (:1074), `/command-control/rules`
+  (:1252), `/discovery/assets` (:1395), `/break-glass/requests` (:1755),
+  `/vendors` (:1886) - so any authenticated session reads them; the
+  one inbox read that *is* guarded, `/broker/credentials` (:2276), is
+  the one the approver is refused on. That moves the admin-operation
+  count and every per-role count, so every number that prints them
+  (PRD, the READMEs, the generated `role-console.md`) updates in the
+  same commit — the docs-count lockstep of the batch scope. The places
+  that print them, for the lockstep list: `tests/test_sso.py:858,860`
+  (asserts 145), `docs/SECURITY_COMPLIANCE.md:82,88,239` (the
+  admin/operator/auditor/auditor-read-only/approver counts),
+  `docs/PRD.md:176,187`, `docs/TRD.md:780`, `docs/API_REFERENCE.md:18`,
+  `docs/BACKEND_SCHEMA.md:656`, `docs/TESTING_QA_STRATEGY.md:55`, the
+  generated `docs/architecture/role-console.md` and
+  `docs/architecture/api-surface.md`, and the frontend's own pins
+  (`nav.test.ts` against `API_OPERATIONS`, `RoleGate.test.tsx`'s role
+  matrix).
 - **The nav contract widens, the drift rules do not:** `NAV_JOB_OPS`'s
   any-of lists gain the read operations the widened grants carry; the
   existing drift tests (`nav.test.ts`, `RoleGate.test.tsx` against
@@ -334,6 +393,12 @@ but two in-repo texts disagree on one cell. The brief (§1.3) lists the
 operator as keeping "the Access group, Sessions, Infrastructure and
 Policy" and does **not** list Compliance, while this ADR's own note
 (:196-198) calls the operator's ✗ on `/compliance` "the 'no job read op
-exists' narrowing resolved by 12.RB". One of the two is stale. 12.RB
-settles it explicitly in its own contract record before any code is
-written; the matrix is never inferred at runtime.
+exists' narrowing resolved by 12.RB". **This record's reading:** the
+brief's row governs — it is the owner's per-role statement, it matches
+the contract this ADR's Amendment 2 built and pinned (the nav table at
+:178-194, the matrix tests, and the 12.RC live capture, where the
+operator's nav has no Compliance), so Amendment 1's forward-looking
+note is superseded and **12.RB grants the operator no compliance read**.
+If the owner says otherwise, that is one grant plus the `/compliance`
+cell of the nav contract — it does not touch anything else in the
+batch, so 12.RB proceeds on the rest of the matrix meanwhile.
