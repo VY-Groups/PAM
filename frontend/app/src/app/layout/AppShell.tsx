@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next';
 import { Outlet } from 'react-router';
 
 import { BackendDownNotice } from '../error/BackendDownNotice';
+import { RoleGate } from '../guards/RoleGate';
 import { useAuth } from '../providers/useAuth';
 import { ConsoleDrawer } from './ConsoleDrawer';
 import { Sidebar } from './Sidebar';
@@ -52,7 +53,11 @@ export function AppShell() {
           {status === 'backend-down' ? (
             <BackendDownNotice error={sessionError} body={t('errors.backendDown')} />
           ) : null}
-          <Outlet />
+          {/* ADR-0021 12.RC: routed content goes through the role gate -
+              a hidden route renders the friendly not-for-your-role page. */}
+          <RoleGate>
+            <Outlet />
+          </RoleGate>
         </main>
       </div>
       {consoleOpen ? <ConsoleDrawer onClose={() => setConsoleOpen(false)} /> : null}

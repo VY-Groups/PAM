@@ -3,6 +3,8 @@ import { useTranslation } from 'react-i18next';
 
 import { Button, Chip, SectionHeader } from '../../components';
 import type { VendorAccount } from '../../api/generated/models';
+import { ACTION_OPS, canOperate } from '../../app/guards/RoleGate';
+import { useAuth } from '../../app/providers/useAuth';
 import { SectionBody } from './SectionBody';
 import { useInviteVendor, useVendors } from './queries';
 import { vendorStatuses } from './schemas';
@@ -42,6 +44,10 @@ export function VendorListSection({
   onSeed: (seed: VendorSeed | null) => void;
 }) {
   const { t } = useTranslation();
+  const { whoami } = useAuth();
+  // D3: inviting (and reinviting) an account is administrator-class - the
+  // operator may file access requests for an invited vendor, not create one.
+  const canInvite = canOperate(ACTION_OPS.vendorCreate, whoami);
 
   const [status, setStatus] = useState<(typeof vendorStatuses)[number] | undefined>(
     undefined,
@@ -165,7 +171,8 @@ export function VendorListSection({
                       <Button
                         type="button"
                         variant="secondary"
-                        disabled={inviteVendor.isPending}
+                        disabled={inviteVendor.isPending || !canInvite}
+                        title={canInvite ? undefined : t('roleReasons.administrator')}
                         onClick={() => reinvite(vendor)}
                       >
                         {t('vendor.list.reinvite')}

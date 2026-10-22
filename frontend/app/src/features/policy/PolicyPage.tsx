@@ -5,6 +5,7 @@ import { useTranslation } from 'react-i18next';
 
 import { isBackendDown } from '../../api/http';
 import { BackendDownNotice } from '../../app/error/BackendDownNotice';
+import { ACTION_OPS, canOperate } from '../../app/guards/RoleGate';
 import { useAuth } from '../../app/providers/useAuth';
 import { Button, Chip, KpiCard, Tabs, Value } from '../../components';
 import type { TabItem } from '../../components';
@@ -53,6 +54,10 @@ export function PolicyPage() {
   const { t } = useTranslation();
   const { whoami } = useAuth();
   const actor = whoami?.principal ?? 'console';
+  // D3: rule authoring is administrator-class (only admin holds the rule
+  // writes); the operator who may close incidents sees it disabled with
+  // the stated reason instead of a silent 403.
+  const canCreateRule = canOperate(ACTION_OPS.ruleCreate, whoami);
 
   const stats = usePolicyStats();
   const rules = usePolicyRules();
@@ -422,6 +427,8 @@ export function PolicyPage() {
             <Button
               type="button"
               icon="add"
+              disabled={!canCreateRule}
+              title={canCreateRule ? undefined : t('roleReasons.administrator')}
               onClick={() => {
                 setEditingRule(null);
                 setDialogOpen(true);
@@ -718,6 +725,10 @@ function RuleCard({
   onDelete: () => void;
 }) {
   const { t } = useTranslation();
+  const { whoami } = useAuth();
+  // D3: rule update/delete are administrator-class.
+  const canUpdate = canOperate(ACTION_OPS.ruleUpdate, whoami);
+  const canDelete = canOperate(ACTION_OPS.ruleDelete, whoami);
   const effectKey = (
     rule.action === 'block' ? 'block' : rule.action === 'approval' ? 'approval' : 'allow'
   ) as 'block' | 'approval' | 'allow';
@@ -832,7 +843,14 @@ function RuleCard({
         {rule.description ? ` · ${rule.description}` : ''}
       </div>
       <div className="flex gap-space-sm">
-        <Button type="button" variant="secondary" icon="edit" onClick={onEdit}>
+        <Button
+          type="button"
+          variant="secondary"
+          icon="edit"
+          disabled={!canUpdate}
+          title={canUpdate ? undefined : t('roleReasons.administrator')}
+          onClick={onEdit}
+        >
           {t('policy.rules.edit')}
         </Button>
         <Button
@@ -840,7 +858,8 @@ function RuleCard({
           variant="destructive"
           icon="delete"
           onClick={onDelete}
-          disabled={pending}
+          disabled={pending || !canDelete}
+          title={canDelete ? undefined : t('roleReasons.administrator')}
         >
           {t('policy.rules.delete')}
         </Button>
@@ -861,6 +880,10 @@ function ApprovalCard({
   onDeny: () => void;
 }) {
   const { t } = useTranslation();
+  const { whoami } = useAuth();
+  // D3: held approvals are approver-class decisions.
+  const canApprove = canOperate(ACTION_OPS.eventApprove, whoami);
+  const canDeny = canOperate(ACTION_OPS.eventDeny, whoami);
   const { event, session } = item;
   return (
     <div className="flex flex-col gap-space-sm rounded-xl bg-surface-container-lowest p-space-lg shadow-sm">
@@ -889,7 +912,13 @@ function ApprovalCard({
         · {session.protocol} · {t('policy.approvals.heldState')}
       </div>
       <div className="flex gap-space-sm">
-        <Button type="button" icon="check" onClick={onApprove} disabled={pending}>
+        <Button
+          type="button"
+          icon="check"
+          onClick={onApprove}
+          disabled={pending || !canApprove}
+          title={canApprove ? undefined : t('roleReasons.approver')}
+        >
           {t('policy.approvals.approve')}
         </Button>
         <Button
@@ -897,7 +926,8 @@ function ApprovalCard({
           variant="destructive"
           icon="close"
           onClick={onDeny}
-          disabled={pending}
+          disabled={pending || !canDeny}
+          title={canDeny ? undefined : t('roleReasons.approver')}
         >
           {t('policy.approvals.deny')}
         </Button>

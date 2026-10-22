@@ -188,6 +188,7 @@ function extractApiSurface() {
   const tags = [];
   const tagIndex = new Map();
   const flat = [];
+  const opRoles = [];
   const methodCounts = {};
   let operationCount = 0;
   for (const [p, item] of Object.entries(paths)) {
@@ -197,6 +198,23 @@ function extractApiSurface() {
       operationCount += 1;
       methodCounts[M] = (methodCounts[M] ?? 0) + 1;
       flat.push(`${M} ${p}`);
+      // ADR-0021 D6: the operation<->role table, straight from the document's
+      // security requirements. rbacToken/ldapTicket scope lists are exactly
+      // ROLE_OPERATIONS (tests/test_openapi_contract.py pins both directions);
+      // the admin credential carries no role list, so it is a separate flag.
+      const security = op.security ?? [];
+      opRoles.push({
+        method,
+        path: p,
+        admin: security.some((entry) => 'adminTokenHeader' in entry),
+        roles: [
+          ...new Set(
+            security.flatMap((entry) =>
+              ['rbacToken', 'ldapTicket'].flatMap((scheme) => entry[scheme] ?? []),
+            ),
+          ),
+        ].sort(),
+      });
       const tagName = (op.tags ?? ['(none)'])[0];
       let group = tagIndex.get(tagName);
       if (!group) {
@@ -208,7 +226,14 @@ function extractApiSurface() {
     }
   }
   if (operationCount === 0) throw new Error('openapi.yaml: no operations parsed');
-  return { pathCount: Object.keys(paths).length, operationCount, methodCounts, tags, flat };
+  return {
+    pathCount: Object.keys(paths).length,
+    operationCount,
+    methodCounts,
+    tags,
+    flat,
+    opRoles,
+  };
 }
 
 /* ------------------------------------------ 6. backend trees and imports */
@@ -789,11 +814,140 @@ function writeWorkflowsDoc() {
   writeDoc('workflows.md', parts.join('\n'));
 }
 
+/* ------------------------------- role console navigation doc (ADR-0021) */
+
+/**
+ * The five job groups with every route's declared any-of operations and the
+ * per-role visibility they derive to - D6's "generated from the OpenAPI
+ * operation<->role table" (topology.mjs pattern): NAV_JOB_OPS comes from
+ * nav.ts (pinned to API_OPERATIONS by nav.test.ts), the role columns from
+ * openapi.yaml's security scopes (pinned to ROLE_OPERATIONS by
+ * tests/test_openapi_contract.py). No role list is written down here, so
+ * neither axis can drift: regenerating after any nav or policy change is
+ * the same CI `git diff --exit-code` gate as the other architecture docs.
+ */
+function writeRoleConsoleDoc() {
+  const navText = read('frontend/app/src/app/layout/nav.ts');
+  // Batch 11.11 lands before this export exists (ADR-0021 added it; HEAD's
+  // nav.ts has the older module NAV_GROUPS but no job ops): regen on that
+  // tree must pass, so the doc simply does not exist there yet.
+  if (!navText.includes('export const NAV_JOB_OPS')) {
+    console.log('topology: role-console.md skipped (nav.ts has no NAV_JOB_OPS)');
+    return;
+  }
+
+  const groups = [];
+  for (const m of navText.matchAll(/labelKey: '([^']+)',\s*paths: \[([^\]]*)\]/g)) {
+    groups.push({
+      label: i18nGet(m[1]),
+      paths: [...m[2].matchAll(/'([^']+)'/g)].map((p) => p[1]),
+    });
+  }
+  if (groups.length === 0) throw new Error('role console: NAV_GROUPS not parsed');
+
+  const opsBlock = /export const NAV_JOB_OPS[^=]*=\s*\{([\s\S]*?)\n\};/.exec(navText);
+  if (!opsBlock) throw new Error('role console: NAV_JOB_OPS not parsed');
+  const jobOps = new Map();
+  for (const m of opsBlock[1].matchAll(/'([^']+)':\s*\[([^\]]*)\]/g)) {
+    jobOps.set(
+      m[1],
+      [...m[2].matchAll(/'([^']+)'/g)].map((p) => p[1]),
+    );
+  }
+
+  const labelKeyByPath = new Map(
+    [...navText.matchAll(/path: '([^']+)',\s*labelKey: '([^']+)'/g)].map((m) => [
+      m[1],
+      m[2],
+    ]),
+  );
+  const roleEntryByOp = new Map(api.opRoles.map((o) => [`${o.method} ${o.path}`, o]));
+
+  // 'admin' = the adminTokenHeader credential (no openapi scope list names it);
+  // every other column is a role name the document itself spells out.
+  const nonAdminRoles = [...new Set(api.opRoles.flatMap((o) => o.roles))].sort();
+  const columns = nonAdminRoles.includes('admin')
+    ? nonAdminRoles
+    : ['admin', ...nonAdminRoles];
+
+  const rows = [
+    ['Group', 'Route', 'Sidebar label', 'Required operations (any-of)', ...columns],
+  ];
+  const visible = { ...Object.fromEntries(columns.map((r) => [r, 0])) };
+  for (const g of groups) {
+    for (const p of g.paths) {
+      const declared = jobOps.get(p);
+      if (!declared) throw new Error(`role console: ${p} has no NAV_JOB_OPS entry`);
+      const labelKey = labelKeyByPath.get(p);
+      if (!labelKey) throw new Error(`role console: ${p} has no NAV_ITEMS label`);
+      const entries = declared.map((op) => {
+        const entry = roleEntryByOp.get(op);
+        if (!entry)
+          throw new Error(`role console: ${p}: operation not in openapi.yaml: ${op}`);
+        return entry;
+      });
+      const opsText =
+        declared.length === 0
+          ? '*(none - always visible)*'
+          : declared.map((op) => `\`${op}\``).join(' ∨ ');
+      const shown = (role) =>
+        declared.length === 0 ||
+        (role === 'admin'
+          ? entries.some((e) => e.admin)
+          : entries.some((e) => e.roles.includes(role)));
+      rows.push([
+        g.label,
+        `\`${p}\``,
+        i18nGet(labelKey),
+        opsText,
+        ...columns.map((role) => {
+          if (shown(role)) visible[role] += 1;
+          return shown(role) ? '✓' : '✗';
+        }),
+      ]);
+    }
+  }
+
+  const widths = rows[0].map((_, c) => Math.max(...rows.map((r) => r[c].length)));
+  const table = [
+    '| ' + rows[0].map((c, i) => c.padEnd(widths[i])).join(' | ') + ' |',
+    '| ' + widths.map((n) => '-'.repeat(n)).join(' | ') + ' |',
+    ...rows
+      .slice(1)
+      .map((r) => '| ' + r.map((c, i) => c.padEnd(widths[i])).join(' | ') + ' |'),
+  ].join('\n');
+
+  const total = rows.length - 1;
+  const summary = columns.map((role) => `${role} ${visible[role]}/${total}`).join(' · ');
+  const md =
+    docHeader('Role console navigation (ADR-0021)', [
+      'frontend/app/src/app/layout/nav.ts (NAV_GROUPS, NAV_JOB_OPS, NAV_ITEMS)',
+      'apis/openapi.yaml (security: adminTokenHeader flag + rbacToken/ldapTicket role scopes)',
+      'frontend/app/src/i18n/en.json (sidebar labels)',
+    ]) +
+    "The five job groups of the role-based sidebar with every route's declared " +
+    'any-of operations and the visibility those operations derive per seeded role. ' +
+    'The frontend holds no role lists (ADR-0021 D1): a session sees a route when ' +
+    '`whoami.operations` intersects its `NAV_JOB_OPS` entry, and each role column ' +
+    'shows ✓ when the OpenAPI security scopes grant it at least one declared ' +
+    'operation (scope lists = `ROLE_OPERATIONS`, pinned both directions by ' +
+    '`tests/test_openapi_contract.py`; `admin` = the admin credential on every ' +
+    'admin operation). An empty list is always visible for every signed-in ' +
+    'session; open mode (`operations: "all"`) shows everything.\n\n' +
+    `Visible routes per role: ${summary}.\n\n` +
+    `${table}\n\n` +
+    'Landing pages follow the ordered-operations rule (no role names) - the ' +
+    'contract, journeys and the recorded deviations live in ' +
+    '`docs/frontend/ADR-0021-role-based-console.md`.\n';
+  writeDoc('role-console.md', md);
+}
+
 writeFrontendMapDoc();
 writeBackendMapDoc();
 writeApiSurfaceDoc();
 writeNetworkPostureDoc();
 writeWorkflowsDoc();
+writeRoleConsoleDoc();
 
 /* ------------------------------------------ architecture explorer (HTML) */
 

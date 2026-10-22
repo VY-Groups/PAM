@@ -4,6 +4,8 @@ import { zodResolver } from '@hookform/resolvers/zod';
 import { useTranslation } from 'react-i18next';
 
 import { isBackendDown } from '../../api/http';
+import { ACTION_OPS, canOperate } from '../../app/guards/RoleGate';
+import { useAuth } from '../../app/providers/useAuth';
 import {
   Button,
   Chip,
@@ -65,6 +67,9 @@ export function AgentSection({
   onReviewRequest: (requestId: number) => void;
 }) {
   const { t } = useTranslation();
+  const { whoami } = useAuth();
+  // D3: registering a pipeline identity is administrator-class.
+  const canRegister = canOperate(ACTION_OPS.agentCreate, whoami);
   const stats = useAgentAccessStats();
   const agents = useAgents();
   const requests = useAgentAccessRequests();
@@ -125,7 +130,12 @@ export function AgentSection({
           <span className="font-label-md text-label-md text-on-surface-variant">
             {t('jit.agents.identitiesHeading')}
           </span>
-          <Button icon="add" onClick={() => setRegistering(true)}>
+          <Button
+            icon="add"
+            disabled={!canRegister}
+            title={canRegister ? undefined : t('roleReasons.administrator')}
+            onClick={() => setRegistering(true)}
+          >
             {t('jit.agents.register')}
           </Button>
         </div>
@@ -268,6 +278,10 @@ function AgentsTable({
   onRevoke: (agent: AgentIdentity) => void;
 }) {
   const { t } = useTranslation();
+  const { whoami } = useAuth();
+  // D3: lifecycle writes are administrator-class; Manage is a read.
+  const canToggle = canOperate(ACTION_OPS.agentUpdate, whoami);
+  const canRevoke = canOperate(ACTION_OPS.agentRevoke, whoami);
   const columns: DataTableColumn<AgentIdentity>[] = [
     {
       key: 'identity',
@@ -341,7 +355,8 @@ function AgentsTable({
                     : t('jit.agents.actionsUi.enable'),
                 name: row.name,
               })}
-              disabled={busy}
+              disabled={busy || !canToggle}
+              title={canToggle ? undefined : t('roleReasons.administrator')}
               onClick={() => onToggle(row)}
             >
               {row.status === 'active'
@@ -354,7 +369,8 @@ function AgentsTable({
               variant="destructive"
               icon="block"
               ariaLabel={t('jit.agents.actionsUi.revokeNamed', { name: row.name })}
-              disabled={busy}
+              disabled={busy || !canRevoke}
+              title={canRevoke ? undefined : t('roleReasons.administrator')}
               onClick={() => onRevoke(row)}
             >
               {t('jit.agents.actionsUi.revoke')}
@@ -642,6 +658,9 @@ function RegisterAgentBody({
 /** Agent detail body: facts, declared tasks, declare form, trail. */
 function AgentDetailBody({ agentId, actor }: { agentId: number | null; actor: string }) {
   const { t } = useTranslation();
+  const { whoami } = useAuth();
+  // D3: declaring a task writes policy - administrator-class.
+  const canTask = canOperate(ACTION_OPS.agentTaskCreate, whoami);
   const detail = useAgentDetail(agentId);
   const declareTask = useDeclareTask();
   const form = useForm<TaskForm, unknown, TaskValues>({
@@ -850,7 +869,12 @@ function AgentDetailBody({ agentId, actor }: { agentId: number | null; actor: st
           ) : null}
 
           <div className="flex justify-end">
-            <Button type="submit" icon="add_task" disabled={declareTask.isPending}>
+            <Button
+              type="submit"
+              icon="add_task"
+              disabled={declareTask.isPending || !canTask}
+              title={canTask ? undefined : t('roleReasons.administrator')}
+            >
               {t('jit.agents.taskForm.submit')}
             </Button>
           </div>

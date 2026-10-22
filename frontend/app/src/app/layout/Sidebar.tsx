@@ -4,8 +4,10 @@ import { Link, NavLink, useNavigate } from 'react-router';
 
 import mark from '../../assets/vy-pam-mark.svg';
 import { Button, NotConnected, StatusDot, Value } from '../../components';
+import { useSetupState } from '../../features/setup/queries';
 import { useClusterOverview } from '../../features/topology/queries';
 import { useAuth } from '../providers/useAuth';
+import { visibleByRole } from '../guards/RoleGate';
 import { NAV_GROUPS, NAV_ITEMS } from './nav';
 
 const linkBase =
@@ -28,6 +30,10 @@ export function Sidebar({ open, onNavigate }: { open: boolean; onNavigate: () =>
   const navigate = useNavigate();
   const { whoami, logout } = useAuth();
   const cluster = useClusterOverview();
+  // ADR-0018 batch 11.11: the instance brands the shell (company name /
+  // logo) and an unconfigured instance shows the first-run setup link -
+  // both views of the same public setup state.
+  const setup = useSetupState();
   const [filter, setFilter] = useState('');
 
   const needle = filter.trim().toLowerCase();
@@ -53,13 +59,29 @@ export function Sidebar({ open, onNavigate }: { open: boolean; onNavigate: () =>
         open ? 'flex' : 'hidden'
       } lg:flex`}
     >
-      <div className="flex flex-col">
+      <div className="flex-1 min-h-0 flex flex-col">
         <div className="h-16 px-space-lg flex items-center justify-between border-b border-outline-variant/20">
           <Link to="/" className="flex items-center gap-space-sm">
-            <img alt="VY-PAM logo" className="h-8 w-8 shrink-0" src={mark} />
+            <img
+              alt={
+                setup.data?.company_name ? `${setup.data.company_name} logo` : 'VY-PAM logo'
+              }
+              className="h-8 w-8 shrink-0 object-contain"
+              src={
+                setup.data?.logo_data_uri !== '' && setup.data?.logo_data_uri !== undefined
+                  ? setup.data.logo_data_uri
+                  : mark
+              }
+            />
             <span className="flex flex-col">
               <span className="font-headline-sm text-headline-sm text-on-surface tracking-tight leading-none">
-                VY-<span className="text-primary">PAM</span>
+                {setup.data?.company_name ? (
+                  setup.data.company_name
+                ) : (
+                  <>
+                    VY-<span className="text-primary">PAM</span>
+                  </>
+                )}
               </span>
               <span className="font-code-sm text-code-sm text-on-surface-variant font-normal tracking-wide">
                 {t('app.kicker')}
@@ -73,6 +95,18 @@ export function Sidebar({ open, onNavigate }: { open: boolean; onNavigate: () =>
             verified_user
           </span>
         </div>
+        {setup.data !== undefined && !setup.data.configured ? (
+          <NavLink
+            to="/setup"
+            onClick={onNavigate}
+            className="flex items-center gap-space-sm px-space-md py-space-sm bg-primary-container text-on-primary-container font-label-md text-label-md font-semibold border-b border-outline-variant/20"
+          >
+            <span className="material-symbols-outlined text-[20px]" aria-hidden="true">
+              rocket_launch
+            </span>
+            <span>{t('shell.setupOpen')}</span>
+          </NavLink>
+        ) : null}
         <div className="px-space-md py-space-sm border-b border-outline-variant/20">
           <label htmlFor="nav-filter" className="sr-only">
             {t('shell.filterLabel')}
@@ -88,11 +122,14 @@ export function Sidebar({ open, onNavigate }: { open: boolean; onNavigate: () =>
         </div>
         <nav
           aria-label={t('nav.ariaLabel')}
-          className="px-space-md py-space-sm flex flex-col gap-space-md overflow-y-auto"
+          className="px-space-md py-space-sm flex flex-col gap-space-md flex-1 min-h-0 overflow-y-auto"
         >
           {NAV_GROUPS.map((group) => {
             const items = NAV_ITEMS.filter(
-              (item) => group.paths.includes(item.path) && visiblePaths.has(item.path),
+              (item) =>
+                group.paths.includes(item.path) &&
+                visiblePaths.has(item.path) &&
+                visibleByRole(item.path, whoami),
             );
             if (items.length === 0) return null;
             return (
@@ -155,6 +192,34 @@ export function Sidebar({ open, onNavigate }: { open: boolean; onNavigate: () =>
             <span className="text-outline font-semibold">
               {t('shell.roleBadge', { role: whoami.role })}
             </span>
+            {(() => {
+              // ADR-0021 step 7: the ABAC binding scope, straight from whoami -
+              // empty scope means the role governs everywhere, so no chip.
+              const scope = whoami.scope;
+              const targets = Array.isArray(scope?.targets) ? scope.targets.length : 0;
+              const items = Array.isArray(scope?.vault_items)
+                ? scope.vault_items.length
+                : 0;
+              if (targets > 0 && items > 0)
+                return (
+                  <span className="text-outline">
+                    {t('shell.scopeBoth', { targets, items })}
+                  </span>
+                );
+              if (targets > 0)
+                return (
+                  <span className="text-outline">
+                    {t('shell.scope', { count: targets })}
+                  </span>
+                );
+              if (items > 0)
+                return (
+                  <span className="text-outline">
+                    {t('shell.scopeItems', { count: items })}
+                  </span>
+                );
+              return null;
+            })()}
           </div>
         ) : null}
         <Button

@@ -85,6 +85,14 @@ export const NAV_ITEMS: NavItem[] = [
     legacyHref: '/screens/vendor_access_third_party_lifecycle/code.html',
   },
   {
+    // ADR-0021 (12.RC): the approver's landing surface - F4-native, no
+    // legacy screen ever existed for a cross-surface approvals inbox, so
+    // the item carries no legacyHref and /approvals ships live with it.
+    path: '/approvals',
+    labelKey: 'nav.approvals',
+    icon: 'how_to_vote',
+  },
+  {
     // ADR-0016 (batch 11.7): F4-native - no legacy screen ever existed for
     // user administration (CANONICAL_NAV has no users slot), so the item
     // carries no legacyHref and the /users route ships live with it.
@@ -129,21 +137,74 @@ export interface NavGroup {
 }
 
 /**
- * ADR-0020 Decision 3 - the six sidebar groups. Deliberately a separate
- * export, NOT a field on each NAV_ITEM: the topology extractor parses
- * nav.ts with a closing-brace-anchored per-item regex
+ * ADR-0021 Amendment 1 (12.RC) - the brief's five job groups replace the
+ * ADR-0020 Decision 3 module groups (group by job, not module). Deliberately
+ * a separate export, NOT a field on each NAV_ITEM: the topology extractor
+ * parses nav.ts with a closing-brace-anchored per-item regex
  * (scripts/topology.mjs:54-57), so an extra field inside the item
  * literals would silently drop nav rows and drift the generated map.
  * Every NAV_ITEMS path appears in exactly one group (nav.test.ts).
  */
 export const NAV_GROUPS: NavGroup[] = [
   {
-    labelKey: 'nav.group.accessSessions',
-    paths: ['/sessions', '/jit', '/break-glass', '/vendor-access'],
+    labelKey: 'nav.group.access',
+    paths: ['/vault', '/jit', '/break-glass', '/vendor-access'],
   },
-  { labelKey: 'nav.group.infrastructure', paths: ['/infrastructure', '/topology'] },
-  { labelKey: 'nav.group.identityAccess', paths: ['/users', '/security'] },
-  { labelKey: 'nav.group.policyCompliance', paths: ['/policy', '/compliance'] },
-  { labelKey: 'nav.group.vaultSecrets', paths: ['/vault'] },
-  { labelKey: 'nav.group.platform', paths: ['/command-center', '/licensing', '/settings'] },
+  { labelKey: 'nav.group.approvals', paths: ['/approvals'] },
+  { labelKey: 'nav.group.sessions', paths: ['/sessions'] },
+  { labelKey: 'nav.group.evidence', paths: ['/compliance'] },
+  {
+    labelKey: 'nav.group.platform',
+    paths: [
+      '/command-center',
+      '/infrastructure',
+      '/policy',
+      '/users',
+      '/security',
+      '/settings',
+      '/licensing',
+      '/topology',
+    ],
+  },
 ];
+
+/**
+ * ADR-0021 (12.RC): the job operations each route requires (any-of),
+ * verbatim `method path` strings from the contract - the shell filters
+ * them against `whoami.operations` (the server's contract-derived list;
+ * the string `all` in open mode), so this file holds no role names and
+ * no hand-written role lists. An empty list means always visible.
+ * Separate export for the same topology-parser reason as NAV_GROUPS;
+ * every NAV_ITEMS path has an entry (nav.test.ts), every operation is
+ * pinned to the generated contract (nav.test.ts).
+ */
+export const NAV_JOB_OPS: Record<string, string[]> = {
+  '/command-center': [],
+  '/approvals': [
+    'post /api/v1/jit/requests/{request_id}/approve',
+    'post /api/v1/break-glass/requests/{request_id}/approve',
+    'post /api/v1/vendors/{vendor_id}/approve',
+    'post /api/v1/broker/credentials/{credential_id}/approve',
+    'post /api/v1/sessions/{session_id}/events/{seq}/approve',
+  ],
+  '/vault': ['post /api/v1/vault/items/{item_id}/checkout'],
+  '/jit': ['post /api/v1/jit/requests'],
+  '/break-glass': ['post /api/v1/break-glass/requests'],
+  '/vendor-access': ['post /api/v1/vendors/{vendor_id}/requests'],
+  '/sessions': ['post /api/v1/sessions'],
+  '/infrastructure': ['post /api/v1/discovery/assets'],
+  '/policy': [
+    'post /api/v1/command-control/rules',
+    'post /api/v1/command-control/incidents/{incident_id}/close',
+  ],
+  '/compliance': [
+    'get /api/v1/auth/report',
+    'get /api/v1/cluster/export/sessions',
+    'get /api/v1/cluster/export/vault',
+  ],
+  '/users': ['get /api/v1/users'],
+  '/security': ['get /api/v1/auth/sso/sessions'],
+  '/licensing': ['get /api/v1/licenses/{license_key}/file'],
+  '/settings': ['put /api/v1/settings/{group}'],
+  '/topology': [],
+};

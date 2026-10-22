@@ -65,6 +65,33 @@ Material Symbols Outlined for icons (also bundled).
 <main> pl-64, pt-16, px-space-xl, pb-12, vertical gap-space-xl sections
 ```
 
+### 1.3 Navigation — role-based sidebar (ADR-0021, batch 12.RC)
+
+The React console's `<aside>` nav is grouped by **job**, not module — five
+headings in sidebar order (ADR-0021 Amendment 1): **Access** (Vault, JIT,
+Break-glass, Vendor-access), **Approvals** (inbox), **Sessions**, **Evidence**
+(Compliance), **Platform** (Command Center, Infrastructure, Policy, Users,
+Security, Settings, Licensing, Topology).
+
+Rows are derived, never listed per role: each route declares its contract
+operations in `NAV_JOB_OPS` (`nav.ts`) and the shell keeps it when
+`whoami.operations` intersects that list — zero hand-written role lists in the
+frontend (D1). The per-role ✓/✗ matrix and the visible-route counts are
+generated from the OpenAPI operation↔role table by `pnpm topology` →
+**`docs/architecture/role-console.md`**; CI regenerates and
+`git diff --exit-code`s it, so the counts cannot drift (D6).
+
+Per role, in job terms: the approver lands in and keeps the Approvals inbox
+(the two no-operation read surfaces remain reachable — the recorded `✓dev`
+deviation); the operator keeps the Access group, Sessions, Infrastructure and
+Policy and lands on live sessions; both auditors keep Evidence, Users, Security
+(and Licensing for auditor, not auditor-read-only) and land on the evidence
+view; admin keeps every route and Command Center. Disabled actions render
+their reason ("requires approver role" / "requires administrator role"), a
+hidden route renders the friendly not-available-for-your-role page, and any
+server 403 surfaces verbatim (D3/D5); landings follow the ordered-operations
+rule in ADR-0021.
+
 ## 2. Components
 
 | Component | Pattern |

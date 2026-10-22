@@ -3,6 +3,8 @@ import { useTranslation } from 'react-i18next';
 
 import { isBackendDown } from '../../api/http';
 import { BackendDownNotice } from '../../app/error/BackendDownNotice';
+import { ACTION_OPS, canOperate } from '../../app/guards/RoleGate';
+import { useAuth } from '../../app/providers/useAuth';
 import { Button, Chip, KpiCard, NotConnected, SectionHeader } from '../../components';
 import type { LicenseRecord } from '../../api/generated/models';
 import { FileDialog } from './FileDialog';
@@ -30,6 +32,10 @@ import { useLicenseMeta, useLicensingOverview, useRestoreLicense } from './queri
  */
 export function LicensingPage() {
   const { t } = useTranslation();
+  const { whoami } = useAuth();
+  // D3: importing a license is administrator-class; Validate stays enabled
+  // (no whoami lists `licenses/validate` - the server has the only word).
+  const canImport = canOperate(ACTION_OPS.licenseImport, whoami);
 
   const overview = useLicensingOverview();
   const meta = useLicenseMeta();
@@ -63,7 +69,12 @@ export function LicensingPage() {
         title={t('licensing.page.title')}
         subtitle={t('licensing.page.subtitle')}
         actions={
-          <Button type="button" onClick={() => setImportOpen(true)}>
+          <Button
+            type="button"
+            disabled={!canImport}
+            title={canImport ? undefined : t('roleReasons.administrator')}
+            onClick={() => setImportOpen(true)}
+          >
             {t('licensing.page.importCta')}
           </Button>
         }
@@ -219,7 +230,13 @@ export function LicensingPage() {
               {t('licensing.rail.airgapNote')}
             </p>
             <div className="mt-1 flex flex-wrap gap-1.5">
-              <Button type="button" variant="secondary" onClick={() => setImportOpen(true)}>
+              <Button
+                type="button"
+                variant="secondary"
+                disabled={!canImport}
+                title={canImport ? undefined : t('roleReasons.administrator')}
+                onClick={() => setImportOpen(true)}
+              >
                 {t('licensing.page.importCta')}
               </Button>
               <Button

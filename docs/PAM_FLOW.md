@@ -29,6 +29,34 @@ Plus the **launcher** (`frontend/index.html`) — a link hub, and the static
 spec screens (`enterprise_licensing_…`, `platform_settings_idp_hsm_…`) used as
 design references, not navigation.
 
+### 1.1 Role-based console navigation (ADR-0021, batch 12.RC)
+
+The F4 React sidebar groups the routes by **job**, not module — **Access**
+(Vault, JIT, Break-glass, Vendor-access), **Approvals**, **Sessions**,
+**Evidence** (Compliance), **Platform** (Command Center, Infrastructure,
+Policy, Users, Security, Settings, Licensing, Topology).
+
+Which rows a session sees is derived, not listed: every route declares its
+contract operations (`NAV_JOB_OPS` in `nav.ts`) and the shell keeps it when
+`whoami.operations` intersects them — the frontend holds no hand-written role
+lists (D1). The per-role matrix with the visible-route counts is generated
+from the OpenAPI operation↔role table by `pnpm topology`:
+**`docs/architecture/role-console.md`** (CI regenerates and
+`git diff --exit-code`s it, so the counts cannot drift, D6).
+
+| Role | Sees (job terms; the always-visible read surfaces included) | Lands on |
+|---|---|---|
+| admin | every route | Command Center |
+| approver | the Approvals inbox | Approvals inbox |
+| operator | Access group, Sessions, Infrastructure, Policy | Live sessions |
+| auditor | Evidence, Users, Security, Licensing | Evidence view |
+| auditor-read-only | same as auditor, minus Licensing | Evidence view |
+
+Hidden routes render the friendly not-available-for-your-role page (never a
+blank), disabled actions show their reason, and any server 403 surfaces
+verbatim (ADR-0021 D3/D5). Landing is decided by an ordered-operations rule
+with no role names (ADR-0021 §Landing pages).
+
 ## 2. Core journeys
 
 ### 2.1 License lifecycle (vendor → shipped)

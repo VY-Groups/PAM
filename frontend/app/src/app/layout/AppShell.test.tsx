@@ -19,6 +19,7 @@ afterEach(() => {
 /** The i18n catalogue's sidebar labels (ADR-0010: no embedded strings). */
 const NAV_LABELS = [
   'Command Center',
+  'Approvals',
   'Credential Vault',
   'JIT Access & Approvals',
   'Live Session Hub',
@@ -34,15 +35,12 @@ const NAV_LABELS = [
   'System Maps',
 ];
 
-/** The six ADR-0020 Decision 3 group labels. */
-const NAV_GROUP_LABELS = [
-  'Access & Sessions',
-  'Infrastructure',
-  'Identity & Access',
-  'Policy & Compliance',
-  'Vault & Secrets',
-  'Platform',
-];
+/**
+ * The five ADR-0021 job group labels. Scoped to `div.font-code-sm` so the
+ * "Approvals" heading and the "Approvals" link (same text, different roles)
+ * never collide in a text query.
+ */
+const NAV_GROUP_LABELS = ['Access', 'Approvals', 'Sessions', 'Evidence', 'Platform'];
 
 describe('AppShell (F3 exit: shell renders live nav)', () => {
   it('renders one nav link per ADR-0005 route with the right hrefs', async () => {
@@ -65,12 +63,14 @@ describe('AppShell (F3 exit: shell renders live nav)', () => {
     );
   });
 
-  it('renders the six ADR-0020 groups under one navigation landmark', async () => {
+  it('renders the five ADR-0021 job groups under one navigation landmark', async () => {
     stubFetch(commandCenterRoutes());
     renderApp('/command-center');
     const nav = await screen.findByRole('navigation', { name: 'Primary navigation' });
     for (const label of NAV_GROUP_LABELS) {
-      expect(within(nav).getByText(label)).toBeInTheDocument();
+      expect(
+        within(nav).getByText(label, { selector: 'div.font-code-sm' }),
+      ).toBeInTheDocument();
     }
     // One landmark only - the groups do not each become their own nav.
     expect(screen.getAllByRole('navigation')).toHaveLength(1);
@@ -128,6 +128,23 @@ describe('AppShell (F3 exit: shell renders live nav)', () => {
     expect(within(nav).getByText('No pages match the filter.')).toBeInTheDocument();
     fireEvent.change(filter, { target: { value: '' } });
     expect(within(nav).getByRole('link', { name: 'Command Center' })).toBeInTheDocument();
+  });
+
+  it('bounds the nav column so the sidebar actually scrolls', async () => {
+    // live-testing defect: a bare overflow-y-auto on the nav grows to its
+    // content height inside an unbounded parent, so the lower nav entries
+    // were clipped with no scrollbar - the chain must be height-bounded
+    // (h-full aside -> flex-1 min-h-0 -> flex-1 min-h-0 overflow-y-auto).
+    stubFetch(commandCenterRoutes());
+    renderApp('/');
+    const nav = await screen.findByRole('navigation', { name: 'Primary navigation' });
+    expect(nav.className).toContain('overflow-y-auto');
+    expect(nav.className).toContain('flex-1');
+    expect(nav.className).toContain('min-h-0');
+    const container = nav.parentElement;
+    expect(container?.className).toContain('flex-1');
+    expect(container?.className).toContain('min-h-0');
+    expect(container?.closest('#app-sidebar')).not.toBeNull();
   });
 
   it('renders the live Settings screen at /settings (ADR-0015 11.5 flip)', async () => {

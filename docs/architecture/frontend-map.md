@@ -10,7 +10,7 @@ is the CI drift gate; every figure below is extracted from:
 -->
 
 # Frontend route map
-16 console routes (14 sidebar items + 2 non-sidebar) joined with the contract operations their generated-client calls resolve to.
+17 console routes (15 sidebar items + 2 non-sidebar) joined with the contract operations their generated-client calls resolve to.
 
 ```mermaid
 flowchart TD
@@ -25,12 +25,13 @@ flowchart TD
   r7["/licensing - Licensing & Entitlements"]
   r8["/break-glass - Emergency Break-Glass"]
   r9["/vendor-access - Vendor Access"]
-  r10["/users - Users & Credentials"]
-  r11["/security - Security & MFA"]
-  r12["/settings - Settings"]
-  r13["/topology - System Maps"]
-  r14["/login (LoginPage)"]
-  r15["/setup (SetupPage)"]
+  r10["/approvals - Approvals"]
+  r11["/users - Users & Credentials"]
+  r12["/security - Security & MFA"]
+  r13["/settings - Settings"]
+  r14["/topology - System Maps"]
+  r15["/login (LoginPage)"]
+  r16["/setup (SetupPage)"]
   end
   e0["GET /api/v1/bypass/incidents"]
   r0 --> e0
@@ -259,93 +260,105 @@ flowchart TD
   r9 --> e107
   e108["POST /api/v1/vendors/{vendor_id}/ticket"]
   r9 --> e108
+  r10 --> e91
+  r10 --> e19
+  r10 --> e22
+  r10 --> e99
+  r10 --> e95
+  r10 --> e97
+  r10 --> e29
+  r10 --> e31
+  r10 --> e34
+  r10 --> e37
+  r10 --> e102
+  r10 --> e103
   e109["DELETE /api/v1/users/{user_id}/sessions"]
-  r10 --> e109
+  r11 --> e109
   e110["GET /api/v1/users"]
-  r10 --> e110
+  r11 --> e110
   e111["PATCH /api/v1/users/{user_id}"]
-  r10 --> e111
+  r11 --> e111
   e112["POST /api/v1/users"]
-  r10 --> e112
+  r11 --> e112
   e113["POST /api/v1/users/{user_id}/password-reset"]
-  r10 --> e113
+  r11 --> e113
   e114["POST /api/v1/users/{user_id}/unlock"]
-  r10 --> e114
+  r11 --> e114
   e115["DELETE /api/v1/auth/mfa/factors/{factor_id}"]
-  r11 --> e115
+  r12 --> e115
   e116["GET /api/v1/auth/mfa/factors"]
-  r11 --> e116
+  r12 --> e116
   e117["POST /api/v1/auth/mfa/backup-codes"]
-  r11 --> e117
+  r12 --> e117
   e118["POST /api/v1/auth/mfa/enroll/email"]
-  r11 --> e118
+  r12 --> e118
   e119["POST /api/v1/auth/mfa/enroll/email/verify"]
-  r11 --> e119
+  r12 --> e119
   e120["POST /api/v1/auth/mfa/enroll/radius"]
-  r11 --> e120
+  r12 --> e120
   e121["POST /api/v1/auth/mfa/enroll/totp"]
-  r11 --> e121
+  r12 --> e121
   e122["POST /api/v1/auth/mfa/enroll/totp/verify"]
-  r11 --> e122
+  r12 --> e122
   e123["POST /api/v1/auth/mfa/stepup"]
-  r11 --> e123
+  r12 --> e123
   e124["DELETE /api/v1/role-bindings/{binding_id}"]
-  r12 --> e124
+  r13 --> e124
   e125["GET /api/v1/auth/emergency"]
-  r12 --> e125
+  r13 --> e125
   e126["GET /api/v1/auth/sso/status"]
-  r12 --> e126
+  r13 --> e126
   e127["GET /api/v1/cluster"]
-  r12 --> e127
-  e128["GET /api/v1/cluster/backups"]
-  r12 --> e128
-  e129["GET /api/v1/hsm/status"]
-  r12 --> e129
-  r12 --> e82
-  e130["GET /api/v1/role-bindings"]
-  r12 --> e130
-  e131["GET /api/v1/roles"]
-  r12 --> e131
-  e132["GET /api/v1/settings"]
-  r12 --> e132
-  e133["GET /api/v1/settings/audit"]
-  r12 --> e133
-  e134["POST /api/v1/auth/emergency/open"]
-  r12 --> e134
-  e135["POST /api/v1/auth/ldap"]
-  r12 --> e135
-  e136["POST /api/v1/cluster/failover"]
-  r12 --> e136
-  e137["POST /api/v1/itsm/verify"]
-  r12 --> e137
-  e138["POST /api/v1/mfa/enroll"]
-  r12 --> e138
-  e139["POST /api/v1/role-bindings"]
-  r12 --> e139
-  e140["POST /api/v1/settings/scim/rotate"]
-  r12 --> e140
-  e141["POST /api/v1/settings/smtp/test"]
-  r12 --> e141
-  e142["PUT /api/v1/settings/{group}"]
-  r12 --> e142
   r13 --> e127
+  e128["GET /api/v1/cluster/backups"]
+  r13 --> e128
+  e129["GET /api/v1/hsm/status"]
+  r13 --> e129
   r13 --> e82
-  r13 --> e4
+  e130["GET /api/v1/role-bindings"]
+  r13 --> e130
+  e131["GET /api/v1/roles"]
+  r13 --> e131
+  e132["GET /api/v1/settings"]
+  r13 --> e132
+  e133["GET /api/v1/settings/audit"]
+  r13 --> e133
+  e134["POST /api/v1/auth/emergency/open"]
+  r13 --> e134
+  e135["POST /api/v1/auth/ldap"]
+  r13 --> e135
+  e136["POST /api/v1/cluster/failover"]
+  r13 --> e136
+  e137["POST /api/v1/itsm/verify"]
+  r13 --> e137
+  e138["POST /api/v1/mfa/enroll"]
+  r13 --> e138
+  e139["POST /api/v1/role-bindings"]
+  r13 --> e139
+  e140["POST /api/v1/settings/scim/rotate"]
+  r13 --> e140
+  e141["POST /api/v1/settings/smtp/test"]
+  r13 --> e141
+  e142["PUT /api/v1/settings/{group}"]
+  r13 --> e142
+  r14 --> e127
+  r14 --> e82
   r14 --> e4
-  r14 --> e121
-  r14 --> e122
+  r15 --> e4
+  r15 --> e121
+  r15 --> e122
   e143["POST /api/v1/auth/otp/start"]
-  r14 --> e143
+  r15 --> e143
   e144["POST /api/v1/auth/password"]
-  r14 --> e144
+  r15 --> e144
   e145["POST /api/v1/auth/recovery/reset"]
-  r14 --> e145
+  r15 --> e145
   e146["POST /api/v1/auth/recovery/start"]
-  r14 --> e146
+  r15 --> e146
   e147["GET /api/v1/setup/state"]
-  r15 --> e147
+  r16 --> e147
   e148["POST /api/v1/setup/complete"]
-  r15 --> e148
+  r16 --> e148
   e149["PUT /api/v1/setup/profile"]
-  r15 --> e149
+  r16 --> e149
 ```

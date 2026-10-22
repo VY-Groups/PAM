@@ -2,6 +2,8 @@ import { useTranslation } from 'react-i18next';
 
 import { Chip, DataTable, SectionHeader } from '../../components';
 import type { LicenseEvent, LicenseRecord, Meta } from '../../api/generated/models';
+import { ACTION_OPS, canOperate } from '../../app/guards/RoleGate';
+import { useAuth } from '../../app/providers/useAuth';
 import { SectionBody } from './SectionBody';
 import { useLicenseDetail } from './queries';
 
@@ -202,6 +204,11 @@ export function LicenseDetailSection({
   onStatus: (message: string | null) => void;
 }) {
   const { t } = useTranslation();
+  const { whoami } = useAuth();
+  // D3: revoke/restore are administrator-class - the auditor who picked the
+  // key still gets the signed file, but the lifecycle writes show the reason.
+  const canRevoke = canOperate(ACTION_OPS.licenseRevoke, whoami);
+  const canRestore = canOperate(ACTION_OPS.licenseRestore, whoami);
   const detail = useLicenseDetail(licenseKey);
 
   if (licenseKey === null) {
@@ -556,22 +563,26 @@ export function LicenseDetailSection({
                   {license.status === 'active' ? (
                     <button
                       type="button"
+                      disabled={!canRevoke}
+                      title={canRevoke ? undefined : t('roleReasons.administrator')}
                       onClick={() => {
                         onStatus(null);
                         onRevoke(license);
                       }}
-                      className="rounded border border-error/60 px-2 py-1 font-label-badge text-label-badge uppercase tracking-wider text-error hover:bg-error/10"
+                      className="rounded border border-error/60 px-2 py-1 font-label-badge text-label-badge uppercase tracking-wider text-error hover:bg-error/10 disabled:opacity-50 disabled:cursor-not-allowed"
                     >
                       {t('licensing.detail.revoke')}
                     </button>
                   ) : (
                     <button
                       type="button"
+                      disabled={!canRestore}
+                      title={canRestore ? undefined : t('roleReasons.administrator')}
                       onClick={() => {
                         onStatus(null);
                         onRestore(license);
                       }}
-                      className="rounded border border-outline-variant/60 px-2 py-1 font-label-badge text-label-badge uppercase tracking-wider text-on-surface hover:bg-surface-container-high"
+                      className="rounded border border-outline-variant/60 px-2 py-1 font-label-badge text-label-badge uppercase tracking-wider text-on-surface hover:bg-surface-container-high disabled:opacity-50 disabled:cursor-not-allowed"
                     >
                       {t('licensing.detail.restore')}
                     </button>

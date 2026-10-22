@@ -3,6 +3,8 @@ import { useTranslation } from 'react-i18next';
 
 import { Button, Chip, DataTable, SectionHeader } from '../../components';
 import type { BreakGlassRequest } from '../../api/generated/models';
+import { ACTION_OPS, canOperate } from '../../app/guards/RoleGate';
+import { useAuth } from '../../app/providers/useAuth';
 import { SectionBody } from './SectionBody';
 import {
   useApproveBreakGlass,
@@ -64,6 +66,11 @@ export function BreakGlassListSection({
   onError: (message: string) => void;
 }) {
   const { t } = useTranslation();
+  const { whoami } = useAuth();
+  // D3: approver-class decisions render disabled with the reason for the
+  // operator (who can file but not sign); open/close are operator-class.
+  const canApprove = canOperate(ACTION_OPS.breakGlassApprove, whoami);
+  const canDeny = canOperate(ACTION_OPS.breakGlassDeny, whoami);
 
   const [status, setStatus] = useState<(typeof breakGlassStatuses)[number] | undefined>(
     undefined,
@@ -188,7 +195,8 @@ export function BreakGlassListSection({
             <>
               <Button
                 type="button"
-                disabled={approveBreakGlass.isPending}
+                disabled={approveBreakGlass.isPending || !canApprove}
+                title={canApprove ? undefined : t('roleReasons.approver')}
                 onClick={() => approve(row)}
               >
                 {t('breakGlass.list.approve')}
@@ -196,7 +204,8 @@ export function BreakGlassListSection({
               <Button
                 type="button"
                 variant="secondary"
-                disabled={denyBreakGlass.isPending}
+                disabled={denyBreakGlass.isPending || !canDeny}
+                title={canDeny ? undefined : t('roleReasons.approver')}
                 onClick={() => deny(row)}
               >
                 {t('breakGlass.list.deny')}

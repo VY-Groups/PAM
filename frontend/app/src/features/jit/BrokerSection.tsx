@@ -4,6 +4,8 @@ import { zodResolver } from '@hookform/resolvers/zod';
 import { useTranslation } from 'react-i18next';
 
 import { isBackendDown } from '../../api/http';
+import { ACTION_OPS, canOperate } from '../../app/guards/RoleGate';
+import { useAuth } from '../../app/providers/useAuth';
 import {
   Button,
   Chip,
@@ -52,6 +54,9 @@ import { SectionBody } from './SectionBody';
  */
 export function BrokerSection({ actor }: { actor: string }) {
   const { t } = useTranslation();
+  const { whoami } = useAuth();
+  // D3: registering a pipeline identity is administrator-class.
+  const canRegister = canOperate(ACTION_OPS.brokerPolicyCreate, whoami);
   const stats = useBrokerStats();
   const policies = useBrokerPolicies();
   const credentials = useBrokerCredentials();
@@ -112,7 +117,12 @@ export function BrokerSection({ actor }: { actor: string }) {
           <span className="font-label-md text-label-md text-on-surface-variant">
             {t('jit.broker.policiesHeading')}
           </span>
-          <Button icon="add" onClick={() => setRegistering(true)}>
+          <Button
+            icon="add"
+            disabled={!canRegister}
+            title={canRegister ? undefined : t('roleReasons.administrator')}
+            onClick={() => setRegistering(true)}
+          >
             {t('jit.broker.register')}
           </Button>
         </div>
@@ -259,6 +269,9 @@ function PoliciesTable({
   onRevoke: (policy: BrokerPolicy) => void;
 }) {
   const { t } = useTranslation();
+  const { whoami } = useAuth();
+  // D3: revoking a policy is administrator-class.
+  const canRevoke = canOperate(ACTION_OPS.brokerPolicyDelete, whoami);
   const columns: DataTableColumn<BrokerPolicy>[] = [
     {
       key: 'identity',
@@ -343,7 +356,8 @@ function PoliciesTable({
             variant="destructive"
             icon="block"
             ariaLabel={t('jit.broker.actionsUi.revokeNamed', { name: row.name })}
-            disabled={busy}
+            disabled={busy || !canRevoke}
+            title={canRevoke ? undefined : t('roleReasons.administrator')}
             onClick={() => onRevoke(row)}
           >
             {t('jit.broker.actionsUi.revoke')}
@@ -388,6 +402,11 @@ function CredentialsTable({
   onClose: (row: BrokerCredential) => void;
 }) {
   const { t } = useTranslation();
+  const { whoami } = useAuth();
+  // D3: credential decisions are approver-class; Close stays enabled -
+  // the operator who filed the request may close it, nobody may sign it.
+  const canApprove = canOperate(ACTION_OPS.brokerApprove, whoami);
+  const canDeny = canOperate(ACTION_OPS.brokerDeny, whoami);
   const columns: DataTableColumn<BrokerCredential>[] = [
     {
       key: 'credential',
@@ -468,7 +487,8 @@ function CredentialsTable({
               <Button
                 icon="how_to_reg"
                 ariaLabel={t('jit.broker.actionsUi.approveNamed', { id: row.id })}
-                disabled={busy}
+                disabled={busy || !canApprove}
+                title={canApprove ? undefined : t('roleReasons.approver')}
                 onClick={() => onApprove(row)}
               >
                 {t('jit.broker.actionsUi.approve')}
@@ -477,7 +497,8 @@ function CredentialsTable({
                 variant="destructive"
                 icon="block"
                 ariaLabel={t('jit.broker.actionsUi.denyNamed', { id: row.id })}
-                disabled={busy}
+                disabled={busy || !canDeny}
+                title={canDeny ? undefined : t('roleReasons.approver')}
                 onClick={() => onDeny(row)}
               >
                 {t('jit.broker.actionsUi.deny')}

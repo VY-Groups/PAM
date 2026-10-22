@@ -6,6 +6,7 @@ import type { UseFormReturn } from 'react-hook-form';
 
 import { isBackendDown } from '../../api/http';
 import { BackendDownNotice } from '../../app/error/BackendDownNotice';
+import { ACTION_OPS, canOperate } from '../../app/guards/RoleGate';
 import { useAuth } from '../../app/providers/useAuth';
 import {
   Button,
@@ -560,7 +561,12 @@ function RequestDetailBody({
   onAction: (kind: PageActionKind, requestId: number, reason?: string) => void;
 }) {
   const { t } = useTranslation();
+  const { whoami } = useAuth();
   const detail = useJitRequestDetail(requestId);
+  // D3: approve/deny are approver-class; the operator who filed this
+  // request sees them disabled with the stated reason, never a 403.
+  const canApprove = canOperate(ACTION_OPS.jitApprove, whoami);
+  const canDeny = canOperate(ACTION_OPS.jitDeny, whoami);
   const denyForm = useForm<ReasonValues>({
     resolver: zodResolver(reasonSchema),
     mode: 'onSubmit',
@@ -747,7 +753,8 @@ function RequestDetailBody({
             <Button
               key={role}
               icon="how_to_reg"
-              disabled={busyOr(busy, selfApproval)}
+              disabled={busyOr(busy, selfApproval) || !canApprove}
+              title={canApprove ? undefined : t('roleReasons.approver')}
               ariaLabel={t('jit.detail.actionsUi.approveNamed', {
                 role: t(`jit.detail.role.${role}`),
                 id: request.id,
@@ -790,7 +797,13 @@ function RequestDetailBody({
             />
           </label>
           <div>
-            <Button type="submit" variant="destructive" icon="block" disabled={busy}>
+            <Button
+              type="submit"
+              variant="destructive"
+              icon="block"
+              disabled={busy || !canDeny}
+              title={canDeny ? undefined : t('roleReasons.approver')}
+            >
               {t('jit.detail.actionsUi.deny')}
             </Button>
           </div>

@@ -19,22 +19,68 @@
     "licensing": "Licensing & Entitlements",
     "breakGlass": "Emergency Break-Glass",
     "vendorAccess": "Vendor Access",
+    "approvals": "Approvals",
     "settings": "Settings",
     "users": "Users & Credentials",
     "security": "Security & MFA",
     "topology": "System Maps",
     "group": {
-      "accessSessions": "Access & Sessions",
-      "infrastructure": "Infrastructure",
-      "identityAccess": "Identity & Access",
-      "policyCompliance": "Policy & Compliance",
-      "vaultSecrets": "Vault & Secrets",
+      "access": "Access",
+      "approvals": "Approvals",
+      "sessions": "Sessions",
+      "evidence": "Evidence",
       "platform": "Platform"
+    }
+  },
+  "roleGate": {
+    "title": "Not available for your role",
+    "body": "This page is not part of the {{role}} console.",
+    "landing": "Go to my landing page"
+  },
+  "roleReasons": {
+    "approver": "requires approver role",
+    "administrator": "requires administrator role"
+  },
+  "approvals": {
+    "kicker": "Pending decisions",
+    "title": "Approvals inbox",
+    "subtitle": "JIT, break-glass, vendor and brokered-credential decisions with requester, risk and ticket context. The server has the final word - refusals show here verbatim.",
+    "count": "{{count}} pending",
+    "loading": "Loading…",
+    "sectionError": "Could not load: {{message}}",
+    "empty": "Nothing waiting for a decision.",
+    "jitQueue": "JIT access requests",
+    "breakGlassQueue": "Break-glass requests",
+    "vendorQueue": "Vendor invites",
+    "brokerQueue": "Brokered credentials",
+    "approve": "Approve",
+    "approveManager": "Approve as manager",
+    "approveSecurity": "Approve as security",
+    "deny": "Deny",
+    "named": "{{action}} — {{name}}",
+    "cols": {
+      "id": "Request",
+      "requester": "Requester",
+      "risk": "Risk",
+      "ticket": "Ticket",
+      "when": "When",
+      "actions": "Decision",
+      "severity": "Severity",
+      "target": "Target",
+      "requestedBy": "Requested by",
+      "signed": "Signatures",
+      "name": "Vendor",
+      "contact": "Contact",
+      "policy": "Policy",
+      "reason": "Reason"
     }
   },
   "shell": {
     "signOut": "Sign out",
     "roleBadge": "Role: {{role}}",
+    "scope": "scoped to {{count}} targets",
+    "scopeItems": "scoped to {{count}} vault items",
+    "scopeBoth": "scoped to {{targets}} targets, {{items}} vault items",
     "breakGlassButton": "Break-Glass",
     "checkingSession": "Checking session…",
     "backendDownTitle": "License server unreachable",
@@ -156,9 +202,7 @@
     "goHome": "Back to Command Center",
     "unexpectedTitle": "Something went wrong",
     "unexpectedBody": "The console hit an unexpected error and stopped rendering this view.",
-    "retry": "Try again",
-    "roleForbiddenTitle": "Section not available for your role",
-    "roleForbiddenBody": "Your role ({{role}}) may not open this section. Ask an administrator for a binding if you need it."
+    "retry": "Try again"
   },
   "pending": {
     "title": "{{feature}} arrives at F4",

@@ -1,8 +1,9 @@
 import type { DataRouter, RouteObject } from 'react-router';
-import { createBrowserRouter, Navigate } from 'react-router';
+import { createBrowserRouter } from 'react-router';
 
 import { NotFound } from './error/NotFound';
 import { RequireAuth } from './guards/RequireAuth';
+import { RoleLanding } from './guards/RoleGate';
 import { PendingScreen } from './PendingScreen';
 import { AppShell } from './layout/AppShell';
 import { NAV_ITEMS } from './layout/nav';
@@ -10,6 +11,7 @@ import type { NavItem } from './layout/nav';
 import { CommandCenterPage } from '../features/command-center/CommandCenterPage';
 import { VaultPage } from '../features/vault/VaultPage';
 import { JitPage } from '../features/jit/JitPage';
+import { ApprovalsPage } from '../features/approvals/ApprovalsPage';
 import { SessionsPage } from '../features/sessions/SessionsPage';
 import { PolicyPage } from '../features/policy/PolicyPage';
 import { CompliancePage } from '../features/compliance/CompliancePage';
@@ -49,6 +51,9 @@ const F4_LIVE_ROUTES = new Set([
   '/break-glass',
   '/licensing',
   '/topology',
+  // ADR-0021 12.RC: the approvals inbox - F4-native (no legacy screen
+  // existed), live with the role-based console batch.
+  '/approvals',
   // ADR-0015 11.5: the Platform Settings flip - the strangle is complete,
   // so /settings is a live route and carries no pending fallback.
   '/settings',
@@ -73,8 +78,11 @@ export const routes: RouteObject[] = [
       </RequireAuth>
     ),
     children: [
-      { index: true, element: <Navigate to="/command-center" replace /> },
+      // ADR-0021 12.RC: each session starts at its role's landing page
+      // (the ordered operations rule in guards/RoleGate).
+      { index: true, element: <RoleLanding /> },
       { path: '/command-center', element: <CommandCenterPage /> },
+      { path: '/approvals', element: <ApprovalsPage /> },
       { path: '/vault', element: <VaultPage /> },
       { path: '/jit', element: <JitPage /> },
       { path: '/sessions', element: <SessionsPage /> },

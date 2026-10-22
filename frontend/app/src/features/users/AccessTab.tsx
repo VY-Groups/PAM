@@ -2,6 +2,8 @@ import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import { BackendDownNotice } from '../../app/error/BackendDownNotice';
+import { ACTION_OPS, canOperate } from '../../app/guards/RoleGate';
+import { useAuth } from '../../app/providers/useAuth';
 import { Button, DataTable, SectionHeader } from '../../components';
 import type { RoleBinding, RoleBindingCreateRole } from '../../api/generated/models';
 import { isBackendDown } from '../../api/http';
@@ -54,6 +56,11 @@ const inputClass =
 
 export function AccessTab({ usernames }: { usernames: string[] }) {
   const { t } = useTranslation();
+  const { whoami } = useAuth();
+  // D3: granting/revoking a binding is administrator-class; the auditor
+  // who can list bindings sees them disabled with the stated reason.
+  const canGrant = canOperate(ACTION_OPS.bindingCreate, whoami);
+  const canRevoke = canOperate(ACTION_OPS.bindingRevoke, whoami);
   const roles = useRoles();
   const bindings = useRoleBindings();
   const create = useCreateRoleBinding();
@@ -217,7 +224,12 @@ export function AccessTab({ usernames }: { usernames: string[] }) {
             ))}
           </select>
         </label>
-        <Button type="button" onClick={handleGrant} disabled={create.isPending}>
+        <Button
+          type="button"
+          onClick={handleGrant}
+          disabled={create.isPending || !canGrant}
+          title={canGrant ? undefined : t('roleReasons.administrator')}
+        >
           {t('users.access.form.submit')}
         </Button>
       </div>
@@ -276,6 +288,8 @@ export function AccessTab({ usernames }: { usernames: string[] }) {
                 <Button
                   type="button"
                   variant="destructive"
+                  disabled={!canRevoke}
+                  title={canRevoke ? undefined : t('roleReasons.administrator')}
                   onClick={() => handleRevoke(row)}
                 >
                   {t('users.access.revoke')}

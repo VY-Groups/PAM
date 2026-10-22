@@ -574,3 +574,39 @@ describe('Break-Glass (F4 screen 9)', () => {
     await expectNoAxeViolations(container);
   });
 });
+
+/**
+ * Step 6 (ADR-0021 D3): the approver-class decisions render disabled with
+ * the stated reason for the operator, who holds the file/open/close
+ * operations but no approve/deny - verbatim contract operations from the
+ * step-1 audit, never a role name in the logic.
+ */
+describe('D3 action gating (step 6)', () => {
+  it('renders Approve and Deny disabled with the approver reason for the operator', async () => {
+    stubFetch([
+      whoamiRoute({
+        ...WHOAMI_OPEN_BODY,
+        mode: 'token',
+        principal: 'op-1',
+        role: 'operator',
+        kind: 'ldap',
+        operations: [
+          'post /api/v1/break-glass/requests',
+          'post /api/v1/break-glass/requests/{request_id}/open',
+          'post /api/v1/break-glass/requests/{request_id}/close',
+        ],
+        operations_count: 3,
+      }),
+      ...breakGlassRoutes(),
+    ]);
+    renderApp('/break-glass');
+
+    const approve = await screen.findByRole('button', { name: 'Approve' });
+    expect(approve).toBeDisabled();
+    expect(approve).toHaveAttribute('title', 'requires approver role');
+
+    const deny = screen.getByRole('button', { name: 'Deny' });
+    expect(deny).toBeDisabled();
+    expect(deny).toHaveAttribute('title', 'requires approver role');
+  });
+});

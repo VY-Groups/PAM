@@ -5,6 +5,8 @@ import { useTranslation } from 'react-i18next';
 
 import { isBackendDown } from '../../api/http';
 import { BackendDownNotice } from '../../app/error/BackendDownNotice';
+import { ACTION_OPS, canOperate } from '../../app/guards/RoleGate';
+import { useAuth } from '../../app/providers/useAuth';
 import {
   Button,
   Chip,
@@ -55,6 +57,14 @@ interface SecretReveal {
  */
 export function UsersPage() {
   const { t } = useTranslation();
+  const { whoami } = useAuth();
+  // D3: every user write is administrator-class; the auditor who can list
+  // users sees them disabled with the stated reason, never a 403.
+  const canUpdate = canOperate(ACTION_OPS.userUpdate, whoami);
+  const canUnlock = canOperate(ACTION_OPS.userUnlock, whoami);
+  const canReset = canOperate(ACTION_OPS.userPasswordReset, whoami);
+  const canRevoke = canOperate(ACTION_OPS.userSessionsRevoke, whoami);
+  const canCreate = canOperate(ACTION_OPS.userCreate, whoami);
 
   const [source, setSource] = useState<GetApiV1UsersSource | ''>('');
   const [q, setQ] = useState('');
@@ -285,28 +295,60 @@ export function UsersPage() {
           <Button
             type="button"
             variant={user.is_active ? 'destructive' : 'secondary'}
+            disabled={!canUpdate}
+            title={canUpdate ? undefined : t('roleReasons.administrator')}
             onClick={() => doActivate(user, !user.is_active)}
           >
             {user.is_active ? t('users.actions.deactivate') : t('users.actions.activate')}
           </Button>
           {isLocked(user) ? (
-            <Button type="button" variant="secondary" onClick={() => doUnlock(user)}>
+            <Button
+              type="button"
+              variant="secondary"
+              disabled={!canUnlock}
+              title={canUnlock ? undefined : t('roleReasons.administrator')}
+              onClick={() => doUnlock(user)}
+            >
               {t('users.actions.unlock')}
             </Button>
           ) : null}
-          <Button type="button" variant="secondary" onClick={() => doReset(user)}>
+          <Button
+            type="button"
+            variant="secondary"
+            disabled={!canReset}
+            title={canReset ? undefined : t('roleReasons.administrator')}
+            onClick={() => doReset(user)}
+          >
             {t('users.actions.resetPassword')}
           </Button>
           {user.must_change_password ? (
-            <Button type="button" variant="secondary" onClick={() => doClearChange(user)}>
+            <Button
+              type="button"
+              variant="secondary"
+              disabled={!canUpdate}
+              title={canUpdate ? undefined : t('roleReasons.administrator')}
+              onClick={() => doClearChange(user)}
+            >
               {t('users.actions.clearChange')}
             </Button>
           ) : (
-            <Button type="button" variant="secondary" onClick={() => doRequireChange(user)}>
+            <Button
+              type="button"
+              variant="secondary"
+              disabled={!canUpdate}
+              title={canUpdate ? undefined : t('roleReasons.administrator')}
+              onClick={() => doRequireChange(user)}
+            >
               {t('users.actions.requireChange')}
             </Button>
           )}
-          <Button type="button" variant="destructive" onClick={() => doRevoke(user)}>
+          <Button
+            type="button"
+            variant="destructive"
+            disabled={!canRevoke}
+            title={canRevoke ? undefined : t('roleReasons.administrator')}
+            onClick={() => doRevoke(user)}
+          >
             {t('users.actions.revokeSessions')}
           </Button>
         </span>
@@ -542,7 +584,11 @@ export function UsersPage() {
                       {t('users.create.passwordHint')}
                     </p>
                     <div className="sm:col-span-2">
-                      <Button type="submit" disabled={create.isPending}>
+                      <Button
+                        type="submit"
+                        disabled={create.isPending || !canCreate}
+                        title={canCreate ? undefined : t('roleReasons.administrator')}
+                      >
                         {t('users.create.submit')}
                       </Button>
                     </div>

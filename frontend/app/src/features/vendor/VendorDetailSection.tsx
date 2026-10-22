@@ -2,6 +2,8 @@ import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import { Button, Chip, SectionHeader } from '../../components';
+import { ACTION_OPS, canOperate } from '../../app/guards/RoleGate';
+import { useAuth } from '../../app/providers/useAuth';
 import { formatRelative, formatTime } from '../../lib/format';
 import { DenyDialog } from './DenyDialog';
 import { MfaDialog } from './MfaDialog';
@@ -40,8 +42,18 @@ export function VendorDetailSection({
   onSelect: (id: number | null) => void;
 }) {
   const { t } = useTranslation();
+  const { whoami } = useAuth();
   const vendor = useVendorDetail(vendorId);
   const vendorApprove = useVendorApprove();
+  // D3: the three chain verifications and Revoke are administrator-class,
+  // Approve/Deny approver-class - the operator who can file an access
+  // request cannot sign or complete the chain.
+  const canMfa = canOperate(ACTION_OPS.vendorMfa, whoami);
+  const canNda = canOperate(ACTION_OPS.vendorNda, whoami);
+  const canTicket = canOperate(ACTION_OPS.vendorTicket, whoami);
+  const canApprove = canOperate(ACTION_OPS.vendorApprove, whoami);
+  const canDeny = canOperate(ACTION_OPS.vendorDeny, whoami);
+  const canRevoke = canOperate(ACTION_OPS.vendorRevoke, whoami);
 
   const [mfaOpen, setMfaOpen] = useState(false);
   const [ndaOpen, setNdaOpen] = useState(false);
@@ -189,18 +201,34 @@ export function VendorDetailSection({
               <div className="flex flex-wrap items-center gap-space-sm">
                 {data.status === 'invited' ? (
                   <>
-                    <Button type="button" onClick={() => setMfaOpen(true)}>
+                    <Button
+                      type="button"
+                      disabled={!canMfa}
+                      title={canMfa ? undefined : t('roleReasons.administrator')}
+                      onClick={() => setMfaOpen(true)}
+                    >
                       {t('vendor.actions.verifyMfa')}
                     </Button>
-                    <Button type="button" onClick={() => setNdaOpen(true)}>
+                    <Button
+                      type="button"
+                      disabled={!canNda}
+                      title={canNda ? undefined : t('roleReasons.administrator')}
+                      onClick={() => setNdaOpen(true)}
+                    >
                       {t('vendor.actions.recordNda')}
                     </Button>
-                    <Button type="button" onClick={() => setTicketOpen(true)}>
+                    <Button
+                      type="button"
+                      disabled={!canTicket}
+                      title={canTicket ? undefined : t('roleReasons.administrator')}
+                      onClick={() => setTicketOpen(true)}
+                    >
                       {t('vendor.actions.verifyTicket')}
                     </Button>
                     <Button
                       type="button"
-                      disabled={vendorApprove.isPending}
+                      disabled={vendorApprove.isPending || !canApprove}
+                      title={canApprove ? undefined : t('roleReasons.approver')}
                       onClick={approve}
                     >
                       {t('vendor.actions.approve')}
@@ -208,6 +236,8 @@ export function VendorDetailSection({
                     <Button
                       type="button"
                       variant="secondary"
+                      disabled={!canDeny}
+                      title={canDeny ? undefined : t('roleReasons.approver')}
                       onClick={() => setDenyOpen(true)}
                     >
                       {t('vendor.actions.deny')}
@@ -219,6 +249,8 @@ export function VendorDetailSection({
                     <Button
                       type="button"
                       variant="secondary"
+                      disabled={!canRevoke}
+                      title={canRevoke ? undefined : t('roleReasons.administrator')}
                       onClick={() => setRevokeOpen(true)}
                     >
                       {t('vendor.actions.revoke')}

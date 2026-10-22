@@ -3,6 +3,8 @@ import { useTranslation } from 'react-i18next';
 
 import { Button, Chip, Modal, SectionHeader } from '../../components';
 import type { CloudConnector } from '../../api/generated/models';
+import { ACTION_OPS, canOperate } from '../../app/guards/RoleGate';
+import { useAuth } from '../../app/providers/useAuth';
 import { formatTime } from '../../lib/format';
 import { ConnectorDialog } from './ConnectorDialog';
 import { SectionBody } from './SectionBody';
@@ -35,6 +37,12 @@ type ActionResult = { message: string; error?: string };
  */
 export function ConnectorsSection({ actor }: { actor: string }) {
   const { t } = useTranslation();
+  const { whoami } = useAuth();
+  // D3: create/probe/remove are administrator-class (only admin holds them
+  // in ADMIN_OPERATIONS); Discover is operator-class and stays enabled.
+  const canCreate = canOperate(ACTION_OPS.connectorCreate, whoami);
+  const canProbe = canOperate(ACTION_OPS.connectorTest, whoami);
+  const canRemove = canOperate(ACTION_OPS.connectorDelete, whoami);
 
   const [provider, setProvider] = useState<(typeof PROVIDER_FILTERS)[number] | undefined>(
     undefined,
@@ -123,7 +131,13 @@ export function ConnectorsSection({ actor }: { actor: string }) {
                   total: connectors.data.total,
                 })
               : undefined}
-            <Button type="button" icon="add_circle" onClick={() => setAddOpen(true)}>
+            <Button
+              type="button"
+              icon="add_circle"
+              disabled={!canCreate}
+              title={canCreate ? undefined : t('roleReasons.administrator')}
+              onClick={() => setAddOpen(true)}
+            >
               {t('infrastructure.actions.addConnector')}
             </Button>
           </>
@@ -207,7 +221,8 @@ export function ConnectorsSection({ actor }: { actor: string }) {
                         <Button
                           type="button"
                           variant="secondary"
-                          disabled={probe.isPending || remove.isPending}
+                          disabled={probe.isPending || remove.isPending || !canProbe}
+                          title={canProbe ? undefined : t('roleReasons.administrator')}
                           onClick={() => onProbe(connector)}
                         >
                           {t('infrastructure.actions.probe')}
@@ -220,7 +235,12 @@ export function ConnectorsSection({ actor }: { actor: string }) {
                         >
                           {t('infrastructure.actions.discover')}
                         </Button>
-                        <Button type="button" onClick={() => setRemoveTarget(connector)}>
+                        <Button
+                          type="button"
+                          disabled={!canRemove}
+                          title={canRemove ? undefined : t('roleReasons.administrator')}
+                          onClick={() => setRemoveTarget(connector)}
+                        >
                           {t('infrastructure.actions.remove')}
                         </Button>
                       </span>
