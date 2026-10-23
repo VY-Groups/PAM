@@ -143,7 +143,7 @@ def free_port() -> int:
 # honest empty state + validation
 # ---------------------------------------------------------------------------
 def test_stats_start_empty_honest(client):
-    stats = client.get("/api/v1/discovery/stats").get_json()
+    stats = client.get("/api/v1/discovery/stats", headers=ADMIN).get_json()
     assert stats["total"] == 0
     assert stats["by_type"] == {kind: 0 for kind in ASSET_TYPES}
     assert stats["by_risk"] == {level: 0 for level in ASSET_RISKS}
@@ -151,7 +151,7 @@ def test_stats_start_empty_honest(client):
     assert stats["accounts_total"] == 0
     assert stats["scans"] == {"total": 0, "last": None}
 
-    page = client.get("/api/v1/discovery/assets").get_json()
+    page = client.get("/api/v1/discovery/assets", headers=ADMIN).get_json()
     assert page == {"assets": [], "total": 0, "limit": 50, "offset": 0}
 
 
@@ -161,7 +161,7 @@ def test_list_filters_reject_unknown_values(client):
         "?risk=APOCALYPSE",
         "?pam_status=maybe",
     ):
-        response = client.get(f"/api/v1/discovery/assets{query}")
+        response = client.get(f"/api/v1/discovery/assets{query}", headers=ADMIN)
         assert response.status_code == 400, query
         assert "allowed" in response.get_json()["details"]
 
@@ -235,7 +235,7 @@ def test_manual_onboard_creates_asset_vault_and_account(client):
         for event in vault_feed["events"]
     )
 
-    stats = client.get("/api/v1/discovery/stats").get_json()
+    stats = client.get("/api/v1/discovery/stats", headers=ADMIN).get_json()
     assert stats["total"] == 1
     assert stats["by_type"]["database"] == 1
     assert stats["accounts_total"] == 1
@@ -254,7 +254,7 @@ def test_onboard_duplicate_address_rejected(client):
 
 def test_vault_counts_by_target_in_list(client):
     register(client, "10.10.0.7")
-    page = client.get("/api/v1/discovery/assets").get_json()
+    page = client.get("/api/v1/discovery/assets", headers=ADMIN).get_json()
     assert page["total"] == 1
     assert page["assets"][0]["vault_count"] == 1
 
@@ -357,7 +357,7 @@ def test_real_scan_of_local_listener(app, client):
         assert scan["finished_at"] is not None
 
         # the discovered asset carries the real probe output
-        page = client.get("/api/v1/discovery/assets").get_json()
+        page = client.get("/api/v1/discovery/assets", headers=ADMIN).get_json()
         assert page["total"] == 1
         asset = page["assets"][0]
         assert asset["address"] == "127.0.0.1"
@@ -407,7 +407,7 @@ def test_scan_writes_discovery_events(app, client):
     assert history["scans"][0]["scope"] == "127.0.0.1"
     assert history["scans"][0]["triggered_by"] == "tester"
 
-    stats = client.get("/api/v1/discovery/stats").get_json()
+    stats = client.get("/api/v1/discovery/stats", headers=ADMIN).get_json()
     assert stats["scans"]["total"] == 1
     assert stats["scans"]["last"]["scope"] == "127.0.0.1"
 
@@ -566,18 +566,21 @@ def test_asset_list_search_and_paging(app, client):
     register(client, "10.30.0.1", hostname="alpha")
     register(client, "10.30.0.2", hostname="beta")
 
-    page = client.get("/api/v1/discovery/assets?limit=1").get_json()
+    page = client.get("/api/v1/discovery/assets?limit=1", headers=ADMIN).get_json()
     assert page["total"] == 2
     assert len(page["assets"]) == 1
     page2 = client.get(
-        "/api/v1/discovery/assets?limit=1&offset=1"
+        "/api/v1/discovery/assets?limit=1&offset=1",
+        headers=ADMIN,
     ).get_json()
     assert len(page2["assets"]) == 1
     assert page["assets"][0]["id"] != page2["assets"][0]["id"]
 
     assert client.get(
-        "/api/v1/discovery/assets?q=alpha"
+        "/api/v1/discovery/assets?q=alpha",
+        headers=ADMIN,
     ).get_json()["total"] == 1
     assert client.get(
-        "/api/v1/discovery/assets?q=nothing-matches"
+        "/api/v1/discovery/assets?q=nothing-matches",
+        headers=ADMIN,
     ).get_json()["total"] == 0

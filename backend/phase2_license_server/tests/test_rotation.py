@@ -138,13 +138,13 @@ def test_list_and_detail_never_expose_the_secret(client):
     value = "Op3rator-Supplied-Value-4411"
     item = onboard(client, "pg-primary", secret=value)
 
-    page = client.get("/api/v1/vault/items").get_json()
+    page = client.get("/api/v1/vault/items", headers=ADMIN).get_json()
     assert value not in json.dumps(page)
     row = page["items"][0]
     assert "secret" not in row
     assert row["secret_version"] == 1
 
-    detail = client.get(f"/api/v1/vault/items/{item['id']}").get_json()
+    detail = client.get(f"/api/v1/vault/items/{item['id']}", headers=ADMIN).get_json()
     assert value not in json.dumps(detail)
     assert "secret" not in detail["item"]
 
@@ -329,9 +329,9 @@ def test_failed_rotation_is_marked_failed_and_retriable(monkeypatch, client):
     assert response.status_code == 500
     assert "type_format" in response.get_json()["error"]
 
-    failed = client.get(f"/api/v1/vault/items/{item['id']}").get_json()["item"]
+    failed = client.get(f"/api/v1/vault/items/{item['id']}", headers=ADMIN).get_json()["item"]
     assert failed["status"] == "failed"
-    events = client.get("/api/v1/vault/events?action=rotation_failed").get_json()
+    events = client.get("/api/v1/vault/events?action=rotation_failed", headers=ADMIN).get_json()
     assert events["total"] == 1
     assert "type_format" in events["events"][0]["detail"]["error"]
 
@@ -340,7 +340,7 @@ def test_failed_rotation_is_marked_failed_and_retriable(monkeypatch, client):
     retry = client.post(f"/api/v1/vault/items/{item['id']}/rotate", headers=ACTOR)
     assert retry.status_code == 200
     assert retry.get_json()["rotation"]["previous_status"] == "failed"
-    recovered = client.get(f"/api/v1/vault/items/{item['id']}").get_json()["item"]
+    recovered = client.get(f"/api/v1/vault/items/{item['id']}", headers=ADMIN).get_json()["item"]
     assert recovered["status"] == "available"
 
 
@@ -355,7 +355,7 @@ def test_mint_failure_leaves_item_state_untouched(monkeypatch, client):
     assert response.status_code == 500
     monkeypatch.undo()
 
-    after = client.get(f"/api/v1/vault/items/{item['id']}").get_json()["item"]
+    after = client.get(f"/api/v1/vault/items/{item['id']}", headers=ADMIN).get_json()["item"]
     assert after["status"] == "available"  # failed before any state change
     assert after["secret_version"] == 1
 
@@ -423,7 +423,7 @@ def test_stats_report_real_encryption_coverage(app, client):
     onboard(client, "covered-one", secret="value-1")
     onboard(client, "covered-two", secret="value-2")
     insert_item(app, "metadata-only-row")
-    stats = client.get("/api/v1/vault/stats").get_json()
+    stats = client.get("/api/v1/vault/stats", headers=ADMIN).get_json()
     assert stats["secrets"] == {"managed": 2, "unmanaged": 1, "versions": 2}
 
 
@@ -431,15 +431,15 @@ def test_event_action_filter(client):
     item = onboard(client, "filter-cred")
     client.post(f"/api/v1/vault/items/{item['id']}/rotate", headers=ACTOR)
 
-    rotated = client.get("/api/v1/vault/events?action=rotated").get_json()
+    rotated = client.get("/api/v1/vault/events?action=rotated", headers=ADMIN).get_json()
     assert rotated["action"] == "rotated"
     assert rotated["total"] == 1
     assert {event["action"] for event in rotated["events"]} == {"rotated"}
 
-    onboarding = client.get("/api/v1/vault/events?action=onboarded").get_json()
+    onboarding = client.get("/api/v1/vault/events?action=onboarded", headers=ADMIN).get_json()
     assert {event["action"] for event in onboarding["events"]} == {"onboarded"}
 
-    bad = client.get("/api/v1/vault/events?action=nope")
+    bad = client.get("/api/v1/vault/events?action=nope", headers=ADMIN)
     assert bad.status_code == 400
     assert "allowed" in bad.get_json()["details"]
 
@@ -447,7 +447,7 @@ def test_event_action_filter(client):
 def test_onboard_event_records_secret_source(client):
     onboard(client, "src-generated")
     onboard(client, "src-operator", secret="operator-supplied")
-    events = client.get("/api/v1/vault/events?action=onboarded").get_json()["events"]
+    events = client.get("/api/v1/vault/events?action=onboarded", headers=ADMIN).get_json()["events"]
     by_name = {event["item_name"]: event for event in events}
     assert by_name["src-generated"]["detail"]["secret_source"] == "generated"
     assert by_name["src-operator"]["detail"]["secret_source"] == "operator"
@@ -471,9 +471,9 @@ def test_rotation_run_selects_only_due_credentials(app, client):
     assert summary["due_remaining"] == 0
     assert summary["failed_remaining"] == 0
 
-    rotated = client.get(f"/api/v1/vault/items/{due_id}").get_json()["item"]
+    rotated = client.get(f"/api/v1/vault/items/{due_id}", headers=ADMIN).get_json()["item"]
     assert rotated["secret_version"] == 1  # was a metadata row, now managed
-    untouched = client.get(f"/api/v1/vault/items/{fresh['id']}").get_json()["item"]
+    untouched = client.get(f"/api/v1/vault/items/{fresh['id']}", headers=ADMIN).get_json()["item"]
     assert untouched["secret_version"] == 1  # rotated nothing extra
 
 
@@ -482,7 +482,7 @@ def test_rotation_run_retries_failed_items(app, client):
     summary = client.post("/api/v1/rotation/run", json={}, headers=ACTOR).get_json()
     assert [entry["id"] for entry in summary["rotated"]] == [failed_id]
     assert summary["failed_remaining"] == 0
-    recovered = client.get(f"/api/v1/vault/items/{failed_id}").get_json()["item"]
+    recovered = client.get(f"/api/v1/vault/items/{failed_id}", headers=ADMIN).get_json()["item"]
     assert recovered["status"] == "available"
 
 
@@ -496,19 +496,19 @@ def test_rotation_run_validates_its_payload(app, client):
     assert missing.get_json()["details"]["missing"] == [4321]
     assert client.post("/api/v1/rotation/run", json={"cascade": "yes"}, headers=ACTOR).status_code == 400
     # a rejected run changes nothing
-    assert client.get("/api/v1/vault/items/1").get_json()["item"]["status"] == "available"
+    assert client.get("/api/v1/vault/items/1", headers=ADMIN).get_json()["item"]["status"] == "available"
 
 
 def test_scheduler_quiet_clock_creates_no_events(app, client):
     onboard(client, "not-due-yet", target="quiet.internal")
-    events_before = client.get("/api/v1/vault/events?limit=200").get_json()["total"]
+    events_before = client.get("/api/v1/vault/events?limit=200", headers=ADMIN).get_json()["total"]
 
     with client.application.app_context():
         quiet = run_due(client.application)
     assert quiet["rotated"] == []
     assert quiet["due_remaining"] == 0
 
-    events_after = client.get("/api/v1/vault/events?limit=200").get_json()["total"]
+    events_after = client.get("/api/v1/vault/events?limit=200", headers=ADMIN).get_json()["total"]
     assert events_after == events_before  # silence is not an event
 
 
@@ -519,7 +519,7 @@ def test_scheduler_rotates_only_due_credentials(app, client):
     assert [entry["id"] for entry in tick["rotated"]] == [due_id]
     assert tick["trigger"] == "scheduled"
 
-    rotated = client.get("/api/v1/vault/events?action=rotated").get_json()["events"]
+    rotated = client.get("/api/v1/vault/events?action=rotated", headers=ADMIN).get_json()["events"]
     scheduled = [
         event for event in rotated if event["detail"].get("trigger") == "scheduled"
     ]
@@ -546,7 +546,7 @@ def test_cascade_updates_same_target_dependents_only(app, client):
     with client.application.app_context():
         assert VaultItem.query.filter_by(id=sibling).first().secret_version == 1
         assert VaultItem.query.filter_by(id=primary).first().secret_version == 1
-    events = client.get("/api/v1/vault/events?action=rotated").get_json()["events"]
+    events = client.get("/api/v1/vault/events?action=rotated", headers=ADMIN).get_json()["events"]
     assert {event["item_name"] for event in events} == {
         "primary-cred",
         "sibling-cred",
@@ -564,7 +564,7 @@ def test_cascade_reports_checked_out_dependents_with_a_reason(app, client):
     assert summary["dependents_skipped"] == [
         {"name": "held-dependency", "reason": "Revoke the checkout before rotating"}
     ]
-    survivor = client.get(f"/api/v1/vault/items/{held}").get_json()["item"]
+    survivor = client.get(f"/api/v1/vault/items/{held}", headers=ADMIN).get_json()["item"]
     assert survivor["status"] == "checked_out"  # the run did not steal the checkout
 
 
@@ -609,7 +609,7 @@ def test_session_end_releases_checkout_then_rotates_with_dependents(app, client)
     assert rotation["previous_status"] == "available"  # released before rotating
     assert rotation["dependents"]["rotated"] == ["session-sibling"]
 
-    detail = client.get(f"/api/v1/vault/items/{item['id']}").get_json()["item"]
+    detail = client.get(f"/api/v1/vault/items/{item['id']}", headers=ADMIN).get_json()["item"]
     assert detail["status"] == "available"
     assert detail["checked_out_by"] is None
     assert detail["secret_version"] == 2
@@ -617,7 +617,7 @@ def test_session_end_releases_checkout_then_rotates_with_dependents(app, client)
     with client.application.app_context():
         assert VaultItem.query.filter_by(id=sibling).first().secret_version == 1
 
-    events = client.get("/api/v1/vault/events?limit=10").get_json()["events"]
+    events = client.get("/api/v1/vault/events?limit=10", headers=ADMIN).get_json()["events"]
     actions = [event["action"] for event in events]
     assert "revoked" in actions and "rotated" in actions
     revoked = next(event for event in events if event["action"] == "revoked")
@@ -674,7 +674,7 @@ def test_missing_key_without_autogen_fails_503_and_state_stays_clean(tmp_path):
     )
     assert refused.status_code == 503
     assert "Vault encryption key unavailable" in refused.get_json()["error"]
-    assert client.get("/api/v1/vault/stats").get_json()["total"] == 0
+    assert client.get("/api/v1/vault/stats", headers=ADMIN).get_json()["total"] == 0
 
     item_id = insert_item(application, "pre-key-row")
     rotate = client.post(f"/api/v1/vault/items/{item_id}/rotate", headers=ACTOR)

@@ -65,14 +65,14 @@ const OPERATIONS: Record<string, string[]> = {
 function whoamiFor(role: WhoAmIRole): WhoAmI {
   if (role === 'admin') {
     // Open/dev posture exactly as routes.py:644-652 builds it: operations
-    // "all", operations_count = len(ADMIN_OPERATIONS) = 145 (printed gate).
+    // "all", operations_count = len(ADMIN_OPERATIONS) = 177 (printed gate).
     return {
       mode: 'open',
       principal: 'open',
       role: 'admin',
       kind: 'open',
       operations: 'all',
-      operations_count: 145,
+      operations_count: 177,
     };
   }
   const operations = OPERATIONS[role] ?? [];
@@ -152,7 +152,7 @@ describe('role visibility matrix (ADR-0021 D1/D5)', () => {
       role: 'admin',
       kind: 'open',
       operations: 'all',
-      operations_count: 145,
+      operations_count: 177,
     };
     for (const item of NAV_ITEMS) expect(visibleByRole(item.path, open)).toBe(true);
     expect(landingFor(open)).toBe('/command-center');

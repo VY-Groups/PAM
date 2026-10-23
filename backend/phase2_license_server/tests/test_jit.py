@@ -162,7 +162,7 @@ def approve(client, request_id, role, actor="mgr"):
 
 
 def get_item(client, item_id):
-    response = client.get(f"/api/v1/vault/items/{item_id}")
+    response = client.get(f"/api/v1/vault/items/{item_id}", headers=ADMIN)
     assert response.status_code == 200
     return response.get_json()["item"]
 
@@ -210,7 +210,7 @@ def test_create_requires_admin_token(client, clock):
     response = client.post("/api/v1/jit/requests/1/approve", json={"role": "manager"})
     assert response.status_code == 401
     # reads stay public, like the rest of the console's inventory endpoints
-    assert client.get("/api/v1/jit/requests").status_code == 200
+    assert client.get("/api/v1/jit/requests", headers=ADMIN).status_code == 200
 
 
 # --- risk evaluation ---------------------------------------------------------
@@ -225,7 +225,7 @@ def test_low_risk_auto_approves_with_visible_factors(client, clock):
     assert request["status"] == "approved"
     assert request["approvals"]["manager"] is None
 
-    detail = client.get(f"/api/v1/jit/requests/{request['id']}").get_json()
+    detail = client.get(f"/api/v1/jit/requests/{request['id']}", headers=ADMIN).get_json()
     actions = [event["action"] for event in detail["events"]]
     assert actions.count("requested") == 1
     auto = next(e for e in detail["events"] if e["action"] == "approved")
@@ -427,13 +427,13 @@ def test_grant_checkout_close_rotates(client, clock):
     assert released["secret_version"] == version_before + 1
 
     rotated = [
-        e for e in client.get("/api/v1/vault/events?action=rotated").get_json()["events"]
+        e for e in client.get("/api/v1/vault/events?action=rotated", headers=ADMIN).get_json()["events"]
         if e["item_id"] == item["id"]
         and e["detail"].get("session_ref") == f"jit-{request['id']}"
     ]
     assert rotated, "closing a grant must audit a session-end rotation"
 
-    trail = client.get(f"/api/v1/jit/requests/{request['id']}").get_json()
+    trail = client.get(f"/api/v1/jit/requests/{request['id']}", headers=ADMIN).get_json()
     close_event = next(e for e in trail["events"] if e["action"] == "closed")
     assert close_event["detail"]["rotated"] is True
     assert close_event["detail"]["checkout_released"] is True
@@ -455,7 +455,7 @@ def test_expiry_releases_and_rotates_on_read(client, app, clock):
         row.expires_at = _Clock.FIXED - timedelta(minutes=1)
         db.session.commit()
 
-    listed = client.get("/api/v1/jit/requests").get_json()
+    listed = client.get("/api/v1/jit/requests", headers=ADMIN).get_json()
     row = next(r for r in listed["items"] if r["id"] == request["id"])
     assert row["status"] == "expired"
     assert row["minutes_left"] is None
@@ -465,7 +465,7 @@ def test_expiry_releases_and_rotates_on_read(client, app, clock):
     assert released["checked_out_by"] is None
     assert released["secret_version"] == version_before + 1
 
-    trail = client.get(f"/api/v1/jit/requests/{request['id']}").get_json()
+    trail = client.get(f"/api/v1/jit/requests/{request['id']}", headers=ADMIN).get_json()
     expiry = next(e for e in trail["events"] if e["action"] == "expired")
     assert expiry["actor"] == "system"
     assert expiry["detail"]["rotated"] is True
@@ -500,7 +500,7 @@ def test_stats_and_filters_report_real_counts(client, clock):
     pending_item = onboard(client, "jit-stats-pending")
     create_request(client, pending_item["id"], minutes=61)  # pending (medium)
 
-    stats = client.get("/api/v1/jit/stats").get_json()
+    stats = client.get("/api/v1/jit/stats", headers=ADMIN).get_json()
     assert stats["total"] == 2
     assert stats["by_status"]["approved"] == 1
     assert stats["by_status"]["pending"] == 1
@@ -509,14 +509,14 @@ def test_stats_and_filters_report_real_counts(client, clock):
     assert sum(stats["by_status"].values()) == stats["total"]
     assert sum(stats["by_risk"].values()) == stats["total"]
 
-    pending = client.get("/api/v1/jit/requests?status=pending").get_json()
+    pending = client.get("/api/v1/jit/requests?status=pending", headers=ADMIN).get_json()
     assert pending["total"] == 1
     assert all(r["status"] == "pending" for r in pending["items"])
 
-    filtered = client.get("/api/v1/jit/requests?requester=nomatch").get_json()
+    filtered = client.get("/api/v1/jit/requests?requester=nomatch", headers=ADMIN).get_json()
     assert filtered["total"] == 0
 
-    bad = client.get("/api/v1/jit/requests?status=nope")
+    bad = client.get("/api/v1/jit/requests?status=nope", headers=ADMIN)
     assert bad.status_code == 400
     assert bad.get_json()["details"]["field"] == "status"
 
@@ -524,14 +524,14 @@ def test_stats_and_filters_report_real_counts(client, clock):
 def test_detail_carries_trail_and_unknown_404(client, clock):
     item = onboard(client, "jit-detail")
     request = create_request(client, item["id"], minutes=61)
-    detail = client.get(f"/api/v1/jit/requests/{request['id']}").get_json()
+    detail = client.get(f"/api/v1/jit/requests/{request['id']}", headers=ADMIN).get_json()
     assert detail["request"]["id"] == request["id"]
     assert detail["request"]["minutes_left"] is None  # not granted yet
     actions = [event["action"] for event in detail["events"]]
     assert actions == ["requested"]  # newest first
     assert detail["events"][0]["actor"] == "tester"
 
-    assert client.get("/api/v1/jit/requests/99999").status_code == 404
+    assert client.get("/api/v1/jit/requests/99999", headers=ADMIN).status_code == 404
 
 
 def test_scheduler_tick_ends_elapsed_grants(app, client, clock):
@@ -553,7 +553,7 @@ def test_scheduler_tick_ends_elapsed_grants(app, client, clock):
     assert tick["jit_expired"] == 1
     assert tick["rotated"] == []  # the grant's own rotation already happened
     assert get_item(client, item["id"])["secret_version"] == version_before + 1
-    listed = client.get("/api/v1/jit/requests").get_json()
+    listed = client.get("/api/v1/jit/requests", headers=ADMIN).get_json()
     assert next(r for r in listed["items"] if r["id"] == request["id"])["status"] == "expired"
 
 

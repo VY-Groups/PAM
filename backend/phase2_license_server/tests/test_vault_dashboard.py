@@ -138,7 +138,7 @@ def insert_item(app, name, *, status="available", secret_type="database",
 # vault inventory
 # ---------------------------------------------------------------------------
 def test_vault_starts_empty_no_fabricated_inventory(client):
-    stats = client.get("/api/v1/vault/stats").get_json()
+    stats = client.get("/api/v1/vault/stats", headers=ADMIN).get_json()
     assert stats["total"] == 0
     assert stats["by_type"] == {kind: 0 for kind in VAULT_TYPES}
     assert sum(stats["by_status"].values()) == 0
@@ -147,7 +147,7 @@ def test_vault_starts_empty_no_fabricated_inventory(client):
     assert stats["checked_out"] == 0
     assert stats["events_today"] == {"checkouts": 0, "rotations": 0}
 
-    page = client.get("/api/v1/vault/items").get_json()
+    page = client.get("/api/v1/vault/items", headers=ADMIN).get_json()
     assert page == {"items": [], "total": 0, "limit": 50, "offset": 0}
 
 
@@ -175,29 +175,33 @@ def test_list_items_and_filters(client):
     onboard(client, "k8s-admin", secret_type="service_account", target="k8s.internal")
     client.post("/api/v1/vault/items/5/checkout", headers=ACTOR)
 
-    page = client.get("/api/v1/vault/items").get_json()
+    page = client.get("/api/v1/vault/items", headers=ADMIN).get_json()
     assert page["total"] == 7
     assert len(page["items"]) == 7
 
     databases = client.get(
-        "/api/v1/vault/items", query_string={"type": "database"}
+        "/api/v1/vault/items", query_string={"type": "database"},
+        headers=ADMIN,
     ).get_json()
     assert databases["total"] == 2
     assert all(item["secret_type"] == "database" for item in databases["items"])
 
     checked_out = client.get(
-        "/api/v1/vault/items", query_string={"status": "checked_out"}
+        "/api/v1/vault/items", query_string={"status": "checked_out"},
+        headers=ADMIN,
     ).get_json()
     assert checked_out["total"] == 1
 
     search = client.get(
-        "/api/v1/vault/items", query_string={"q": "pg-"}
+        "/api/v1/vault/items", query_string={"q": "pg-"},
+        headers=ADMIN,
     ).get_json()
     assert search["total"] == 2
     assert all("pg-" in item["name"] for item in search["items"])
 
     window = client.get(
-        "/api/v1/vault/items", query_string={"limit": 3, "offset": 4}
+        "/api/v1/vault/items", query_string={"limit": 3, "offset": 4},
+        headers=ADMIN,
     ).get_json()
     assert len(window["items"]) == 3
     assert window["total"] == 7
@@ -206,7 +210,7 @@ def test_list_items_and_filters(client):
 
 def test_list_items_rejects_unknown_filters(client):
     for query in ({"type": "nope"}, {"status": "nope"}):
-        response = client.get("/api/v1/vault/items", query_string=query)
+        response = client.get("/api/v1/vault/items", query_string=query, headers=ADMIN)
         assert response.status_code == 400
         assert "allowed" in response.get_json()["details"]
 
@@ -214,14 +218,14 @@ def test_list_items_rejects_unknown_filters(client):
 def test_detail_includes_item_and_its_events(client):
     onboard(client, "pg-primary", target="pg-primary.internal")
 
-    detail = client.get("/api/v1/vault/items/1").get_json()
+    detail = client.get("/api/v1/vault/items/1", headers=ADMIN).get_json()
     item = detail["item"]
     assert item["name"] == "pg-primary"
     assert item["secret_type"] == "database"
     assert item["rotation_interval_label"] == "Every 1d"
     assert [event["action"] for event in item["events"]] == ["onboarded"]
 
-    assert client.get("/api/v1/vault/items/999").status_code == 404
+    assert client.get("/api/v1/vault/items/999", headers=ADMIN).status_code == 404
 
 
 def test_checkout_revoke_cycle_writes_audit(client):
@@ -241,7 +245,7 @@ def test_checkout_revoke_cycle_writes_audit(client):
     again = client.post("/api/v1/vault/items/1/checkout", headers=ACTOR)
     assert again.status_code == 400
 
-    events = client.get("/api/v1/vault/events").get_json()
+    events = client.get("/api/v1/vault/events", headers=ADMIN).get_json()
     assert events["total"] == 2  # onboarded + checked_out
     newest = events["events"][0]
     assert newest["action"] == "checked_out"
@@ -255,7 +259,7 @@ def test_checkout_revoke_cycle_writes_audit(client):
     assert revoked["checked_out_by"] is None
 
     assert client.post("/api/v1/vault/items/1/revoke", headers=ACTOR).status_code == 400
-    assert client.get("/api/v1/vault/events").get_json()["total"] == 3
+    assert client.get("/api/v1/vault/events", headers=ADMIN).get_json()["total"] == 3
 
 
 def test_vault_actions_require_admin_token(client):
@@ -268,8 +272,8 @@ def test_vault_actions_require_admin_token(client):
     ]
     assert [response.status_code for response in calls] == [401, 401, 401, 401]
     # reads stay public so the screen renders without a token
-    assert client.get("/api/v1/vault/items").status_code == 200
-    assert client.get("/api/v1/vault/stats").status_code == 200
+    assert client.get("/api/v1/vault/items", headers=ADMIN).status_code == 200
+    assert client.get("/api/v1/vault/stats", headers=ADMIN).status_code == 200
 
 
 def test_rotate_clears_failed_status(app, client):
@@ -281,9 +285,9 @@ def test_rotate_clears_failed_status(app, client):
     assert item["status"] == "available"
     assert item["last_rotated_at"] is not None
 
-    stats = client.get("/api/v1/vault/stats").get_json()
+    stats = client.get("/api/v1/vault/stats", headers=ADMIN).get_json()
     assert stats["by_status"]["failed"] == 0
-    events = client.get("/api/v1/vault/events").get_json()
+    events = client.get("/api/v1/vault/events", headers=ADMIN).get_json()
     assert events["events"][0]["action"] == "rotated"
     assert events["events"][0]["detail"]["previous_status"] == "failed"
 
@@ -346,19 +350,19 @@ def test_onboard_validates_and_persists(client):
     )
     assert duplicate.status_code == 400
 
-    stats = client.get("/api/v1/vault/stats").get_json()
+    stats = client.get("/api/v1/vault/stats", headers=ADMIN).get_json()
     assert stats["total"] == 1  # rejected payloads created nothing
-    events = client.get("/api/v1/vault/events").get_json()
+    events = client.get("/api/v1/vault/events", headers=ADMIN).get_json()
     assert events["events"][0]["action"] == "onboarded"
 
 
 def test_vault_events_limit(client):
-    assert client.get("/api/v1/vault/events").get_json() == {
+    assert client.get("/api/v1/vault/events", headers=ADMIN).get_json() == {
         "events": [], "total": 0, "limit": 20,
     }
     onboard(client, "pg-primary")
     client.post("/api/v1/vault/items/1/checkout", headers=ACTOR)
-    limited = client.get("/api/v1/vault/events", query_string={"limit": 1}).get_json()
+    limited = client.get("/api/v1/vault/events", query_string={"limit": 1}, headers=ADMIN).get_json()
     assert len(limited["events"]) == 1
     assert limited["total"] == 2  # onboarded + checked_out
 
@@ -372,7 +376,7 @@ def test_posture_rotation_sla_reflects_overdue_items(app, client):
     # an item past its window -> the control fails on the next read
     insert_item(app, "overdue-credential", rotation_interval_hours=24,
                 rotated_hours_ago=48)
-    stats = client.get("/api/v1/vault/stats").get_json()
+    stats = client.get("/api/v1/vault/stats", headers=ADMIN).get_json()
     assert stats["rotation"]["due"] == 1
 
     data = client.get("/api/v1/overview").get_json()

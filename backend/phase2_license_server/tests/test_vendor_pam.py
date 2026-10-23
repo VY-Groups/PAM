@@ -139,7 +139,7 @@ def run_chain(client, name, mfa_secret, vendor_id, *, itsm=None, ticket=GOOD_TIC
     )
     approved = client.post(f"/api/v1/vendors/{vendor_id}/approve", headers=ACTOR)
     assert approved.status_code == 200, approved.get_json()
-    detail = client.get(f"/api/v1/vendors/{vendor_id}").get_json()
+    detail = client.get(f"/api/v1/vendors/{vendor_id}", headers=ADMIN).get_json()
     assert detail["name"] == name
     return detail
 
@@ -186,7 +186,7 @@ def file_vendor_request(client, vendor_id, item_id, **overrides):
 
 def grant_active(client, request_id):
     """Approve if the band asked for sign-off, then consume the grant."""
-    detail = client.get(f"/api/v1/jit/requests/{request_id}").get_json()
+    detail = client.get(f"/api/v1/jit/requests/{request_id}", headers=ADMIN).get_json()
     request = detail["request"]
     if request["status"] == "pending":
         done = client.post(
@@ -306,7 +306,7 @@ def test_denied_name_can_be_reinvited_fresh(client):
     assert fresh["steps"]["mfa"] == "pending"
     assert fresh["mfa_verified_at"] is None
 
-    detail = client.get(f"/api/v1/vendors/{vendor['id']}").get_json()
+    detail = client.get(f"/api/v1/vendors/{vendor['id']}", headers=ADMIN).get_json()
     actions = [event["action"] for event in detail["events"]]
     assert "denied" in actions  # the refused cycle stays on the trail
     assert "invited" in actions
@@ -394,7 +394,7 @@ def test_ticket_verification_runs_against_a_real_endpoint(client, itsm_url):
     body = failed.get_json()
     assert body["details"]["verified"] is False
     assert body["details"]["http_status"] == 404
-    detail = client.get(f"/api/v1/vendors/{other['id']}").get_json()
+    detail = client.get(f"/api/v1/vendors/{other['id']}", headers=ADMIN).get_json()
     assert detail["ticket_verified_at"] is None
     assert "ticket-refused" in [event["action"] for event in detail["events"]]
 
@@ -429,7 +429,7 @@ def test_approval_gates_on_every_step(client, itsm_url):
     repeat = client.post(f"/api/v1/vendors/{vendor['id']}/approve", headers=ACTOR)
     assert repeat.status_code == 409
 
-    detail = client.get(f"/api/v1/vendors/{vendor['id']}").get_json()
+    detail = client.get(f"/api/v1/vendors/{vendor['id']}", headers=ADMIN).get_json()
     actions = [event["action"] for event in detail["events"]]
     assert "approval-refused" in actions and "approved" in actions
 
@@ -525,7 +525,7 @@ def test_update_edits_scope_and_validates(client):
     assert window.status_code == 200
     assert window.get_json()["vendor"]["access"]["window"] == "09:00–17:00"
 
-    detail = client.get(f"/api/v1/vendors/{vendor['id']}").get_json()
+    detail = client.get(f"/api/v1/vendors/{vendor['id']}", headers=ADMIN).get_json()
     fields = set()
     for event in detail["events"]:
         if event["action"] == "updated":
@@ -554,7 +554,7 @@ def test_request_refused_until_approved(client, itsm_url):
     assert refused.status_code == 403
     body = refused.get_json()
     assert body["details"]["vendor"]["reason"] == "account is invited"
-    detail = client.get(f"/api/v1/vendors/{vendor['id']}").get_json()
+    detail = client.get(f"/api/v1/vendors/{vendor['id']}", headers=ADMIN).get_json()
     assert "access-refused" in [event["action"] for event in detail["events"]]
     assert detail["request_count"] == 0
 
@@ -630,7 +630,7 @@ def test_request_is_the_normal_jit_machinery(client, itsm_url):
     assert request["status"] in ("approved", "pending")
 
     # the request also shows up on the vendor's dashboard
-    dash = client.get(f"/api/v1/vendors/{vendor_id}").get_json()
+    dash = client.get(f"/api/v1/vendors/{vendor_id}", headers=ADMIN).get_json()
     assert dash["request_count"] == 1
     assert dash["requests"][0]["id"] == request["id"]
     actions = [event["action"] for event in dash["events"]]
@@ -663,7 +663,7 @@ def test_vendor_session_forces_recording(client, itsm_url):
         headers=ACTOR,
     )
     assert posted.status_code == 201
-    events = client.get(f"/api/v1/sessions/{session['id']}/events").get_json()
+    events = client.get(f"/api/v1/sessions/{session['id']}/events", headers=ADMIN).get_json()
     assert any(event["content"] == "systemctl reload nginx" for event in events["events"])
 
 
@@ -686,7 +686,7 @@ def test_session_gate_refuses_tightened_scope(client, itsm_url):
     assert refused.get_json()["details"]["vendor"]["reason"] == (
         "target is not in the vendor's access list"
     )
-    dash = client.get(f"/api/v1/vendors/{detail['id']}").get_json()
+    dash = client.get(f"/api/v1/vendors/{detail['id']}", headers=ADMIN).get_json()
     assert "session-refused" in [event["action"] for event in dash["events"]]
 
     # restoring the scope lets the session start
@@ -724,9 +724,9 @@ def test_revoke_closes_grants_and_sessions(client, itsm_url):
     assert body["grants_ended"] == [request_id]
     assert body["vendor"]["status"] == "revoked"
 
-    grant = client.get(f"/api/v1/jit/requests/{request_id}").get_json()["request"]
+    grant = client.get(f"/api/v1/jit/requests/{request_id}", headers=ADMIN).get_json()["request"]
     assert grant["status"] == "closed"
-    session = client.get(f"/api/v1/sessions/{session_id}").get_json()["session"]
+    session = client.get(f"/api/v1/sessions/{session_id}", headers=ADMIN).get_json()["session"]
     assert session["status"] == "terminated"
     assert session["end_reason"] == "grant_closed"
 
@@ -750,14 +750,14 @@ def test_expiry_is_automatic_and_lazy(client, app, itsm_url):
         row.expires_at = datetime.now() - timedelta(minutes=1)
         db.session.commit()
 
-    listed = client.get("/api/v1/vendors").get_json()
+    listed = client.get("/api/v1/vendors", headers=ADMIN).get_json()
     expired = next(v for v in listed["vendors"] if v["id"] == vendor["id"])
     assert expired["status"] == "expired"
 
     approve = client.post(f"/api/v1/vendors/{vendor['id']}/approve", headers=ACTOR)
     assert approve.status_code == 409
 
-    detail = client.get(f"/api/v1/vendors/{vendor['id']}").get_json()
+    detail = client.get(f"/api/v1/vendors/{vendor['id']}", headers=ADMIN).get_json()
     actions = [event["action"] for event in detail["events"]]
     assert "expired" in actions
 
@@ -795,8 +795,8 @@ def test_vendor_writes_require_the_admin_token(client):
     assert client.patch("/api/v1/vendors/1", json={"contact": "x"}, headers=no_token).status_code == 401
     assert client.post("/api/v1/vendors/1/requests", json={}, headers=no_token).status_code == 401
     # reads stay public, like the other console inventory endpoints
-    assert client.get("/api/v1/vendors").status_code == 200
-    assert client.get("/api/v1/vendors/1").status_code == 404
+    assert client.get("/api/v1/vendors", headers=ADMIN).status_code == 200
+    assert client.get("/api/v1/vendors/1", headers=ADMIN).status_code == 404
 
 
 def test_list_filters_and_paging(client, itsm_url):
@@ -804,35 +804,39 @@ def test_list_filters_and_paging(client, itsm_url):
     invite(client, "Beta Industries")
     invite(client, "Gamma Services")
 
-    everything = client.get("/api/v1/vendors").get_json()
+    everything = client.get("/api/v1/vendors", headers=ADMIN).get_json()
     assert everything["total"] == 3
     assert {v["name"] for v in everything["vendors"]} == {
         "Alpha Co", "Beta Industries", "Gamma Services",
     }
 
     invited = client.get(
-        "/api/v1/vendors", query_string={"status": "invited"}
+        "/api/v1/vendors", query_string={"status": "invited"},
+        headers=ADMIN,
     ).get_json()
     assert invited["total"] == 2
     approved = client.get(
-        "/api/v1/vendors", query_string={"status": "approved"}
+        "/api/v1/vendors", query_string={"status": "approved"},
+        headers=ADMIN,
     ).get_json()
     assert approved["total"] == 1
     assert approved["vendors"][0]["name"] == "Alpha Co"
 
-    search = client.get("/api/v1/vendors", query_string={"q": "industries"}).get_json()
+    search = client.get("/api/v1/vendors", query_string={"q": "industries"}, headers=ADMIN).get_json()
     assert search["total"] == 1
     assert search["vendors"][0]["name"] == "Beta Industries"
 
     page = client.get(
-        "/api/v1/vendors", query_string={"limit": 2, "offset": 2}
+        "/api/v1/vendors", query_string={"limit": 2, "offset": 2},
+        headers=ADMIN,
     ).get_json()
     assert len(page["vendors"]) == 1  # 3 total, offset 2 leaves one
     assert page["total"] == 3
 
     bad = client.get(
-        "/api/v1/vendors", query_string={"status": "nonsense"}
+        "/api/v1/vendors", query_string={"status": "nonsense"},
+        headers=ADMIN,
     )
     assert bad.status_code == 400
 
-    assert client.get("/api/v1/vendors/99999").status_code == 404
+    assert client.get("/api/v1/vendors/99999", headers=ADMIN).status_code == 404

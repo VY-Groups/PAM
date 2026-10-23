@@ -369,6 +369,12 @@ paths:
         (ITSM token, SIEM signing secret, the TOTP factor) read `<set>` /
         `` - never material. Public so the Platform Settings screen can
         render read-only.
+      security:
+        - bearerAuth: []
+        - adminTokenHeader: []
+        - rbacToken: []
+        - ldapTicket: []
+        - {}
       responses:
         "200":
           description: Settings and schema
@@ -380,6 +386,12 @@ paths:
     get:
       tags: [settings]
       summary: Configuration changelog
+      security:
+        - bearerAuth: []
+        - adminTokenHeader: []
+        - rbacToken: []
+        - ldapTicket: []
+        - {}
       parameters:
         - name: limit
           in: query
@@ -628,6 +640,12 @@ paths:
       tags: [vault]
       summary: Inventory aggregates
       description: Totals by type and status, rotation compliance, checkout count and today's events.
+      security:
+        - bearerAuth: []
+        - adminTokenHeader: []
+        - rbacToken: [operator]
+        - ldapTicket: [operator]
+        - {}
       responses:
         "200":
           description: Vault statistics
@@ -639,6 +657,12 @@ paths:
     get:
       tags: [vault]
       summary: List inventory rows
+      security:
+        - bearerAuth: []
+        - adminTokenHeader: []
+        - rbacToken: [operator]
+        - ldapTicket: [operator]
+        - {}
       parameters:
         - name: q
           in: query
@@ -689,6 +713,12 @@ paths:
     get:
       tags: [vault]
       summary: Inventory row detail with its audit trail
+      security:
+        - bearerAuth: []
+        - adminTokenHeader: []
+        - rbacToken: [operator]
+        - ldapTicket: [operator]
+        - {}
       parameters:
         - name: item_id
           in: path
@@ -814,6 +844,12 @@ paths:
       tags: [vault]
       summary: Vault audit trail
       description: Onboarding, checkouts, revocations and rotations, newest first.
+      security:
+        - bearerAuth: []
+        - adminTokenHeader: []
+        - rbacToken: [operator]
+        - ldapTicket: [operator]
+        - {}
       parameters:
         - name: limit
           in: query
@@ -949,6 +985,12 @@ paths:
       tags: [jit]
       summary: JIT queue counts
       description: Real totals per status and per risk band (active grants' expiry is evaluated on the way).
+      security:
+        - bearerAuth: []
+        - adminTokenHeader: []
+        - rbacToken: [operator]
+        - ldapTicket: [operator]
+        - {}
       responses:
         "200":
           description: JIT statistics
@@ -960,6 +1002,12 @@ paths:
     get:
       tags: [jit]
       summary: JIT queue, newest first
+      security:
+        - bearerAuth: []
+        - adminTokenHeader: []
+        - rbacToken: [operator, approver]
+        - ldapTicket: [operator, approver]
+        - {}
       parameters:
         - name: status
           in: query
@@ -1019,6 +1067,12 @@ paths:
       tags: [jit]
       summary: One request with its audit trail
       description: Evaluates grant expiry on the way, so a reading client always sees the real state.
+      security:
+        - bearerAuth: []
+        - adminTokenHeader: []
+        - rbacToken: [operator]
+        - ldapTicket: [operator]
+        - {}
       parameters:
         - name: request_id
           in: path
@@ -1171,6 +1225,12 @@ paths:
       tags: [sessions]
       summary: Session monitoring counts
       description: Real totals per session state plus recording counters (linked grants' expiry is evaluated on the way).
+      security:
+        - bearerAuth: []
+        - adminTokenHeader: []
+        - rbacToken: [operator]
+        - ldapTicket: [operator]
+        - {}
       responses:
         "200":
           description: Session statistics
@@ -1182,6 +1242,12 @@ paths:
     get:
       tags: [sessions]
       summary: Live session list, newest first
+      security:
+        - bearerAuth: []
+        - adminTokenHeader: []
+        - rbacToken: [operator]
+        - ldapTicket: [operator]
+        - {}
       parameters:
         - name: status
           in: query
@@ -1246,6 +1312,12 @@ paths:
       tags: [sessions]
       summary: One session with its latest recorded events
       description: Evaluates linked grant expiry on the way, so a reading client always sees the real state.
+      security:
+        - bearerAuth: []
+        - adminTokenHeader: []
+        - rbacToken: [operator]
+        - ldapTicket: [operator]
+        - {}
       parameters:
         - name: session_id
           in: path
@@ -1264,6 +1336,12 @@ paths:
       tags: [sessions]
       summary: Session playback
       description: The recording in sequence order (asc by default; desc for a live tail).
+      security:
+        - bearerAuth: []
+        - adminTokenHeader: []
+        - rbacToken: [operator]
+        - ldapTicket: [operator]
+        - {}
       parameters:
         - name: session_id
           in: path
@@ -1601,6 +1679,12 @@ paths:
         Rule counts per action, today's real intercepts, the approval queue,
         incident posture and a content hash of the current policy
         (`engine_hash` changes whenever a rule changes).
+      security:
+        - bearerAuth: []
+        - adminTokenHeader: []
+        - rbacToken: [operator]
+        - ldapTicket: [operator]
+        - {}
       responses:
         "200":
           description: Command-control statistics
@@ -1616,6 +1700,12 @@ paths:
         block -> approval -> allow; within an action the target-scoped rule
         wins, then the longer pattern, then the lowest id. Each rule carries
         its real `match_count` (recorded events it decided).
+      security:
+        - bearerAuth: []
+        - adminTokenHeader: []
+        - rbacToken: [operator]
+        - ldapTicket: [operator]
+        - {}
       parameters:
         - name: action
           in: query
@@ -1743,6 +1833,12 @@ paths:
       tags: [command-control]
       summary: Held commands awaiting a decision
       description: Holds on active sessions only - a hold whose session ended can never be resolved and stays evidence.
+      security:
+        - bearerAuth: []
+        - adminTokenHeader: []
+        - rbacToken: [operator]
+        - ldapTicket: [operator]
+        - {}
       responses:
         "200":
           description: Pending approvals
@@ -1754,6 +1850,12 @@ paths:
     get:
       tags: [command-control]
       summary: Escalation incidents, newest first
+      security:
+        - bearerAuth: []
+        - adminTokenHeader: []
+        - rbacToken: [operator]
+        - ldapTicket: [operator]
+        - {}
       parameters:
         - name: status
           in: query
@@ -1772,6 +1874,12 @@ paths:
     get:
       tags: [command-control]
       summary: One incident with its preserved evidence
+      security:
+        - bearerAuth: []
+        - adminTokenHeader: []
+        - rbacToken: [operator]
+        - ldapTicket: [operator]
+        - {}
       parameters:
         - name: incident_id
           in: path
@@ -1827,6 +1935,12 @@ paths:
         Real counts over `discovered_assets`: totals, per-type / per-risk /
         per-PAM-status breakdowns, recorded account count, and scan history
         (`scans.last` is `null` until the first scan runs).
+      security:
+        - bearerAuth: []
+        - adminTokenHeader: []
+        - rbacToken: [operator]
+        - ldapTicket: [operator]
+        - {}
       responses:
         "200":
           description: Discovery counts
@@ -1843,6 +1957,12 @@ paths:
         attention-first (unmanaged, then risk severity, then address). Each row
         carries `vault_count`: vault credentials whose `target` matches the
         asset address exactly.
+      security:
+        - bearerAuth: []
+        - adminTokenHeader: []
+        - rbacToken: [operator]
+        - ldapTicket: [operator]
+        - {}
       parameters:
         - name: q
           in: query
@@ -2074,6 +2194,12 @@ paths:
     get:
       tags: [risk]
       summary: Recorded evaluations, newest first
+      security:
+        - bearerAuth: []
+        - adminTokenHeader: []
+        - rbacToken: [operator]
+        - ldapTicket: [operator]
+        - {}
       parameters:
         - name: band
           in: query
@@ -2095,6 +2221,12 @@ paths:
     get:
       tags: [risk]
       summary: Evaluation aggregates (bands, decisions, refusals)
+      security:
+        - bearerAuth: []
+        - adminTokenHeader: []
+        - rbacToken: [operator]
+        - ldapTicket: [operator]
+        - {}
       responses:
         "200":
           description: Real aggregates over the recorded evaluations
@@ -2379,6 +2511,12 @@ paths:
     get:
       tags: [break-glass]
       summary: Emergency requests, newest first
+      security:
+        - bearerAuth: []
+        - adminTokenHeader: []
+        - rbacToken: [operator, approver]
+        - ldapTicket: [operator, approver]
+        - {}
       parameters:
         - name: status
           in: query
@@ -2397,6 +2535,12 @@ paths:
     get:
       tags: [break-glass]
       summary: One request with approvals and its recorded session
+      security:
+        - bearerAuth: []
+        - adminTokenHeader: []
+        - rbacToken: [operator]
+        - ldapTicket: [operator]
+        - {}
       parameters:
         - name: request_id
           in: path
@@ -2588,6 +2732,12 @@ paths:
     get:
       tags: [break-glass]
       summary: Request states, approval signatures and ledger actions
+      security:
+        - bearerAuth: []
+        - adminTokenHeader: []
+        - rbacToken: [operator]
+        - ldapTicket: [operator]
+        - {}
       responses:
         "200":
           description: Real aggregates over requests, signatures and module actions
@@ -2761,6 +2911,12 @@ paths:
       tags: [vendors]
       summary: Vendor accounts, newest first
       description: Paged third-party vendor accounts with their chain steps and access scope; `q` searches name/contact. Stale accounts are expired lazily (section 13 automatic expiry) before the list answers.
+      security:
+        - bearerAuth: []
+        - adminTokenHeader: []
+        - rbacToken: [operator, approver]
+        - ldapTicket: [operator, approver]
+        - {}
       parameters:
         - name: status
           in: query
@@ -2823,6 +2979,12 @@ paths:
         `14:00–16:00`, the recording flag, grants raised through this
         account and the recent lifecycle trail. Automatic expiry is
         applied before the answer.
+      security:
+        - bearerAuth: []
+        - adminTokenHeader: []
+        - rbacToken: [operator]
+        - ldapTicket: [operator]
+        - {}
       parameters:
         - name: vendor_id
           in: path
@@ -3117,6 +3279,12 @@ paths:
       tags: [cloud]
       summary: Cloud connectors, newest first
       description: Paged AWS/Azure/GCP/Kubernetes connectors with their honest state (`not connected`, `configured`, `connected`, `error` - only a real probe changes it); `q` searches name/account reference.
+      security:
+        - bearerAuth: []
+        - adminTokenHeader: []
+        - rbacToken: [operator]
+        - ldapTicket: [operator]
+        - {}
       parameters:
         - name: provider
           in: query
@@ -3177,6 +3345,12 @@ paths:
       tags: [cloud]
       summary: Cloud console payload (architecture 14)
       description: The connector, its recent `cloud` trail, the RBAC grants raised through it and the last inventory run.
+      security:
+        - bearerAuth: []
+        - adminTokenHeader: []
+        - rbacToken: [operator]
+        - ldapTicket: [operator]
+        - {}
       parameters:
         - name: connector_id
           in: path
@@ -3361,6 +3535,12 @@ paths:
       tags: [cloud]
       summary: Real cloud aggregates
       description: Connectors by provider and state, the `cloud` trail's size, the RBAC grants riding it and what inventory has found so far.
+      security:
+        - bearerAuth: []
+        - adminTokenHeader: []
+        - rbacToken: [operator]
+        - ldapTicket: [operator]
+        - {}
       responses:
         "200":
           description: Cloud aggregates
@@ -3376,8 +3556,8 @@ paths:
       security:
         - bearerAuth: []
         - adminTokenHeader: []
-        - rbacToken: [auditor, auditor-read-only]
-        - ldapTicket: [auditor, auditor-read-only]
+        - rbacToken: [operator]
+        - ldapTicket: [operator]
         - {}
       parameters:
         - name: ci_system
@@ -3441,8 +3621,8 @@ paths:
       security:
         - bearerAuth: []
         - adminTokenHeader: []
-        - rbacToken: [auditor, auditor-read-only]
-        - ldapTicket: [auditor, auditor-read-only]
+        - rbacToken: [operator]
+        - ldapTicket: [operator]
         - {}
       parameters:
         - name: policy_id
@@ -3526,9 +3706,6 @@ paths:
       security:
         - bearerAuth: []
         - adminTokenHeader: []
-        # 12.RB: the read follows the screens that read it - the operator's
-        # JIT page and the approver's approvals inbox. The auditors keep no
-        # screen that reads this list, so they do not hold it.
         - rbacToken: [operator, approver]
         - ldapTicket: [operator, approver]
         - {}
@@ -3734,6 +3911,12 @@ paths:
       tags: [broker]
       summary: Real broker aggregates
       description: Policies by state and CI system, credentials by state with the open count, and the size of the `broker` trail.
+      security:
+        - bearerAuth: []
+        - adminTokenHeader: []
+        - rbacToken: [operator]
+        - ldapTicket: [operator]
+        - {}
       responses:
         "200":
           description: Broker aggregates
@@ -3749,8 +3932,8 @@ paths:
       security:
         - bearerAuth: []
         - adminTokenHeader: []
-        - rbacToken: [auditor, auditor-read-only]
-        - ldapTicket: [auditor, auditor-read-only]
+        - rbacToken: [operator]
+        - ldapTicket: [operator]
         - {}
       parameters:
         - name: status
@@ -3810,8 +3993,8 @@ paths:
       security:
         - bearerAuth: []
         - adminTokenHeader: []
-        - rbacToken: [auditor, auditor-read-only]
-        - ldapTicket: [auditor, auditor-read-only]
+        - rbacToken: [operator]
+        - ldapTicket: [operator]
         - {}
       parameters:
         - name: agent_id
@@ -4060,8 +4243,8 @@ paths:
       security:
         - bearerAuth: []
         - adminTokenHeader: []
-        - rbacToken: [auditor, auditor-read-only]
-        - ldapTicket: [auditor, auditor-read-only]
+        - rbacToken: [operator]
+        - ldapTicket: [operator]
         - {}
       parameters:
         - name: status
@@ -4088,8 +4271,8 @@ paths:
       security:
         - bearerAuth: []
         - adminTokenHeader: []
-        - rbacToken: [auditor, auditor-read-only]
-        - ldapTicket: [auditor, auditor-read-only]
+        - rbacToken: [operator]
+        - ldapTicket: [operator]
         - {}
       parameters:
         - name: request_id
@@ -4188,6 +4371,12 @@ paths:
       tags: [agent]
       summary: Real agent aggregates
       description: Identities by state, declared tasks, agent-raised requests by state with the open count, and the size of the `agent` trail. Nothing is precomputed.
+      security:
+        - bearerAuth: []
+        - adminTokenHeader: []
+        - rbacToken: [operator]
+        - ldapTicket: [operator]
+        - {}
       responses:
         "200":
           description: Agent aggregates

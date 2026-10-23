@@ -443,17 +443,18 @@ def test_critical_deviation_blocks_the_session_and_runs_the_chain(
 
     # the sessions really ended ...
     for session in (plain_session, checkout_session):
-        detail = client.get(f"/api/v1/sessions/{session['id']}")
+        detail = client.get(f"/api/v1/sessions/{session['id']}", headers=ADMIN)
         assert detail.get_json()["session"]["status"] == "terminated"
     # ... and the credential really rotated (module-5 pipeline, versioned)
-    rotated = client.get(f"/api/v1/vault/items/{item['id']}").get_json()[
+    rotated = client.get(f"/api/v1/vault/items/{item['id']}", headers=ADMIN).get_json()[
         "item"
     ]
     assert rotated["secret_version"] == 2
     assert rotated["status"] == "available"
     assert rotated["checked_out_by"] is None
     prod_rotated = client.get(
-        f"/api/v1/vault/items/{prod_item['id']}"
+        f"/api/v1/vault/items/{prod_item['id']}",
+        headers=ADMIN,
     ).get_json()["item"]
     assert prod_rotated["secret_version"] == 2
     assert prod_rotated["status"] == "available"
@@ -545,7 +546,7 @@ def test_advisory_critical_never_runs_the_chain(app, client, clock):
     # a console evaluation only advises: no incident, no cascade
     assert evaluation["result"] == "advisory"
     assert client.get("/api/v1/risk/anomalies").get_json()["total"] == 0
-    still = client.get(f"/api/v1/sessions/{live['id']}")
+    still = client.get(f"/api/v1/sessions/{live['id']}", headers=ADMIN)
     assert still.get_json()["session"]["status"] == "active"
 
 

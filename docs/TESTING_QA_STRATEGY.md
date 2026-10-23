@@ -52,7 +52,7 @@ Every number below was collected from the real suite at this commit.
 | └ vendor OpenAPI contract | `pam_master/tests/test_openapi_contract.py` | 6 |
 
 Contract test asserts (9): valid OpenAPI 3.1, documented ⇄ implemented
-routes both directions, security schemes on **145** admin operations, the
+routes both directions, security schemes on **177** admin operations, the
 documented admin set ⇄ runtime (`service.ADMIN_OPERATIONS` ∪ `whoami`),
 per-op role lists ⇄ `ROLE_OPERATIONS`, the `rbacToken`/`ldapTicket`/
 `nodeToken` schemes + `/auth/whoami` documenting every credential, enums ⇄

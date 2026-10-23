@@ -139,7 +139,7 @@ def start_session(client, **payload):
 
 
 def watermark_of(client, session_id):
-    response = client.get(f"/api/v1/sessions/{session_id}")
+    response = client.get(f"/api/v1/sessions/{session_id}", headers=ADMIN)
     assert response.status_code == 200, response.get_json()
     return response.get_json()
 
@@ -295,10 +295,10 @@ def test_watermark_is_additive_on_detail_only(client, clock):
     }
 
     # the list view stays lean - the payload rides the detail response only
-    listing = client.get("/api/v1/sessions").get_json()
+    listing = client.get("/api/v1/sessions", headers=ADMIN).get_json()
     row = next(r for r in listing["items"] if r["id"] == session["id"])
     assert "watermark" not in row
 
     # unknown ids keep their 404
-    missing = client.get("/api/v1/sessions/424242")
+    missing = client.get("/api/v1/sessions/424242", headers=ADMIN)
     assert missing.status_code == 404

@@ -512,6 +512,7 @@ def check_license_access(license_key: str):
 # platform settings (Platform Settings screen)
 # ---------------------------------------------------------------------------
 @api.get("/settings")
+@require_admin
 def get_platform_settings():
     """Every settings group (defaults merged in) plus the render schema."""
     return jsonify(
@@ -520,6 +521,7 @@ def get_platform_settings():
 
 
 @api.get("/settings/audit")
+@require_admin
 def get_settings_audit():
     """Config audit changelog: which fields changed, by whom, and when."""
     limit = min(_int_param("limit", 20), MAX_PAGE_SIZE)
@@ -868,12 +870,14 @@ def audit_export():
 # credential vault (Credential Vault screen)
 # ---------------------------------------------------------------------------
 @api.get("/vault/stats")
+@require_admin
 def get_vault_stats():
     """Inventory aggregates: totals by type/status, rotation compliance."""
     return jsonify(service.vault_stats())
 
 
 @api.get("/vault/items")
+@require_admin
 def list_vault_items():
     limit = min(_int_param("limit", 50), MAX_PAGE_SIZE)
     offset = _int_param("offset", 0)
@@ -895,6 +899,7 @@ def list_vault_items():
 
 
 @api.get("/vault/items/<int:item_id>")
+@require_admin
 def get_vault_item(item_id: int):
     item = service.get_vault_item(item_id)
     payload = item.to_dict()
@@ -951,6 +956,7 @@ def rotate_vault_item(item_id: int):
 
 
 @api.get("/vault/events")
+@require_admin
 def get_vault_events():
     """Vault audit trail (onboarding, checkouts, rotations), newest first."""
     limit = min(_int_param("limit", 20), MAX_PAGE_SIZE)
@@ -985,12 +991,14 @@ def rotation_session_end():
 # JIT / JEA access (module 6: request -> risk -> approvals -> grant -> expiry)
 # ---------------------------------------------------------------------------
 @api.get("/jit/stats")
+@require_admin
 def jit_stats():
     """Real queue counts: totals, per-status, per-risk."""
     return jsonify(service.jit_stats())
 
 
 @api.get("/jit/requests")
+@require_admin
 def list_jit_requests():
     """JIT queue, newest first (status/requester filters, pagination)."""
     limit = min(_int_param("limit", 50), MAX_PAGE_SIZE)
@@ -1020,6 +1028,7 @@ def create_jit_request():
 
 
 @api.get("/jit/requests/<int:request_id>")
+@require_admin
 def get_jit_request(request_id: int):
     """One request with its audit trail (evaluates expiry on the way)."""
     return jsonify(service.jit_request_detail(request_id))
@@ -1066,12 +1075,14 @@ def close_jit_request(request_id: int):
 # privileged session management (module 8: record -> monitor -> control)
 # ---------------------------------------------------------------------------
 @api.get("/sessions/stats")
+@require_admin
 def session_stats():
     """Real monitoring aggregates: per-status counts and recording totals."""
     return jsonify(service.session_stats())
 
 
 @api.get("/sessions")
+@require_admin
 def list_sessions():
     """Live session list, newest first (status/protocol/search filters)."""
     limit = min(_int_param("limit", 50), MAX_PAGE_SIZE)
@@ -1125,12 +1136,14 @@ def create_session():
 
 
 @api.get("/sessions/<int:session_id>")
+@require_admin
 def get_session(session_id: int):
     """One session with its latest recorded events (evaluates grant expiry)."""
     return jsonify(service.session_detail(session_id))
 
 
 @api.get("/sessions/<int:session_id>/events")
+@require_admin
 def get_session_events(session_id: int):
     """Playback: the recording in sequence order (asc by default)."""
     limit = min(_int_param("limit", 500), MAX_PAGE_SIZE)
@@ -1243,6 +1256,7 @@ def complete_session(session_id: int):
 # command control (module 9: policy rules, dry-run, approvals, incidents)
 # ---------------------------------------------------------------------------
 @api.get("/command-control/stats")
+@require_admin
 def command_control_stats():
     """Real aggregates: rule counts, today's intercepts, approval queue,
     incident posture and a content hash of the current policy."""
@@ -1250,6 +1264,7 @@ def command_control_stats():
 
 
 @api.get("/command-control/rules")
+@require_admin
 def list_command_rules():
     """Every rule in evaluation order with its real match counts."""
     raw_enabled = request.args.get("enabled")
@@ -1317,12 +1332,14 @@ def evaluate_command():
 
 
 @api.get("/command-control/approvals")
+@require_admin
 def pending_command_approvals():
     """Held commands awaiting a decision (active sessions only)."""
     return jsonify(service.pending_command_approvals())
 
 
 @api.get("/command-control/incidents")
+@require_admin
 def list_command_incidents():
     """Escalation incidents, newest first (status: open/closed/all)."""
     limit = min(_int_param("limit", 50), MAX_PAGE_SIZE)
@@ -1335,6 +1352,7 @@ def list_command_incidents():
 
 
 @api.get("/command-control/incidents/<int:incident_id>")
+@require_admin
 def get_command_incident(incident_id: int):
     """One incident with its preserved evidence."""
     return jsonify({"incident": service.get_command_incident(incident_id).to_dict()})
@@ -1387,12 +1405,14 @@ def deny_session_command(session_id: int, seq: int):
 # discovery engine (Discovery / Target Infrastructure screen)
 # ---------------------------------------------------------------------------
 @api.get("/discovery/stats")
+@require_admin
 def get_discovery_stats():
     """Aggregate counts: total assets, per-type/risk/status, last scan."""
     return jsonify(service.discovery_stats())
 
 
 @api.get("/discovery/assets")
+@require_admin
 def list_discovered_assets():
     limit = min(_int_param("limit", 50), MAX_PAGE_SIZE)
     offset = _int_param("offset", 0)
@@ -1537,6 +1557,7 @@ def evaluate_risk():
 
 
 @api.get("/risk/evaluations")
+@require_admin
 def list_risk_evaluations():
     """The recorded evaluations, newest first (band/context filters)."""
     limit = min(_int_param("limit", 20), MAX_PAGE_SIZE)
@@ -1558,6 +1579,7 @@ def list_risk_evaluations():
 
 
 @api.get("/risk/stats")
+@require_admin
 def risk_stats():
     """Real aggregates over the evaluations: bands, decisions, refusals."""
     return jsonify(service.risk_stats())
@@ -1753,6 +1775,7 @@ def create_break_glass_request():
 
 
 @api.get("/break-glass/requests")
+@require_admin
 def list_break_glass_requests():
     """Emergency requests, newest first (status filter + paging)."""
     limit = min(_int_param("limit", 50), MAX_PAGE_SIZE)
@@ -1771,6 +1794,7 @@ def list_break_glass_requests():
 
 
 @api.get("/break-glass/requests/<int:request_id>")
+@require_admin
 def get_break_glass_request(request_id: int):
     """One request with its approval snapshots and its recorded session."""
     return jsonify(service.get_break_glass_detail(request_id))
@@ -1854,6 +1878,7 @@ def close_break_glass_request(request_id: int):
 
 
 @api.get("/break-glass/stats")
+@require_admin
 def break_glass_stats():
     """Real aggregates: request states, approval signatures, ledger actions."""
     return jsonify(service.break_glass_stats())
@@ -1884,6 +1909,7 @@ def invite_vendor():
 
 
 @api.get("/vendors")
+@require_admin
 def list_vendors():
     """Vendor accounts, newest first (status filter + search + paging)."""
     limit = min(_int_param("limit", 50), MAX_PAGE_SIZE)
@@ -1905,6 +1931,7 @@ def list_vendors():
 
 
 @api.get("/vendors/<int:vendor_id>")
+@require_admin
 def get_vendor(vendor_id: int):
     """The vendor dashboard payload: chain steps, access/denied lists,
     valid window, recording state, grants raised and the recent trail."""
@@ -2055,6 +2082,7 @@ def create_cloud_connector():
 
 
 @api.get("/cloud/connectors")
+@require_admin
 def list_cloud_connectors():
     """Cloud connectors, newest first (provider/status filters + search)."""
     limit = min(_int_param("limit", 50), MAX_PAGE_SIZE)
@@ -2077,6 +2105,7 @@ def list_cloud_connectors():
 
 
 @api.get("/cloud/connectors/<int:connector_id>")
+@require_admin
 def get_cloud_connector(connector_id: int):
     """The cloud console payload: connector, recent section-14 trail, RBAC
     grants raised through it, last inventory run."""
@@ -2143,6 +2172,7 @@ def create_cloud_rbac_request(connector_id: int):
 
 
 @api.get("/cloud/stats")
+@require_admin
 def cloud_stats():
     """Real aggregates: connectors by provider and state, the section-14
     trail's size, RBAC grants, cloud-discovered assets."""
@@ -2374,6 +2404,7 @@ def close_broker_credential(credential_id: int):
 
 
 @api.get("/broker/stats")
+@require_admin
 def broker_stats():
     """Real aggregates: policies by state and CI system, credentials by
     state, the section-15 trail's size."""
@@ -2616,6 +2647,7 @@ def close_agent_access(request_id: int):
 
 
 @api.get("/agent-access/stats")
+@require_admin
 def agent_stats():
     """Real aggregates: identities by state, declared tasks, agent access
     requests by state with the open count, the section-16 trail's size."""

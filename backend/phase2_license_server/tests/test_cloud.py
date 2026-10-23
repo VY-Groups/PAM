@@ -235,7 +235,7 @@ def rbac(client, connector_id, **overrides):
 
 def grant_active(client, request_id):
     """Approve if the band asked for sign-off, then consume the grant."""
-    detail = client.get(f"/api/v1/jit/requests/{request_id}").get_json()
+    detail = client.get(f"/api/v1/jit/requests/{request_id}", headers=ADMIN).get_json()
     request = detail["request"]
     if request["status"] == "pending":
         done = client.post(
@@ -268,7 +268,7 @@ def cloud_actions(client, connector_id=None):
 
 def connector_name(client, connector_id):
     return (
-        client.get(f"/api/v1/cloud/connectors/{connector_id}")
+        client.get(f"/api/v1/cloud/connectors/{connector_id}", headers=ADMIN)
         .get_json()["connector"]["name"]
     )
 
@@ -372,27 +372,31 @@ def test_list_filters_and_detail_payload(client, k8s_clean):
         credential_item_id=item["id"], services=["kubernetes"],
     )
 
-    everything = client.get("/api/v1/cloud/connectors").get_json()
+    everything = client.get("/api/v1/cloud/connectors", headers=ADMIN).get_json()
     assert everything["total"] == 2
 
     only_aws = client.get(
-        "/api/v1/cloud/connectors", query_string={"provider": "aws"}
+        "/api/v1/cloud/connectors", query_string={"provider": "aws"},
+        headers=ADMIN,
     ).get_json()
     assert only_aws["total"] == 1
     assert only_aws["connectors"][0]["provider"] == "aws"
 
     searched = client.get(
-        "/api/v1/cloud/connectors", query_string={"q": "k8s-"}
+        "/api/v1/cloud/connectors", query_string={"q": "k8s-"},
+        headers=ADMIN,
     ).get_json()
     assert searched["total"] == 1
 
     bad = client.get(
-        "/api/v1/cloud/connectors", query_string={"provider": "oracle"}
+        "/api/v1/cloud/connectors", query_string={"provider": "oracle"},
+        headers=ADMIN,
     )
     assert bad.status_code == 400
 
     detail = client.get(
-        f"/api/v1/cloud/connectors/{searched['connectors'][0]['id']}"
+        f"/api/v1/cloud/connectors/{searched['connectors'][0]['id']}",
+        headers=ADMIN,
     ).get_json()
     assert set(detail) >= {"connector", "events", "requests", "last_scan"}
     assert detail["connector"]["name"] == "k8s-main"
@@ -403,7 +407,7 @@ def test_list_filters_and_detail_payload(client, k8s_clean):
     assert added["detail"]["credential_item_id"] == item["id"]
     assert detail["last_scan"] is None
 
-    assert client.get("/api/v1/cloud/connectors/9999").status_code == 404
+    assert client.get("/api/v1/cloud/connectors/9999", headers=ADMIN).status_code == 404
 
 
 def test_update_configuration(client, k8s_clean):
@@ -468,7 +472,8 @@ def test_delete_connector_trail_stays(client):
     assert gone.status_code == 200
     assert gone.get_json()["deleted"] is True
     assert client.get(
-        f"/api/v1/cloud/connectors/{connector['id']}"
+        f"/api/v1/cloud/connectors/{connector['id']}",
+        headers=ADMIN,
     ).status_code == 404
     # the connector row is gone; the section-14 trail remains evidence
     page = client.get("/api/v1/events?source=cloud&limit=100").get_json()
@@ -491,7 +496,8 @@ def test_probe_refuses_without_endpoint(client):
     assert body["details"]["configured"] is False
     # nothing was attempted - the state did not move
     row = client.get(
-        f"/api/v1/cloud/connectors/{connector['id']}"
+        f"/api/v1/cloud/connectors/{connector['id']}",
+        headers=ADMIN,
     ).get_json()["connector"]
     assert row["status"] == "not connected"
     assert row["last_test_at"] is None
@@ -651,7 +657,8 @@ def test_discover_lists_nodes_then_updates_them(client, k8s_clean):
 
     # and the connector detail shows the run
     detail = client.get(
-        f"/api/v1/cloud/connectors/{connector['id']}"
+        f"/api/v1/cloud/connectors/{connector['id']}",
+        headers=ADMIN,
     ).get_json()
     assert detail["last_scan"]["status"] == "completed"
 
@@ -806,7 +813,7 @@ def test_rbac_grant_applies_real_binding_and_close_removes_it(
     assert "rbac-granted" in actions
     assert "rbac-closed" in actions
     # the JIT trail carries the removal detail too (one truth, both trails)
-    trail = client.get(f"/api/v1/jit/requests/{filed['id']}").get_json()
+    trail = client.get(f"/api/v1/jit/requests/{filed['id']}", headers=ADMIN).get_json()
     close_event = next(e for e in trail["events"] if e["action"] == "closed")
     assert close_event["detail"]["binding"]["removed"] is True
 
@@ -837,12 +844,12 @@ def test_rbac_binding_refusal_keeps_the_request_approved(client, k8s_clean):
 
     # nothing was granted: the request is still approved (retry-able) and
     # the credential was never checked out.
-    after = client.get(f"/api/v1/jit/requests/{filed['id']}").get_json()
+    after = client.get(f"/api/v1/jit/requests/{filed['id']}", headers=ADMIN).get_json()
     assert after["request"]["status"] == "approved"
     with client.application.app_context():
         row = db.session.get(JitRequest, filed["id"])
         assert row.cloud_binding.get("applied_at") is None
-    vault = client.get(f"/api/v1/vault/items/{item['id']}").get_json()["item"]
+    vault = client.get(f"/api/v1/vault/items/{item['id']}", headers=ADMIN).get_json()["item"]
     assert vault["status"] == "available"
     assert "rbac-binding-failed" in cloud_actions(client, connector["id"])
 
@@ -864,7 +871,7 @@ def test_rbac_grant_expiry_removes_the_binding(client, k8s_clean, clock):
 
     # any JIT read refreshes the real clock: the window ended, the grant
     # expires, and the ephemeral privilege is removed with it.
-    listed = client.get("/api/v1/jit/requests").get_json()
+    listed = client.get("/api/v1/jit/requests", headers=ADMIN).get_json()
     expired = next(r for r in listed["items"] if r["id"] == filed["id"])
     assert expired["status"] == "expired"
     assert len(k8s_clean.calls["removals"]) == 1
@@ -908,7 +915,7 @@ def test_grant_compensation_when_checkout_fails(client, k8s_clean):
     # the binding that was applied came back off within the same call
     assert len(k8s_clean.calls["bindings"]) == 1
     assert len(k8s_clean.calls["removals"]) == 1
-    after = client.get(f"/api/v1/jit/requests/{filed['id']}").get_json()
+    after = client.get(f"/api/v1/jit/requests/{filed['id']}", headers=ADMIN).get_json()
     assert after["request"]["status"] == "approved"
     actions = cloud_actions(client, connector["id"])
     assert "rbac-granted" in actions
@@ -938,7 +945,8 @@ def test_delete_connector_refused_while_grants_are_open(client, k8s_clean):
     # auto-approved one is granted and then closed - either way the open
     # set empties and the connector can go.
     current = client.get(
-        f"/api/v1/jit/requests/{filed['id']}"
+        f"/api/v1/jit/requests/{filed['id']}",
+        headers=ADMIN,
     ).get_json()["request"]
     if current["status"] == "pending":
         done = client.post(
@@ -963,7 +971,7 @@ def test_delete_connector_refused_while_grants_are_open(client, k8s_clean):
 # aggregates, audit, and the admin gate
 # ---------------------------------------------------------------------------
 def test_cloud_stats_are_real_aggregates(client, k8s_clean):
-    empty = client.get("/api/v1/cloud/stats").get_json()
+    empty = client.get("/api/v1/cloud/stats", headers=ADMIN).get_json()
     assert empty["connectors"] == 0
     assert empty["events"] == 0
     assert empty["rbac_grants"]["total"] == 0
@@ -975,7 +983,7 @@ def test_cloud_stats_are_real_aggregates(client, k8s_clean):
     add_connector(client, "stats-k8s", endpoint=k8s_clean.endpoint,
                   credential_item_id=item["id"])
 
-    stats = client.get("/api/v1/cloud/stats").get_json()
+    stats = client.get("/api/v1/cloud/stats", headers=ADMIN).get_json()
     assert stats["connectors"] == 2
     assert stats["by_provider"]["aws"] == {
         "total": 1, "not connected": 1, "configured": 0,
@@ -988,14 +996,15 @@ def test_cloud_stats_are_real_aggregates(client, k8s_clean):
     assert stats["discovered_assets"] == 0
 
     rbac(client, stats_k8s_id(client, "stats-k8s"), minutes=15)
-    after = client.get("/api/v1/cloud/stats").get_json()
+    after = client.get("/api/v1/cloud/stats", headers=ADMIN).get_json()
     assert after["rbac_grants"]["total"] == 1
     assert after["rbac_grants"]["open"] == 1
 
 
 def stats_k8s_id(client, name):
     page = client.get(
-        "/api/v1/cloud/connectors", query_string={"q": name}
+        "/api/v1/cloud/connectors", query_string={"q": name},
+        headers=ADMIN,
     ).get_json()
     return next(c["id"] for c in page["connectors"] if c["name"] == name)
 
@@ -1035,8 +1044,8 @@ def test_writes_require_the_admin_token(client, k8s_clean):
         assert response.status_code == 401, (method, path)
 
     # reads stay open, like every other screen-facing list
-    assert client.get("/api/v1/cloud/connectors").status_code == 200
-    assert client.get("/api/v1/cloud/stats").status_code == 200
+    assert client.get("/api/v1/cloud/connectors", headers=ADMIN).status_code == 200
+    assert client.get("/api/v1/cloud/stats", headers=ADMIN).status_code == 200
 
 
 def test_probe_and_discover_are_admin_gated_but_real(client, k8s_clean):

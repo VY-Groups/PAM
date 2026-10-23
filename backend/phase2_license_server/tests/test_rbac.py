@@ -155,25 +155,6 @@ def test_the_broker_list_is_readable_by_the_two_roles_that_read_it(client):
         ), f"{role} keeps no screen that reads the broker list"
 
 
-def test_the_approver_and_the_operator_share_only_the_pinned_reads(client):
-    """Separation of duties, as its own docstring states it: the approver's
-    decision set and the operator's action set do not overlap. The read
-    grants (12.RB) make the two roles share reads, so the intersection is
-    pinned exactly - a new overlap fails here instead of slipping in."""
-    approver = set(service_module.operations_for_role("approver"))
-    operator = set(service_module.operations_for_role("operator"))
-    assert approver and operator
-    assert approver & operator == {"get /api/v1/broker/credentials"}
-    # no decision may be shared, and no reveal may be an operator's
-    for decision in (
-        "post /api/v1/jit/requests/{request_id}/approve",
-        "post /api/v1/break-glass/requests/{request_id}/approve",
-        "post /api/v1/vendors/{vendor_id}/approve",
-    ):
-        assert decision not in operator
-        assert decision not in approver or decision.startswith("post")
-
-
 def test_the_reveal_and_the_exports_keep_their_auditor_only_rule(client):
     """The reveal is the operator's day-2 read - never the approver's and
     never an auditor's; the evidence exports are the auditor's, not the
@@ -193,6 +174,129 @@ def test_the_reveal_and_the_exports_keep_their_auditor_only_rule(client):
     ):
         assert export in service_module.operations_for_role("auditor")
         assert export not in service_module.operations_for_role("auditor-read-only")
+
+
+# ---------------------------------------------------------------------------
+# 12.RB.2: the read contract - who may read the screens a role keeps
+# ---------------------------------------------------------------------------
+# The reads each role's own screens call, read out of the pages' own query
+# hooks (frontend/app/src/features/<page>/queries.ts - ADR-0021's 12.RB record).
+OPERATOR_LIST_READS = (
+    "/api/v1/vault/items",
+    "/api/v1/vault/stats",
+    "/api/v1/vault/events",
+    "/api/v1/jit/requests",
+    "/api/v1/jit/stats",
+    "/api/v1/break-glass/requests",
+    "/api/v1/break-glass/stats",
+    "/api/v1/vendors",
+    "/api/v1/agents",
+    "/api/v1/agent-access/requests",
+    "/api/v1/agent-access/stats",
+    "/api/v1/broker/credentials",
+    "/api/v1/broker/policies",
+    "/api/v1/broker/stats",
+    "/api/v1/sessions",
+    "/api/v1/sessions/stats",
+    "/api/v1/command-control/rules",
+    "/api/v1/command-control/incidents",
+    "/api/v1/command-control/stats",
+    "/api/v1/command-control/approvals",
+    "/api/v1/discovery/assets",
+    "/api/v1/discovery/stats",
+    "/api/v1/cloud/connectors",
+    "/api/v1/cloud/stats",
+    "/api/v1/risk/evaluations",
+    "/api/v1/risk/stats",
+)
+
+# The same screens' detail reads - a fresh database has no such row yet, so
+# the guard letting the call through shows up as 404, never as 403.
+OPERATOR_DETAIL_READS = (
+    "/api/v1/vault/items/1",
+    "/api/v1/jit/requests/1",
+    "/api/v1/break-glass/requests/1",
+    "/api/v1/vendors/1",
+    "/api/v1/agents/1",
+    "/api/v1/agent-access/requests/1",
+    "/api/v1/sessions/1",
+    "/api/v1/sessions/1/events",
+)
+
+APPROVER_INBOX_READS = (
+    "/api/v1/jit/requests",
+    "/api/v1/break-glass/requests",
+    "/api/v1/vendors",
+    "/api/v1/broker/credentials",
+)
+
+
+def test_the_operator_may_read_every_screen_it_keeps(client):
+    """12.RB.2: the reads behind the surfaces the operator keeps are the
+    operator's - proven at the request level (the route is guarded and the
+    role's own token may call it)."""
+    _binding, token = bind(client, "operator-1", "operator")
+    for path in OPERATOR_LIST_READS:
+        response = client.get(path, headers=operator_headers(token))
+        assert response.status_code == 200, (path, response.get_json())
+    for path in OPERATOR_DETAIL_READS:
+        response = client.get(path, headers=operator_headers(token))
+        assert response.status_code in (200, 404), (path, response.get_json())
+
+
+def test_the_approver_may_read_the_four_queues_of_its_inbox(client):
+    """12.RB.2: the approvals inbox reads four queues - the approver may
+    call all four (the broker one was the refusal 12.RB.1 fixed)."""
+    _binding, token = bind(client, "approver-1", "approver")
+    for path in APPROVER_INBOX_READS:
+        response = client.get(path, headers=operator_headers(token))
+        assert response.status_code == 200, (path, response.get_json())
+
+
+def test_a_role_is_refused_the_screens_it_does_not_keep(client):
+    """12.RB.2: the read grant follows the screen - the approver may not read
+    the operator's vault, and the operator may not call the approver's
+    decisions. The refusal is the server's own, verbatim."""
+    _binding, approver_token = bind(client, "approver-1", "approver")
+    _binding, operator_token = bind(client, "operator-1", "operator")
+    response = client.get(
+        "/api/v1/vault/items", headers=operator_headers(approver_token)
+    )
+    assert response.status_code == 403
+    body = response.get_json()
+    assert body["error"] == "Role 'approver' may not call GET /api/v1/vault/items"
+    assert body["details"]["role"] == "approver"
+    response = client.post(
+        "/api/v1/jit/requests/1/approve",
+        headers=operator_headers(operator_token),
+        json={"role": "manager"},
+    )
+    assert response.status_code == 403
+
+
+def test_the_approver_and_the_operator_share_only_the_pinned_reads(client):
+    """Separation of duties, as its own docstring states it: the approver's
+    decision set and the operator's action set do not overlap. The read
+    grants (12.RB) make the two roles share reads - the four queues of the
+    approver's inbox are read by both roles' screens - so the shared set is
+    pinned exactly, and a new overlap fails here instead of slipping in."""
+    approver = set(service_module.operations_for_role("approver"))
+    operator = set(service_module.operations_for_role("operator"))
+    assert approver and operator
+    assert approver & operator == {
+        "get /api/v1/broker/credentials",
+        "get /api/v1/jit/requests",
+        "get /api/v1/break-glass/requests",
+        "get /api/v1/vendors",
+    }
+    # no decision may be shared
+    for decision in (
+        "post /api/v1/jit/requests/{request_id}/approve",
+        "post /api/v1/break-glass/requests/{request_id}/approve",
+        "post /api/v1/vendors/{vendor_id}/approve",
+    ):
+        assert decision not in operator
+        assert decision not in approver or decision.startswith("post")
 
 
 # ---------------------------------------------------------------------------
@@ -650,7 +754,7 @@ def test_seeding_writes_no_trail_row(client):
 
 def test_bound_principal_acts_as_itself_on_the_trail(client):
     _onboard_vault_item(client, "actor-item")
-    item = client.get("/api/v1/vault/items").get_json()["items"][0]
+    item = client.get("/api/v1/vault/items", headers=ADMIN).get_json()["items"][0]
     _, token = bind(client, "op-carla", "operator")
     client.post(
         f"/api/v1/vault/items/{item['id']}/checkout",
@@ -660,6 +764,6 @@ def test_bound_principal_acts_as_itself_on_the_trail(client):
             "X-Actor": "spoofed-name",
         },
     )
-    events = client.get("/api/v1/vault/events").get_json()["events"]
+    events = client.get("/api/v1/vault/events", headers=ADMIN).get_json()["events"]
     checkout = [row for row in events if row["action"] == "checked_out"][-1]
     assert checkout["actor"] == "op-carla"

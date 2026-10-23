@@ -79,7 +79,7 @@ token or explicit open dev mode), (c) runtime↔disk (encrypted secrets),
 
 ## 4. Authentication & accountability
 
-- **145 admin operations** carry security schemes in `openapi.yaml`
+- **177 admin operations** carry security schemes in `openapi.yaml`
   (contract-tested) — they require `Bearer`/`X-Admin-Token` whenever
   `LICENSE_ADMIN_TOKEN` is set.
 - **Least-privilege roles (6b):** in token mode the `admin-token` may call
@@ -209,7 +209,7 @@ with per-event `seq` and custody watermarks.
 
 | Control theme | Status | Where |
 |---|---|---|
-| Logical access — least privilege on admin APIs | ✅ (token mode) | 145 secured operations, contract-tested |
+| Logical access — least privilege on admin APIs | ✅ (token mode) | 177 secured operations, contract-tested |
 | Logical access — dev-mode transparency | ✅ explicit | `X-Auth-Mode: open`, posture violation logged |
 | Encryption of secrets at rest | ✅ | AES-256-GCM vault versions |
 | Change management — config change log | ✅ | `settings_events` per-field diffs |
@@ -236,7 +236,7 @@ reported as missing — never as partial-good.
 
 | Gap today | Closes in | Target state |
 |---|---|---|
-| ~~Single admin role~~ — **✅ closed in 6b** | 6b | Five seeded roles over all admin operations (admin 145 / operator 49 / auditor 33 / auditor-read-only 30 / approver 14), sha256-at-rest tokens shown once, LDAP binding-required (the directory authenticates, the binding decides), ABAC target / vault-item scoping; `admin-token` stays the bootstrap superuser and open dev mode remains an explicit, posture-recorded violation |
+| ~~Single admin role~~ — **✅ closed in 6b** | 6b | Five seeded roles over all admin operations (admin 177 / operator 85 / auditor 27 / auditor-read-only 24 / approver 17), sha256-at-rest tokens shown once, LDAP binding-required (the directory authenticates, the binding decides), ABAC target / vault-item scoping; `admin-token` stays the bootstrap superuser and open dev mode remains an explicit, posture-recorded violation |
 | ~~SSO/HSM schema-only~~ — **✅ closed in 6c** | 6c | SAML 2.0 + OIDC login with verified signatures, single-use flows and fail-closed MFA; JIT subjects + server-side sessions; `kind=sso` bindings on the 6b model (the IdP authenticates, the binding decides). HSM/KMS providers wrap the master key (envelope — same key, ciphertexts stay valid); `enforcement=enforced` refuses any file fallback and seals on provider failure — `sso_mfa`/`hsm_backed` posture now count real evidence, never settings booleans |
 | ~~No real identity behind logins~~ — **✅ closed in 7** | 7 | scrypt local users, fail-closed MFA at login, CSRF-bound server-side console sessions, actor bound to the authenticated principal (`X-Actor` ignored for sessions), lockout + spray detection, e-mail OTP / WebAuthn / RADIUS / SCIM lifecycle, and the sealed emergency admin with dual-approved, time-boxed, single-use open — Addendum C in full; `auth` is the 20th ledger source |
 | ~~No gateway data plane~~ — **✅ closed in 8a** | 8a | zones/pools + maker-checker node registration (Addendum A), guacd-first brokering of rdp/ssh/vnc/telnet with fail-closed dispatch (no healthy node in zone ⇒ 503, create rolled back), one-shot credential injection the user never sees (ledger holds the fact, never the secret), per-segment sealed recordings with verified playback and crypto-shreddable retention (incident-linked sessions are legal hold) — `gateway` is the 21st ledger source |

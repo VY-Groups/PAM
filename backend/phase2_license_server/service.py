@@ -11267,6 +11267,48 @@ ADMIN_OPERATIONS = [
     ("get", "/api/v1/auth/deliveries"),
     ("post", "/api/v1/settings/scim/rotate"),
     ("post", "/api/v1/settings/smtp/test"),
+    # --- 12.RB.2: the reads behind the surfaces a role keeps ---------------
+    # These were open to any authenticated session; each now carries the
+    # admin guard and the role grants of the screen that reads it, so
+    # whoami, the nav filter and the server's refusals tell one story
+    # (ADR-0021's 12.RB record). The agent and broker list/detail reads
+    # were already admin operations - for them this batch changes only the
+    # grant: the screens that read them are the operator's, so the operator
+    # holds them now.
+    ("get", "/api/v1/vault/items"),
+    ("get", "/api/v1/vault/items/{item_id}"),
+    ("get", "/api/v1/vault/stats"),
+    ("get", "/api/v1/vault/events"),
+    ("get", "/api/v1/jit/requests"),
+    ("get", "/api/v1/jit/requests/{request_id}"),
+    ("get", "/api/v1/jit/stats"),
+    ("get", "/api/v1/break-glass/requests"),
+    ("get", "/api/v1/break-glass/requests/{request_id}"),
+    ("get", "/api/v1/break-glass/stats"),
+    ("get", "/api/v1/vendors"),
+    ("get", "/api/v1/vendors/{vendor_id}"),
+    ("get", "/api/v1/agent-access/stats"),
+    ("get", "/api/v1/broker/stats"),
+    ("get", "/api/v1/sessions"),
+    ("get", "/api/v1/sessions/{session_id}"),
+    ("get", "/api/v1/sessions/{session_id}/events"),
+    ("get", "/api/v1/sessions/stats"),
+    ("get", "/api/v1/command-control/rules"),
+    ("get", "/api/v1/command-control/incidents"),
+    ("get", "/api/v1/command-control/incidents/{incident_id}"),
+    ("get", "/api/v1/command-control/stats"),
+    ("get", "/api/v1/command-control/approvals"),
+    ("get", "/api/v1/discovery/assets"),
+    ("get", "/api/v1/discovery/stats"),
+    ("get", "/api/v1/cloud/connectors"),
+    ("get", "/api/v1/cloud/connectors/{connector_id}"),
+    ("get", "/api/v1/cloud/stats"),
+    ("get", "/api/v1/risk/evaluations"),
+    ("get", "/api/v1/risk/stats"),
+    # the admin-only surfaces' own reads - no other role keeps a screen
+    # that reads them, so they are the admin's
+    ("get", "/api/v1/settings"),
+    ("get", "/api/v1/settings/audit"),
     # phase 8a: the gateway's admin surface. The daemon's four routes
     # (heartbeat, work, connect-args, progress) are node-identity
     # operations, never admin operations.
@@ -11313,6 +11355,21 @@ _RBAC_APPROVER_OPERATIONS = frozenset(
         # credential list (one of its four queues) - the read follows the
         # screen the role keeps, so the grant is named here
         ("get", "/api/v1/broker/credentials"),
+        # 12.RB.2: the inbox's other three queues - the approver reads the
+        # request lists the inbox shows, so it holds those reads too
+        ("get", "/api/v1/jit/requests"),
+        ("get", "/api/v1/break-glass/requests"),
+        ("get", "/api/v1/vendors"),
+    }
+)
+
+# 12.RB.2: the admin-only surfaces' own reads - no other role keeps a screen
+# that reads them, so they are the admin's and the auditors do not hold
+# them (the builder's default would have given every GET to the auditors).
+_RBAC_ADMIN_ONLY_READS = frozenset(
+    {
+        ("get", "/api/v1/settings"),
+        ("get", "/api/v1/settings/audit"),
     }
 )
 
@@ -11330,6 +11387,46 @@ _RBAC_OPERATOR_OPERATIONS = frozenset(
         # queue it also files requests for - the read follows the screen
         # the role keeps
         ("get", "/api/v1/broker/credentials"),
+        # 12.RB.2: the reads behind the surfaces the operator keeps (the
+        # pages' own query hooks name them - ADR-0021's 12.RB record).
+        # The grant follows the screen, so the auditors - who keep no
+        # screen that reads these - do not hold them.
+        ("get", "/api/v1/vault/items"),
+        ("get", "/api/v1/vault/items/{item_id}"),
+        ("get", "/api/v1/vault/stats"),
+        ("get", "/api/v1/vault/events"),
+        ("get", "/api/v1/jit/requests"),
+        ("get", "/api/v1/jit/requests/{request_id}"),
+        ("get", "/api/v1/jit/stats"),
+        ("get", "/api/v1/break-glass/requests"),
+        ("get", "/api/v1/break-glass/requests/{request_id}"),
+        ("get", "/api/v1/break-glass/stats"),
+        ("get", "/api/v1/vendors"),
+        ("get", "/api/v1/vendors/{vendor_id}"),
+        ("get", "/api/v1/agents"),
+        ("get", "/api/v1/agents/{agent_id}"),
+        ("get", "/api/v1/agent-access/requests"),
+        ("get", "/api/v1/agent-access/requests/{request_id}"),
+        ("get", "/api/v1/agent-access/stats"),
+        ("get", "/api/v1/broker/policies"),
+        ("get", "/api/v1/broker/policies/{policy_id}"),
+        ("get", "/api/v1/broker/stats"),
+        ("get", "/api/v1/sessions"),
+        ("get", "/api/v1/sessions/{session_id}"),
+        ("get", "/api/v1/sessions/{session_id}/events"),
+        ("get", "/api/v1/sessions/stats"),
+        ("get", "/api/v1/command-control/rules"),
+        ("get", "/api/v1/command-control/incidents"),
+        ("get", "/api/v1/command-control/incidents/{incident_id}"),
+        ("get", "/api/v1/command-control/stats"),
+        ("get", "/api/v1/command-control/approvals"),
+        ("get", "/api/v1/discovery/assets"),
+        ("get", "/api/v1/discovery/stats"),
+        ("get", "/api/v1/cloud/connectors"),
+        ("get", "/api/v1/cloud/connectors/{connector_id}"),
+        ("get", "/api/v1/cloud/stats"),
+        ("get", "/api/v1/risk/evaluations"),
+        ("get", "/api/v1/risk/stats"),
         ("post", "/api/v1/rotation/run"),
         ("post", "/api/v1/rotation/session-end"),
         ("post", "/api/v1/jit/requests"),
@@ -11405,6 +11502,10 @@ def _build_role_operations() -> Dict[Tuple[str, str], Set[str]]:
             roles.add(RBAC_ROLE_OPERATOR)
         if method == "get" and key not in _RBAC_OPERATOR_OPERATIONS:
             if key == _RBAC_SECRET_REVEAL_OPERATION:
+                pass
+            elif key in _RBAC_ADMIN_ONLY_READS:
+                # 12.RB.2: an admin-only surface's own read - no other role
+                # keeps a screen that reads it
                 pass
             elif key in _RBAC_EVIDENCE_EXPORT_OPERATIONS:
                 roles.add(RBAC_ROLE_AUDITOR)

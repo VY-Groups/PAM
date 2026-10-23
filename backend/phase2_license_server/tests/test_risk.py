@@ -275,7 +275,7 @@ def test_manual_evaluation_scores_a_clean_request(client, clock):
     assert component(evaluation, "device")["detail"] == "no device reported for this request"
     assert component(evaluation, "asset")["detail"] == "no target supplied"
 
-    page = client.get("/api/v1/risk/evaluations").get_json()
+    page = client.get("/api/v1/risk/evaluations", headers=ADMIN).get_json()
     assert page["total"] == 1 and page["evaluations"][0]["id"] == evaluation["id"]
 
 
@@ -461,7 +461,7 @@ def test_critical_evaluation_reaches_the_ledger(app, client, night_clock):
 # --- aggregates --------------------------------------------------------------
 
 def test_risk_stats_reflect_real_evaluations(app, client, night_clock):
-    empty = client.get("/api/v1/risk/stats").get_json()
+    empty = client.get("/api/v1/risk/stats", headers=ADMIN).get_json()
     assert empty["total"] == 0
     assert empty["avg_score"] is None  # no data, no number
     assert empty["last_evaluated_at"] is None
@@ -472,7 +472,7 @@ def test_risk_stats_reflect_real_evaluations(app, client, night_clock):
     eval_of(client, {"subject": "s1"})                      # time 10 -> low
     eval_of(client, {"subject": "s2", "target": "10.77.0.9:22"})  # 10+30 -> medium
 
-    state = client.get("/api/v1/risk/stats").get_json()
+    state = client.get("/api/v1/risk/stats", headers=ADMIN).get_json()
     assert state["total"] == 2
     assert state["by_band"] == {"low": 1, "medium": 1, "high": 0, "critical": 0}
     assert state["by_decision"]["allow"] == 1
@@ -493,49 +493,62 @@ def test_risk_list_filters_and_pages(app, client, night_clock):
         {"subject": "s3", "target": "10.77.0.9:22", "device": "unmanaged-laptop"},
     )                                                               # 55 high
 
-    page = client.get("/api/v1/risk/evaluations", query_string={"limit": 2}).get_json()
+    page = client.get("/api/v1/risk/evaluations", query_string={"limit": 2}, headers=ADMIN).get_json()
     assert page["total"] == 3 and len(page["evaluations"]) == 2
     assert [row["subject"] for row in page["evaluations"]] == ["s3", "s2"]
 
     rest = client.get(
-        "/api/v1/risk/evaluations", query_string={"limit": 2, "offset": 2}
+        "/api/v1/risk/evaluations", query_string={"limit": 2, "offset": 2},
+        headers=ADMIN,
     ).get_json()
     assert [row["subject"] for row in rest["evaluations"]] == ["s1"]
 
     high = client.get(
-        "/api/v1/risk/evaluations", query_string={"band": "high"}
+        "/api/v1/risk/evaluations", query_string={"band": "high"},
+        headers=ADMIN,
     ).get_json()
     assert high["total"] == 1
     assert high["evaluations"][0]["band"] == "high"
 
     assert client.get(
-        "/api/v1/risk/evaluations", query_string={"band": "critical"}
+        "/api/v1/risk/evaluations", query_string={"band": "critical"},
+        headers=ADMIN,
     ).get_json()["total"] == 0
     assert client.get(
-        "/api/v1/risk/evaluations", query_string={"context": "session_start"}
+        "/api/v1/risk/evaluations", query_string={"context": "session_start"},
+        headers=ADMIN,
     ).get_json()["total"] == 0
     assert client.get(
-        "/api/v1/risk/evaluations", query_string={"context": "manual"}
+        "/api/v1/risk/evaluations", query_string={"context": "manual"},
+        headers=ADMIN,
     ).get_json()["total"] == 3
 
     bad_band = client.get(
-        "/api/v1/risk/evaluations", query_string={"band": "apocalypse"}
+        "/api/v1/risk/evaluations", query_string={"band": "apocalypse"},
+        headers=ADMIN,
     )
     assert bad_band.status_code == 400
     assert "critical" in bad_band.get_json()["details"]["allowed"]
 
     bad_context = client.get(
-        "/api/v1/risk/evaluations", query_string={"context": "dream"}
+        "/api/v1/risk/evaluations", query_string={"context": "dream"},
+        headers=ADMIN,
     )
     assert bad_context.status_code == 400
     assert "session_start" in bad_context.get_json()["details"]["allowed"]
 
 
-def test_evaluate_requires_admin_token_but_reads_are_public(client):
+def test_evaluate_requires_admin_token_and_reads_need_the_credential(client):
     no_token = client.post("/api/v1/risk/evaluate", json={"subject": "alice"})
     assert no_token.status_code == 401
-    assert client.get("/api/v1/risk/evaluations").status_code == 200
-    assert client.get("/api/v1/risk/stats").status_code == 200
+    # 12.RB.2: the reads are guarded now - the read follows the screen, so
+    # it needs the credential too (these reads used to be public).
+    assert client.get("/api/v1/risk/evaluations").status_code == 401
+    assert client.get("/api/v1/risk/stats").status_code == 401
+    assert (
+        client.get("/api/v1/risk/evaluations", headers=ADMIN).status_code == 200
+    )
+    assert client.get("/api/v1/risk/stats", headers=ADMIN).status_code == 200
 
 
 # --- the session-start gate --------------------------------------------------
@@ -555,7 +568,8 @@ def test_session_start_records_an_allowed_evaluation(client, clock):
     assert sum(c["points"] for c in risk["components"]) == risk["score"]
 
     page = client.get(
-        "/api/v1/risk/evaluations", query_string={"context": "session_start"}
+        "/api/v1/risk/evaluations", query_string={"context": "session_start"},
+        headers=ADMIN,
     ).get_json()
     assert page["total"] == 1
     assert page["evaluations"][0]["result"] == "allowed"
@@ -565,8 +579,8 @@ def test_session_start_validates_the_device_field(client, clock):
     response = start_session(client, target="h:22", device=42)
     assert response.status_code == 400
     assert response.get_json()["details"]["field"] == "device"
-    assert client.get("/api/v1/sessions").get_json()["total"] == 0
-    assert client.get("/api/v1/risk/evaluations").get_json()["total"] == 0
+    assert client.get("/api/v1/sessions", headers=ADMIN).get_json()["total"] == 0
+    assert client.get("/api/v1/risk/evaluations", headers=ADMIN).get_json()["total"] == 0
 
 
 def test_session_start_refuses_high_without_an_active_grant(
@@ -584,10 +598,10 @@ def test_session_start_refuses_high_without_an_active_grant(
     assert details["risk"]["result"] == "refused"
     assert details["risk"]["score"] == 55
 
-    assert client.get("/api/v1/sessions").get_json()["total"] == 0
+    assert client.get("/api/v1/sessions", headers=ADMIN).get_json()["total"] == 0
 
     # the refusal itself is kept as SOC evidence on the risk trail
-    page = client.get("/api/v1/risk/evaluations").get_json()
+    page = client.get("/api/v1/risk/evaluations", headers=ADMIN).get_json()
     assert page["total"] == 1
     assert page["evaluations"][0]["result"] == "refused"
     feed = client.get("/api/v1/events", query_string={"source": "risk"}).get_json()
@@ -685,6 +699,6 @@ def test_critical_band_refuses_even_with_an_active_grant(
     assert risk["result"] == "refused"
 
     # only the setup session exists - the refused start created no session
-    assert client.get("/api/v1/sessions").get_json()["total"] == 1
-    still = client.get(f"/api/v1/jit/requests/{grant['id']}").get_json()
+    assert client.get("/api/v1/sessions", headers=ADMIN).get_json()["total"] == 1
+    still = client.get(f"/api/v1/jit/requests/{grant['id']}", headers=ADMIN).get_json()
     assert still["request"]["status"] == "active"  # the grant itself survives

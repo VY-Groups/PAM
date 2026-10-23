@@ -281,7 +281,7 @@ def put_settings(client, group, values, *, headers=None):
 
 
 def get_settings(client, group):
-    response = client.get("/api/v1/settings")
+    response = client.get("/api/v1/settings", headers=ADMIN)
     assert response.status_code == 200
     return response.get_json()["settings"][group]
 
@@ -385,7 +385,7 @@ def open_break_glass(client, request_id, body=None, *, actor="alice"):
 
 
 def bg_detail(client, request_id):
-    response = client.get(f"/api/v1/break-glass/requests/{request_id}")
+    response = client.get(f"/api/v1/break-glass/requests/{request_id}", headers=ADMIN)
     assert response.status_code == 200, response.get_json()
     return response.get_json()["request"]
 
@@ -513,7 +513,7 @@ def test_factor_settings_fields_are_read_only(client):
 
 
 def test_mfa_schema_marks_the_factor_fields(client):
-    schema = client.get("/api/v1/settings").get_json()["schema"]
+    schema = client.get("/api/v1/settings", headers=ADMIN).get_json()["schema"]
     assert schema["mfa"]["factor_secret"]["type"] == "secret"
     assert schema["mfa"]["factor_secret"]["readonly"] is True
     assert schema["mfa"]["factor_enrolled_for"]["readonly"] is True
@@ -566,8 +566,8 @@ def test_no_secret_reaches_any_read_path(client):
     verify_code(client, integrations.totp_now(seed))  # trail with events too
 
     reads = [
-        client.get("/api/v1/settings").get_data(as_text=True),
-        client.get("/api/v1/settings/audit").get_data(as_text=True),
+        client.get("/api/v1/settings", headers=ADMIN).get_data(as_text=True),
+        client.get("/api/v1/settings/audit", headers=ADMIN).get_data(as_text=True),
         client.get("/api/v1/integrations/status").get_data(as_text=True),
         client.get("/api/v1/audit/export").get_data(as_text=True),
         client.get("/api/v1/events", query_string={"source": "integration"}).get_data(
@@ -577,7 +577,7 @@ def test_no_secret_reaches_any_read_path(client):
     for text in reads:
         assert seed not in text
     # the changelog records the factor state change, marked, not material
-    changelog = client.get("/api/v1/settings/audit").get_json()["events"]
+    changelog = client.get("/api/v1/settings/audit", headers=ADMIN).get_json()["events"]
     factor_events = [
         e for e in changelog if e.get("group") == "mfa"
     ]
@@ -618,9 +618,9 @@ def test_factor_gates_a_medium_band_start_without_a_code(app, client, clock):
     assert details["risk"]["decision"] == "mfa"
     assert details["mfa"] == "TOTP code required - a factor is enrolled"
 
-    assert client.get("/api/v1/sessions").get_json()["total"] == 0
+    assert client.get("/api/v1/sessions", headers=ADMIN).get_json()["total"] == 0
     # the refusal is kept: evaluation + gate reason, both committed
-    page = client.get("/api/v1/risk/evaluations").get_json()
+    page = client.get("/api/v1/risk/evaluations", headers=ADMIN).get_json()
     assert page["total"] == 1 and page["evaluations"][0]["result"] == "refused"
     gates = [e for e in integration_events(client) if e["action"] == "mfa-gate"]
     assert gates[0]["detail"]["outcome"] == "refused"
@@ -635,7 +635,7 @@ def test_a_wrong_code_refuses_the_start(app, client, clock):
     refused = start_session(client, mfa_code=wrong)
     assert refused.status_code == 403
     assert refused.get_json()["details"]["mfa"] == "invalid or expired TOTP code"
-    assert client.get("/api/v1/sessions").get_json()["total"] == 0
+    assert client.get("/api/v1/sessions", headers=ADMIN).get_json()["total"] == 0
 
 
 def test_a_valid_code_unlocks_the_medium_band_start(app, client, clock):
@@ -648,7 +648,7 @@ def test_a_valid_code_unlocks_the_medium_band_start(app, client, clock):
     assert risk["band"] == "medium"
     assert risk["decision"] == "mfa"
     assert risk["result"] == "allowed"
-    assert client.get("/api/v1/sessions").get_json()["total"] == 1
+    assert client.get("/api/v1/sessions", headers=ADMIN).get_json()["total"] == 1
 
     gates = [e for e in integration_events(client) if e["action"] == "mfa-gate"]
     assert gates[0]["detail"]["outcome"] == "verified"
@@ -699,7 +699,7 @@ def test_break_glass_demands_a_code_when_a_factor_exists(client):
     state = bg_detail(client, request["id"])
     assert state["status"] == "approved"          # nothing was released
     assert state["session_id"] is None
-    assert client.get("/api/v1/sessions").get_json()["total"] == 0
+    assert client.get("/api/v1/sessions", headers=ADMIN).get_json()["total"] == 0
 
     gates = [e for e in integration_events(client) if e["action"] == "mfa-gate"]
     assert gates[0]["detail"]["flow"] == "break-glass-open"
@@ -891,9 +891,9 @@ def test_siem_settings_secrets_are_sealed_and_redacted(client):
 
     stored = get_settings(client, "siem")
     assert stored["values"]["signing_secret"] == "<set>"
-    assert SIEM_SECRET not in client.get("/api/v1/settings").get_data(as_text=True)
+    assert SIEM_SECRET not in client.get("/api/v1/settings", headers=ADMIN).get_data(as_text=True)
 
-    changelog = client.get("/api/v1/settings/audit").get_json()["events"]
+    changelog = client.get("/api/v1/settings/audit", headers=ADMIN).get_json()["events"]
     secret_events = [
         e for e in changelog if (e.get("changes") or {}).get("signing_secret")
     ]
@@ -902,7 +902,7 @@ def test_siem_settings_secrets_are_sealed_and_redacted(client):
         "old": "",
         "new": "<set>",
     }
-    assert SIEM_SECRET not in client.get("/api/v1/settings/audit").get_data(
+    assert SIEM_SECRET not in client.get("/api/v1/settings/audit", headers=ADMIN).get_data(
         as_text=True
     )
 

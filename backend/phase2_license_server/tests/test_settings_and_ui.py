@@ -99,7 +99,7 @@ def open_client(tmp_path: Path):
 # settings: read
 # ---------------------------------------------------------------------------
 def test_settings_returns_spec_defaults_and_schema(client):
-    response = client.get("/api/v1/settings")
+    response = client.get("/api/v1/settings", headers=ADMIN)
     assert response.status_code == 200
     data = response.get_json()
 
@@ -203,7 +203,7 @@ def test_settings_update_persists_and_is_read_back(client):
     assert body["values"]["session_inactivity_timeout_minutes"] == 15  # untouched
     assert body["updated_by"] == "admin"
 
-    read_back = client.get("/api/v1/settings").get_json()["settings"]["zsp"]
+    read_back = client.get("/api/v1/settings", headers=ADMIN).get_json()["settings"]["zsp"]
     assert read_back["stored"] is True
     assert read_back["values"]["tier0_quorum_approvers"] == 4
     assert read_back["values"]["default_jit_ttl_minutes"] == 30
@@ -216,14 +216,14 @@ def test_settings_actor_header_is_recorded(client):
         json={"key_rotation_hours": 12},
         headers={**ADMIN, "X-Actor": "alice"},
     )
-    audit = client.get("/api/v1/settings/audit").get_json()
+    audit = client.get("/api/v1/settings/audit", headers=ADMIN).get_json()
     assert audit["events"][0]["actor"] == "alice"
     assert audit["events"][0]["group"] == "hsm"
 
 
 def test_settings_no_changes_does_not_write_an_event(client):
     client.put("/api/v1/settings/worm", json={"retention_days": 2555}, headers=ADMIN)
-    assert client.get("/api/v1/settings/audit").get_json()["total"] == 0
+    assert client.get("/api/v1/settings/audit", headers=ADMIN).get_json()["total"] == 0
 
     response = client.put(
         "/api/v1/settings/worm", json={"retention_days": 2555}, headers=ADMIN
@@ -231,7 +231,7 @@ def test_settings_no_changes_does_not_write_an_event(client):
     assert response.status_code == 200
     assert response.get_json()["message"] == "No changes"
     assert response.get_json()["changed_fields"] == []
-    assert client.get("/api/v1/settings/audit").get_json()["total"] == 0
+    assert client.get("/api/v1/settings/audit", headers=ADMIN).get_json()["total"] == 0
 
 
 def test_settings_update_rejects_unknown_group(client):
@@ -301,7 +301,7 @@ def test_settings_each_group_writes_independently(client):
             f"/api/v1/settings/{group}", json=payload, headers=ADMIN
         ).status_code == 200
 
-    settings = client.get("/api/v1/settings").get_json()["settings"]
+    settings = client.get("/api/v1/settings", headers=ADMIN).get_json()["settings"]
     assert settings["sso"]["values"]["primary_provider"] == "entra"
     assert settings["sso"]["values"]["enforce_sso"] is True  # untouched default
     assert settings["hsm"]["values"]["provider"] == "hashicorp-vault"
@@ -309,7 +309,7 @@ def test_settings_each_group_writes_independently(client):
     assert settings["worm"]["values"]["object_lock_mode"] == "GOVERNANCE"
     assert settings["worm"]["values"]["immutability_enabled"] is True
 
-    audit = client.get("/api/v1/settings/audit").get_json()
+    audit = client.get("/api/v1/settings/audit", headers=ADMIN).get_json()
     assert audit["total"] == 4
     assert [event["group"] for event in audit["events"]] == [
         "worm", "zsp", "hsm", "sso",   # newest first
@@ -327,7 +327,7 @@ def test_settings_audit_respects_limit(client):
             json={"tier0_quorum_approvers": approvers},
             headers=ADMIN,
         )
-    audit = client.get("/api/v1/settings/audit?limit=2").get_json()
+    audit = client.get("/api/v1/settings/audit?limit=2", headers=ADMIN).get_json()
     assert audit["total"] == 3
     assert audit["limit"] == 2
     assert len(audit["events"]) == 2
@@ -335,7 +335,7 @@ def test_settings_audit_respects_limit(client):
 
 
 def test_settings_audit_limit_must_be_an_integer(client):
-    response = client.get("/api/v1/settings/audit?limit=abc")
+    response = client.get("/api/v1/settings/audit?limit=abc", headers=ADMIN)
     assert response.status_code == 400
 
 
@@ -488,7 +488,7 @@ def test_server_serves_previews_and_design_doc(client):
 
 def test_static_serving_does_not_shadow_the_api(client):
     # a real API route still answers...
-    assert client.get("/api/v1/settings").status_code == 200
+    assert client.get("/api/v1/settings", headers=ADMIN).status_code == 200
     assert client.get("/health").status_code == 200
     # ...and a missing one is a JSON 404, not a file lookup
     response = client.get("/api/v1/no-such-route")

@@ -173,7 +173,7 @@ from the architecture doc, phase assigned in `IMPLEMENTATION_PLAN.md`:
 | Data honesty | No fabricated values anywhere in the product | Live-data wiring + FORBIDDEN-string sweep (`shots_tool/__verify_live.mjs`, 9 screens × HTTP/file) |
 | Portability | Installs directly on a machine | Pure Python deps; one required external service (PostgreSQL, ADR-0019); Docker only under `pam_master/` and `backend/phase2_license_server/` for development |
 | Tamper evidence | Audit trail provable | sha256 chain + append-only triggers + `/audit/verify` |
-| Least privilege | Admin actions authenticated, least-privilege roles | 145 admin operations require `Bearer`/`X-Admin-Token` when `LICENSE_ADMIN_TOKEN` is set; in token mode a bound principal (RBAC API token, LDAP ticket, SSO subject, or local console user) may call only its role's operations and only its ABAC scope; open dev mode is explicit (`X-Auth-Mode: open`); pipeline `/broker` operations require the broker API token and AI-agent `/agent-access` operations the agent API token — neither is ever waived; console sessions are a separate credential (cookie + CSRF, actor bound to the principal) |
+| Least privilege | Admin actions authenticated, least-privilege roles | 177 admin operations require `Bearer`/`X-Admin-Token` when `LICENSE_ADMIN_TOKEN` is set; in token mode a bound principal (RBAC API token, LDAP ticket, SSO subject, or local console user) may call only its role's operations and only its ABAC scope; open dev mode is explicit (`X-Auth-Mode: open`); pipeline `/broker` operations require the broker API token and AI-agent `/agent-access` operations the agent API token — neither is ever waived; console sessions are a separate credential (cookie + CSRF, actor bound to the principal) |
 | Bounded resource use | Scans and lists bounded | Scan ≤256 hosts × ≤24 ports, single-flight; pagination `limit` max 200 |
 | Contract stability | API evolution controlled | OpenAPI 3.1, both-direction contract test, `/api/v1` version segment |
 | Testability | Every phase ships tests | 849 backend (repo root, PostgreSQL - ADR-0019) + 46 vendor-tool tests; UI verifiers; 17-step smoke |
@@ -183,7 +183,7 @@ from the architecture doc, phase assigned in `IMPLEMENTATION_PLAN.md`:
 
 1. `python -m pytest backend -q` green (currently **849**) and
    `python -m pytest pam_master -q` green (**46**).
-2. Contract test green: **212** documented paths both directions, **145**
+2. Contract test green: **212** documented paths both directions, **177**
    admin operations carrying security schemes.
 3. Boundary verifiers green: smoke 17/17, `__verify_live.mjs`,
    `__verify_discovery.mjs`.

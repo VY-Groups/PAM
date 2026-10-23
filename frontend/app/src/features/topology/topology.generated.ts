@@ -894,7 +894,7 @@ export const BACKEND_PACKAGES: BackendPackageView[] = [
       },
       {
         path: 'routes.py',
-        lines: 4007,
+        lines: 4039,
         imports: [
           'backend/phase2_license_server/config.py',
           'backend/phase2_license_server/errors.py',
@@ -937,7 +937,7 @@ export const BACKEND_PACKAGES: BackendPackageView[] = [
       },
       {
         path: 'service.py',
-        lines: 12842,
+        lines: 12943,
         imports: [
           'backend/phase2_license_server/audit.py',
           'backend/phase2_license_server/config.py',

@@ -653,7 +653,7 @@ DateTime indexed.
 | description | String(255) | ✗ | `''` | what the role may call, in plain words |
 | created_at | DateTime | ✗ | now | |
 
-The per-operation policy - which of the 145 admin operations each role
+The per-operation policy - which of the 177 admin operations each role
 may call - is code, not data: `service.ROLE_OPERATIONS` derives it from
 `service.ADMIN_OPERATIONS` (the single source the contract test pins).
 

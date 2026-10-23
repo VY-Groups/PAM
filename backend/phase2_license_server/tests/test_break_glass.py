@@ -93,7 +93,7 @@ def onboard(client, name, *, target):
 
 
 def vault_item(client, item_id):
-    response = client.get(f"/api/v1/vault/items/{item_id}")
+    response = client.get(f"/api/v1/vault/items/{item_id}", headers=ADMIN)
     assert response.status_code == 200, response.get_json()
     return response.get_json()["item"]
 
@@ -158,7 +158,7 @@ def close_request(client, request_id, *, actor="alice", review=None):
 
 
 def detail(client, request_id):
-    response = client.get(f"/api/v1/break-glass/requests/{request_id}")
+    response = client.get(f"/api/v1/break-glass/requests/{request_id}", headers=ADMIN)
     assert response.status_code == 200, response.get_json()
     return response.get_json()
 
@@ -174,7 +174,7 @@ def actions(client):
 
 
 def stats(client):
-    response = client.get("/api/v1/break-glass/stats")
+    response = client.get("/api/v1/break-glass/stats", headers=ADMIN)
     assert response.status_code == 200, response.get_json()
     return response.get_json()
 
@@ -574,7 +574,7 @@ def test_list_filter_paging_and_validation(client):
     assert deny(client, first["id"], actor="carol").status_code == 200
     file_request(client, actor="alice", target="cache-01.corp")
 
-    everything = client.get("/api/v1/break-glass/requests").get_json()
+    everything = client.get("/api/v1/break-glass/requests", headers=ADMIN).get_json()
     assert everything["total"] == 2
     assert {row["status"] for row in everything["requests"]} == {
         "pending",
@@ -583,19 +583,22 @@ def test_list_filter_paging_and_validation(client):
     assert all("approvals" in row for row in everything["requests"])
 
     pending = client.get(
-        "/api/v1/break-glass/requests", query_string={"status": "pending"}
+        "/api/v1/break-glass/requests", query_string={"status": "pending"},
+        headers=ADMIN,
     ).get_json()
     assert pending["total"] == 1
     assert pending["requests"][0]["status"] == "pending"
 
     limited = client.get(
-        "/api/v1/break-glass/requests", query_string={"limit": 1}
+        "/api/v1/break-glass/requests", query_string={"limit": 1},
+        headers=ADMIN,
     ).get_json()
     assert len(limited["requests"]) == 1
     assert limited["total"] == 2
 
     bad = client.get(
-        "/api/v1/break-glass/requests", query_string={"status": "nope"}
+        "/api/v1/break-glass/requests", query_string={"status": "nope"},
+        headers=ADMIN,
     )
     assert bad.status_code == 400
     assert bad.get_json()["details"]["allowed"] == [
@@ -621,7 +624,7 @@ def test_detail_carries_approvals_and_the_recorded_session(client):
     assert state["session"]["controls"]["record"] is True
     assert state["request"]["status"] == "used"
 
-    missing = client.get("/api/v1/break-glass/requests/999999")
+    missing = client.get("/api/v1/break-glass/requests/999999", headers=ADMIN)
     assert missing.status_code == 404
 
 
