@@ -130,7 +130,7 @@
 
 ## 7. CI: the 49 in-container failures and the red Frontend rebuild gate
 
-**Status:** Code fixes applied and measured. The in-container and backend gates are green on CI; the Frontend rebuild gate's two failing steps are fixed locally and await the next CI run to confirm.
+**Status:** **CI GREEN.** Both red gates are fixed and the whole pipeline is green: CI run `40078984897` → `status: completed / conclusion: success`, all 6 jobs `success` (Ruff, Frontend standing gate, Backend suite, **Frontend rebuild**, Security scanners, **In-container suite**).
 
 **What this is:** CI run `39944565730` was red in three jobs: `In-container suite` (49 failed / 724 passed), `Backend suite`, and `Frontend rebuild`. The user asked for the 49 failures to be fixed with no vibe coding and for CI to be successful.
 
@@ -167,10 +167,10 @@
 **REA note:** the shipped frontend bundle was analysed with REA (`analyze_javascript_application`, `input_path=frontend/app/dist`, `format=directory`, evidence `ev_d82b91179a816dfb6d18e0da2c6af31cb4734d92e980f1a5aaa463d020ecb3df`, artifact sha256 `5fdeda3c842ae08ce26c85f8797436243e11e6941f7c3c5b32a0eb88a7c2cfc7`). Coverage was **partial**: the owned JavaScript worker exhausted its heap on the 1.2 MB minified `assets/index-C9fxBNcg.js` (`parsed_javascript_files: 0`, `skipped_javascript_files: 1`), so the bundle's internals were **not** established from the artifact. The bundle was not used as evidence for any claim above.
 
 **What remains:**
-- The next CI run must show `Frontend rebuild` green (this commit carries the audit + drift fixes). Until that run prints `success`, the Frontend gate is **not** claimed green.
 - Item 1's archive run still needs a restored backup with 2+ rows.
+- Nothing else in this item is outstanding. The green CI run `40078984897` confirms both fixes.
 
-**Key anchor:** `gh run view 40075821828 --json jobs` → 5 of 6 `success`; `pnpm audit` → `No known vulnerabilities found`; `vitest --project=console` → 481 passed; `pnpm install --frozen-lockfile` → exit 0; `vite.config.ts:37-42` (the documented local port race); `git show HEAD:frontend/app/src/app/guards/RoleGate.test.tsx` → CRLF 0, LF 283 → prettier exit 0.
+**Key anchor:** `gh run view 40078984897 --json jobs` → all 6 jobs `success`; `gh run view 40078984897 --json conclusion,status` → `completed / success`. `pnpm audit` → `No known vulnerabilities found`; `vitest --project=console` → 481 passed; `pnpm install --frozen-lockfile` → exit 0; `vite.config.ts:37-42` (the documented local port race); `git show HEAD:frontend/app/src/app/guards/RoleGate.test.tsx` → CRLF 0, LF 283 → prettier exit 0.
 
 ---
 
