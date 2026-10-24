@@ -167,7 +167,7 @@ def post_event(client, session_id, type_, content):
 
 
 def vault_view(client, item_id):
-    return client.get(f"/api/v1/vault/items/{item_id}").get_json()["item"]
+    return client.get(f"/api/v1/vault/items/{item_id}", headers=ADMIN).get_json()["item"]
 
 
 def agent_detail(client, agent_id):
@@ -698,7 +698,7 @@ def test_low_risk_request_is_auto_approved_with_a_snapshotted_binding(
     assert detail["agent"]["id"] == row["id"]
     assert "access-requested" in [e["action"] for e in detail["events"]]
     # the request also rides the normal section-6 trail
-    jit = client.get(f"/api/v1/jit/requests/{request['id']}").get_json()
+    jit = client.get(f"/api/v1/jit/requests/{request['id']}", headers=ADMIN).get_json()
     assert [e["action"] for e in jit["events"]] == ["approved", "requested"]
 
 
@@ -917,7 +917,7 @@ def test_spec_example_commands_allow_and_block(client, monkeypatch):
     assert "escalation" not in allowed.get_json()
 
     # deny beats allow: even a task-listed rm -rf stays blocked by section 9
-    rules = client.get("/api/v1/command-control/rules").get_json()["items"]
+    rules = client.get("/api/v1/command-control/rules", headers=ADMIN).get_json()["items"]
     rm_rule = next(r for r in rules if r["pattern"] == "rm -rf")
     response = post_event(client, session_id, "command", "rm -rf /opt/app/cache")
     assert response.status_code == 201
@@ -1169,7 +1169,7 @@ def test_active_grant_expires_and_rotates(client, monkeypatch):
     ).get_json()["session"]
     assert session["status"] in ("terminated", "completed")
 
-    stats = client.get("/api/v1/agent-access/stats").get_json()
+    stats = client.get("/api/v1/agent-access/stats", headers=ADMIN).get_json()
     assert stats["requests"]["open"] == 0
 
 
@@ -1219,7 +1219,7 @@ def test_access_queue_detail_and_stats_reflect_real_rows(client, monkeypatch):
         headers=ADMIN,
     ).status_code == 404
 
-    stats = client.get("/api/v1/agent-access/stats").get_json()
+    stats = client.get("/api/v1/agent-access/stats", headers=ADMIN).get_json()
     assert stats["identities"]["total"] == 1
     assert stats["identities"]["by_status"] == {
         "active": 1, "disabled": 0, "revoked": 0,

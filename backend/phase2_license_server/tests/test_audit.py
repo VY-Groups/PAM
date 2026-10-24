@@ -309,7 +309,7 @@ def test_channel_content_stays_in_the_recording_not_the_ledger(client):
                       "frame-0001.png").status_code == 201
     assert post_event(client, sid, "command", "whoami").status_code == 201
 
-    recording = client.get(f"/api/v1/sessions/{sid}/events").get_json()["events"]
+    recording = client.get(f"/api/v1/sessions/{sid}/events", headers=ADMIN).get_json()["events"]
     kinds = {event["type"] for event in recording}
     assert {"status", "keystroke", "screenshot", "command"} <= kinds
     assert any(
@@ -577,7 +577,7 @@ def test_reveal_is_audited_without_the_secret(client):
     assert response.status_code == 200
     assert response.get_json()["secret"] == "hunter2-plain-text"
 
-    events = client.get("/api/v1/vault/events").get_json()["events"]
+    events = client.get("/api/v1/vault/events", headers=ADMIN).get_json()["events"]
     reveals = [event for event in events if event["action"] == "revealed"]
     assert len(reveals) == 1
     assert reveals[0]["actor"] == "admin"

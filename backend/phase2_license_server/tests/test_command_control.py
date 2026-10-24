@@ -117,7 +117,7 @@ def rule_named(rules, pattern, target=""):
 
 
 def test_shipped_policy_is_the_architecture_table(client):
-    response = client.get("/api/v1/command-control/rules")
+    response = client.get("/api/v1/command-control/rules", headers=ADMIN)
     assert response.status_code == 200
     body = response.get_json()
     rules = body["items"]
@@ -163,7 +163,7 @@ def test_shipped_policy_is_the_architecture_table(client):
 
 
 def test_seed_runs_once_and_deletions_stay(client, app):
-    rules = client.get("/api/v1/command-control/rules").get_json()["items"]
+    rules = client.get("/api/v1/command-control/rules", headers=ADMIN).get_json()["items"]
     doomed = rule_named(rules, "TRUNCATE")
     deleted = client.delete(
         f"/api/v1/command-control/rules/{doomed['id']}", headers=ACTOR
@@ -171,14 +171,14 @@ def test_seed_runs_once_and_deletions_stay(client, app):
     assert deleted.status_code == 200
     with app.app_context():
         assert service_module.ensure_command_rules() == 0
-    again = client.get("/api/v1/command-control/rules").get_json()["items"]
+    again = client.get("/api/v1/command-control/rules", headers=ADMIN).get_json()["items"]
     assert rule_named.__name__  # helper still usable
     assert all(r["id"] != doomed["id"] for r in again)
 
 
 def test_stats_report_real_policy_state(client):
-    body = client.get("/api/v1/command-control/stats").get_json()
-    total = client.get("/api/v1/command-control/rules").get_json()["total"]
+    body = client.get("/api/v1/command-control/stats", headers=ADMIN).get_json()
+    total = client.get("/api/v1/command-control/rules", headers=ADMIN).get_json()["total"]
     assert body["rules_total"] == total
     assert sum(body["by_action"].values()) == total
     assert body["rules_enabled"] == total
@@ -275,7 +275,8 @@ def test_create_update_delete_round_trip(client):
     assert rule["match_count"] if "match_count" in rule else True
 
     listed = client.get(
-        "/api/v1/command-control/rules?q=package installs"
+        "/api/v1/command-control/rules?q=package installs",
+        headers=ADMIN,
     ).get_json()["items"]
     assert [r["id"] for r in listed] == [rule["id"]]
     assert listed[0]["match_count"] == 0
@@ -297,7 +298,7 @@ def test_create_update_delete_round_trip(client):
         f"/api/v1/command-control/rules/{rule['id']}", headers=ACTOR
     )
     assert deleted.status_code == 200 and deleted.get_json()["deleted"] == rule["id"]
-    gone = client.get(f"/api/v1/command-control/rules?q=package installs")
+    gone = client.get(f"/api/v1/command-control/rules?q=package installs", headers=ADMIN)
     assert gone.get_json()["total"] == 0
     missing_delete = client.delete(
         f"/api/v1/command-control/rules/{rule['id']}", headers=ACTOR
@@ -346,22 +347,33 @@ def test_create_rule_validation(client):
     assert len(over_long.get_json()["rule"]["name"]) == 120
 
 
-def test_rule_writes_require_admin_and_reads_stay_public(client):
+def test_rule_writes_require_admin_and_reads_need_the_credential(client):
     created = client.post(
         "/api/v1/command-control/rules",
         json={"name": "temp", "pattern": "zzz"},
     )
     assert created.status_code == 401
-    rule_id = client.get("/api/v1/command-control/rules").get_json()["items"][0]["id"]
+    rule_id = client.get(
+        "/api/v1/command-control/rules", headers=ADMIN
+    ).get_json()["items"][0]["id"]
     updated = client.put(
         f"/api/v1/command-control/rules/{rule_id}", json={"action": "block"}
     )
     assert updated.status_code == 401
     deleted = client.delete(f"/api/v1/command-control/rules/{rule_id}")
     assert deleted.status_code == 401
-    # public reads still work without the token
-    assert client.get("/api/v1/command-control/rules").status_code == 200
-    assert client.get("/api/v1/command-control/stats").status_code == 200
+    # 12.RB.2: the reads are guarded now - the read follows the screen, so
+    # it needs the credential too (these reads used to be public).
+    assert client.get("/api/v1/command-control/rules").status_code == 401
+    assert client.get("/api/v1/command-control/stats").status_code == 401
+    assert (
+        client.get("/api/v1/command-control/rules", headers=ADMIN).status_code
+        == 200
+    )
+    assert (
+        client.get("/api/v1/command-control/stats", headers=ADMIN).status_code
+        == 200
+    )
     assert (
         client.post("/api/v1/command-control/evaluate", json={"command": "ls"})
         .status_code
@@ -370,7 +382,7 @@ def test_rule_writes_require_admin_and_reads_stay_public(client):
 
 
 def test_update_conflicts_and_unknown_rules(client):
-    rules = client.get("/api/v1/command-control/rules").get_json()["items"]
+    rules = client.get("/api/v1/command-control/rules", headers=ADMIN).get_json()["items"]
     allow_rule = rule_named(rules, "ls")
     bad = client.put(
         f"/api/v1/command-control/rules/{allow_rule['id']}",
@@ -385,12 +397,12 @@ def test_update_conflicts_and_unknown_rules(client):
         headers=ACTOR,
     )
     assert missing.status_code == 404
-    missing_get = client.get("/api/v1/command-control/rules/999999")
+    missing_get = client.get("/api/v1/command-control/rules/999999", headers=ADMIN)
     assert missing_get.status_code in (404, 405)  # no GET on a single rule
 
 
 def test_events_keep_the_rule_reference_after_deletion(client):
-    rules = client.get("/api/v1/command-control/rules").get_json()["items"]
+    rules = client.get("/api/v1/command-control/rules", headers=ADMIN).get_json()["items"]
     created = client.post(
         "/api/v1/command-control/rules",
         json={"name": "Block freezer", "pattern": "freeze /", "action": "block"},
@@ -409,7 +421,7 @@ def test_events_keep_the_rule_reference_after_deletion(client):
         ).status_code
         == 200
     )
-    events = client.get(f"/api/v1/sessions/{session['id']}/events").get_json()
+    events = client.get(f"/api/v1/sessions/{session['id']}/events", headers=ADMIN).get_json()
     command_row = [e for e in events["events"] if e["type"] == "command"][0]
     assert command_row["rule_id"] == created["id"]  # history survives deletion
     # and the seeded policy still decides
@@ -442,7 +454,7 @@ def test_command_events_carry_their_decision(client):
     assert held["decision"] == "approval" and held["allowed"] is False
     assert held["blocked_reason"] == "approval_required"
 
-    detail = client.get(f"/api/v1/sessions/{session['id']}").get_json()
+    detail = client.get(f"/api/v1/sessions/{session['id']}", headers=ADMIN).get_json()
     assert detail["session"]["status"] == "active"  # blocks do not kill
 
 
@@ -451,7 +463,7 @@ def test_approval_queue_and_resolution(client):
     hold = post_command(client, session["id"], "passwd service-account")
     hold_event = hold.get_json()["event"]
 
-    queue = client.get("/api/v1/command-control/approvals").get_json()
+    queue = client.get("/api/v1/command-control/approvals", headers=ADMIN).get_json()
     assert queue["total"] == 1
     item = queue["items"][0]
     assert item["event"]["seq"] == hold_event["seq"]
@@ -469,14 +481,15 @@ def test_approval_queue_and_resolution(client):
     # the hold itself is untouched (append-only)
     still = [
         e for e in client.get(
-            f"/api/v1/sessions/{session['id']}/events"
+            f"/api/v1/sessions/{session['id']}/events",
+            headers=ADMIN,
         ).get_json()["events"]
         if e["seq"] == hold_event["seq"]
     ][0]
     assert still["allowed"] is False and still["decision"] == "approval"
 
-    assert client.get("/api/v1/command-control/approvals").get_json()["total"] == 0
-    stats = client.get("/api/v1/command-control/stats").get_json()["approvals"]
+    assert client.get("/api/v1/command-control/approvals", headers=ADMIN).get_json()["total"] == 0
+    stats = client.get("/api/v1/command-control/stats", headers=ADMIN).get_json()["approvals"]
     assert stats == {"pending": 0, "approved": 1, "denied": 0}
 
     again = client.post(
@@ -500,7 +513,8 @@ def test_approval_queue_and_resolution(client):
 
     # the type filter knows the approval rows
     approvals_only = client.get(
-        f"/api/v1/sessions/{session['id']}/events?type=approval"
+        f"/api/v1/sessions/{session['id']}/events?type=approval",
+        headers=ADMIN,
     ).get_json()
     assert approvals_only["total"] == 2
 
@@ -533,7 +547,7 @@ def test_resolution_refuses_an_ended_session(client):
     assert resolved.status_code == 409
     assert resolved.get_json()["details"]["status"] == "terminated"
     # the hold stays listed nowhere: only active sessions are actionable
-    assert client.get("/api/v1/command-control/approvals").get_json()["total"] == 0
+    assert client.get("/api/v1/command-control/approvals", headers=ADMIN).get_json()["total"] == 0
 
 
 def test_escalated_block_kills_the_session_and_preserves_evidence(client, app):
@@ -558,32 +572,35 @@ def test_escalated_block_kills_the_session_and_preserves_evidence(client, app):
     assert incident["rule_pattern"] == "DROP DATABASE"
     assert incident["rule_name"]
 
-    detail = client.get(f"/api/v1/sessions/{session['id']}").get_json()
+    detail = client.get(f"/api/v1/sessions/{session['id']}", headers=ADMIN).get_json()
     assert detail["session"]["status"] == "terminated"
     assert detail["session"]["end_reason"] == "terminated"
     contents = [e["content"] or "" for e in detail["events"]]
     assert any("command-control" in c for c in contents)  # audit trail names it
 
-    listed = client.get("/api/v1/command-control/incidents").get_json()
+    listed = client.get("/api/v1/command-control/incidents", headers=ADMIN).get_json()
     assert listed["total"] == 1
     assert listed["items"][0]["incident_ref"] == incident["incident_ref"]
     open_only = client.get(
-        "/api/v1/command-control/incidents?status=open"
+        "/api/v1/command-control/incidents?status=open",
+        headers=ADMIN,
     ).get_json()
     assert open_only["total"] == 1
     closed_only = client.get(
-        "/api/v1/command-control/incidents?status=closed"
+        "/api/v1/command-control/incidents?status=closed",
+        headers=ADMIN,
     ).get_json()
     assert closed_only["total"] == 0
 
-    stats = client.get("/api/v1/command-control/stats").get_json()
+    stats = client.get("/api/v1/command-control/stats", headers=ADMIN).get_json()
     assert stats["incidents"] == {"open": 1, "total": 1}
     assert stats["intercepts_today"] == 1
 
     # detail + close lifecycle
     incident_id = incident["id"]
     detail_incident = client.get(
-        f"/api/v1/command-control/incidents/{incident_id}"
+        f"/api/v1/command-control/incidents/{incident_id}",
+        headers=ADMIN,
     ).get_json()["incident"]
     assert detail_incident["rule_pattern"] == "DROP DATABASE"
     no_token = client.post(
@@ -605,9 +622,9 @@ def test_escalated_block_kills_the_session_and_preserves_evidence(client, app):
         headers=ACTOR,
     )
     assert again.status_code == 409
-    bad_filter = client.get("/api/v1/command-control/incidents?status=melted")
+    bad_filter = client.get("/api/v1/command-control/incidents?status=melted", headers=ADMIN)
     assert bad_filter.status_code == 400
-    missing = client.get("/api/v1/command-control/incidents/999999")
+    missing = client.get("/api/v1/command-control/incidents/999999", headers=ADMIN)
     assert missing.status_code == 404
 
 
@@ -619,9 +636,9 @@ def test_same_block_outside_the_scope_stays_a_block(client):
     assert "escalation" not in body
     assert body["event"]["decision"] == "block"
     assert body["event"]["allowed"] is False
-    detail = client.get(f"/api/v1/sessions/{session['id']}").get_json()
+    detail = client.get(f"/api/v1/sessions/{session['id']}", headers=ADMIN).get_json()
     assert detail["session"]["status"] == "active"
-    assert client.get("/api/v1/command-control/incidents").get_json()["total"] == 0
+    assert client.get("/api/v1/command-control/incidents", headers=ADMIN).get_json()["total"] == 0
 
 
 def test_escalation_runs_the_release_and_rotate_cascade_once(client):
@@ -637,16 +654,16 @@ def test_escalation_runs_the_release_and_rotate_cascade_once(client):
     assert escalation["cascade"]["rotated"] is True
     assert escalation["cascade"]["secret_version"] is not None
 
-    after = client.get(f"/api/v1/vault/items/{item['id']}").get_json()["item"]
+    after = client.get(f"/api/v1/vault/items/{item['id']}", headers=ADMIN).get_json()["item"]
     assert after["status"] == "available"
     assert after["checked_out_by"] is None
     assert after["secret_version"] == item["secret_version"] + 1
-    rotated_events = client.get("/api/v1/vault/events?action=rotated").get_json()
+    rotated_events = client.get("/api/v1/vault/events?action=rotated", headers=ADMIN).get_json()
     assert rotated_events["total"] == 1  # exactly one rotation
 
 
 def test_disabled_rules_stop_deciding(client):
-    rules = client.get("/api/v1/command-control/rules").get_json()["items"]
+    rules = client.get("/api/v1/command-control/rules", headers=ADMIN).get_json()["items"]
     target = rule_named(rules, "chmod 777")
     assert evaluate(client, "chmod 777 /etc")["decision"] == "block"
     updated = client.put(
@@ -658,15 +675,18 @@ def test_disabled_rules_stop_deciding(client):
     after = evaluate(client, "chmod 777 /etc")
     assert after["decision"] == "allow" and after["default"] is True
     # stats counts only what is really on
-    stats = client.get("/api/v1/command-control/stats").get_json()
+    stats = client.get("/api/v1/command-control/stats", headers=ADMIN).get_json()
     assert stats["rules_enabled"] == stats["rules_total"] - 1
     filtered = client.get(
-        "/api/v1/command-control/rules?enabled=false"
+        "/api/v1/command-control/rules?enabled=false",
+        headers=ADMIN,
     ).get_json()
     assert [r["id"] for r in filtered["items"]] == [target["id"]]
     assert client.get(
-        "/api/v1/command-control/rules?enabled=maybe"
+        "/api/v1/command-control/rules?enabled=maybe",
+        headers=ADMIN,
     ).status_code == 400
     assert client.get(
-        "/api/v1/command-control/rules?action=explode"
+        "/api/v1/command-control/rules?action=explode",
+        headers=ADMIN,
     ).status_code == 400

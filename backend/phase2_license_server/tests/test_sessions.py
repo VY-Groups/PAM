@@ -130,7 +130,7 @@ def insert_item(app, name, *, status="available", access_tier="Tier-1"):
 
 
 def get_item(client, item_id):
-    response = client.get(f"/api/v1/vault/items/{item_id}")
+    response = client.get(f"/api/v1/vault/items/{item_id}", headers=ADMIN)
     assert response.status_code == 200
     return response.get_json()["item"]
 
@@ -222,7 +222,7 @@ def test_create_validates_protocol_target_and_controls(client):
     assert response.status_code == 400
 
 
-def test_create_requires_admin_and_reads_stay_public(client):
+def test_create_requires_admin_and_reads_need_the_credential(client):
     response = client.post(
         "/api/v1/sessions", json={"protocol": "ssh", "target": "h:22"}
     )
@@ -234,9 +234,12 @@ def test_create_requires_admin_and_reads_stay_public(client):
         ).status_code
         == 401
     )
-    # reads render the console without a token, like the other screens
-    assert client.get("/api/v1/sessions").status_code == 200
-    assert client.get("/api/v1/sessions/stats").status_code == 200
+    # 12.RB.2: the reads are guarded now - the read follows the screen, so
+    # it needs the credential too (these reads used to render without one).
+    assert client.get("/api/v1/sessions").status_code == 401
+    assert client.get("/api/v1/sessions/stats").status_code == 401
+    assert client.get("/api/v1/sessions", headers=ADMIN).status_code == 200
+    assert client.get("/api/v1/sessions/stats", headers=ADMIN).status_code == 200
 
 
 def test_create_checks_out_the_vault_credential(client):
@@ -256,7 +259,7 @@ def test_create_checks_out_the_vault_credential(client):
     assert held["checked_out_by"] == "tester"
 
     # the recording starts with one server-written status event
-    detail = client.get(f"/api/v1/sessions/{session['id']}").get_json()
+    detail = client.get(f"/api/v1/sessions/{session['id']}", headers=ADMIN).get_json()
     assert detail["event_count"] == 1 and detail["blocked_count"] == 0
     assert detail["events"][0]["type"] == "status"
     assert detail["events"][0]["content"] == "session started"
@@ -264,7 +267,8 @@ def test_create_checks_out_the_vault_credential(client):
 
     # the checkout itself is audited with the session's custody ref
     checked_out = client.get(
-        "/api/v1/vault/events?action=checked_out"
+        "/api/v1/vault/events?action=checked_out",
+        headers=ADMIN,
     ).get_json()["events"]
     assert any(
         e["item_id"] == item["id"]
@@ -393,17 +397,18 @@ def test_events_flow_with_sequence_order_and_watermark(client):
     ]
     assert note["seq"] == 4
 
-    playback = client.get(f"/api/v1/sessions/{sid}/events").get_json()
+    playback = client.get(f"/api/v1/sessions/{sid}/events", headers=ADMIN).get_json()
     assert playback["total"] == 4
     assert [e["seq"] for e in playback["events"]] == [1, 2, 3, 4]
     assert [e["type"] for e in playback["events"]] == [
         "status", "command", "keystroke", "note",
     ]
 
-    tail = client.get(f"/api/v1/sessions/{sid}/events?order=desc").get_json()
+    tail = client.get(f"/api/v1/sessions/{sid}/events?order=desc", headers=ADMIN).get_json()
     assert tail["events"][0]["seq"] == 4
     only_commands = client.get(
-        f"/api/v1/sessions/{sid}/events?type=command"
+        f"/api/v1/sessions/{sid}/events?type=command",
+        headers=ADMIN,
     ).get_json()
     assert only_commands["total"] == 1
     assert only_commands["events"][0]["content"] == "df -h"
@@ -433,9 +438,9 @@ def test_controls_gate_transfers_clipboard_and_screenshot_with_evidence(client):
     allowed = post_event(client, sid, "command", "ls").get_json()["event"]
     assert allowed["allowed"] is True
 
-    detail = client.get(f"/api/v1/sessions/{sid}").get_json()
+    detail = client.get(f"/api/v1/sessions/{sid}", headers=ADMIN).get_json()
     assert detail["blocked_count"] == 4
-    assert client.get("/api/v1/sessions/stats").get_json()["events_blocked"] == 4
+    assert client.get("/api/v1/sessions/stats", headers=ADMIN).get_json()["events_blocked"] == 4
 
 
 def test_keystroke_logging_off_withholds_content(client):
@@ -445,7 +450,7 @@ def test_keystroke_logging_off_withholds_content(client):
     ]
     assert body["withheld"] is True
     assert body["content"] is None
-    stats = client.get("/api/v1/sessions/stats").get_json()
+    stats = client.get("/api/v1/sessions/stats", headers=ADMIN).get_json()
     assert stats["events_withheld"] == 1
 
 
@@ -463,7 +468,8 @@ def test_record_off_refuses_content_but_keeps_the_safety_channel(client):
     assert kept.status_code == 201
     assert kept.get_json()["event"]["content"] == "systemctl restart nginx"
     assert client.get(
-        f"/api/v1/sessions/{session['id']}/events"
+        f"/api/v1/sessions/{session['id']}/events",
+        headers=ADMIN,
     ).get_json()["total"] == 2  # started status + command
 
 
@@ -507,7 +513,7 @@ def test_controls_update_takes_effect_and_is_audited(client):
     assert blocked.get_json()["event"]["allowed"] is False
 
     # the change itself is on the recording
-    playback = client.get(f"/api/v1/sessions/{sid}/events").get_json()["events"]
+    playback = client.get(f"/api/v1/sessions/{sid}/events", headers=ADMIN).get_json()["events"]
     status_contents = [e["content"] for e in playback if e["type"] == "status"]
     assert any(
         c and c.startswith("controls updated") and "upload_allowed=off" in c
@@ -568,7 +574,7 @@ def test_pause_and_resume_gate_the_channel(client):
 
     contents = [
         e["content"]
-        for e in client.get(f"/api/v1/sessions/{sid}/events").get_json()["events"]
+        for e in client.get(f"/api/v1/sessions/{sid}/events", headers=ADMIN).get_json()["events"]
         if e["type"] == "status"
     ]
     assert "session paused" in contents and "session resumed" in contents
@@ -607,7 +613,7 @@ def test_ended_session_refuses_events_and_control_changes(client):
             == 400
         )
     # playback still serves the recording
-    assert client.get(f"/api/v1/sessions/{sid}/events").status_code == 200
+    assert client.get(f"/api/v1/sessions/{sid}/events", headers=ADMIN).status_code == 200
 
 
 # --- end + release-and-rotate cascade ------------------------------------------
@@ -643,7 +649,7 @@ def test_terminate_releases_checkout_and_rotates_once(client):
 
     rotated = [
         e
-        for e in client.get("/api/v1/vault/events?action=rotated").get_json()["events"]
+        for e in client.get("/api/v1/vault/events?action=rotated", headers=ADMIN).get_json()["events"]
         if e["item_id"] == item["id"]
         and e["detail"].get("session_ref") == session["session_ref"]
     ]
@@ -651,7 +657,7 @@ def test_terminate_releases_checkout_and_rotates_once(client):
 
     contents = [
         e["content"]
-        for e in client.get(f"/api/v1/sessions/{session['id']}/events").get_json()[
+        for e in client.get(f"/api/v1/sessions/{session['id']}/events", headers=ADMIN).get_json()[
             "events"
         ]
         if e["type"] == "status"
@@ -705,7 +711,7 @@ def test_terminate_closes_linked_grant_with_single_rotation(client, clock):
     assert released["status"] == "available"
     assert released["secret_version"] == version_before + 1
 
-    grant_row = client.get(f"/api/v1/jit/requests/{grant['id']}").get_json()
+    grant_row = client.get(f"/api/v1/jit/requests/{grant['id']}", headers=ADMIN).get_json()
     assert grant_row["request"]["status"] == "closed"
 
 
@@ -722,7 +728,7 @@ def test_grant_expiry_ends_linked_session_without_double_rotation(
         db.session.commit()
 
     # any session read evaluates grant expiry, which ends the session with it
-    listed = client.get("/api/v1/sessions").get_json()
+    listed = client.get("/api/v1/sessions", headers=ADMIN).get_json()
     row = next(s for s in listed["items"] if s["id"] == session["id"])
     assert row["status"] == "terminated"
     assert row["end_reason"] == "grant_expired"
@@ -734,7 +740,7 @@ def test_grant_expiry_ends_linked_session_without_double_rotation(
 
     contents = [
         e["content"]
-        for e in client.get(f"/api/v1/sessions/{session['id']}/events").get_json()[
+        for e in client.get(f"/api/v1/sessions/{session['id']}/events", headers=ADMIN).get_json()[
             "events"
         ]
         if e["type"] == "status"
@@ -768,7 +774,7 @@ def test_stats_and_list_filters_reflect_real_rows(client):
     second = start_session(client, protocol="rdp", target="dc-01.corp:389")
     client.post(f"/api/v1/sessions/{second['id']}/pause", headers=ACTOR)
 
-    stats = client.get("/api/v1/sessions/stats").get_json()
+    stats = client.get("/api/v1/sessions/stats", headers=ADMIN).get_json()
     assert stats["total"] == 2
     assert stats["active"] == 1 and stats["paused"] == 1
     assert stats["ended"] == 0
@@ -777,22 +783,22 @@ def test_stats_and_list_filters_reflect_real_rows(client):
     assert stats["events_total"] == 3
     assert sum(stats["by_status"].values()) == stats["total"]
 
-    only_paused = client.get("/api/v1/sessions?status=paused").get_json()
+    only_paused = client.get("/api/v1/sessions?status=paused", headers=ADMIN).get_json()
     assert [s["id"] for s in only_paused["items"]] == [second["id"]]
-    only_ssh = client.get("/api/v1/sessions?protocol=ssh").get_json()
+    only_ssh = client.get("/api/v1/sessions?protocol=ssh", headers=ADMIN).get_json()
     assert [s["id"] for s in only_ssh["items"]] == [first["id"]]
-    searched = client.get("/api/v1/sessions?q=web-01").get_json()
+    searched = client.get("/api/v1/sessions?q=web-01", headers=ADMIN).get_json()
     assert [s["id"] for s in searched["items"]] == [first["id"]]
-    paged = client.get("/api/v1/sessions?limit=1&offset=1").get_json()
+    paged = client.get("/api/v1/sessions?limit=1&offset=1", headers=ADMIN).get_json()
     assert paged["total"] == 2 and len(paged["items"]) == 1
 
-    assert client.get("/api/v1/sessions?status=bogus").status_code == 400
-    assert client.get("/api/v1/sessions?protocol=bogus").status_code == 400
+    assert client.get("/api/v1/sessions?status=bogus", headers=ADMIN).status_code == 400
+    assert client.get("/api/v1/sessions?protocol=bogus", headers=ADMIN).status_code == 400
 
 
 def test_unknown_sessions_and_event_filters_answer_404_400(client):
-    assert client.get("/api/v1/sessions/999").status_code == 404
-    assert client.get("/api/v1/sessions/999/events").status_code == 404
+    assert client.get("/api/v1/sessions/999", headers=ADMIN).status_code == 404
+    assert client.get("/api/v1/sessions/999/events", headers=ADMIN).status_code == 404
     assert (
         client.post(
             "/api/v1/sessions/999/events",
@@ -804,13 +810,15 @@ def test_unknown_sessions_and_event_filters_answer_404_400(client):
     session = start_session(client)
     assert (
         client.get(
-            f"/api/v1/sessions/{session['id']}/events?type=bogus"
+            f"/api/v1/sessions/{session['id']}/events?type=bogus",
+            headers=ADMIN,
         ).status_code
         == 400
     )
     assert (
         client.get(
-            f"/api/v1/sessions/{session['id']}/events?order=sideways"
+            f"/api/v1/sessions/{session['id']}/events?order=sideways",
+            headers=ADMIN,
         ).status_code
         == 400
     )

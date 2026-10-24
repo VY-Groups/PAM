@@ -131,7 +131,7 @@ def ask(client, token, item_id, **overrides):
 
 
 def vault_view(client, item_id):
-    return client.get(f"/api/v1/vault/items/{item_id}").get_json()["item"]
+    return client.get(f"/api/v1/vault/items/{item_id}", headers=ADMIN).get_json()["item"]
 
 
 # ---------------------------------------------------------------------------
@@ -745,7 +745,7 @@ def test_trail_and_stats_reflect_real_rows(client):
         f"/api/v1/broker/credentials/{cred['id']}/close", headers=pipeline(token)
     )
 
-    stats = client.get("/api/v1/broker/stats").get_json()
+    stats = client.get("/api/v1/broker/stats", headers=ADMIN).get_json()
     assert stats["policies"]["total"] == 1
     assert stats["policies"]["by_status"]["active"] == 1
     assert stats["policies"]["by_ci_system"] == {"jenkins": 1}
