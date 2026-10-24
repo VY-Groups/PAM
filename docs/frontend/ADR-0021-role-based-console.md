@@ -385,7 +385,7 @@ each is given the role its own page needs, by the same brief-row method.
   (PRD, the READMEs, the generated `role-console.md`) updates in the
   same commit — the docs-count lockstep of the batch scope. The places
   that print them, for the lockstep list: `tests/test_sso.py:858,860`
-  (asserts 145), `docs/SECURITY_COMPLIANCE.md:82,88,239` (the
+  (asserted 145 before this batch), `docs/SECURITY_COMPLIANCE.md:82,88,239` (the
   admin/operator/auditor/auditor-read-only/approver counts),
   `docs/PRD.md:176,187`, `docs/TRD.md:780`, `docs/API_REFERENCE.md:18`,
   `docs/BACKEND_SCHEMA.md:656`, `docs/TESTING_QA_STRATEGY.md:55`, the
@@ -407,13 +407,16 @@ each is given the role its own page needs, by the same brief-row method.
 names 39 reads; promoting them is a table change with three moving parts
 and one real cost:
 
-1. **The policy.** 31 of the 39 are new admin operations
-   (`ADMIN_OPERATIONS` 145 -> **184**); the other 8 were already admin
-   operations and only their role lists change. The grants follow the
-   brief's rows, so the counts land at **admin 184 / operator 85 /
-   approver 17 / auditor 27 / auditor-read-only 24** (the auditors lose
-   the six grants they held only because the builder gave every GET to
-   them). The admin-only surfaces' own reads need one new set
+1. **The policy.** 32 of the 39 are new admin operations
+   (`ADMIN_OPERATIONS` 145 -> **177**); the other seven were already
+   admin operations (the agent and agent-access list/detail reads, the
+   broker credentials list, and the broker policies list/detail) and only
+   their role lists change - for them the guard existed and the screen
+   grant is what this batch adds. The grants follow the brief's rows, so
+   the counts land at **admin 177 / operator 85 / approver 17 /
+   auditor 27 / auditor-read-only 24** (the auditors lose the six grants
+   they held only because the builder gave every GET to them). The
+   admin-only surfaces' own reads need one new set
    (`_RBAC_ADMIN_ONLY_READS`) so the builder's default does not hand
    them to the auditors.
 2. **The routes and the document.** Each promoted read carries the
@@ -428,14 +431,18 @@ and one real cost:
    the suite called them **without a credential**; once they are
    guarded, every such call in the token-mode test files must present
    the admin credential, the house's own pattern
-   (`headers=ADMIN`). Measured: **~120 call sites across 16 token-mode
-   test files** (the largest: test_command_control 30,
-   test_sessions 27, test_rotation 24, test_vault_dashboard 21,
-   test_vendor_pam 19, test_cloud 14, test_jit 14, test_risk 12). The
-   first suite run after the promotion failed eight files in a row for
-   exactly this reason. This is why the promotion is its own batch and
-   not a follow-up line: it is a mechanical migration, and it is done
-   with the credential, never by widening a grant.
+   (`headers=ADMIN`). Measured from the final diff: **254 call sites
+   across the token-mode test files** (the largest: test_command_control
+   38, test_sessions 31, test_cloud 23, test_rotation 23,
+   test_vendor_pam 23, test_vault_dashboard 21, test_risk 20,
+   test_jit 14, test_integrations 14). The first full suite run after
+   the promotion failed **122 tests across 16 files** for exactly this
+   reason. Three of them were not mechanical: the reads were *public*
+   before, and two tests asserted that - they are the recorded contract
+   change (the credential-less read now answers 401). This is why the
+   promotion is its own batch and not a follow-up line: it is a
+   mechanical migration, and it is done with the credential, never by
+   widening a grant.
 
 The counts above are the doc lockstep for that batch: PRD, TRD,
 API_REFERENCE, BACKEND_SCHEMA, SECURITY_COMPLIANCE, TESTING_QA_STRATEGY

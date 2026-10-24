@@ -1,3 +1,10 @@
+# pnpm 12 supply-chain: pin the transitive packages that the audit gate fails
+# on to their patched versions (fast-uri 3.1.9, undici 7.30.1 / 8.12.2).
+overrides:
+  fast-uri: 3.1.9
+  undici@7: 7.30.1
+  undici@8: 8.12.2
+
 # pnpm 12 supply-chain: packages published too recently for the default
 # minimum-release-age gate (pinned versions; CI runs with the same file).
 minimumReleaseAgeExclude:
